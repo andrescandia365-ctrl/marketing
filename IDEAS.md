@@ -57,6 +57,17 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 17. La interfaz real de IMAN en las imágenes y los videos
+- **Idea (tuya):** IMAN es software y tiene su propia interfaz; las piezas tienen que mostrarla, y los prompts tienen que tenerlo en cuenta.
+- **El problema:** la IA no puede dibujar la pantalla real de IMAN (inventa botones y textos). Por eso hoy los prompts piden "pantalla en blanco, sin texto".
+- **Cómo:**
+  - **Tomas de pantalla real:** un tipo de toma nuevo donde la imagen es una captura o una grabación de pantalla real de IMAN, subida por vos, sin IA. Es la movida "Clip Drop" del playbook: mostrar el producto haciendo la cosa, de verdad. Y prueba que la función existe.
+  - **Escenas de IA + inserto real:** la IA hace la escena (Marta con el celular, el mostrador) con la pantalla de espaldas o fuera de foco, y la toma siguiente es la captura real a pantalla completa.
+  - **Transformación hacia la pantalla real:** en Grok, imagen inicial = la escena de IA con el celular; imagen final = la captura real. El clip "entra" en la pantalla.
+  - **Biblioteca de capturas en la serie:** una captura o grabación por función (Vender, Stock, Llegó, Vence, Dueño, cierre de caja), guardada con la serie IMAN como los setups fijos (idea 14). La IA elige cuál va en cada toma.
+- **Cuidado:** si Grok anima una captura, puede deformar los textos de la pantalla. Mejor: capturas quietas (con el acercamiento lento de la app) o grabaciones de pantalla reales.
+- **Pregunta para el final:** ¿tenés capturas o grabaciones de cada función, del celular y de la caja?
+
 ### 16. Botón para escuchar los prompts en voz alta
 - **Idea (tuya):** un botón al lado de cada prompt que lo lee en voz alta.
 - **Cómo:** con la voz del navegador (gratis, sin clave). Los prompts están en inglés, así que se leen con voz en inglés; las líneas habladas, con voz en español.
