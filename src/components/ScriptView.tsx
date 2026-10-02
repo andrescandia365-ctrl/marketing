@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { buildCopyPrompt } from "../../shared/prompt.ts";
-import type { Board, Brief, Shot, Story } from "../../shared/schema.ts";
+import { SHOT_LENGTHS, type Board, type Brief, type Shot, type Story } from "../../shared/schema.ts";
 import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 import { copyText } from "../lib/files.ts";
 import { formatElapsed, type LogEntry } from "../lib/markdown.ts";
+import { ActionWarning, BEAT_EDGE } from "./BoardView.tsx";
 import { BeatChip, Button, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
 
 export type ClipFile = { url: string; blob: Blob; name: string; duration: number };
@@ -64,27 +65,66 @@ export function CopyButton({
   );
 }
 
-// A drop zone that also opens the file picker on click.
+// Full-size view of a shot's image or clip, over the page. Esc or a click outside closes it.
+export function MediaViewer({ src, kind, onClose }: { src: string; kind: "image" | "clip"; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={kind === "image" ? "Imagen" : "Clip"}
+      className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4"
+      onClick={onClose}
+    >
+      <div className="relative max-h-full" onClick={(e) => e.stopPropagation()}>
+        {kind === "image" ? (
+          <img src={src} alt="" className="max-h-[90vh] max-w-[92vw] rounded-lg object-contain" />
+        ) : (
+          <video src={src} controls autoPlay playsInline className="max-h-[90vh] max-w-[92vw] rounded-lg bg-black" />
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute -top-3 -right-3 grid size-8 place-items-center rounded-full bg-white text-sm font-bold shadow"
+          aria-label="Cerrar"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// An empty slot opens the file picker on click; a full one opens the viewer. Dropping a file always works.
 function DropSlot({
   accept,
   empty,
   vertical,
   onFile,
+  onView,
+  onRemove,
   children,
 }: {
   accept: string;
   empty: string;
   vertical: boolean;
   onFile: (file: File) => void;
+  onView?: () => void;
+  onRemove?: () => void;
   children?: React.ReactNode;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  const full = Boolean(children) && Boolean(onView);
   return (
-    <>
+    <div>
       <button
         type="button"
-        onClick={() => input.current?.click()}
+        onClick={() => (full ? onView?.() : input.current?.click())}
         onDragOver={(e) => {
           e.preventDefault();
           setDragging(true);
@@ -96,7 +136,7 @@ function DropSlot({
           const file = e.dataTransfer.files[0];
           if (file) onFile(file);
         }}
-        title="Hacé clic o soltá un archivo acá"
+        title={full ? "Clic para verlo en grande; soltá otro archivo para reemplazarlo" : "Hacé clic o soltá un archivo acá"}
         className={`relative block w-full overflow-hidden rounded-lg border-2 border-dashed bg-paper ${
           dragging ? "border-ink" : children ? "border-transparent" : "border-line"
         } ${vertical ? "aspect-[9/16]" : "aspect-video"}`}
@@ -107,6 +147,18 @@ function DropSlot({
           </span>
         )}
       </button>
+      {full && (
+        <div className="mt-1 flex flex-wrap justify-center gap-x-1 text-[11px] leading-tight font-semibold">
+          <button type="button" onClick={() => input.current?.click()} className="rounded px-1 py-0.5 text-muted hover:bg-black/5 hover:text-ink">
+            Cambiar
+          </button>
+          {onRemove && (
+            <button type="button" onClick={onRemove} className="rounded px-1 py-0.5 text-muted hover:bg-black/5 hover:text-neg">
+              Quitar
+            </button>
+          )}
+        </div>
+      )}
       <input
         ref={input}
         type="file"
@@ -118,7 +170,7 @@ function DropSlot({
           e.target.value = "";
         }}
       />
-    </>
+    </div>
   );
 }
 
@@ -141,13 +193,27 @@ type CardProps = {
   onGenerate: (index: number) => void;
   onUploadImage: (index: number, file: File) => void;
   onUploadClip: (index: number, file: File) => void;
+  onRemoveMedia: (index: number, kind: "image" | "clip") => void;
   onRewrite: (index: number, note: string) => Promise<boolean>;
 };
 
 function ShotCard(props: CardProps) {
-  const { brief, story, board, shot, media, toolName, onShotChange, onGenerate, onUploadImage, onUploadClip, onRewrite } =
-    props;
+  const {
+    brief,
+    story,
+    board,
+    shot,
+    media,
+    toolName,
+    onShotChange,
+    onGenerate,
+    onUploadImage,
+    onUploadClip,
+    onRemoveMedia,
+    onRewrite,
+  } = props;
   const [open, setOpen] = useState(true);
+  const [viewing, setViewing] = useState<"image" | "clip" | null>(null);
   const [note, setNote] = useState("");
   const [rewriting, setRewriting] = useState(false);
   const vertical = brief.format === "vertical";
@@ -170,8 +236,12 @@ function ShotCard(props: CardProps) {
           </span>
           <BeatChip beat={shot.beat} />
           <span className="min-w-0 flex-1 truncate">
-            {who && <b className={ROLE_TEXT[who.role]}>{who.name}: </b>}
-            {shot.voiceover || shot.onScreenText || "(sin texto)"}
+            <b>{shot.title}</b>
+            <span className="text-muted">
+              {" · "}
+              {who && <span className={ROLE_TEXT[who.role]}>{who.name}: </span>}
+              {shot.voiceover || shot.onScreenText || "(sin texto)"}
+            </span>
           </span>
           <span className="text-xs text-muted">Setup {shot.setup}</span>
           <span className="rounded border border-line px-1.5 font-mono text-xs">{status}</span>
@@ -187,11 +257,32 @@ function ShotCard(props: CardProps) {
     if (ok) setNote("");
   }
 
+  const setSeconds = (seconds: number) =>
+    onShotChange(shot.index, { ...shot, seconds, toolSettings: shot.toolSettings.replace(/\d+(\.\d+)?\s*s\b/, `${seconds} s`) });
+
   return (
-    <li className="rounded-xl border border-line bg-white p-3 sm:p-4">
+    <li className={`rounded-xl border border-l-4 border-line bg-white p-3 shadow-sm sm:p-4 ${BEAT_EDGE[shot.beat]}`}>
+      {viewing === "image" && media.image && <MediaViewer kind="image" src={media.image} onClose={() => setViewing(null)} />}
+      {viewing === "clip" && media.clip && <MediaViewer kind="clip" src={media.clip.url} onClose={() => setViewing(null)} />}
+      <div className="mb-3 border-b border-line pb-3">
+        <p className="font-mono text-xs text-muted">
+          Toma {shot.index + 1} · {formatTime(shot.start)}–{formatTime(shot.end)}
+        </p>
+        <h3 className="text-lg leading-snug font-bold">{shot.title || "(sin título)"}</h3>
+        {shot.action && <p className="text-sm text-muted">{shot.action}</p>}
+      </div>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-xs text-muted">
-          Toma {shot.index + 1} · {formatTime(shot.start)}–{formatTime(shot.end)} · {shot.seconds} s
+        <span className="inline-flex overflow-hidden rounded-md border border-line text-xs" title="Largo de la toma (los largos de clip de Grok)">
+          {SHOT_LENGTHS.map((l) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => setSeconds(l)}
+              className={`px-2 py-0.5 font-mono ${shot.seconds === l ? "bg-ink text-white" : "text-muted hover:text-ink"}`}
+            >
+              {l} s
+            </button>
+          ))}
         </span>
         <BeatChip beat={shot.beat} />
         <span className="rounded border border-line px-1.5 py-0.5 text-xs font-medium">
@@ -226,7 +317,14 @@ function ShotCard(props: CardProps) {
       <div className="mt-3 grid gap-4 sm:grid-cols-[196px_minmax(0,1fr)]">
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-2">
-            <DropSlot accept="image/*" empty="Soltá la imagen" vertical={vertical} onFile={(f) => onUploadImage(shot.index, f)}>
+            <DropSlot
+              accept="image/*"
+              empty="Soltá la imagen"
+              vertical={vertical}
+              onFile={(f) => onUploadImage(shot.index, f)}
+              onView={media.image ? () => setViewing("image") : undefined}
+              onRemove={media.image ? () => onRemoveMedia(shot.index, "image") : undefined}
+            >
               {media.image || media.loading ? (
                 <>
                   {media.image && <img src={media.image} alt="" className="absolute inset-0 size-full object-cover" />}
@@ -241,7 +339,14 @@ function ShotCard(props: CardProps) {
                 </>
               ) : undefined}
             </DropSlot>
-            <DropSlot accept="video/*" empty="Soltá el clip" vertical={vertical} onFile={(f) => onUploadClip(shot.index, f)}>
+            <DropSlot
+              accept="video/*"
+              empty="Soltá el clip"
+              vertical={vertical}
+              onFile={(f) => onUploadClip(shot.index, f)}
+              onView={media.clip ? () => setViewing("clip") : undefined}
+              onRemove={media.clip ? () => onRemoveMedia(shot.index, "clip") : undefined}
+            >
               {media.clip ? (
                 <>
                   <video
@@ -289,6 +394,9 @@ function ShotCard(props: CardProps) {
               value={shot.visualPrompt}
               onChange={(e) => set("visualPrompt", e.target.value)}
             />
+            <div className="px-3 pb-2 empty:hidden">
+              <ActionWarning prompt={shot.visualPrompt} />
+            </div>
           </div>
           <div className="overflow-hidden rounded-lg border border-line">
             <div className="flex items-center justify-between gap-2 border-b border-line bg-paper py-1.5 pr-1.5 pl-3">
@@ -319,7 +427,9 @@ function ShotCard(props: CardProps) {
               />
             </label>
             <label className="block">
-              <span className="text-xs font-semibold text-muted">Texto en pantalla</span>
+              <span className="text-xs font-semibold text-muted" title="Lo que se dice sale solo como subtítulo abajo">
+                Headline (arriba)
+              </span>
               <input
                 className={`${inputClass} mt-0.5`}
                 value={shot.onScreenText}
@@ -333,7 +443,7 @@ function ShotCard(props: CardProps) {
               <input
                 className={`${inputClass} mt-0.5`}
                 value={note}
-                placeholder="ej. el Malo se ve distinto que en la toma 1"
+                placeholder="ej. que siga a la toma anterior; cambiá la línea: …"
                 onChange={(e) => setNote(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && note.trim() && !rewriting) rewrite();

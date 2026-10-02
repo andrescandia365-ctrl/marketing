@@ -27,3 +27,12 @@ export function readImageFile(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+export function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("No se pudo leer ese archivo."));
+    reader.readAsDataURL(blob);
+  });
+}

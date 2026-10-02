@@ -2,6 +2,7 @@
 
 Frase: Números claros. Local que crece.
 Producto por episodio: no
+Estilo de texto: {"subtitleSize":100,"headlineSize":100,"textColor":"#ffffff","headlineColor":"#ffffff","backing":"shadow","backingColor":"#000000"}
 
 ## Qué es
 Una app de caja y gestión para kioscos y almacenes de Argentina. Se vende como un lector láser de código de barras más una licencia (12, 24 o 36 meses).
@@ -14,6 +15,16 @@ Una app de caja y gestión para kioscos y almacenes de Argentina. Se vende como 
 - Funciona sin internet; el botón "Sincronizar" sincroniza.
 - Un celular que acompaña y revisa el local: Vender, Stock, Llegó (llegó el pedido), Vence (lo que está por vencer), Dueño. El celular nunca le cobra a los clientes.
 - Varios locales en una misma cuenta.
+
+## El loop de la serie (un paso por línea)
+- Abrir el local
+- Vender en el mostrador (escanear, ticket)
+- Llega el pedido (Llegó)
+- Revisar lo que vence (Vence)
+- Pedirle a los proveedores antes del corte
+- Cerrar la caja
+- Sincronizar
+- El dueño mira los números
 
 ## La historia que contamos
 IMAN es un LOOP que alguien puede meter en su rutina diaria, y ese loop es el producto. El loop del día:

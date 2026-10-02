@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Board, Brief, Story } from "../../shared/schema.ts";
+import type { TextStyle } from "../../shared/series.ts";
 import { formatTime, totalSeconds } from "../../shared/template.ts";
 import { download, slug } from "../lib/markdown.ts";
-import { renderVideo, type RenderResult, type ShotMedia } from "../lib/render.ts";
-import { Button, Notice, Segmented, inputClass } from "./ui.tsx";
+import { renderPreview, renderVideo, type RenderResult, type ShotMedia } from "../lib/render.ts";
+import { Button, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
 
 const DISCLOSURE = { en: "Illustrative images", es: "Imágenes ilustrativas" };
 
@@ -14,16 +15,57 @@ type Props = {
   media: Record<number, ShotMedia>;
   // Tools that watermark their output start with the full frame on.
   watermarked: boolean;
+  seriesName: string;
+  seriesStyle: TextStyle;
+  onSaveStyle: (style: TextStyle) => Promise<void>;
+  // Called with each finished video so it can be saved into the project folder.
+  onRendered: (video: Blob) => Promise<string | null>;
 };
 
-export function VideoPanel({ brief, story, board, media, watermarked }: Props) {
+function Slider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <label className="block text-xs">
+      <span className="flex justify-between font-semibold">
+        {label} <span className="font-mono text-muted">{value}%</span>
+      </span>
+      <input
+        type="range"
+        min={60}
+        max={160}
+        step={5}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full"
+      />
+    </label>
+  );
+}
+
+function Swatch({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="flex items-center gap-1.5 text-xs font-semibold">
+      <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="size-7 cursor-pointer rounded border border-line" />
+      {label}
+    </label>
+  );
+}
+
+export function VideoPanel({ brief, story, board, media, watermarked, seriesName, seriesStyle, onSaveStyle, onRendered }: Props) {
   const [progress, setProgress] = useState<number | null>(null);
   const [result, setResult] = useState<(RenderResult & { url: string }) | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [showDisclosure, setShowDisclosure] = useState(true);
   const [disclosure, setDisclosure] = useState(DISCLOSURE[brief.language]);
   const [fullFrame, setFullFrame] = useState(watermarked);
   const [sound, setSound] = useState<"keep" | "mute">("keep");
+  const [headlines, setHeadlines] = useState(true);
+  const [style, setStyle] = useState<TextStyle>(seriesStyle);
+  const [savingStyle, setSavingStyle] = useState<"" | "saving" | "saved">("");
+  const [previewShot, setPreviewShot] = useState(0);
+  const preview = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => setStyle(seriesStyle), [seriesStyle]);
 
   useEffect(() => () => {
     if (result) URL.revokeObjectURL(result.url);
@@ -33,24 +75,50 @@ export function VideoPanel({ brief, story, board, media, watermarked }: Props) {
   const clips = board.shots.filter((_, i) => media[i]?.clip).length;
   const empty = board.shots.filter((_, i) => !media[i]?.clip && !media[i]?.image).length;
   const speakers = Object.fromEntries(story.characters.map((c) => [c.id, { name: c.name, role: c.role }]));
+  const disclosureText = showDisclosure ? disclosure : "";
+  const styleChanged = JSON.stringify(style) !== JSON.stringify(seriesStyle);
+
+  useEffect(() => {
+    if (!preview.current) return;
+    renderPreview(
+      preview.current,
+      board,
+      media,
+      { format: brief.format, disclosure: disclosureText, fullFrame, headlines, style, speakers },
+      Math.min(previewShot, board.shots.length - 1),
+    ).catch(() => undefined);
+    // speakers is rebuilt on every render from story, so story stands in for it.
+  }, [board, media, brief.format, disclosureText, fullFrame, headlines, style, story, previewShot]);
+
+  const setStyleKey = <K extends keyof TextStyle>(key: K, value: TextStyle[K]) => {
+    setStyle((s) => ({ ...s, [key]: value }));
+    setSavingStyle("");
+  };
+
+  async function saveStyle() {
+    setSavingStyle("saving");
+    try {
+      await onSaveStyle(style);
+      setSavingStyle("saved");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setSavingStyle("");
+    }
+  }
 
   async function render() {
     setError("");
+    setSaved(null);
     setProgress(0);
     try {
       const out = await renderVideo(
         board,
         media,
-        {
-          format: brief.format,
-          disclosure: showDisclosure ? disclosure : "",
-          fullFrame,
-          keepSound: sound === "keep",
-          speakers,
-        },
+        { format: brief.format, disclosure: disclosureText, fullFrame, keepSound: sound === "keep", speakers, headlines, style },
         setProgress,
       );
       setResult({ ...out, url: URL.createObjectURL(out.blob) });
+      setSaved(await onRendered(out.blob));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -72,6 +140,76 @@ export function VideoPanel({ brief, story, board, media, watermarked }: Props) {
         {clips} de {total} tomas tienen clip. Las que solo tienen imagen llevan un acercamiento lento
         {empty > 0 ? `; las ${empty} vacías muestran una placa de color.` : "."}
       </p>
+
+      <details className="rounded-lg border border-line p-3" open>
+        <summary className="cursor-pointer text-xs font-semibold">Texto · estilo de {seriesName || "la serie"}</summary>
+        <div className="mt-3 space-y-3">
+          <div className="flex items-start gap-3">
+            <canvas
+              ref={preview}
+              className={`shrink-0 rounded-md bg-black ${vertical ? "w-28" : "w-44"}`}
+              aria-label="Vista previa del texto"
+            />
+            <div className="min-w-0 flex-1 space-y-2">
+              <label className="block text-xs">
+                <span className="font-semibold">Vista previa de la toma</span>
+                <select
+                  className={`${inputClass} mt-0.5 py-1 text-xs`}
+                  value={previewShot}
+                  onChange={(e) => setPreviewShot(Number(e.target.value))}
+                >
+                  {board.shots.map((s, i) => (
+                    <option key={i} value={i}>
+                      {i + 1}. {s.title || s.voiceover.slice(0, 30)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Slider label="Subtítulo" value={style.subtitleSize} onChange={(v) => setStyleKey("subtitleSize", v)} />
+              <Slider label="Headline" value={style.headlineSize} onChange={(v) => setStyleKey("headlineSize", v)} />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Swatch label="Texto" value={style.textColor} onChange={(v) => setStyleKey("textColor", v)} />
+            <Swatch label="Headline" value={style.headlineColor} onChange={(v) => setStyleKey("headlineColor", v)} />
+            <Swatch label="Fondo / borde" value={style.backingColor} onChange={(v) => setStyleKey("backingColor", v)} />
+          </div>
+          <div className="space-y-1">
+            <span className="text-xs font-semibold">Para que se lea</span>
+            <div>
+              <Segmented
+                value={style.backing}
+                onChange={(v) => setStyleKey("backing", v)}
+                options={[
+                  { value: "shadow", label: "Sombra" },
+                  { value: "outline", label: "Borde" },
+                  { value: "box", label: "Caja" },
+                ]}
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" className="px-3 py-1.5 text-xs" onClick={saveStyle} disabled={!styleChanged || savingStyle === "saving"}>
+              {savingStyle === "saving" ? <Spinner /> : null}
+              Guardar como estilo de {seriesName || "la serie"}
+            </Button>
+            {savingStyle === "saved" && <span className="text-xs text-good">Guardado ✓</span>}
+            {styleChanged && savingStyle !== "saved" && (
+              <button type="button" className="text-xs text-muted hover:text-ink" onClick={() => setStyle(seriesStyle)}>
+                Volver al de la serie
+              </button>
+            )}
+          </div>
+        </div>
+      </details>
+
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-1 size-4" checked={headlines} onChange={(e) => setHeadlines(e.target.checked)} />
+        <span>
+          <b>Headlines</b>
+          <span className="block text-xs text-muted">El texto grande de arriba en cada toma. Apagalo para todo el video.</span>
+        </span>
+      </label>
 
       <div className="space-y-1">
         <span className="text-xs font-semibold">Sonido de los clips</span>
@@ -139,6 +277,7 @@ export function VideoPanel({ brief, story, board, media, watermarked }: Props) {
           >
             Descargar .{result.extension}
           </Button>
+          {saved && <p className="text-xs text-good">Guardado en el proyecto: {saved}</p>}
           {result.notes.map((n) => (
             <p key={n} className="text-xs text-muted">
               {n}

@@ -19,6 +19,7 @@ import {
   type WrappedCanvas,
 } from "mediabunny";
 import type { Board, Brief, Role } from "../../shared/schema.ts";
+import type { TextStyle } from "../../shared/series.ts";
 import { timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 
 const FPS = 30;
@@ -51,6 +52,9 @@ export type RenderOptions = {
   fullFrame: boolean;
   keepSound: boolean;
   speakers: Record<string, Speaker>;
+  // The headline at the top of each shot (the shot's onScreenText). Off hides it in the whole video.
+  headlines: boolean;
+  style: TextStyle;
 };
 
 export type RenderResult = { blob: Blob; extension: string; mimeType: string; notes: string[] };
@@ -92,6 +96,7 @@ function subtitleAt(shot: TimedShot, t: number): string {
   return parts[parts.length - 1];
 }
 
+// Draws wrapped, centred text with the series' backing (shadow, outline or box) and returns its height.
 function drawText(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -100,10 +105,44 @@ function drawText(
   size: number,
   maxWidth: number,
   weight: number,
-) {
+  color: string,
+  style: TextStyle,
+): number {
   ctx.font = `${weight} ${size}px ${FONT}`;
   const lineHeight = size * 1.18;
-  wrapLines(ctx, text, maxWidth).forEach((line, i) => ctx.fillText(line, x, y + i * lineHeight));
+  const lines = wrapLines(ctx, text, maxWidth);
+  const height = lines.length * lineHeight;
+  ctx.save();
+  if (style.backing === "box") {
+    const pad = size * 0.32;
+    const width = Math.max(...lines.map((l) => ctx.measureText(l).width));
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha *= 0.68;
+    ctx.fillStyle = style.backingColor;
+    ctx.beginPath();
+    const [bx, by, bw, bh] = [x - width / 2 - pad, y - pad * 0.55, width + pad * 2, height + pad * 1.1];
+    if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, pad * 0.6);
+    else ctx.rect(bx, by, bw, bh);
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+  }
+  lines.forEach((line, i) => {
+    const ly = y + i * lineHeight;
+    if (style.backing === "outline") {
+      ctx.save();
+      ctx.shadowBlur = 0;
+      ctx.lineJoin = "round";
+      ctx.lineWidth = size * 0.14;
+      ctx.strokeStyle = style.backingColor;
+      ctx.strokeText(line, x, ly);
+      ctx.restore();
+    }
+    ctx.fillStyle = color;
+    ctx.fillText(line, x, ly);
+  });
+  ctx.restore();
+  return height;
 }
 
 function fitRect(sw: number, sh: number, w: number, h: number, mode: "contain" | "cover", zoom = 1) {
@@ -147,12 +186,14 @@ function drawOverlay(
   shot: TimedShot,
   speaker: Speaker | undefined,
   t: number,
-  disclosure: string,
+  options: Pick<RenderOptions, "disclosure" | "headlines" | "style">,
 ) {
   const { width: w, height: h } = ctx.canvas;
   const unit = Math.min(w, h);
+  const { style } = options;
+  const disclosure = options.disclosure.trim();
 
-  // Shade top and bottom so white text reads on any picture.
+  // Shade top and bottom so the text reads on any picture.
   const top = ctx.createLinearGradient(0, 0, 0, h * 0.3);
   top.addColorStop(0, "rgba(0,0,0,0.55)");
   top.addColorStop(1, "rgba(0,0,0,0)");
@@ -166,13 +207,16 @@ function drawOverlay(
 
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  ctx.shadowColor = "rgba(0,0,0,0.6)";
-  ctx.shadowBlur = unit * 0.012;
-  ctx.fillStyle = "#ffffff";
+  ctx.shadowColor = style.backing === "shadow" ? style.backingColor : "transparent";
+  ctx.shadowBlur = style.backing === "shadow" ? unit * 0.012 : 0;
 
-  if (shot.onScreenText) drawText(ctx, shot.onScreenText, w / 2, h * 0.08, unit * 0.075, w * 0.86, 700);
+  if (options.headlines && shot.onScreenText) {
+    const size = unit * 0.075 * (style.headlineSize / 100);
+    drawText(ctx, shot.onScreenText, w / 2, h * 0.08, size, w * 0.86, 700, style.headlineColor, style);
+  }
 
   if (shot.disclosure !== "none") {
+    ctx.save();
     ctx.shadowBlur = 0;
     ctx.font = `700 ${unit * 0.028}px ${FONT}`;
     const label = shot.disclosure === "concept" ? "CONCEPTO" : "SIMULACIÓN";
@@ -183,30 +227,53 @@ function drawOverlay(
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "left";
     ctx.fillText(label, w - tw - pad * 2, pad * 2.7);
-    ctx.textAlign = "center";
-    ctx.shadowBlur = unit * 0.012;
+    ctx.restore();
   }
 
-  let subtitleTop = h * 0.8;
-  if (speaker && shot.voiceover) {
-    ctx.font = `700 ${unit * 0.032}px ${FONT}`;
-    ctx.fillStyle = ROLE_COLOR[speaker.role];
-    ctx.fillText(speaker.name.toUpperCase(), w / 2, subtitleTop - unit * 0.05);
-    ctx.fillStyle = "#ffffff";
-  }
-
+  // The subtitle block sits low but grows upward when large type wraps to more lines.
   const subtitle = subtitleAt(shot, t);
-  if (subtitle) drawText(ctx, subtitle, w / 2, subtitleTop, unit * 0.045, w * 0.84, 600);
+  const subSize = unit * 0.045 * (style.subtitleSize / 100);
+  ctx.font = `600 ${subSize}px ${FONT}`;
+  const subHeight = subtitle ? wrapLines(ctx, subtitle, w * 0.84).length * subSize * 1.18 : 0;
+  const floor = h - unit * (disclosure ? 0.13 : 0.08);
+  const subtitleTop = Math.min(h * 0.8, floor - subHeight);
+
+  if (speaker && shot.voiceover) {
+    const nameSize = unit * 0.032 * Math.max(style.subtitleSize / 100, 0.8);
+    drawText(ctx, speaker.name.toUpperCase(), w / 2, subtitleTop - nameSize * 1.5, nameSize, w * 0.84, 700, ROLE_COLOR[speaker.role], style);
+  }
+  if (subtitle) drawText(ctx, subtitle, w / 2, subtitleTop, subSize, w * 0.84, 600, style.textColor, style);
 
   // Small, always-visible note such as "Imágenes ilustrativas", for platforms that ask for AI disclosure.
   if (disclosure) {
     ctx.globalAlpha = 0.8;
-    ctx.textBaseline = "bottom";
-    drawText(ctx, disclosure, w / 2, h - unit * 0.06, unit * 0.026, w * 0.9, 500);
-    ctx.textBaseline = "top";
+    const size = unit * 0.026;
+    drawText(ctx, disclosure, w / 2, h - unit * 0.06 - size * 1.18, size, w * 0.9, 500, style.textColor, { ...style, backing: "shadow" });
     ctx.globalAlpha = 1;
   }
   ctx.shadowBlur = 0;
+}
+
+// A still of one shot with its type on top, for the style preview. Uses the shot's image, or its colour card.
+export async function renderPreview(
+  canvas: HTMLCanvasElement,
+  board: Board,
+  media: Record<number, ShotMedia>,
+  options: Pick<RenderOptions, "format" | "disclosure" | "fullFrame" | "headlines" | "style" | "speakers">,
+  index: number,
+) {
+  const shots = timeShots(board.shots);
+  const shot = shots[index];
+  if (!shot) return;
+  const [w, h] = options.format === "vertical" ? [360, 640] : [640, 360];
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+  const img = await loadImage(media[shot.index]?.image);
+  await document.fonts?.load(`600 24px "IBM Plex Sans"`).catch(() => []);
+  const mid = (shot.start + shot.end) / 2;
+  paintStill(ctx, img, shot, mid, options.fullFrame);
+  drawOverlay(ctx, shot, options.speakers[shot.speaker], mid, options);
 }
 
 type OpenClip = { input: Input; frames: AsyncGenerator<WrappedCanvas | null, void, unknown> };
@@ -359,7 +426,7 @@ export async function renderVideo(
       }
       ctx.drawImage(layer.canvas, 0, 0);
       ctx.globalAlpha = 1;
-      drawOverlay(ctx, shot, options.speakers[shot.speaker], t, options.disclosure.trim());
+      drawOverlay(ctx, shot, options.speakers[shot.speaker], t, options);
 
       await video.add(t, 1 / FPS);
       if (f % 15 === 0) onProgress(0.05 + 0.95 * (f / frames));

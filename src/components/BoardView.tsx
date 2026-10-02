@@ -1,27 +1,46 @@
 import { useState } from "react";
+import { actionWords, type Problem } from "../../shared/checks.ts";
 import type { Board, Story } from "../../shared/schema.ts";
 import { formatTime, timeShots, totalSeconds } from "../../shared/template.ts";
+import { ChecksPanel } from "./Checks.tsx";
 import { BeatChip, Button, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
 
 type Props = {
   story: Story;
   board: Board;
   round: number;
-  busy: boolean;
+  busy: "revise" | "fix" | null;
+  problems: Problem[];
+  dismissed: number;
   onRevise: (note: string, shotNotes: { index: number; note: string }[]) => Promise<boolean>;
+  onFix: () => void;
+  onDismiss: (problem: Problem) => void;
   onApprove: () => void;
 };
 
 const BAR = { negative: "bg-neg", touching: "bg-touch", good: "bg-good" };
+export const BEAT_EDGE = { negative: "border-l-neg", touching: "border-l-touch", good: "border-l-good" };
+
+// Yellow, not blocking: an image prompt that seems to describe more than one moment.
+export function ActionWarning({ prompt }: { prompt: string }) {
+  const words = actionWords(prompt);
+  if (!words.length) return null;
+  return (
+    <p className="rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900">
+      ¿Acción en la imagen? ({words.join(", ")}). Una imagen es un solo momento; las acciones van en el prompt de video.
+    </p>
+  );
+}
 
 // Step 3: the whole board at once, with a note box on every shot, before a single image is made.
-export function BoardView({ story, board, round, busy, onRevise, onApprove }: Props) {
+export function BoardView({ story, board, round, busy, problems, dismissed, onRevise, onFix, onDismiss, onApprove }: Props) {
   const [note, setNote] = useState("");
   const [shotNotes, setShotNotes] = useState<Record<number, string>>({});
   const cast = Object.fromEntries(story.characters.map((c) => [c.id, c]));
   const topics = Object.fromEntries(story.topics.map((t, i) => [t.id, i + 1]));
   const setups = Object.fromEntries(board.setups.map((s) => [s.id, s]));
   const shots = timeShots(board.shots);
+  const flagged = new Set(problems.map((p) => p.shot).filter((n) => n !== undefined));
   const pending = Object.entries(shotNotes)
     .filter(([, v]) => v.trim())
     .map(([k, v]) => ({ index: Number(k), note: v.trim() }));
@@ -61,10 +80,15 @@ export function BoardView({ story, board, round, busy, onRevise, onApprove }: Pr
           const setup = setups[s.setup];
           const prevTopic = s.index > 0 ? shots[s.index - 1].topic : null;
           return (
-            <li key={s.index} className="flex flex-col gap-2 rounded-xl border border-line bg-white p-3">
+            <li
+              key={s.index}
+              className={`flex flex-col gap-2 rounded-xl border border-l-4 bg-white p-3 ${BEAT_EDGE[s.beat]} ${
+                flagged.has(s.index) ? "border-neg ring-2 ring-neg/30" : "border-line"
+              }`}
+            >
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="font-mono text-xs text-muted">
-                  {s.index + 1} · {formatTime(s.start)} · {s.seconds} s
+                  Toma {s.index + 1} · {formatTime(s.start)} · {s.seconds} s
                 </span>
                 <BeatChip beat={s.beat} />
                 {s.topic !== prevTopic && (
@@ -76,16 +100,25 @@ export function BoardView({ story, board, round, busy, onRevise, onApprove }: Pr
                   </span>
                 )}
               </div>
+              <div>
+                <p className="text-base leading-snug font-bold">{s.title}</p>
+                <p className="text-sm text-muted">{s.action}</p>
+              </div>
               {s.voiceover && (
                 <p className="text-sm">
                   <span className={`font-bold ${who ? ROLE_TEXT[who.role] : "text-muted"}`}>{who?.name ?? "—"}: </span>“{s.voiceover}”
                 </p>
               )}
-              {s.onScreenText && <p className="text-xs">En pantalla: <b>{s.onScreenText}</b></p>}
+              {s.onScreenText && (
+                <p className="text-xs">
+                  Headline: <b>{s.onScreenText}</b>
+                </p>
+              )}
               <p className="text-xs text-muted">
                 <span className="font-semibold text-ink">Setup {s.setup}</span>
                 {setup ? ` · ${setup.name}` : ""} · {s.visualPrompt}
               </p>
+              <ActionWarning prompt={s.visualPrompt} />
               <input
                 className={`${inputClass} mt-auto py-1.5 text-xs`}
                 placeholder="Nota para esta toma"
@@ -97,6 +130,15 @@ export function BoardView({ story, board, round, busy, onRevise, onApprove }: Pr
           );
         })}
       </ol>
+
+      <ChecksPanel
+        problems={problems}
+        dismissed={dismissed}
+        fixing={busy === "fix"}
+        disabled={busy !== null}
+        onFix={onFix}
+        onDismiss={onDismiss}
+      />
 
       <div className="space-y-3 rounded-xl border border-ink/20 bg-white p-4">
         <label className="block">
@@ -114,8 +156,8 @@ export function BoardView({ story, board, round, busy, onRevise, onApprove }: Pr
           />
         </label>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={revise} disabled={busy || (!note.trim() && pending.length === 0)}>
-            {busy ? (
+          <Button variant="secondary" onClick={revise} disabled={busy !== null || (!note.trim() && pending.length === 0)}>
+            {busy === "revise" ? (
               <>
                 <Spinner /> Revisando…
               </>
@@ -123,7 +165,11 @@ export function BoardView({ story, board, round, busy, onRevise, onApprove }: Pr
               "Revisar storyboard"
             )}
           </Button>
-          <Button onClick={onApprove} disabled={busy}>
+          <Button
+            onClick={onApprove}
+            disabled={busy !== null || problems.length > 0}
+            title={problems.length > 0 ? "Primero resolvé los problemas del check" : undefined}
+          >
             Aprobar → producción
           </Button>
         </div>

@@ -3,7 +3,7 @@
 // /api/series); editing a file by hand works too and is picked up on the next restart.
 import { readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import type { SeriesInfo } from "../shared/schema.ts";
-import { markdownToSeries, seriesId, seriesToMarkdown, type SeriesFields } from "../shared/series.ts";
+import { markdownToSeries, seriesId, seriesToMarkdown, type SeriesFields, type TextStyle } from "../shared/series.ts";
 
 const DIR = new URL("./series/", import.meta.url);
 const ID = /^[a-z0-9-]{1,40}$/;
@@ -21,13 +21,13 @@ function load(): Series[] {
 
 function toSeries(id: string, text: string): Series {
   const f = markdownToSeries(text, id);
-  return { id, name: f.name, tagline: f.tagline, productPerEpisode: f.productPerEpisode, text };
+  return { id, name: f.name, tagline: f.tagline, productPerEpisode: f.productPerEpisode, textStyle: f.textStyle, text };
 }
 
 export class SeriesError extends Error {}
 
 export function listSeries(): SeriesInfo[] {
-  return SERIES.map(({ id, name, tagline, productPerEpisode }) => ({ id, name, tagline, productPerEpisode }));
+  return SERIES.map(({ text: _text, ...info }) => info);
 }
 
 export function getSeries(id: string): Series | undefined {
@@ -53,6 +53,11 @@ function write(id: string, fields: SeriesFields) {
 export function saveSeries(id: string, fields: SeriesFields) {
   if (!getSeries(id)) throw new SeriesError("Esa serie no existe.");
   write(id, fields);
+}
+
+// The video panel saves its text style back into the series, so every piece of the brand looks the same.
+export function saveTextStyle(id: string, textStyle: TextStyle) {
+  saveSeries(id, { ...getSeriesFields(id), textStyle });
 }
 
 export function createSeries(fields: SeriesFields): string {

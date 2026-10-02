@@ -3,6 +3,9 @@
 Lista de ideas que fueron saliendo. **Nada de esto está construido.** Se construye solo con "go".
 Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
+## Construido
+- **Tanda 1 (2 Oct 2026):** guardar proyectos en carpetas (idea 10), clic para ver con Cambiar/Quitar (12), claqueta y continuidad (19), un momento por imagen con aviso amarillo (20), largos de 6/10/15 s (6), Headline con interruptor (5), estilo de texto por serie (21), check contra "Lo que existe hoy" por historia y por toma, nota que puede cambiar la línea, check de loops con "Arreglalo" y bloqueo (22), loop de la serie editable en Editar serie.
+
 ## Decisiones tomadas (2 Oct 2026)
 1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma. **Personajes:** usar las voces de Grok (panel Audio: Ara, Eve, Leo, Rex, Sal…, más audios subidos o grabados); cada personaje tiene una voz asignada y el prompt de video la pide. Grok no deja descargar el audio solo, así que esa voz vive dentro del clip. **Narrador:** las 4 opciones, según la escena.
 2. **Escuchar en voz alta:** para escucharlos vos.

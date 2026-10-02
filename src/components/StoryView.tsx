@@ -1,19 +1,25 @@
 import { useState } from "react";
+import type { Problem } from "../../shared/checks.ts";
 import type { Story } from "../../shared/schema.ts";
 import { LENGTHS, ROLE_LABEL, formatTime, spokenSeconds } from "../../shared/template.ts";
+import { ChecksPanel, LoopsMap } from "./Checks.tsx";
 import { BeatChip, Button, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
 
 type Props = {
   story: Story;
   round: number;
   length: keyof typeof LENGTHS;
-  busy: "revise" | "board" | null;
+  busy: "revise" | "fix" | "board" | null;
+  problems: Problem[];
+  dismissed: number;
   onRevise: (note: string) => Promise<boolean>;
+  onFix: () => void;
+  onDismiss: (problem: Problem) => void;
   onApprove: () => void;
 };
 
 // Step 2: the story as a Good-vs-Bad script. Notes go back to Claude for another round until you approve it.
-export function StoryView({ story, round, length, busy, onRevise, onApprove }: Props) {
+export function StoryView({ story, round, length, busy, problems, dismissed, onRevise, onFix, onDismiss, onApprove }: Props) {
   const [note, setNote] = useState("");
   const cast = Object.fromEntries(story.characters.map((c) => [c.id, c]));
   const seconds = story.topics.reduce((n, t) => n + t.lines.reduce((m, l) => m + spokenSeconds(l.text), 0), 0);
@@ -92,6 +98,17 @@ export function StoryView({ story, round, length, busy, onRevise, onApprove }: P
         </p>
       </div>
 
+      <LoopsMap story={story} />
+
+      <ChecksPanel
+        problems={problems}
+        dismissed={dismissed}
+        fixing={busy === "fix"}
+        disabled={busy !== null}
+        onFix={onFix}
+        onDismiss={onDismiss}
+      />
+
       <div className="space-y-3 rounded-xl border border-ink/20 bg-white p-4">
         <label className="block">
           <span className="text-sm font-semibold">Notas para esta ronda</span>
@@ -116,7 +133,11 @@ export function StoryView({ story, round, length, busy, onRevise, onApprove }: P
               "Reescribir la historia"
             )}
           </Button>
-          <Button onClick={onApprove} disabled={busy !== null}>
+          <Button
+            onClick={onApprove}
+            disabled={busy !== null || problems.length > 0}
+            title={problems.length > 0 ? "Primero resolvé los problemas del check" : undefined}
+          >
             {busy === "board" ? (
               <>
                 <Spinner /> Armando el storyboard…

@@ -20,6 +20,12 @@ This is CONTENT, not ads: stories people want to watch, that touch real everyday
 - A "correspondent" can report live from the scene and escalate the absurdity, then snap back to the real problem.
 - The thesis arrives by callback, not by announcement.
 
+## Loops: hook → retain → reward
+- Hook: the first 1–3 seconds stop the scroll with a concrete pain or a question the viewer wants answered.
+- Retain: keep at least one question open at every moment; each escalation opens a slightly bigger one.
+- Reward: every loop that opens closes on screen, and the biggest one closes last. An open loop left hanging is a broken promise.
+- The series loop (the brand's own routine, listed in the series file) is the product: when a piece shows a step, it shows the pain, the step doing its job and the result.
+
 ## Voice
 - Rioplatense Spanish: voseo, plain everyday words, the way people talk in a corner store or at home. Short lines; about 2.5 words per second when spoken.
 - Concrete beats clever: name the object, the number, the hour.
@@ -30,3 +36,4 @@ This is CONTENT, not ads: stories people want to watch, that touch real everyday
 - No politics. No real people's likeness. No copied shows, characters or catchphrases.
 - Never invent statistics, testimonials or customer stories; mark anything uncertain [VERIFY].
 - Never show a feature as real unless the series file lists it as working today; anything else is labeled concept.
+- Never show the brand or a hero doing something illegal or against the series' rules (for example, selling an expired product).

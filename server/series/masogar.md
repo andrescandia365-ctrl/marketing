@@ -2,6 +2,7 @@
 
 Frase: [VERIFY: frase de la marca]
 Producto por episodio: sí
+Estilo de texto: {"subtitleSize":100,"headlineSize":100,"textColor":"#ffffff","headlineColor":"#ffffff","backing":"shadow","backingColor":"#000000"}
 
 ## Qué es
 Una tienda para el hogar que vende MUCHOS productos para la casa. Cada episodio presenta un producto ("el producto X"), que cambia de episodio a episodio.

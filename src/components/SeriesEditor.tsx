@@ -16,6 +16,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
   const [fields, setFields] = useState<SeriesFields | null>(id ? null : EMPTY_SERIES);
   // "Lo que existe hoy" is edited as text, one item per line.
   const [works, setWorks] = useState("");
+  const [loop, setLoop] = useState("");
   const [busy, setBusy] = useState<null | "save" | "delete">(null);
   const [error, setError] = useState("");
 
@@ -26,6 +27,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
       .then(({ fields }) => {
         setFields(fields);
         setWorks(fields.worksToday.join("\n"));
+        setLoop(fields.loop.join("\n"));
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [id]);
@@ -35,7 +37,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
   }
 
   const set = <K extends keyof SeriesFields>(key: K, value: SeriesFields[K]) => setFields({ ...fields, [key]: value });
-  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "productPerEpisode">, rows = 4) => (
+  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "loop" | "productPerEpisode" | "textStyle">, rows = 4) => (
     <textarea className={inputClass} rows={rows} value={fields[key]} onChange={(e) => set(key, e.target.value)} />
   );
 
@@ -43,13 +45,12 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
     if (!fields) return;
     setError("");
     setBusy("save");
-    const next = {
-      ...fields,
-      worksToday: works
+    const lines = (t: string) =>
+      t
         .split("\n")
-        .map((l) => l.replace(/^\s*[-*•]\s*/, "").trim())
-        .filter(Boolean),
-    };
+        .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
+        .filter(Boolean);
+    const next = { ...fields, worksToday: lines(works), loop: lines(loop) };
     try {
       if (id) {
         const { series } = await api.saveSeries(id, next);
@@ -119,6 +120,13 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
         hint="Una función o un producto por línea. Es lo único que la IA puede mostrar como real; todo lo demás lo marca como Concepto."
       >
         <textarea className={`${inputClass} font-mono`} rows={9} value={works} onChange={(e) => setWorks(e.target.value)} />
+      </Field>
+
+      <Field
+        label="El loop de la serie (opcional)"
+        hint="Los pasos de la rutina que la marca resuelve, uno por línea y en orden. El check revisa que cada paso que aparece se muestre completo: el dolor, el paso y el resultado."
+      >
+        <textarea className={`${inputClass} font-mono`} rows={6} value={loop} onChange={(e) => setLoop(e.target.value)} />
       </Field>
 
       <Field label="La historia que contamos (opcional)" hint="El hilo de la serie. Ej.: el loop diario del kiosco.">

@@ -6,9 +6,11 @@ Hace contenido con historia, no publicidad: un ida y vuelta entre **el Bueno** (
 
 1. **Brief.** La serie (IMAN, Masogar o las que agregues), el largo (corto de 60–90 s con un tema, o episodio de 5–8 min con 3–4 temas), el producto del episodio (obligatorio en las series de un producto por episodio, como Masogar), un gancho del momento, notas, tono, idioma, formato y la herramienta de imagen y video.
 2. **Menú.** Claude propone temas: el dolor, quién hace de Malo, cómo gana el Bueno y con qué arranca. Elegís uno (corto) o hasta cuatro en orden (episodio), o agregás uno propio.
-3. **Historia.** Claude escribe la historia con personajes, diálogo marcado Negativo / Emotivo / Bueno, puentes y callbacks, y corre el checklist. Vos le dejás **notas de director** y la reescribe en otra ronda, las veces que haga falta. Cuando te cierra, la aprobás.
-4. **Storyboard.** Claude la parte en tomas con *setups* (una persona o un lugar que se repite igual). Podés dejar una nota por toma y una para todo el storyboard, y revisarlo en rondas antes de aprobarlo.
-5. **Producción.** Cada toma trae un prompt de imagen y uno de video en el formato de la herramienta elegida, con botón **Copiar**. Los pegás en Grok Imagine y soltás la imagen y el clip en su toma. El navegador arma el video: tus clips (o imágenes, con un acercamiento lento), el sonido de los clips si querés, quién habla y su línea, y una línea de aviso ("Imágenes ilustrativas"). Con **Cuadro completo** no se recorta nada, así la marca de agua de Grok queda visible. Sale en MP4 (WebM en navegadores sin codificador H.264). Todo se descarga en Markdown, con los prompts y el registro de dirección.
+3. **Historia.** La IA escribe la historia con personajes, diálogo marcado Negativo / Emotivo / Bueno, puentes y callbacks. Vos le dejás **notas de director** y la reescribe en otra ronda. Un **check** revisa el gancho, la retención y la recompensa (que cada loop abierto se cierre), el loop de la serie y que la marca solo haga lo que existe hoy. Si algo falla, no se puede aprobar hasta arreglarlo (**Arreglalo** se lo pasa a la IA) o marcarlo como "no es un problema".
+4. **Storyboard.** La historia en tomas de 6, 10 o 15 s (los largos de Grok). Cada toma tiene su **claqueta**: título y qué pasa. Notas por toma y para todo el storyboard, rondas, y el mismo check (continuidad, lo que existe hoy, imágenes con más de un momento).
+5. **Producción.** Cada toma trae un prompt de imagen (un solo momento; si aparece una acción, la app avisa en amarillo) y uno de video, con botón **Copiar**. Soltás la imagen y el clip en su toma; un clic los muestra en grande, con **Cambiar** y **Quitar**. El navegador arma el video con tus clips, el sonido si querés, el **headline** arriba (se puede apagar) y quién habla con su línea abajo. Tamaño y color del texto, y sombra, borde o caja para que se lea, se guardan como estilo de la serie. Con **Cuadro completo** la marca de agua de Grok queda visible.
+
+**Todo se guarda solo** en una carpeta por pieza, `proyectos/<fecha-serie>/`: el proyecto, `pieza.md`, cada imagen y clip (`toma-01-imagen.png`, `toma-01-clip.mp4`…) y el video. En el paso Brief está la lista de **Proyectos guardados** para retomar una pieza donde quedó.
 
 ## Series
 
@@ -55,5 +57,4 @@ Claude lee el archivo elegido antes de escribir los prompts. Para actualizarlo, 
 
 - Voz en off (las líneas van en subtítulos).
 - Que Claude revise las imágenes subidas (paso 5 del plan).
-- Guardar proyectos: todo vive en la pestaña abierta.
 - Música y cortes al ritmo (paso 6 del plan): por ahora solo el sonido que traen los clips.
