@@ -1,7 +1,7 @@
 // Shapes shared by the server (Claude output validation) and the browser (types only).
 // Flow: Brief → Menu (topics) → Story (Good vs Bad, in rounds) → Board (shots) → production.
 import { z } from "zod";
-import type { TextStyle } from "./series.ts";
+import type { CastMember, SeriesType, TextStyle } from "./series.ts";
 
 export const BEATS = ["negative", "touching", "good"] as const;
 export type Beat = (typeof BEATS)[number];
@@ -21,6 +21,8 @@ export const BriefSchema = z.object({
   language: z.enum(["en", "es"]),
   format: z.enum(["vertical", "horizontal"]),
   tool: z.string(),
+  // Software series: which of the series' real screens this piece may show.
+  screens: z.array(z.string()).default([]),
 });
 export type Brief = z.infer<typeof BriefSchema>;
 
@@ -140,20 +142,44 @@ export const ShotWireSchema = z.object({
     .string()
     .describe("The headline at the top of the frame: up to 6 words that make sense without the voice (a fact, a time, a number). May be empty."),
   seconds: z.number().describe("Exactly 6, 10 or 15: the shortest that fits the spoken line at ~2.5 words/s."),
-  setup: z.string().describe("Setup id (a character or place shown in more than one shot)."),
+  setups: z
+    .array(z.string())
+    .describe("Ids of every setup in the frame (characters, the place, products), the main one first."),
+  kind: z
+    .string()
+    .describe(
+      "One of: single (one image, then animate it), transform (the clip moves from an initial to a final frame, optionally through a middle one), screen (a real screenshot of the product, no image prompt).",
+    ),
+  screen: z.string().describe("screen only: the id of the real screen from the series' fixed cast. Empty otherwise."),
   visualPrompt: z
     .string()
     .describe(
-      "Complete, standalone image prompt in the chosen tool's format (style included): the first frame of the action, one frozen moment, nothing that changes over time. English.",
+      "Complete, standalone image prompt in the chosen tool's format (style included): the first frame of the action, one frozen moment, nothing that changes over time. For transform: the initial frame. Empty for screen. English.",
     ),
+  middlePrompt: z
+    .string()
+    .describe("transform only, optional: the middle frame (the turn), one frozen moment. Empty otherwise. English."),
+  endPrompt: z.string().describe("transform only: the final frame, one frozen moment. Empty otherwise. English."),
+  editFrom: z
+    .number()
+    .describe(
+      "When this shot shows the same setup in the same place as an earlier shot, that shot's number (from 1): its image is edited instead of drawn from zero. 0 if none.",
+    ),
+  editPrompt: z
+    .string()
+    .describe("If editFrom: an edit instruction for that image, only what changes (e.g. 'Add …; keep everything else'). English. Empty otherwise."),
   videoPrompt: z
     .string()
     .describe("Prompt that animates this shot's still: the one action of this shot, in the chosen tool's format. English."),
   toolSettings: z.string().describe("What to set in the tool's own controls, very short, e.g. '9:16 · 6 s'."),
   disclosure: z.string().describe("One of: none, concept, simulation."),
 });
-export type Shot = Omit<z.infer<typeof ShotWireSchema>, "beat" | "disclosure"> & {
+export const SHOT_KINDS = ["single", "transform", "screen"] as const;
+export type ShotKind = (typeof SHOT_KINDS)[number];
+
+export type Shot = Omit<z.infer<typeof ShotWireSchema>, "beat" | "disclosure" | "kind"> & {
   beat: Beat;
+  kind: ShotKind;
   disclosure: "none" | "concept" | "simulation";
 };
 
@@ -161,6 +187,9 @@ const SetupSchema = z.object({
   id: z.string().describe("A, B, C…"),
   name: z.string().describe("Two to four words, in Spanish."),
   identity: z.string().describe("The identity line repeated word for word in every prompt with this setup. English."),
+  castId: z
+    .string()
+    .describe("The id of the matching member of the series' fixed cast (it has an approved image), or empty if new."),
 });
 export type Setup = z.infer<typeof SetupSchema>;
 
@@ -207,8 +236,14 @@ export function snapSeconds(seconds: number): number {
 
 export function normalizeShot(wire: z.infer<typeof ShotWireSchema>): Shot {
   const d = wire.disclosure.toLowerCase();
+  let kind = pick(wire.kind, SHOT_KINDS, "single");
+  if (kind === "screen" && !wire.screen.trim()) kind = "single";
+  if (kind === "transform" && !wire.endPrompt.trim()) kind = "single";
   return {
     ...wire,
+    kind,
+    setups: wire.setups.map((x) => x.trim()).filter(Boolean),
+    editFrom: Math.max(0, Math.round(wire.editFrom || 0)),
     beat: pick(wire.beat, BEATS, "negative"),
     seconds: snapSeconds(wire.seconds),
     disclosure: d.includes("concept") ? "concept" : d.includes("simulation") ? "simulation" : "none",
@@ -219,10 +254,41 @@ export function normalizeBoard(wire: z.infer<typeof BoardWireSchema>): Board {
   return { ...wire, shots: wire.shots.map(normalizeShot) };
 }
 
+// Boards saved before a field existed get its empty value, so old projects still open.
+export function migrateBoard(board: Board): Board {
+  type Old = Partial<Shot> & { setup?: string };
+  return {
+    ...board,
+    issues: board.issues ?? [],
+    setups: board.setups.map((s) => ({ ...s, castId: s.castId ?? "" })),
+    shots: board.shots.map((shot) => {
+      const old = shot as Old;
+      return {
+        ...shot,
+        setups: old.setups ?? (old.setup ? [old.setup] : []),
+        kind: old.kind ?? "single",
+        screen: old.screen ?? "",
+        middlePrompt: old.middlePrompt ?? "",
+        endPrompt: old.endPrompt ?? "",
+        editFrom: old.editFrom ?? 0,
+        editPrompt: old.editPrompt ?? "",
+      } as Shot;
+    }),
+  };
+}
+
 // ── Server status ───────────────────────────────────────────────────────────────
 export type ToolInfo = { id: string; name: string; checked: string };
 // productPerEpisode: every episode features a different product (Masogar), so the brief must name it.
-export type SeriesInfo = { id: string; name: string; tagline: string; productPerEpisode: boolean; textStyle: TextStyle };
+export type SeriesInfo = {
+  id: string;
+  name: string;
+  tagline: string;
+  type: SeriesType;
+  productPerEpisode: boolean;
+  textStyle: TextStyle;
+  cast: CastMember[];
+};
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };
 
 export type Status = {

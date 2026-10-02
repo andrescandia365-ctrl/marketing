@@ -24,7 +24,7 @@ import {
 import { KimiError } from "./kimi.ts";
 import { DEMO_BOARD, DEMO_MENU, DEMO_STORY } from "./demo.ts";
 import { getProvider, listProviders } from "./images/index.ts";
-import { SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
+import { CastMemberSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
 import {
   PROJECTS_DIR,
   ProjectError,
@@ -45,8 +45,11 @@ import {
   deleteSeries,
   getSeriesFields,
   listSeries,
+  readLibraryFile,
   saveSeries,
   saveTextStyle,
+  setCastImage,
+  upsertCastMember,
 } from "./series.ts";
 import { listTools } from "./tools.ts";
 
@@ -99,6 +102,25 @@ app.put("/api/series/:id/style", async (c) => {
   const { textStyle } = z.object({ textStyle: TextStyleSchema }).parse(await c.req.json());
   saveTextStyle(c.req.param("id"), textStyle);
   return c.json({ series: listSeries() });
+});
+
+// The series' fixed cast and its approved images.
+app.put("/api/series/:id/cast/:castId", async (c) => {
+  const member = CastMemberSchema.parse({ ...(await c.req.json()), id: c.req.param("castId") });
+  upsertCastMember(c.req.param("id"), member);
+  return c.json({ series: listSeries() });
+});
+
+app.put("/api/series/:id/cast/:castId/image", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
+  const file = setCastImage(c.req.param("id"), c.req.param("castId"), data, c.req.header("content-type") ?? "");
+  return c.json({ file, series: listSeries() });
+});
+
+app.get("/api/series/:id/files/:name", (c) => {
+  const { data, type } = readLibraryFile(c.req.param("id"), c.req.param("name"));
+  return c.body(new Uint8Array(data), 200, { "Content-Type": type, "Cache-Control": "no-cache" });
 });
 
 // Projects: one folder per piece on this computer (see projects.ts).

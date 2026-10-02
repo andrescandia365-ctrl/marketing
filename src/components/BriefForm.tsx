@@ -13,7 +13,9 @@ type Props = {
 
 export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewSeries }: Props) {
   const set = <K extends keyof Brief>(key: K, value: Brief[K]) => onChange({ ...brief, [key]: value });
-  const productMode = series.find((s) => s.id === brief.series)?.productPerEpisode ?? false;
+  const current = series.find((s) => s.id === brief.series);
+  const productMode = current?.productPerEpisode ?? false;
+  const screens = current?.type === "software" ? current.cast.filter((m) => m.kind === "screen") : [];
 
   return (
     <div className="grid gap-5 md:grid-cols-2">
@@ -58,6 +60,35 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
       >
         <textarea className={inputClass} rows={3} value={brief.product} onChange={(e) => set("product", e.target.value)} />
       </Field>
+      {screens.length > 0 && (
+        <div className="md:col-span-2">
+          <Field
+            label="Pantallas reales en esta pieza"
+            group
+            hint="Las capturas de la app que la historia puede mostrar. La IA no dibuja la interfaz: estas tomas usan la captura tal cual."
+          >
+            <div className="flex flex-wrap gap-2">
+              {screens.map((m) => {
+                const on = brief.screens.includes(m.id);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() =>
+                      set("screens", on ? brief.screens.filter((x) => x !== m.id) : [...brief.screens, m.id])
+                    }
+                    className={`rounded-full border px-3 py-1 text-sm ${on ? "border-ink bg-ink text-white" : "border-line bg-white text-muted hover:border-ink"}`}
+                    title={m.identity}
+                  >
+                    {m.name}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+        </div>
+      )}
       <Field label="Gancho del momento (opcional)" hint="Algo que la gente ya siente: una fecha, la primera semana de frío, un aumento.">
         <textarea className={inputClass} rows={3} value={brief.angle} onChange={(e) => set("angle", e.target.value)} />
       </Field>

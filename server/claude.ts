@@ -18,7 +18,7 @@ import {
   type TopicIdea,
 } from "../shared/schema.ts";
 import { LENGTHS } from "../shared/template.ts";
-import { WORKS_TODAY } from "../shared/series.ts";
+import { CAST, WORKS_TODAY } from "../shared/series.ts";
 import { getSeries } from "./series.ts";
 import { KIMI_MODEL, askKimi, kimiKey } from "./kimi.ts";
 import { getTool } from "./tools.ts";
@@ -70,7 +70,7 @@ function contextBlocks(brief: Brief, withTool: boolean): string[] {
   const series = getSeries(brief.series);
   if (!series) throw new WriterError(`No existe la serie "${brief.series}".`);
   const blocks = [
-    `The series for this piece (its bible is written in Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real.\n\n${series.text}`,
+    `The series for this piece (its bible is written in Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real. Its "${CAST}", if any, is the series' fixed cast: characters, places and products with an approved image (reuse them: same id as castId, identity word for word) and real screens of the product (kind "screen": real screenshots, shown only in screen shots).\n\n${series.text}`,
   ];
   if (withTool) {
     const tool = getTool(brief.tool);
@@ -79,6 +79,11 @@ function contextBlocks(brief: Brief, withTool: boolean): string[] {
     );
   }
   return blocks;
+}
+
+function screensFor(brief: Brief): string {
+  const screens = (getSeries(brief.series)?.cast ?? []).filter((m) => m.kind === "screen" && brief.screens.includes(m.id));
+  return screens.length ? screens.map((m) => `${m.id} (${m.name}: ${m.identity})`).join("; ") : "none; never use kind screen";
 }
 
 function describeBrief(brief: Brief): string {
@@ -94,6 +99,7 @@ function describeBrief(brief: Brief): string {
     `Everything else the person reads in the app (ideas, directions, names, notes, checklist, [VERIFY] list) in Spanish (Rioplatense).`,
     `Image and video prompts and identity lines: always in English.`,
     `Picture format: ${brief.format === "vertical" ? "vertical 9:16" : "horizontal 16:9"}`,
+    `Real screens this piece may show (screen shots): ${screensFor(brief)}`,
   ];
   return lines.map((l) => `- ${l}`).join("\n");
 }
@@ -220,7 +226,9 @@ const BOARD_RULES = `Shot rules:
 - visualPrompt is the first frame of the action: ONE frozen moment. Nothing that changes over time and no sequence words (now, then, after, reaches, lifts, turns, becomes). Every action and change goes in videoPrompt, which is one action.
 - seconds: exactly 6, 10 or 15, the only clip lengths the tool makes. Pick the shortest that fits the spoken line at about 2.5 words per second (6 s up to 15 words, 10 s up to 25, 15 s up to 37). Split a longer line into two shots. A silent shot is 6 s. toolSettings says the same length.
 - onScreenText is the headline at the top of the frame: up to 6 words that make sense without the voice (a fact, a time, a number, a name). Leave it empty rather than write a joke that needs the spoken line. The spoken line is added on its own as the subtitle.
-- setups: every character and every place that appears in more than one shot gets a setup with a short identity line; reuse the story's character identity lines word for word. Every prompt that shows a character or place repeats its identity line word for word, even when the shot's setup is another one.
+- setups: every character, place and product that appears in more than one shot gets a setup with a short identity line; reuse the story's character identity lines word for word. A setup that matches a member of the series' fixed cast takes its id as castId and its identity line word for word; the person already has its approved image. Each shot lists in setups every setup in the frame, main one first, and every prompt repeats the identity line of everything it shows, word for word.
+- kind: "single" for most shots. "transform" where one clip should carry a change on screen, usually the turn from the Bad to the Good: visualPrompt is the initial frame, endPrompt the final frame and middlePrompt an optional middle frame (each one frozen moment), and videoPrompt describes the change between them; give it 10 or 15 s. "screen" only to show the product's real interface with one of the real screens the brief allows: put its id in screen and leave the image prompts empty; the videoPrompt can be empty too.
+- editFrom: when a shot shows the same setup in the same place as an earlier shot, set editFrom to that shot's number and write editPrompt: only what changes in that image, keeping everything else. The person edits the earlier image instead of drawing a new one, so the character stays the same. Still write the full visualPrompt as a fallback.
 - Put the style line inside each visualPrompt so it stands alone. No text, signs, logos, brand names or real people's likeness in any image. A phone or computer screen faces away from the camera or is out of focus; the tool cannot draw the real interface. How the Bad looks on screen follows the story's character line.
 - The spoken lines and captions are added on top later, so video prompts never ask anyone to speak or sing, and ask for no music.
 - disclosure: "concept" or "simulation" for anything the brand is shown doing that is not in the series' "${WORKS_TODAY}" list.
@@ -283,7 +291,7 @@ ${BOARD_RULES}`,
 export async function rewriteShot(brief: Brief, story: Story, board: Board, index: number, note: string): Promise<Shot> {
   const shot = board.shots[index];
   if (!shot) throw new WriterError("Esa toma ya no existe.");
-  const setup = board.setups.find((s) => s.id === shot.setup);
+  const setups = shot.setups.map((id) => board.setups.find((s) => s.id === id)?.name ?? id).join(", ");
   const slate = (i: number) => {
     const s = board.shots[i];
     return s ? `Shot ${i + 1}: "${s.title}". ${s.action} (line: "${s.voiceover || "none"}")` : "none";
@@ -300,16 +308,16 @@ ${board.setups.map((s) => `- ${s.id} · ${s.name}: ${s.identity}`).join("\n") ||
 The shot before: ${slate(index - 1)}
 The shot after: ${slate(index + 1)}
 
-Shot ${index + 1} of ${board.shots.length} (setup ${shot.setup}${setup ? ` · ${setup.name}` : ""}):
+Shot ${index + 1} of ${board.shots.length} (setups: ${setups || "none"}):
 ${JSON.stringify(shot, null, 2)}
 
 The director's note on this shot: "${note}"
 
-Rewrite this one shot to answer the note, so it follows the shot before and leads into the shot after. Keep its topic, beat, speaker and setup, and keep identity lines word for word. Change the spoken line or the headline only if the note asks for it; if the line changes, pick the length again. Update the title and action if the note changes what happens. Fix the source in the prompt; never ask for anything to be painted on later.
+Rewrite this one shot to answer the note, so it follows the shot before and leads into the shot after. Keep its topic, beat and speaker, keep identity lines word for word, and change its setups or its kind only if the note asks for it. Change the spoken line or the headline only if the note asks for it; if the line changes, pick the length again. Update the title and action if the note changes what happens. Fix the source in the prompt; never ask for anything to be painted on later.
 
 ${BOARD_RULES}`,
     ShotWireSchema,
   );
   const next = normalizeShot(wire);
-  return { ...next, topic: shot.topic, beat: shot.beat, speaker: shot.speaker, setup: shot.setup };
+  return { ...next, topic: shot.topic, beat: shot.beat, speaker: shot.speaker };
 }

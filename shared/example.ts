@@ -11,6 +11,7 @@ export const EXAMPLE_BRIEF: Brief = {
   language: "es",
   format: "vertical",
   tool: "grok-imagine",
+  screens: [],
 };
 
 export const EMPTY_BRIEF: Brief = {
@@ -23,4 +24,5 @@ export const EMPTY_BRIEF: Brief = {
   language: "es",
   format: "vertical",
   tool: "grok-imagine",
+  screens: [],
 };

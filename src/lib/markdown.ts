@@ -78,19 +78,25 @@ export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolNa
       const disclosure = s.disclosure === "none" ? "" : ` · **${s.disclosure === "concept" ? "CONCEPTO" : "SIMULACIÓN"}**`;
       return [
         `### Toma ${s.index + 1} · ${s.title}`,
-        `${formatTime(s.start)}–${formatTime(s.end)} · ${s.seconds} s · ${BEAT_INFO[s.beat].label} · Setup ${s.setup}${disclosure}`,
+        `${formatTime(s.start)}–${formatTime(s.end)} · ${s.seconds} s · ${BEAT_INFO[s.beat].label} · ${s.kind === "transform" ? "Transformación · " : s.kind === "screen" ? "Pantalla real · " : ""}En cuadro: ${s.setups.join(" + ") || "—"}${disclosure}`,
         s.action ? `- **Qué pasa:** ${s.action}` : "",
         s.voiceover ? `- **${cast[s.speaker]?.name ?? s.speaker}:** “${s.voiceover}”` : "",
         s.onScreenText ? `- **Headline:** ${s.onScreenText}` : "",
         `- **En ${toolName}:** ${s.toolSettings}`,
-        `- **Prompt de imagen:** ${buildCopyPrompt(s.visualPrompt, brief.format)}`,
-        `- **Prompt de video:** ${s.videoPrompt}`,
+        s.kind === "screen" ? `- **Pantalla real:** ${s.screen}` : "",
+        s.kind !== "screen" ? `- **${s.kind === "transform" ? "Imagen inicial" : "Prompt de imagen"}:** ${buildCopyPrompt(s.visualPrompt, brief.format)}` : "",
+        s.editFrom ? `- **Editar la imagen de la toma ${s.editFrom}:** ${s.editPrompt}` : "",
+        s.kind === "transform" && s.middlePrompt ? `- **Imagen intermedia:** ${buildCopyPrompt(s.middlePrompt, brief.format)}` : "",
+        s.kind === "transform" ? `- **Imagen final:** ${buildCopyPrompt(s.endPrompt, brief.format)}` : "",
+        s.videoPrompt ? `- **Prompt de video:** ${s.videoPrompt}` : "",
       ]
         .filter(Boolean)
         .join("\n");
     })
     .join("\n\n");
-  const setups = board.setups.map((s) => `- **${s.id} · ${s.name}:** ${s.identity}`).join("\n") || "- Ninguno.";
+  const setups =
+    board.setups.map((s) => `- **${s.id} · ${s.name}${s.castId ? ` (elenco fijo: ${s.castId})` : ""}:** ${s.identity}`).join("\n") ||
+    "- Ninguno.";
   const issues = board.issues.length
     ? board.issues.map((i) => `- ${i.shot ? `Toma ${i.shot}` : "General"} (${i.kind}): ${i.note}`).join("\n")
     : "- Ninguno.";

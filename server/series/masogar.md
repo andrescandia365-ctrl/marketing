@@ -1,7 +1,7 @@
 # Masogar
 
 Frase: [VERIFY: frase de la marca]
-Producto por episodio: sí
+Tipo: E-commerce (un producto distinto en cada episodio)
 Estilo de texto: {"subtitleSize":100,"headlineSize":100,"textColor":"#ffffff","headlineColor":"#ffffff","backing":"shadow","backingColor":"#000000"}
 
 ## Qué es

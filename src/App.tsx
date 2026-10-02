@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/checks.ts";
 import { buildCopyPrompt } from "../shared/prompt.ts";
 import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
-import type { Board, Brief, Menu, Shot, Status, Story, TopicIdea } from "../shared/schema.ts";
-import { DEFAULT_TEXT_STYLE, type TextStyle } from "../shared/series.ts";
+import { migrateBoard, type Board, type Brief, type Menu, type Setup, type Shot, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
+import { DEFAULT_TEXT_STYLE, castRef, seriesId, type CastMember, type TextStyle } from "../shared/series.ts";
 import { BEAT_INFO, formatTime, timeShots } from "../shared/template.ts";
 import { BoardView } from "./components/BoardView.tsx";
 import { BriefForm } from "./components/BriefForm.tsx";
@@ -18,12 +18,13 @@ import {
   StoryNotes,
   Timeline,
   type ClipFile,
+  type LibraryEntry,
   type MediaState,
 } from "./components/ScriptView.tsx";
 import { StoryView } from "./components/StoryView.tsx";
 import { VideoPanel } from "./components/VideoPanel.tsx";
 import { Button, Notice, Spinner } from "./components/ui.tsx";
-import { api, projectFileUrl, type ProjectSummary } from "./lib/api.ts";
+import { api, libraryFileUrl, projectFileUrl, type ProjectSummary } from "./lib/api.ts";
 import { blobToDataUrl, readImageFile } from "./lib/files.ts";
 import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from "./lib/markdown.ts";
 
@@ -100,6 +101,8 @@ export function App() {
   // The project folder this piece autosaves into.
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  // Bumped when an approved image is replaced, so the browser shows the new file under the same name.
+  const [libraryVersion, setLibraryVersion] = useState(Date.now());
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const unsaved = useRef(false);
   const uploads = useRef(0);
@@ -153,6 +156,12 @@ export function App() {
 
   const toolName = status?.tools.find((t) => t.id === pieceBrief.tool)?.name ?? "la herramienta";
   const pieceSeries = status?.series.find((s) => s.id === pieceBrief.series);
+  const library: Record<string, LibraryEntry> = Object.fromEntries(
+    (pieceSeries?.cast ?? []).map((m) => [
+      m.id,
+      { ...m, url: m.image ? libraryFileUrl(pieceSeries!.id, m.image, libraryVersion) : undefined },
+    ]),
+  );
   const currentSeries = status?.series.find((s) => s.id === brief.series);
   const needsProduct = Boolean(currentSeries?.productPerEpisode) && !brief.product.trim();
 
@@ -265,7 +274,7 @@ export function App() {
     setDemo(st.demo ?? false);
     setStory(st.story ?? null);
     setStoryRound(st.storyRound ?? 1);
-    setBoard(st.board ?? null);
+    setBoard(st.board ? migrateBoard(st.board) : null);
     setBoardRound(st.boardRound ?? 1);
     setBoardApproved(st.boardApproved ?? false);
     setLog(st.log ?? []);
@@ -483,6 +492,41 @@ export function App() {
     setBoard((b) => (b ? { ...b, shots: b.shots.map((old, i) => (i === index ? shot : old)) } : b));
   }
 
+  // Fixes a setup into the series' cast: creates the cast member if the setup has none, links the setup to it
+  // and, when an image is given, makes it the approved image.
+  async function fixSetup(setup: Setup, kind: CastMember["kind"], image: Blob | null) {
+    const seriesKey = pieceBrief.series;
+    const cast = pieceSeries?.cast ?? [];
+    let castId = setup.castId;
+    if (!castId || !cast.some((m) => m.id === castId)) {
+      const base = seriesId(setup.name);
+      castId = base;
+      for (let n = 2; cast.some((m) => m.id === castId); n++) castId = `${base}-${n}`;
+      let ref = castRef(setup.name);
+      const taken = new Set(cast.map((m) => m.ref.toLowerCase()));
+      for (let n = 2; taken.has(ref.toLowerCase()); n++) ref = `${castRef(setup.name)}${n}`;
+      const { series } = await api.upsertCast(seriesKey, {
+        id: castId,
+        name: setup.name.slice(0, 60),
+        ref,
+        kind,
+        identity: setup.identity,
+        note: "",
+        image: "",
+      });
+      setStatus((s) => (s ? { ...s, series } : s));
+      const linked = castId;
+      setBoard((b) => (b ? { ...b, setups: b.setups.map((x) => (x.id === setup.id ? { ...x, castId: linked } : x)) } : b));
+      addLog({ text: `Setup ${setup.name} guardado en el elenco fijo de la serie` });
+    }
+    if (image) {
+      const { series } = await api.uploadCastImage(seriesKey, castId, image);
+      setStatus((s) => (s ? { ...s, series } : s));
+      setLibraryVersion((v) => v + 1);
+      addLog({ text: `Imagen fija de ${setup.name} actualizada` });
+    }
+  }
+
   async function saveStyle(style: TextStyle) {
     const { series } = await api.saveSeriesStyle(pieceBrief.series, style);
     setStatus((s) => (s ? { ...s, series } : s));
@@ -505,12 +549,30 @@ export function App() {
           .map(
             (s) =>
               `Toma ${s.index + 1} · ${s.title} · ${formatTime(s.start)}–${formatTime(s.end)} · ${BEAT_INFO[s.beat].label} · ${s.toolSettings}\n` +
-              (kind === "image" ? buildCopyPrompt(s.visualPrompt, pieceBrief.format) : s.videoPrompt),
+              (kind === "video"
+                ? s.videoPrompt
+                : s.kind === "screen"
+                  ? `(Pantalla real: ${library[s.screen]?.name ?? s.screen}, no se genera)`
+                  : s.kind === "transform"
+                    ? [
+                        `Inicial: ${buildCopyPrompt(s.visualPrompt, pieceBrief.format)}`,
+                        s.middlePrompt && `Intermedia: ${buildCopyPrompt(s.middlePrompt, pieceBrief.format)}`,
+                        `Final: ${buildCopyPrompt(s.endPrompt, pieceBrief.format)}`,
+                      ]
+                        .filter(Boolean)
+                        .join("\n")
+                    : buildCopyPrompt(s.visualPrompt, pieceBrief.format)),
           )
           .join("\n\n")
       : "";
 
-  const renderMedia = Object.fromEntries(Object.entries(media).map(([k, v]) => [k, { image: v.image, clip: v.clip?.blob }]));
+  // A real-screen shot shows the series' screenshot unless the person uploaded another image for it.
+  const renderMedia = Object.fromEntries(
+    (board?.shots ?? []).map((shot, i) => [
+      i,
+      { image: media[i]?.image ?? (shot.kind === "screen" ? library[shot.screen]?.url : undefined), clip: media[i]?.clip?.blob },
+    ]),
+  );
   const generating = Object.values(media).some((m) => m.loading);
   const realProviders = status?.imageProviders.filter((p) => p.available && p.id !== "placeholder") ?? [];
   const maxTopics = pieceBrief.length === "short" ? 1 : 4;
@@ -785,6 +847,7 @@ export function App() {
                 onUploadClip={uploadClip}
                 onRemoveMedia={removeMedia}
                 onRewrite={rewriteShot}
+                library={library}
               />
             </div>
             <aside className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto">
@@ -799,7 +862,14 @@ export function App() {
                 onSaveStyle={saveStyle}
                 onRendered={keepVideo}
               />
-              <SetupsPanel board={board} media={media} toolName={toolName} />
+              <SetupsPanel
+                board={board}
+                media={media}
+                toolName={toolName}
+                seriesName={pieceSeries?.name ?? ""}
+                library={library}
+                onFix={fixSetup}
+              />
               <DirectionLog log={log} />
               <StoryNotes story={story} />
             </aside>

@@ -77,7 +77,6 @@ export function BoardView({ story, board, round, busy, problems, dismissed, onRe
       <ol className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {shots.map((s) => {
           const who = cast[s.speaker];
-          const setup = setups[s.setup];
           const prevTopic = s.index > 0 ? shots[s.index - 1].topic : null;
           return (
             <li
@@ -93,6 +92,17 @@ export function BoardView({ story, board, round, busy, problems, dismissed, onRe
                 <BeatChip beat={s.beat} />
                 {s.topic !== prevTopic && (
                   <span className="rounded bg-ink px-1.5 py-0.5 text-xs font-semibold text-white">Tema {topics[s.topic] ?? s.topic}</span>
+                )}
+                {s.kind === "transform" && (
+                  <span className="rounded bg-touch-soft px-1.5 py-0.5 text-xs font-semibold text-touch">Transformación</span>
+                )}
+                {s.kind === "screen" && (
+                  <span className="rounded bg-good-soft px-1.5 py-0.5 text-xs font-semibold text-good">Pantalla real</span>
+                )}
+                {s.editFrom > 0 && (
+                  <span className="rounded border border-line px-1.5 py-0.5 text-xs" title={s.editPrompt}>
+                    Edita la toma {s.editFrom}
+                  </span>
                 )}
                 {s.disclosure !== "none" && (
                   <span className="rounded border border-line px-1.5 py-0.5 text-xs">
@@ -114,11 +124,33 @@ export function BoardView({ story, board, round, busy, problems, dismissed, onRe
                   Headline: <b>{s.onScreenText}</b>
                 </p>
               )}
-              <p className="text-xs text-muted">
-                <span className="font-semibold text-ink">Setup {s.setup}</span>
-                {setup ? ` · ${setup.name}` : ""} · {s.visualPrompt}
+              <p className="text-xs">
+                <span className="font-semibold">En cuadro: </span>
+                {s.setups.map((id) => setups[id]?.name ?? id).join(" + ") || "—"}
               </p>
-              <ActionWarning prompt={s.visualPrompt} />
+              {s.kind === "screen" ? (
+                <p className="text-xs text-muted">Captura real: {s.screen}</p>
+              ) : (
+                <p className="text-xs text-muted">
+                  {s.kind === "transform" && <b className="text-ink">Inicial: </b>}
+                  {s.visualPrompt}
+                  {s.kind === "transform" && s.middlePrompt && (
+                    <>
+                      <br />
+                      <b className="text-ink">Intermedia: </b>
+                      {s.middlePrompt}
+                    </>
+                  )}
+                  {s.kind === "transform" && (
+                    <>
+                      <br />
+                      <b className="text-ink">Final: </b>
+                      {s.endPrompt}
+                    </>
+                  )}
+                </p>
+              )}
+              <ActionWarning prompt={[s.visualPrompt, s.middlePrompt, s.endPrompt].join(" ")} />
               <input
                 className={`${inputClass} mt-auto py-1.5 text-xs`}
                 placeholder="Nota para esta toma"
