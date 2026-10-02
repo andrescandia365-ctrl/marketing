@@ -20,3 +20,5 @@ the app sends to Claude; when the marketing repo's rules change, update it there
 ## Commands
 - `npm run dev` — API on 8787 + Vite on 5173 (proxied `/api`).
 - `npm run typecheck`, `npm run build`, `npm start`.
+
+@PLAYBOOK.md
