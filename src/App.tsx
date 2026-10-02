@@ -7,6 +7,9 @@ import { ScriptNotes, ScriptView, Timeline, type ImageState } from "./components
 import { VideoPanel } from "./components/VideoPanel.tsx";
 import { Button, Notice, Spinner } from "./components/ui.tsx";
 import { api } from "./lib/api.ts";
+import { buildCopyPrompt } from "../shared/prompt.ts";
+import { TEMPLATE, formatTime, timeShots } from "../shared/template.ts";
+import { copyText, readImageFile } from "./lib/files.ts";
 import { download, scriptToMarkdown, slug } from "./lib/markdown.ts";
 
 type Step = "brief" | "hooks" | "script";
@@ -35,6 +38,7 @@ export function App() {
   const [images, setImages] = useState<Record<number, ImageState>>({});
   const [provider, setProvider] = useState("placeholder");
   const [busy, setBusy] = useState(false);
+  const [copiedAll, setCopiedAll] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -110,6 +114,34 @@ export function App() {
       for (let i = queue.shift(); i !== undefined; i = queue.shift()) await generateImage(i);
     };
     await Promise.all([worker(), worker(), worker()]);
+  }
+
+  async function uploadImage(index: number, file: File) {
+    try {
+      const url = await readImageFile(file);
+      setImages((prev) => ({ ...prev, [index]: { url } }));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setImages((prev) => ({ ...prev, [index]: { ...prev[index], error: message } }));
+    }
+  }
+
+  async function copyAllPrompts() {
+    if (!script) return;
+    const text = timeShots(script.shots)
+      .map(
+        (s, n) =>
+          `Shot ${n + 1} · ${formatTime(s.start)}–${formatTime(s.end)} · ${TEMPLATE[s.section].label}\n` +
+          buildCopyPrompt(s.visualPrompt, script.style, brief.format),
+      )
+      .join("\n\n");
+    try {
+      await copyText(text);
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 1600);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   function updateShot(index: number, shot: Shot) {
@@ -225,43 +257,51 @@ export function App() {
                 <p className="text-sm text-muted">{script.logline}</p>
               </div>
               <Timeline script={script} />
-              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-white p-3">
-                <label className="flex items-center gap-2 text-sm">
-                  <span className="font-semibold">Images from</span>
-                  <select
-                    className="rounded-lg border border-line bg-white px-2 py-1.5 text-sm"
-                    value={provider}
-                    onChange={(e) => setProvider(e.target.value)}
+              <div className="space-y-3 rounded-xl border border-line bg-white p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button onClick={copyAllPrompts}>{copiedAll ? "Copied ✓" : "Copy all image prompts"}</Button>
+                  <span className="text-sm text-muted">
+                    Paste them into your image tool, then upload each picture on its shot below.
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+                  <label className="flex items-center gap-2 text-sm">
+                    <span className="text-muted">Or generate with</span>
+                    <select
+                      className="rounded-lg border border-line bg-white px-2 py-1.5 text-sm"
+                      value={provider}
+                      onChange={(e) => setProvider(e.target.value)}
+                    >
+                      {status?.imageProviders.map((p) => (
+                        <option key={p.id} value={p.id} disabled={!p.available}>
+                          {p.label}
+                          {p.available ? "" : " (not connected)"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button variant="secondary" onClick={generateAll} disabled={generating}>
+                    {generating ? (
+                      <>
+                        <Spinner /> Generating…
+                      </>
+                    ) : (
+                      "Generate all"
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="ml-auto"
+                    onClick={() =>
+                      download(
+                        new Blob([scriptToMarkdown(brief, hook, script)], { type: "text/markdown" }),
+                        `${slug(script.title)}.md`,
+                      )
+                    }
                   >
-                    {status?.imageProviders.map((p) => (
-                      <option key={p.id} value={p.id} disabled={!p.available}>
-                        {p.label}
-                        {p.available ? "" : " (not connected)"}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <Button onClick={generateAll} disabled={generating}>
-                  {generating ? (
-                    <>
-                      <Spinner /> Making images…
-                    </>
-                  ) : (
-                    "Make all images"
-                  )}
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="ml-auto"
-                  onClick={() =>
-                    download(
-                      new Blob([scriptToMarkdown(brief, hook, script)], { type: "text/markdown" }),
-                      `${slug(script.title)}.md`,
-                    )
-                  }
-                >
-                  Download script .md
-                </Button>
+                    Download script .md
+                  </Button>
+                </div>
               </div>
               <ScriptView
                 brief={brief}
@@ -269,6 +309,7 @@ export function App() {
                 images={images}
                 onShotChange={updateShot}
                 onGenerate={generateImage}
+                onUpload={uploadImage}
               />
             </div>
             <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">

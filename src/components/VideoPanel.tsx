@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import type { Brief, Script } from "../../shared/schema.ts";
 import { download, slug } from "../lib/markdown.ts";
 import { renderVideo, type RenderResult } from "../lib/render.ts";
-import { Button, Notice } from "./ui.tsx";
+import { Button, Notice, inputClass } from "./ui.tsx";
+
+const DISCLOSURE = { en: "Illustrative images", es: "Imágenes ilustrativas" };
 
 type Props = { brief: Brief; script: Script; images: Record<number, string>; missing: number };
 
@@ -10,6 +12,8 @@ export function VideoPanel({ brief, script, images, missing }: Props) {
   const [progress, setProgress] = useState<number | null>(null);
   const [result, setResult] = useState<(RenderResult & { url: string }) | null>(null);
   const [error, setError] = useState("");
+  const [showDisclosure, setShowDisclosure] = useState(true);
+  const [disclosure, setDisclosure] = useState(DISCLOSURE[brief.language]);
 
   useEffect(() => () => {
     if (result) URL.revokeObjectURL(result.url);
@@ -19,7 +23,7 @@ export function VideoPanel({ brief, script, images, missing }: Props) {
     setError("");
     setProgress(0);
     try {
-      const out = await renderVideo(script, images, brief.format, setProgress);
+      const out = await renderVideo(script, images, brief.format, showDisclosure ? disclosure : "", setProgress);
       setResult({ ...out, url: URL.createObjectURL(out.blob) });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -37,6 +41,20 @@ export function VideoPanel({ brief, script, images, missing }: Props) {
         <Button onClick={render} disabled={progress !== null}>
           {progress !== null ? `Rendering ${Math.round(progress * 100)}%` : result ? "Render again" : "Render video"}
         </Button>
+      </div>
+      <div className="mt-3 space-y-1.5">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={showDisclosure} onChange={(e) => setShowDisclosure(e.target.checked)} />
+          Disclosure line at the bottom of the video
+        </label>
+        {showDisclosure && (
+          <input
+            className={`${inputClass} py-1.5 text-xs`}
+            value={disclosure}
+            onChange={(e) => setDisclosure(e.target.value)}
+            placeholder="e.g. Illustrative images · Dramatization"
+          />
+        )}
       </div>
       {missing > 0 && (
         <p className="mt-2 text-xs text-muted">

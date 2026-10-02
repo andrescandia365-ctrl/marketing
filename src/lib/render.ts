@@ -110,6 +110,7 @@ function drawFrame(
   t: number,
   w: number,
   h: number,
+  disclosure: string,
 ) {
   const i = Math.max(
     shots.findIndex((s) => t >= s.start && t < s.end),
@@ -186,6 +187,15 @@ function drawFrame(
 
   const subtitle = subtitleAt(shot, t);
   if (subtitle) drawText(ctx, subtitle, w / 2, subtitleTop, unit * 0.045, w * 0.84, 600);
+
+  // Small, always-visible note such as "Illustrative images", for platforms that ask for AI disclosure.
+  if (disclosure) {
+    ctx.globalAlpha = 0.8;
+    ctx.textBaseline = "bottom";
+    drawText(ctx, disclosure, w / 2, h - unit * 0.06, unit * 0.026, w * 0.9, 500);
+    ctx.textBaseline = "top";
+    ctx.globalAlpha = 1;
+  }
   ctx.shadowBlur = 0;
 }
 
@@ -193,6 +203,7 @@ export async function renderVideo(
   script: Script,
   images: Record<number, string>,
   format: Brief["format"],
+  disclosure: string,
   onProgress: (fraction: number) => void,
 ): Promise<RenderResult> {
   if (typeof VideoEncoder === "undefined") {
@@ -222,7 +233,7 @@ export async function renderVideo(
   const frames = TOTAL_SECONDS * FPS;
   for (let f = 0; f < frames; f++) {
     const t = f / FPS;
-    drawFrame(ctx, shots, loaded, script, t, w, h);
+    drawFrame(ctx, shots, loaded, script, t, w, h, disclosure.trim());
     await source.add(t, 1 / FPS);
     if (f % 15 === 0) onProgress(f / frames);
   }

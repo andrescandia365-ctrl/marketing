@@ -1,5 +1,8 @@
+import { useRef, useState } from "react";
+import { buildCopyPrompt } from "../../shared/prompt.ts";
 import type { Brief, Script, Shot } from "../../shared/schema.ts";
 import { TEMPLATE, TOTAL_SECONDS, formatTime, timeShots } from "../../shared/template.ts";
+import { copyText } from "../lib/files.ts";
 import { SectionChip, Spinner, inputClass } from "./ui.tsx";
 
 export type ImageState = { url?: string; loading?: boolean; error?: string };
@@ -10,6 +13,7 @@ type Props = {
   images: Record<number, ImageState>;
   onShotChange: (index: number, shot: Shot) => void;
   onGenerate: (index: number) => void;
+  onUpload: (index: number, file: File) => void;
 };
 
 const BAR = { negative: "bg-neg", touching: "bg-touch", good: "bg-good" };
@@ -38,7 +42,96 @@ export function Timeline({ script }: { script: Script }) {
   );
 }
 
-export function ScriptView({ brief, script, images, onShotChange, onGenerate }: Props) {
+function ShotImage({
+  image,
+  vertical,
+  copyPrompt,
+  onGenerate,
+  onUpload,
+}: {
+  image: ImageState;
+  vertical: boolean;
+  copyPrompt: string;
+  onGenerate: () => void;
+  onUpload: (file: File) => void;
+}) {
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [copied, setCopied] = useState<"" | "yes" | "error">("");
+
+  async function copy() {
+    try {
+      await copyText(copyPrompt);
+      setCopied("yes");
+    } catch {
+      setCopied("error");
+    }
+    setTimeout(() => setCopied(""), 1600);
+  }
+
+  const action = "w-full rounded-md py-1 text-xs font-semibold text-muted hover:bg-black/5 hover:text-ink disabled:opacity-50";
+
+  return (
+    <div className={`shrink-0 ${vertical ? "w-24 sm:w-32" : "w-32 sm:w-48"}`}>
+      <button
+        type="button"
+        onClick={() => fileInput.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          const file = e.dataTransfer.files[0];
+          if (file) onUpload(file);
+        }}
+        title="Click or drop an image here"
+        className={`relative block w-full overflow-hidden rounded-lg border-2 border-dashed bg-paper ${
+          dragging ? "border-ink" : image.url ? "border-transparent" : "border-line"
+        } ${vertical ? "aspect-[9/16]" : "aspect-video"}`}
+      >
+        {image.url && <img src={image.url} alt="" className="absolute inset-0 size-full object-cover" />}
+        {image.loading && (
+          <span className="absolute inset-0 grid place-items-center bg-white/70 text-muted">
+            <Spinner />
+          </span>
+        )}
+        {!image.url && !image.loading && (
+          <span className="absolute inset-0 grid place-items-center p-2 text-center text-xs text-muted">
+            Drop or click to upload
+          </span>
+        )}
+      </button>
+      <input
+        ref={fileInput}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onUpload(file);
+          e.target.value = "";
+        }}
+      />
+      <div className="mt-1 space-y-0.5">
+        <button type="button" onClick={copy} className={action}>
+          {copied === "yes" ? "Copied ✓" : copied === "error" ? "Copy failed" : "Copy prompt"}
+        </button>
+        <button type="button" onClick={() => fileInput.current?.click()} className={action}>
+          {image.url ? "Replace image" : "Upload image"}
+        </button>
+        <button type="button" disabled={image.loading} onClick={onGenerate} className={action}>
+          Generate
+        </button>
+      </div>
+      {image.error && <p className="mt-1 text-xs text-neg">{image.error}</p>}
+    </div>
+  );
+}
+
+export function ScriptView({ brief, script, images, onShotChange, onGenerate, onUpload }: Props) {
   const vertical = brief.format === "vertical";
   return (
     <ol className="space-y-3">
@@ -47,32 +140,13 @@ export function ScriptView({ brief, script, images, onShotChange, onGenerate }: 
         const set = <K extends keyof Shot>(key: K, value: Shot[K]) => onShotChange(shot.index, { ...shot, [key]: value });
         return (
           <li key={shot.index} className="flex gap-4 rounded-xl border border-line bg-white p-3 sm:p-4">
-            <div className={`shrink-0 ${vertical ? "w-24 sm:w-32" : "w-32 sm:w-48"}`}>
-              <div
-                className={`relative overflow-hidden rounded-lg bg-paper ${vertical ? "aspect-[9/16]" : "aspect-video"}`}
-              >
-                {image.url && <img src={image.url} alt="" className="absolute inset-0 size-full object-cover" />}
-                {image.loading && (
-                  <div className="absolute inset-0 grid place-items-center bg-white/70 text-muted">
-                    <Spinner />
-                  </div>
-                )}
-                {!image.url && !image.loading && (
-                  <div className="absolute inset-0 grid place-items-center p-2 text-center text-xs text-muted">
-                    No image yet
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                disabled={image.loading}
-                onClick={() => onGenerate(shot.index)}
-                className="mt-1.5 w-full text-xs font-semibold text-muted hover:text-ink disabled:opacity-50"
-              >
-                {image.url ? "Redo image" : "Make image"}
-              </button>
-              {image.error && <p className="mt-1 text-xs text-neg">{image.error}</p>}
-            </div>
+            <ShotImage
+              image={image}
+              vertical={vertical}
+              copyPrompt={buildCopyPrompt(shot.visualPrompt, script.style, brief.format)}
+              onGenerate={() => onGenerate(shot.index)}
+              onUpload={(file) => onUpload(shot.index, file)}
+            />
 
             <div className="min-w-0 flex-1 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
