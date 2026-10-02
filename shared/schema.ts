@@ -299,4 +299,6 @@ export type Status = {
   series: SeriesInfo[];
   // Where projects are saved on this computer.
   projectsDir: string;
+  // Generated voice ("Voz generada"): needs an OpenAI key.
+  voice: { available: boolean; defaultVoice: string };
 };

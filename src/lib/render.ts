@@ -33,7 +33,7 @@ const BEAT_COLORS = {
   good: ["#0b231d", "#0f6e56"],
 } as const;
 
-export type ShotMedia = { image?: string; clip?: Blob };
+export type ShotMedia = { image?: string; clip?: Blob; voice?: Blob; sfx?: Blob };
 
 export type Speaker = { name: string; role: Role };
 
@@ -55,6 +55,13 @@ export type RenderOptions = {
   // The headline at the top of each shot (the shot's onScreenText). Off hides it in the whole video.
   headlines: boolean;
   style: TextStyle;
+  // Shots where someone is heard speaking (a voice file or Grok's own), so the music ducks under them.
+  spoken: boolean[];
+  music?: Blob;
+  musicVolume: number;
+  sfxVolume: number;
+  // Move each cut to the nearest beat of the music.
+  beatSync: boolean;
 };
 
 export type RenderResult = { blob: Blob; extension: string; mimeType: string; notes: string[] };
@@ -294,35 +301,130 @@ async function openClip(blob: Blob, shot: TimedShot, w: number, h: number, fullF
   return { input, frames: sink.canvasesAtTimestamps(times) };
 }
 
-// Mixes each clip's own sound onto the 75-second timeline, cut to its shot with short fades.
-async function mixSound(shots: TimedShot[], media: Record<number, ShotMedia>, total: number): Promise<AudioBuffer | null> {
+async function decodeAudio(ctx: BaseAudioContext, blob: Blob): Promise<AudioBuffer | null> {
+  try {
+    return await ctx.decodeAudioData(await blob.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+// Plays a decoded sound at `when`, cut at `until`, through a gain node.
+function place(ctx: OfflineAudioContext, buffer: AudioBuffer, when: number, until: number, gain: AudioNode) {
+  if (until <= when) return;
+  const node = ctx.createBufferSource();
+  node.buffer = buffer;
+  node.connect(gain);
+  node.start(when, 0, Math.min(buffer.duration, until - when));
+}
+
+// The beats of the music: peaks of rising loudness (onsets), at least a quarter second apart.
+export function findBeats(buffer: AudioBuffer): number[] {
+  const data = buffer.getChannelData(0);
+  const hop = 512;
+  const energy: number[] = [];
+  for (let i = 0; i + hop <= data.length; i += hop) {
+    let sum = 0;
+    for (let j = i; j < i + hop; j++) sum += data[j] * data[j];
+    energy.push(Math.sqrt(sum / hop));
+  }
+  const flux = energy.map((e, i) => Math.max(0, e - (energy[i - 1] ?? 0)));
+  const beats: number[] = [];
+  const span = 20;
+  let last = -1;
+  for (let i = 1; i < flux.length - 1; i++) {
+    let avg = 0;
+    const from = Math.max(0, i - span);
+    const to = Math.min(flux.length, i + span);
+    for (let j = from; j < to; j++) avg += flux[j];
+    avg /= to - from;
+    const t = (i * hop) / buffer.sampleRate;
+    if (flux[i] > avg * 1.6 && flux[i] >= flux[i - 1] && flux[i] >= flux[i + 1] && flux[i] > 0.01 && t - last > 0.25) {
+      beats.push(t);
+      last = t;
+    }
+  }
+  return beats;
+}
+
+// Moves each cut to the nearest beat within a third of a second, keeping every shot at least a second long.
+export function alignCuts(shots: TimedShot[], beats: number[], window = 0.35): TimedShot[] {
+  const out = shots.map((s) => ({ ...s }));
+  for (let i = 1; i < out.length; i++) {
+    const cut = out[i].start;
+    const near = beats.reduce((best, b) => (Math.abs(b - cut) < Math.abs(best - cut) ? b : best), Infinity);
+    if (Math.abs(near - cut) <= window && near > out[i - 1].start + 1 && near < out[i].end - 1) {
+      out[i - 1].end = near;
+      out[i].start = near;
+    }
+  }
+  return out;
+}
+
+// The soundtrack: each clip's own sound, the voices, the sound effects and the music (ducked under speech).
+async function mixSound(
+  shots: TimedShot[],
+  media: Record<number, ShotMedia>,
+  total: number,
+  options: RenderOptions,
+  music: AudioBuffer | null,
+): Promise<AudioBuffer | null> {
   const ctx = new OfflineAudioContext(2, Math.ceil(SAMPLE_RATE * total), SAMPLE_RATE);
   let any = false;
   for (const shot of shots) {
-    const clip = media[shot.index]?.clip;
-    if (!clip) continue;
-    const input = new Input({ source: new BlobSource(clip), formats: ALL_FORMATS });
+    const m = media[shot.index] ?? {};
+    // A voice laid on top lowers the clip's own sound while it plays.
+    const voice = m.voice ? await decodeAudio(ctx, m.voice) : null;
+    if (voice) {
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+      place(ctx, voice, shot.start + 0.15, shot.end, gain);
+      any = true;
+    }
+    const sfx = m.sfx ? await decodeAudio(ctx, m.sfx) : null;
+    if (sfx) {
+      const gain = ctx.createGain();
+      gain.gain.value = options.sfxVolume;
+      gain.connect(ctx.destination);
+      place(ctx, sfx, shot.start, shot.end, gain);
+      any = true;
+    }
+    if (!options.keepSound || !m.clip) continue;
+    const input = new Input({ source: new BlobSource(m.clip), formats: ALL_FORMATS });
     try {
       const track = await input.getPrimaryAudioTrack();
       if (!track || !(await track.canDecode())) continue;
+      const level = voice ? 0.3 : 1;
       const gain = ctx.createGain();
       gain.connect(ctx.destination);
       gain.gain.setValueAtTime(0, shot.start);
-      gain.gain.linearRampToValueAtTime(1, shot.start + 0.08);
-      gain.gain.setValueAtTime(1, Math.max(shot.end - 0.08, shot.start + 0.08));
+      gain.gain.linearRampToValueAtTime(level, shot.start + 0.08);
+      gain.gain.setValueAtTime(level, Math.max(shot.end - 0.08, shot.start + 0.08));
       gain.gain.linearRampToValueAtTime(0, shot.end);
       for await (const { buffer, timestamp } of new AudioBufferSink(track).buffers(0, shot.end - shot.start)) {
         const when = shot.start + timestamp;
         if (when >= shot.end) break;
-        const node = ctx.createBufferSource();
-        node.buffer = buffer;
-        node.connect(gain);
-        node.start(when, 0, Math.min(buffer.duration, shot.end - when));
+        place(ctx, buffer, when, shot.end, gain);
         any = true;
       }
     } finally {
       input.dispose();
     }
+  }
+  if (music) {
+    const gain = ctx.createGain();
+    gain.connect(ctx.destination);
+    const full = options.musicVolume;
+    const low = full * 0.35;
+    gain.gain.setValueAtTime(0, 0);
+    gain.gain.linearRampToValueAtTime(full, 0.5);
+    for (const shot of shots) {
+      const level = options.spoken[shot.index] ? low : full;
+      gain.gain.setTargetAtTime(level, Math.max(shot.start - 0.1, 0.5), 0.08);
+    }
+    gain.gain.setTargetAtTime(0, Math.max(total - 1.5, 0), 0.4);
+    place(ctx, music, 0, total, gain);
+    any = true;
   }
   return any ? ctx.startRendering() : null;
 }
@@ -342,8 +444,15 @@ export async function renderVideo(
   if (!codec) throw new Error("Este navegador no tiene un codificador de video disponible.");
   const mp4 = codec === "avc";
 
-  const shots = timeShots(board.shots);
   const total = totalSeconds(board.shots);
+  // The music is decoded once: it is mixed in, and its beats can move the cuts.
+  const music = options.music ? await decodeAudio(new OfflineAudioContext(2, 1, SAMPLE_RATE), options.music) : null;
+  if (options.music && !music) notes.push("La música no se pudo leer; el video salió sin ella.");
+  let shots = timeShots(board.shots);
+  if (music && options.beatSync) {
+    shots = alignCuts(shots, findBeats(music));
+    notes.push("Los cortes se movieron al ritmo de la música.");
+  }
   const stills = await Promise.all(shots.map((s) => loadImage(media[s.index]?.image)));
   // Canvas text only uses a web font once it has loaded; without this the first frames fall back.
   await Promise.all(
@@ -351,8 +460,9 @@ export async function renderVideo(
   );
 
   let sound: AudioBuffer | null = null;
-  if (options.keepSound && shots.some((s) => media[s.index]?.clip)) {
-    sound = await mixSound(shots, media, total);
+  const hasAudio = shots.some((s) => media[s.index]?.voice || media[s.index]?.sfx || (options.keepSound && media[s.index]?.clip));
+  if (hasAudio || music) {
+    sound = await mixSound(shots, media, total, options, music);
     if (!sound) notes.push("Los clips no traían sonido que este navegador pueda leer.");
   }
   onProgress(0.05);

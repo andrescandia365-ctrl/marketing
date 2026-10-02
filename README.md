@@ -12,6 +12,8 @@ Hace contenido con historia, no publicidad: un ida y vuelta entre **el Bueno** (
 
 **Los mismos personajes en todas las tomas.** Cada serie tiene un **elenco fijo**: personajes, lugares y productos con su imagen aprobada y su referencia `@` para Grok, y, en las series de software, las **pantallas reales** de la app (capturas de celular y PC). Se cargan en Editar serie o desde Producción ("Fijar con la imagen de la toma…"). Cada toma muestra quién está en cuadro con su `@`, puede ser una **transformación** (imagen inicial, intermedia y final en un mismo clip, del Malo al Bueno) o una **pantalla real** (la captura tal cual), y cuando repite el lugar de una toma anterior trae un **prompt de edición** para partir de esa imagen. Las imágenes fijas se guardan en `biblioteca/<serie>/`.
 
+**Audio.** Cada línea se puede escuchar de cuatro formas: solo subtítulos, **la dice Grok** dentro del clip (la app arma el prompt de video con la línea y la voz de Grok del personaje), **voz generada** (con `OPENAI_API_KEY`) o **tu voz**, grabada en la app con el micrófono o subida. Cada personaje tiene su forma por defecto en el panel **Voces** y cada toma la puede cambiar; si la voz dura más que la toma, la app avisa y la pasa a 10 o 15 s. Cada toma puede llevar un **efecto de sonido**, y la pieza una **música** (libre de derechos) que baja sola cuando alguien habla y puede mover los cortes al ritmo. Al lado de cada prompt y de cada línea hay un botón 🔊 para escucharlos con la voz del navegador.
+
 **Todo se guarda solo** en una carpeta por pieza, `proyectos/<fecha-serie>/`: el proyecto, `pieza.md`, cada imagen y clip (`toma-01-imagen.png`, `toma-01-clip.mp4`…) y el video. En el paso Brief está la lista de **Proyectos guardados** para retomar una pieza donde quedó.
 
 ## Series
@@ -51,12 +53,11 @@ Claude lee el archivo elegido antes de escribir los prompts. Para actualizarlo, 
 |---|---|---|
 | Claude (menú, historia, storyboard, revisiones) | `ANTHROPIC_API_KEY` | Kimi, si está; si no, modo de muestra |
 | Kimi K3 (lo mismo, en lugar de Claude) | `KIMI_API_KEY` (`LLM_PROVIDER=kimi` si tenés las dos) | Modo de muestra |
-| OpenAI Images | `OPENAI_API_KEY` | Copiá los prompts y subí tus imágenes |
+| OpenAI Images y Voz generada | `OPENAI_API_KEY` | Copiá los prompts y subí tus imágenes; grabá o subí la voz |
 | Replicate (Flux) | `REPLICATE_API_TOKEN` | Copiá los prompts y subí tus imágenes |
 | Bocetos | ninguna | Siempre disponible |
 
 ## Todavía no está
 
-- Voz en off (las líneas van en subtítulos).
 - Que Claude revise las imágenes subidas (paso 5 del plan).
-- Música y cortes al ritmo (paso 6 del plan): por ahora solo el sonido que traen los clips.
+- Generar efectos de sonido con una API (por ahora se suben).

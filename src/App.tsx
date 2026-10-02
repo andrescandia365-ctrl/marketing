@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { DEFAULT_AUDIO, voiceModeOf, type AudioSettings, type CharacterVoice, type VoiceMode } from "../shared/audio.ts";
 import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/checks.ts";
 import { buildCopyPrompt } from "../shared/prompt.ts";
 import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
 import { migrateBoard, type Board, type Brief, type Menu, type Setup, type Shot, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
 import { DEFAULT_TEXT_STYLE, castRef, seriesId, type CastMember, type TextStyle } from "../shared/series.ts";
 import { BEAT_INFO, formatTime, timeShots } from "../shared/template.ts";
+import { VoicesPanel, audioDuration, type AudioFile } from "./components/Audio.tsx";
 import { BoardView } from "./components/BoardView.tsx";
 import { BriefForm } from "./components/BriefForm.tsx";
 import { MenuPicker } from "./components/MenuPicker.tsx";
@@ -46,6 +48,7 @@ type SavedState = {
   startedAt: number;
   // Check problems the person marked "no es un problema".
   dismissed: string[];
+  audio: AudioSettings;
 };
 
 const BRIEF_KEY = "playbook-studio.brief.v2";
@@ -88,6 +91,8 @@ export function App() {
   const [media, setMedia] = useState<Record<number, MediaState>>({});
   const [log, setLog] = useState<LogEntry[]>([]);
   const [dismissed, setDismissed] = useState<string[]>([]);
+  const [audio, setAudio] = useState<AudioSettings>(DEFAULT_AUDIO);
+  const [music, setMusic] = useState<AudioFile | null>(null);
   const logStart = useRef(Date.now());
   const clipUrls = useRef<string[]>([]);
   const [provider, setProvider] = useState("placeholder");
@@ -186,6 +191,7 @@ export function App() {
         log,
         startedAt: logStart.current,
         dismissed,
+        audio,
       };
       const markdown =
         story && board ? pieceToMarkdown(pieceBrief, story, board, toolName, log) : story ? storyToMarkdown(story) : undefined;
@@ -204,7 +210,7 @@ export function App() {
     }, 800);
     return () => clearTimeout(timer);
     // toolName only changes with the brief or the status, which are covered.
-  }, [projectId, step, pieceBrief, menu, demo, story, storyRound, board, boardRound, boardApproved, log, dismissed]);
+  }, [projectId, step, pieceBrief, menu, demo, story, storyRound, board, boardRound, boardApproved, log, dismissed, audio]);
 
   function addLog(entry: Omit<LogEntry, "at">) {
     setLog((l) => [...l, { ...entry, at: Date.now() - logStart.current }]);
@@ -252,6 +258,8 @@ export function App() {
     setMedia({});
     setLog([]);
     setDismissed([]);
+    setAudio(DEFAULT_AUDIO);
+    setMusic(null);
     logStart.current = Date.now();
   }
 
@@ -279,6 +287,7 @@ export function App() {
     setBoardApproved(st.boardApproved ?? false);
     setLog(st.log ?? []);
     setDismissed(st.dismissed ?? []);
+    setAudio({ ...DEFAULT_AUDIO, ...(st.audio ?? {}) });
     logStart.current = st.startedAt ?? Date.now();
     setProjectId(id);
     setStep(st.step ?? "brief");
@@ -292,17 +301,29 @@ export function App() {
           .then((image) => setShotMedia(index, { image }))
           .catch(() => setShotMedia(index, { error: "No se pudo leer la imagen guardada." }));
       }
-      if (record.clip) {
-        const { file, name, duration } = record.clip;
-        fetch(projectFileUrl(id, file))
+      for (const kind of ["clip", "voice", "sfx"] as const) {
+        const saved = record[kind];
+        if (!saved) continue;
+        fetch(projectFileUrl(id, saved.file))
           .then((r) => r.blob())
           .then((blob) => {
             const url = URL.createObjectURL(blob);
             clipUrls.current.push(url);
-            setShotMedia(index, { clip: { url, blob, name, duration } });
+            setShotMedia(index, { [kind]: { url, blob, name: saved.name, duration: saved.duration } });
           })
-          .catch(() => setShotMedia(index, { error: "No se pudo leer el clip guardado." }));
+          .catch(() => setShotMedia(index, { error: "No se pudo leer un archivo guardado de esta toma." }));
       }
+    }
+    if (project.music) {
+      const { file, name, duration } = project.music;
+      fetch(projectFileUrl(id, file))
+        .then((r) => r.blob())
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          clipUrls.current.push(url);
+          setMusic({ url, blob, name, duration });
+        })
+        .catch(() => setError("No se pudo leer la música guardada."));
     }
   }
 
@@ -460,15 +481,62 @@ export function App() {
     }
   }
 
-  async function removeMedia(index: number, kind: "image" | "clip") {
+  async function removeMedia(index: number, kind: "image" | "clip" | "voice" | "sfx") {
     setMedia((prev) => {
       const next = { ...prev[index] };
-      if (kind === "image") delete next.image;
-      else delete next.clip;
+      delete next[kind];
       return { ...prev, [index]: next };
     });
-    addLog({ shot: index, text: kind === "image" ? "Imagen quitada" : "Clip quitado" });
+    const what = { image: "Imagen quitada", clip: "Clip quitado", voice: "Voz quitada", sfx: "Efecto quitado" }[kind];
+    addLog({ shot: index, text: what });
     await keep(index, (id) => api.removeMedia(id, index, kind));
+  }
+
+  // A voice (recorded, uploaded or generated) or a sound effect for one shot, kept in the project folder.
+  async function addAudio(index: number, kind: "voice" | "sfx", blob: Blob, name: string) {
+    const duration = await audioDuration(blob).catch(() => {
+      throw new Error("No se pudo leer ese audio. Probá con un .mp3 o un .wav.");
+    });
+    const url = URL.createObjectURL(blob);
+    clipUrls.current.push(url);
+    setShotMedia(index, { [kind]: { url, blob, name, duration } });
+    addLog({ shot: index, text: `${kind === "voice" ? "Voz" : "Efecto de sonido"}: ${name}, ${duration.toFixed(1)} s` });
+    const type = blob.type || "audio/mpeg";
+    const file = blob.type ? blob : new Blob([blob], { type });
+    await keep(index, (id) => api.uploadMedia(id, index, kind, file, { name, duration }));
+  }
+
+  async function generateVoice(index: number) {
+    const shot = board?.shots[index];
+    if (!shot) return;
+    const own = audio.characters[shot.speaker];
+    const blob = await api.speak(shot.voiceover, own?.ttsVoice ?? "", pieceBrief.language);
+    await addAudio(index, "voice", blob, `toma-${index + 1}-voz-generada.mp3`);
+  }
+
+  function setVoiceMode(index: number, mode: VoiceMode) {
+    setAudio((a) => ({ ...a, shots: { ...a.shots, [index]: mode } }));
+  }
+
+  function setCharacterVoice(id: string, voice: CharacterVoice) {
+    setAudio((a) => ({ ...a, characters: { ...a.characters, [id]: voice } }));
+  }
+
+  async function addMusic(file: File) {
+    const duration = await audioDuration(file).catch(() => {
+      throw new Error("No se pudo leer esa música. Probá con un .mp3 o un .wav.");
+    });
+    const url = URL.createObjectURL(file);
+    clipUrls.current.push(url);
+    setMusic({ url, blob: file, name: file.name, duration });
+    addLog({ text: `Música: ${file.name}, ${duration.toFixed(0)} s` });
+    if (projectId) await api.uploadMusic(projectId, file, { name: file.name, duration });
+  }
+
+  function removeMusic() {
+    setMusic(null);
+    addLog({ text: "Música quitada" });
+    if (projectId) api.removeMusic(projectId).catch((e) => setError(message(e)));
   }
 
   async function rewriteShot(index: number, note: string): Promise<boolean> {
@@ -567,12 +635,21 @@ export function App() {
       : "";
 
   // A real-screen shot shows the series' screenshot unless the person uploaded another image for it.
+  // What the video plays per shot. A real-screen shot shows the series' screenshot unless the person uploaded
+  // another image; a voice file is used only when the shot's line is set to a generated or recorded voice.
+  const modes = (board?.shots ?? []).map((shot, i) => voiceModeOf(audio, shot, i));
   const renderMedia = Object.fromEntries(
     (board?.shots ?? []).map((shot, i) => [
       i,
-      { image: media[i]?.image ?? (shot.kind === "screen" ? library[shot.screen]?.url : undefined), clip: media[i]?.clip?.blob },
+      {
+        image: media[i]?.image ?? (shot.kind === "screen" ? library[shot.screen]?.url : undefined),
+        clip: media[i]?.clip?.blob,
+        voice: modes[i] === "generated" || modes[i] === "recorded" ? media[i]?.voice?.blob : undefined,
+        sfx: media[i]?.sfx?.blob,
+      },
     ]),
   );
+  const spoken = modes.map((m, i) => (m === "grok" ? true : m !== "subtitles" && Boolean(renderMedia[i]?.voice)));
   const generating = Object.values(media).some((m) => m.loading);
   const realProviders = status?.imageProviders.filter((p) => p.available && p.id !== "placeholder") ?? [];
   const maxTopics = pieceBrief.length === "short" ? 1 : 4;
@@ -848,6 +925,20 @@ export function App() {
                 onRemoveMedia={removeMedia}
                 onRewrite={rewriteShot}
                 library={library}
+                voice={{
+                  language: pieceBrief.language,
+                  audio,
+                  voiceAvailable: status?.voice.available ?? false,
+                  onMode: setVoiceMode,
+                  onVoice: (i, blob, name) => addAudio(i, "voice", blob, name),
+                  onGenerate: generateVoice,
+                  onRemove: (i, kind) => removeMedia(i, kind),
+                  onSfx: (i, blob, name) => addAudio(i, "sfx", blob, name),
+                  onSeconds: (i, seconds) => {
+                    const shot = board.shots[i];
+                    updateShot(i, { ...shot, seconds, toolSettings: shot.toolSettings.replace(/\d+(\.\d+)?\s*s\b/, `${seconds} s`) });
+                  },
+                }}
               />
             </div>
             <aside className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto">
@@ -861,6 +952,18 @@ export function App() {
                 seriesStyle={pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE}
                 onSaveStyle={saveStyle}
                 onRendered={keepVideo}
+                audio={audio}
+                onAudio={(patch) => setAudio((a) => ({ ...a, ...patch }))}
+                spoken={spoken}
+                music={music}
+                onMusic={addMusic}
+                onRemoveMusic={removeMusic}
+              />
+              <VoicesPanel
+                characters={story.characters}
+                audio={audio}
+                defaultTtsVoice={status?.voice.defaultVoice ?? ""}
+                onChange={setCharacterVoice}
               />
               <SetupsPanel
                 board={board}
