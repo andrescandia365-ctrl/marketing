@@ -2,10 +2,29 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { z } from "zod";
-import { BriefSchema, HookSchema, type Script, type Status } from "../shared/schema.ts";
-import { ClaudeError, MODEL, claudeConfigured, rewriteShot, writeHooks, writeScript } from "./claude.ts";
-import { DEMO_HOOKS, DEMO_SCRIPT } from "./demo.ts";
+import {
+  BoardWireSchema,
+  BriefSchema,
+  StoryWireSchema,
+  TopicIdeaSchema,
+  normalizeBoard,
+  normalizeStory,
+  type Status,
+} from "../shared/schema.ts";
+import {
+  ClaudeError,
+  MODEL,
+  claudeConfigured,
+  proposeMenu,
+  reviseBoard,
+  reviseStory,
+  rewriteShot,
+  writeBoard,
+  writeStory,
+} from "./claude.ts";
+import { DEMO_BOARD, DEMO_MENU, DEMO_STORY } from "./demo.ts";
 import { getProvider, listProviders } from "./images/index.ts";
+import { listSeries } from "./series.ts";
 import { listTools } from "./tools.ts";
 
 const app = new Hono();
@@ -17,32 +36,77 @@ app.onError((error, c) => {
   return c.json({ error: error.message || "Algo salió mal." }, 500);
 });
 
+// Story and board come back from the browser; parse them with the same shapes Claude returns.
+const StoryInput = StoryWireSchema.transform(normalizeStory);
+const BoardInput = BoardWireSchema.transform(normalizeBoard);
+const demo = () => !claudeConfigured();
+
 app.get("/api/status", (c) =>
-  c.json<Status>({ claude: claudeConfigured(), model: MODEL, imageProviders: listProviders(), tools: listTools() }),
+  c.json<Status>({
+    claude: claudeConfigured(),
+    model: MODEL,
+    imageProviders: listProviders(),
+    tools: listTools(),
+    series: listSeries(),
+  }),
 );
 
-app.post("/api/hooks", async (c) => {
+app.post("/api/menu", async (c) => {
   const { brief } = z.object({ brief: BriefSchema }).parse(await c.req.json());
-  if (!claudeConfigured()) return c.json({ ...DEMO_HOOKS, demo: true });
-  return c.json({ ...(await writeHooks(brief)), demo: false });
+  if (demo()) return c.json({ ...DEMO_MENU, demo: true });
+  return c.json({ ...(await proposeMenu(brief)), demo: false });
 });
 
-app.post("/api/script", async (c) => {
-  const { brief, hook } = z.object({ brief: BriefSchema, hook: HookSchema }).parse(await c.req.json());
-  if (!claudeConfigured()) return c.json({ script: DEMO_SCRIPT, demo: true });
-  return c.json({ script: await writeScript(brief, hook), demo: false });
+app.post("/api/story", async (c) => {
+  const { brief, topics } = z
+    .object({ brief: BriefSchema, topics: z.array(TopicIdeaSchema).min(1).max(4) })
+    .parse(await c.req.json());
+  if (demo()) return c.json({ story: DEMO_STORY, demo: true });
+  return c.json({ story: await writeStory(brief, topics), demo: false });
 });
 
-app.post("/api/rewrite", async (c) => {
-  const body = await c.req.json();
-  const { brief, index, note } = z
-    .object({ brief: BriefSchema, index: z.number().int().min(0), note: z.string().min(1) })
-    .parse(body);
-  // The script comes from this app's own state; only its shape matters to the prompt.
-  const script = body.script as Script;
-  if (!Array.isArray(script?.shots) || !script.shots[index]) return c.json({ error: "Esa toma ya no existe." }, 400);
-  if (!claudeConfigured()) return c.json({ shot: script.shots[index], demo: true });
-  return c.json({ shot: await rewriteShot(brief, script, index, note), demo: false });
+app.post("/api/story/revise", async (c) => {
+  const { brief, story, note } = z
+    .object({ brief: BriefSchema, story: StoryInput, note: z.string().min(1) })
+    .parse(await c.req.json());
+  if (demo()) return c.json({ story, demo: true });
+  return c.json({ story: await reviseStory(brief, story, note), demo: false });
+});
+
+app.post("/api/board", async (c) => {
+  const { brief, story } = z.object({ brief: BriefSchema, story: StoryInput }).parse(await c.req.json());
+  if (demo()) return c.json({ board: DEMO_BOARD, demo: true });
+  return c.json({ board: await writeBoard(brief, story), demo: false });
+});
+
+app.post("/api/board/revise", async (c) => {
+  const { brief, story, board, note, shotNotes } = z
+    .object({
+      brief: BriefSchema,
+      story: StoryInput,
+      board: BoardInput,
+      note: z.string(),
+      shotNotes: z.array(z.object({ index: z.number().int().min(0), note: z.string().min(1) })),
+    })
+    .parse(await c.req.json());
+  if (!note.trim() && shotNotes.length === 0) return c.json({ error: "Escribí al menos una nota." }, 400);
+  if (demo()) return c.json({ board, demo: true });
+  return c.json({ board: await reviseBoard(brief, story, board, note, shotNotes), demo: false });
+});
+
+app.post("/api/shot/rewrite", async (c) => {
+  const { brief, story, board, index, note } = z
+    .object({
+      brief: BriefSchema,
+      story: StoryInput,
+      board: BoardInput,
+      index: z.number().int().min(0),
+      note: z.string().min(1),
+    })
+    .parse(await c.req.json());
+  if (!board.shots[index]) return c.json({ error: "Esa toma ya no existe." }, 400);
+  if (demo()) return c.json({ shot: board.shots[index], demo: true });
+  return c.json({ shot: await rewriteShot(brief, story, board, index, note), demo: false });
 });
 
 app.post("/api/image", async (c) => {
@@ -52,7 +116,7 @@ app.post("/api/image", async (c) => {
       prompt: z.string().min(1),
       style: z.string(),
       aspect: z.enum(["vertical", "horizontal"]),
-      section: z.string(),
+      beat: z.string(),
     })
     .parse(await c.req.json());
   const provider = getProvider(req.provider);

@@ -1,7 +1,7 @@
-// The script as a Markdown file, the deliverable format the playbook asks for (§7.5).
-import type { Brief, Hook, Script } from "../../shared/schema.ts";
+// The piece as a Markdown file: story, storyboard with every prompt, and the direction log.
+import type { Board, Brief, Story } from "../../shared/schema.ts";
 import { buildCopyPrompt } from "../../shared/prompt.ts";
-import { TEMPLATE, formatTime, timeShots } from "../../shared/template.ts";
+import { BEAT_INFO, ROLE_LABEL, formatTime, timeShots, totalSeconds } from "../../shared/template.ts";
 
 export type LogEntry = { at: number; shot?: number; text: string; outcome?: string };
 
@@ -10,14 +10,62 @@ export function formatElapsed(ms: number): string {
   return `+${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
 }
 
-export function scriptToMarkdown(brief: Brief, hook: Hook, script: Script, toolName: string, log: LogEntry[]): string {
-  const shots = timeShots(script.shots)
+export function storyToMarkdown(story: Story): string {
+  const cast = Object.fromEntries(story.characters.map((c) => [c.id, c]));
+  const characters = story.characters
+    .map((c) => `- **${c.name}** (${ROLE_LABEL[c.role]}): ${c.voice}\n  - Imagen: ${c.identity}`)
+    .join("\n");
+  const topics = story.topics
+    .map((t, i) => {
+      const lines = t.lines
+        .map(
+          (l) =>
+            `- *${BEAT_INFO[l.beat].label}* · **${cast[l.speaker]?.name ?? l.speaker}:** “${l.text}”\n  - _${l.direction}_`,
+        )
+        .join("\n");
+      return `### Tema ${i + 1} · ${t.title}\n\n${i === 0 ? "Arranca con" : "Puente"}: ${t.bridge}\n\n${lines}`;
+    })
+    .join("\n\n");
+  const callbacks = story.callbacks.map((c) => `- ${c.planted} → ${c.payoff}`).join("\n") || "- Ninguno.";
+  const checklist = story.checklist.map((c) => `- [${c.pass ? "x" : " "}] **${c.item}**: ${c.note}`).join("\n");
+  const verify = story.verify.length ? story.verify.map((v) => `- ${v}`).join("\n") : "- Nada.";
+
+  return `# ${story.title}
+
+${story.logline}
+
+## Personajes
+
+${characters}
+
+## Historia
+
+${topics}
+
+**Cierre:** “${story.close}”
+
+## Callbacks
+
+${callbacks}
+
+## Checklist
+
+${checklist}
+
+## Verificar antes de publicar
+
+${verify}
+`;
+}
+
+export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolName: string, log: LogEntry[]): string {
+  const cast = Object.fromEntries(story.characters.map((c) => [c.id, c]));
+  const shots = timeShots(board.shots)
     .map((s) => {
-      const label = TEMPLATE[s.section].label.toUpperCase();
       const disclosure = s.disclosure === "none" ? "" : ` · **${s.disclosure === "concept" ? "CONCEPTO" : "SIMULACIÓN"}**`;
       return [
-        `### Toma ${s.index + 1} · ${formatTime(s.start)}–${formatTime(s.end)} · ${label} · Setup ${s.setup}${disclosure}`,
-        `- **Locución:** ${s.voiceover}`,
+        `### Toma ${s.index + 1} · ${formatTime(s.start)}–${formatTime(s.end)} · ${BEAT_INFO[s.beat].label} · Setup ${s.setup}${disclosure}`,
+        s.voiceover ? `- **${cast[s.speaker]?.name ?? s.speaker}:** “${s.voiceover}”` : "",
         s.onScreenText ? `- **En pantalla:** ${s.onScreenText}` : "",
         `- **En ${toolName}:** ${s.toolSettings}`,
         `- **Prompt de imagen:** ${buildCopyPrompt(s.visualPrompt, brief.format)}`,
@@ -27,12 +75,7 @@ export function scriptToMarkdown(brief: Brief, hook: Hook, script: Script, toolN
         .join("\n");
     })
     .join("\n\n");
-
-  const setups = script.setups.length
-    ? script.setups.map((s) => `- **${s.id} · ${s.name}:** ${s.identity}`).join("\n")
-    : "- Ninguno.";
-  const checklist = script.checklist.map((c) => `- [${c.pass ? "x" : " "}] **${c.item}**: ${c.note}`).join("\n");
-  const verify = script.verify.length ? script.verify.map((v) => `- ${v}`).join("\n") : "- Nada.";
+  const setups = board.setups.map((s) => `- **${s.id} · ${s.name}:** ${s.identity}`).join("\n") || "- Ninguno.";
   const direction = log.length
     ? log
         .map((e) => {
@@ -42,33 +85,16 @@ export function scriptToMarkdown(brief: Brief, hook: Hook, script: Script, toolN
         .join("\n\n")
     : "Sin notas todavía.";
 
-  return `# ${script.title}
+  return `${storyToMarkdown(story)}
+## Storyboard
 
-${script.logline}
+${board.shots.length} tomas · ${formatTime(totalSeconds(board.shots))} · ${toolName} · estilo: ${board.style}
 
-- **Producto:** ${brief.productName} (Trabajo ${brief.job})
-- **Comprador:** ${brief.buyer}
-- **Movida del gancho:** ${hook.move}
-- **Llamado a la acción:** ${script.cta}
-- **Callback:** "${script.callback.planted}" → ${script.callback.payoff}
-- **Estilo visual:** ${script.style}
-- **Herramienta:** ${toolName}
-
-## Setups
+### Setups
 
 ${setups}
 
-## Tomas
-
 ${shots}
-
-## Checklist
-
-${checklist}
-
-## Verificar antes de publicar
-
-${verify}
 
 ## Registro de dirección
 
@@ -93,6 +119,6 @@ export function slug(text: string): string {
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "")
-      .slice(0, 50) || "guion"
+      .slice(0, 50) || "pieza"
   );
 }

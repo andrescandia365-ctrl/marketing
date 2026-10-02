@@ -1,172 +1,205 @@
-// Sample answers used when no Claude key is set, so the storyboard and video steps can be tried.
-// They are written for the example brief and do not change with what the user types.
-import type { HooksResult, Script } from "../shared/schema.ts";
+// Sample answers used when no Claude key is set, so every step can be tried. They are written for one
+// IMAN short and do not change with what the person types; revisions in sample mode return them unchanged.
+import type { Board, Menu, Story } from "../shared/schema.ts";
 
-export const DEMO_HOOKS: HooksResult = {
-  hooks: [
+export const DEMO_MENU: Menu = {
+  ideas: [
     {
-      move: "Contradiction",
-      line: "Tu sistema dice 40 en stock. La góndola dice 3.",
-      visual: "Primer plano de una heladera de leche casi vacía, quedan tres cartones, zumbido de tubo fluorescente.",
-      why: "Todo dueño vivió esta diferencia exacta entre la pantalla y la góndola.",
+      title: "¿Por qué el pan siempre se termina a las seis?",
+      pain: "El sistema dice 40 en stock, la góndola dice 3, y el dueño se entera a las 18:02.",
+      bad: "El Desorden se presenta: “Hoy vine a esconderte el pan”.",
+      good: "El loop: Llegó marca el pedido con el celu y el stock queda al día.",
+      peg: "El reloj de la pared marcando las 18:02 sobre un estante vacío.",
+      why: "Todo kiosquero vivió esa diferencia exacta entre la pantalla y la góndola.",
     },
     {
-      move: "Clip Drop",
-      line: "18:02. Esta es la góndola del pan.",
-      visual: "Plano fijo de un estante de pan vacío; la mano de un cliente busca y no encuentra nada.",
-      why: "Abre con el desorden real, sin preámbulo; la hora lo vuelve concreto.",
+      title: "El yogur que venció el martes sigue adelante",
+      pain: "Lo vencido aparece cuando lo ve el cliente, no cuando lo ve el dueño.",
+      bad: "El Desorden acomoda lo vencido adelante “para que se vea”.",
+      good: "Vence muestra lo que vence esta semana, antes de que llegue el cliente.",
+      peg: "Un vasito de yogur girado hacia cámara, con la fecha del martes.",
+      why: "Es plata tirada y vergüenza delante del cliente.",
     },
     {
-      move: "Field Visit",
-      line: "Pasamos una noche en un kiosco. Estas son las 2 de la mañana.",
-      visual: "Recorrido cámara en mano por un depósito en penumbra, cajas apiladas hasta el techo.",
-      why: "Va adonde vive el comprador; se siente como acompañarlo, no como un aviso.",
+      title: "El proveedor cerró hace diez minutos",
+      pain: "El pedido se arma de memoria y se manda tarde.",
+      bad: "El Desorden adelanta el reloj del proveedor.",
+      good: "Pedidos arma la lista con lo que falta, antes del cierre.",
+      peg: "El celular con la hora: 10:10. El cierre era a las 10:00.",
+      why: "Perder un día de mercadería es perder un día de ventas.",
     },
     {
-      move: "Curiosity Gap",
-      line: "¿Por qué el pan siempre se termina a las 6 de la tarde?",
-      visual: "El reloj de la pared pasa de 17:59 a 18:00 sobre un estante vacío.",
-      why: "Plantea la tensión como una pregunta que el dueño quiere responder.",
+      title: "La caja que nunca cierra",
+      pain: "A la noche faltan 3.000 pesos y nadie sabe dónde quedaron.",
+      bad: "El Desorden esconde un billete en el cuaderno.",
+      good: "El cierre de caja cuadra el efectivo con la planilla del mes.",
+      peg: "Un cuaderno de tapa dura lleno de tachaduras a las 23 hs.",
+      why: "La duda de la caja se lleva a casa todas las noches.",
     },
     {
-      move: "Remote Stand-up",
-      line: "Vamos en vivo con El Encargado, desde la góndola tres.",
-      visual: "Una figura tranquila con chaleco de local y planilla en mano, frente a un exhibidor caído.",
-      why: "Presenta al personaje fijo que puede sostener próximas piezas.",
+      title: "Se cortó internet y el kiosco sigue",
+      pain: "Sin señal, el miedo es no poder vender.",
+      bad: "El Desorden desenchufa el router y se ríe.",
+      good: "IMAN sigue vendiendo sin internet; Sincronizar pone todo al día después.",
+      peg: "El router con las lucecitas apagadas.",
+      why: "En los barrios la señal se corta seguido.",
+    },
+    {
+      title: "Un domingo libre",
+      pain: "El dueño no puede faltar porque solo él sabe cómo está el local.",
+      bad: "El Desorden solo aparece cuando el dueño no está.",
+      good: "Desde el celu, Dueño muestra cómo va el local sin estar ahí.",
+      peg: "Un mate en una plaza un domingo a la mañana.",
+      why: "Es el deseo más simple y el más difícil de cumplir.",
     },
   ],
   questions: [
-    "¿Cuál es el nombre real del producto?",
-    "¿La prueba gratis de 30 días es una oferta real y vigente?",
-    "¿Hay un dueño real que quiera contar su historia para el Giro?",
+    "¿Hay un dueño o dueña real que quiera aparecer en el momento emotivo?",
+    "¿Querés cerrar con una invitación a probar IMAN o sin llamado a la acción?",
   ],
 };
 
-export const DEMO_SCRIPT: Script = {
-  title: "Tu sistema dice 40. La góndola dice 3.",
-  logline: "Una dueña de kiosco deja de enterarse de las góndolas vacías a las 6 de la tarde.",
+export const DEMO_STORY: Story = {
+  title: "¿Por qué el pan siempre se termina a las seis?",
+  logline: "El Desorden le esconde el pan a Marta todas las tardes, hasta que el loop de IMAN lo deja sin trabajo.",
+  characters: [
+    {
+      id: "desorden",
+      name: "El Desorden",
+      role: "bad",
+      voice: "Canchero, sobrador, se ríe de sus propias excusas.",
+      identity: "a lanky man in a rumpled gray suit covered in crumpled paper receipts, messy hair, sly grin",
+    },
+    {
+      id: "iman",
+      name: "IMAN",
+      role: "good",
+      voice: "Tranquilo, corto, concreto. Nunca levanta la voz.",
+      identity: "a calm phone resting upright on the store counter, its screen glowing softly, out of focus",
+    },
+    {
+      id: "marta",
+      name: "Marta",
+      role: "human",
+      voice: "Dueña de kiosco, cansada pero con humor.",
+      identity: "a tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater",
+    },
+  ],
+  topics: [
+    {
+      id: "T1",
+      title: "¿Por qué el pan siempre se termina a las seis?",
+      bridge: "El reloj de la pared pasa a las 18:02 sobre un estante de pan vacío.",
+      lines: [
+        { beat: "negative", speaker: "desorden", text: "Buenas tardes. Soy el Desorden. Hoy vine a esconderte el pan.", direction: "El Desorden apoyado en el estante vacío, reloj a las 18:02." },
+        { beat: "negative", speaker: "marta", text: "El sistema dice cuarenta yogures.", direction: "Marta mira la heladera casi vacía." },
+        { beat: "negative", speaker: "desorden", text: "Y la góndola dice tres. Los otros treinta y siete se fueron de vacaciones.", direction: "El Desorden sostiene un cartón de leche como si fuera un trofeo." },
+        { beat: "negative", speaker: "desorden", text: "Y el yogur que venció el martes lo dejé adelante. Para que se vea.", direction: "Un vasito girado hacia cámara, adelante de todo." },
+        { beat: "touching", speaker: "marta", text: "Hace once años que abro a las seis de la mañana. Me gustaría un domingo.", direction: "Marta levanta la persiana al amanecer, luz dorada." },
+        { beat: "good", speaker: "iman", text: "Llegó el pedido: lo marcás con el celu y ya está en el stock.", direction: "Marta toca el celu mientras entran los cajones." },
+        { beat: "good", speaker: "iman", text: "Vence te muestra lo que vence esta semana, antes que el cliente.", direction: "Marta saca un yogur del frente y lo aparta." },
+        { beat: "good", speaker: "iman", text: "Y a la noche, la caja cuadra con la planilla.", direction: "La caja cerrada, el mostrador ordenado." },
+        { beat: "good", speaker: "desorden", text: "¿Y yo qué hago?", direction: "El Desorden solo en un estante lleno, sin nada que esconder." },
+        { beat: "good", speaker: "marta", text: "Vos andá a esconderle el pan a otro.", direction: "Marta con un mate detrás del mostrador, estantes llenos." },
+      ],
+    },
+  ],
+  callbacks: [
+    {
+      planted: "“Hoy vine a esconderte el pan” (primera línea del Desorden).",
+      payoff: "“Vos andá a esconderle el pan a otro” (última línea de Marta).",
+    },
+  ],
+  close: "Vos andá a esconderle el pan a otro.",
+  checklist: [
+    { item: "Bueno contra Malo", pass: true, note: "El Desorden habla y se queda sin trabajo; IMAN gana mostrando el loop." },
+    { item: "Tres tiempos", pass: true, note: "Tres golpes negativos, un momento emotivo, el loop resolviendo." },
+    { item: "Detalle concreto", pass: true, note: "18:02, 40 contra 3, el yogur del martes." },
+    { item: "Callback", pass: true, note: "La primera línea vuelve en la última." },
+    { item: "Sin afirmaciones inventadas", pass: false, note: "Marta es ilustrativa." },
+    { item: "El chiste es el problema", pass: true, note: "Se ríen del Desorden, nunca de Marta." },
+  ],
+  verify: ["[VERIFY] Marta es ilustrativa: reemplazala por una dueña real que dé su consentimiento, o etiquetalo como dramatización."],
+};
+
+export const DEMO_BOARD: Board = {
   style: "35mm photo, shallow depth of field, muted colors, realistic film still",
   setups: [
-    { id: "A", name: "Marta", identity: "a tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater" },
-    { id: "B", name: "Góndolas, de tarde", identity: "a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves" },
-    { id: "C", name: "Trastienda", identity: "the store's cramped back room, a small white fridge, harsh overhead bulb" },
-    { id: "D", name: "Local, de mañana", identity: "the same small corner store in the morning, shelves fully stocked, soft daylight from the front window" },
+    { id: "A", name: "El Desorden", identity: "a lanky man in a rumpled gray suit covered in crumpled paper receipts, messy hair, sly grin" },
+    { id: "B", name: "Marta", identity: "a tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater" },
+    { id: "C", name: "Kiosco, de tarde", identity: "a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves" },
+    { id: "D", name: "Kiosco, de mañana", identity: "the same small corner store in the morning, shelves fully stocked, soft daylight from the front window" },
   ],
   shots: [
     {
-      section: "hook",
-      setup: "B",
-      voiceover: "Tu sistema dice cuarenta en stock. La góndola dice tres.",
-      onScreenText: "Sistema: 40. Góndola: 3.",
-      visualPrompt:
-        "A nearly empty glass-door milk fridge in a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves, three plain white cartons left on the middle shelf, faint fog on the glass. Eye-level close shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank carton labels, bare metal shelves, no signage.",
-      videoPrompt:
-        "The glass door drifts shut on its own and seals with a soft thud; the three cartons stay put. Slow push-in toward the middle shelf, no other camera move. The tube light flickers once. Audio: fridge hum, one soft thud, no music, no speech.",
+      topic: "T1", beat: "negative", speaker: "desorden", seconds: 6, setup: "A", disclosure: "none",
+      voiceover: "Buenas tardes. Soy el Desorden. Hoy vine a esconderte el pan.", onScreenText: "18:02",
+      visualPrompt: "A lanky man in a rumpled gray suit covered in crumpled paper receipts, messy hair, sly grin, leaning against an empty metal bread rack in a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves, a wall clock behind him. Eye-level medium shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank clock face, no signage.",
+      videoPrompt: "He tips an imaginary hat toward the camera and smirks; the empty rack stays still. Slow push-in, no other camera move. Audio: fluorescent hum, a soft chuckle, no music.",
       toolSettings: "9:16 · 6 s",
-      disclosure: "none",
     },
     {
-      section: "agitate",
-      setup: "B",
-      voiceover: "Seis de la tarde. No hay pan. Otra vez.",
-      onScreenText: "18:02",
-      visualPrompt:
-        "An empty metal bread rack in a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves, crumbs on the rack and an empty price-tag rail, one customer's hand reaching in from the right and finding nothing. Eye-level medium shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank tags, no signage.",
-      videoPrompt:
-        "The hand pauses over the empty rack, then slowly pulls back out of frame. Locked-off camera, no movement. The rack stays still. Audio: low store hum, a plastic bag rustles, no music, no speech.",
-      toolSettings: "9:16 · 10 s",
-      disclosure: "none",
-    },
-    {
-      section: "agitate",
-      setup: "C",
-      voiceover: "¿La grilla de turnos? En la heladera. Bajo un imán. Bajo una mancha de café.",
-      onScreenText: "La grilla.",
-      visualPrompt:
-        "A handwritten paper work schedule stuck to a fridge door with one magnet, a brown coffee ring stain across it, in the store's cramped back room, a small white fridge, harsh overhead bulb. Close shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Scribbled lines too blurry to read, no printed text.",
-      videoPrompt:
-        "The paper flutters slightly as if a door opened somewhere; the magnet holds. Slow push-in toward the coffee stain, no other camera move. Audio: fridge hum, a distant door, no music, no speech.",
+      topic: "T1", beat: "negative", speaker: "marta", seconds: 3, setup: "B", disclosure: "none",
+      voiceover: "El sistema dice cuarenta yogures.", onScreenText: "Sistema: 40",
+      visualPrompt: "A tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater, staring into a nearly empty glass-door fridge in a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves. Over-the-shoulder shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank labels, no signage.",
+      videoPrompt: "She slowly opens the fridge door and pauses, looking at the bare shelves. Locked-off camera. Audio: fridge hum, door seal, no music.",
       toolSettings: "9:16 · 6 s",
-      disclosure: "none",
     },
     {
-      section: "agitate",
-      setup: "B",
-      voiceover: "Y el yogur que venció el martes sigue siendo lo primero que ve el cliente.",
-      onScreenText: "Venció el martes.",
-      visualPrompt:
-        "A row of plain white yogurt cups at the very front of a store fridge shelf in a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves, one cup turned slightly toward the lens. Low close shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank lids and labels, no signage.",
-      videoPrompt:
-        "A customer's hand reaches in, picks up the turned cup, hesitates, and puts it back. Locked-off camera. The other cups stay still. Audio: fridge hum, a soft plastic tap, no music, no speech.",
+      topic: "T1", beat: "negative", speaker: "desorden", seconds: 5, setup: "A", disclosure: "none",
+      voiceover: "Y la góndola dice tres. Los otros treinta y siete se fueron de vacaciones.", onScreenText: "Góndola: 3",
+      visualPrompt: "A lanky man in a rumpled gray suit covered in crumpled paper receipts, messy hair, sly grin, holding up a single plain milk carton like a trophy beside a nearly empty fridge in a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves. Medium shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank carton, no signage.",
+      videoPrompt: "He lifts the carton higher, proud, then shrugs. Slow push-in. The fridge stays still. Audio: fridge hum, no music.",
+      toolSettings: "9:16 · 6 s",
+    },
+    {
+      topic: "T1", beat: "negative", speaker: "desorden", seconds: 5, setup: "C", disclosure: "none",
+      voiceover: "Y el yogur que venció el martes lo dejé adelante. Para que se vea.", onScreenText: "Venció el martes",
+      visualPrompt: "A row of plain white yogurt cups at the very front of a fridge shelf in a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves, one cup turned toward the lens. Low close shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank lids and labels.",
+      videoPrompt: "A gloved hand made of crumpled receipts nudges the turned cup a little further forward. Locked-off camera. Audio: soft plastic tap, fridge hum, no music.",
+      toolSettings: "9:16 · 6 s",
+    },
+    {
+      topic: "T1", beat: "touching", speaker: "marta", seconds: 7, setup: "B", disclosure: "none",
+      voiceover: "Hace once años que abro a las seis de la mañana. Me gustaría un domingo.", onScreenText: "",
+      visualPrompt: "A tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater, lifting a corrugated metal shop shutter at dawn, narrow quiet street, warm low golden sunlight from the left, long soft shadows. Eye-level medium shot, 35mm photo, shallow depth of field, realistic film still. Bare shutter, no signage.",
+      videoPrompt: "She slowly lifts the shutter a short way; the slats clack and catch the light. Her head stays down. Slow push-in, no other camera move. Audio: metal clacks, distant birds, no music.",
       toolSettings: "9:16 · 10 s",
-      disclosure: "none",
     },
     {
-      section: "turn",
-      setup: "A",
-      voiceover: "Marta abre este kiosco a las seis de la mañana hace once años. Le gustaría recuperar un domingo.",
-      onScreenText: "",
-      visualPrompt:
-        "A tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater, unlocking a corrugated metal shop shutter at dawn. One hand on the lock, body angled toward the door. Narrow quiet street, closed shops opposite, no cars. Warm low golden sunlight from the left, long soft shadows. Eye-level medium shot, 35mm photo, shallow depth of field, realistic film still. Bare shutter, no signage.",
-      videoPrompt:
-        "She slowly lifts the metal shutter a short way; the slats clack and catch the light. Her head stays down, expression unchanged. Slow push-in, no other camera move. Warm dawn light holds. Audio: a few metal clacks, distant birds, no music, no speech.",
-      toolSettings: "9:16 · 15 s",
-      disclosure: "none",
+      topic: "T1", beat: "good", speaker: "iman", seconds: 5, setup: "D", disclosure: "none",
+      voiceover: "Llegó el pedido: lo marcás con el celu y ya está en el stock.", onScreenText: "Llegó",
+      visualPrompt: "A tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater, tapping a phone while a delivery man sets plastic crates on the floor of the same small corner store in the morning, shelves fully stocked, soft daylight from the front window. Medium shot, 35mm photo, shallow depth of field, realistic film still. Blank phone glow, plain crates.",
+      videoPrompt: "She taps the phone once and nods; the crates settle. Slow push-in. Audio: crates on the floor, morning street, no music.",
+      toolSettings: "9:16 · 6 s",
     },
     {
-      section: "resolve",
-      setup: "D",
-      voiceover: "[PLANNER] ve la góndola, el turno y el vencimiento a la vez, y te avisa antes de que sea un problema.",
-      onScreenText: "Góndola. Turno. Vencimiento.",
-      visualPrompt:
-        "A tablet leaning against the till on a shop counter, its screen glowing softly and out of focus, in the same small corner store in the morning, shelves fully stocked, soft daylight from the front window. Medium shot over the counter, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank screen glow, no readable text, no signage.",
-      videoPrompt:
-        "The tablet screen brightens gently; behind it a hand slides one last loaf onto the full bread rack. Slow push-in toward the counter. The shelves stay still. Audio: quiet morning store, a paper bag rustle, no music, no speech.",
-      toolSettings: "9:16 · 15 s",
-      disclosure: "none",
+      topic: "T1", beat: "good", speaker: "iman", seconds: 5, setup: "D", disclosure: "none",
+      voiceover: "Vence te muestra lo que vence esta semana, antes que el cliente.", onScreenText: "Vence",
+      visualPrompt: "A hand taking one plain white yogurt cup from the front of a fully stocked fridge in the same small corner store in the morning, shelves fully stocked, soft daylight from the front window. Close shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank lids and labels.",
+      videoPrompt: "The hand sets the cup aside on the counter; the full shelf behind stays still. Locked-off camera. Audio: soft plastic tap, quiet store, no music.",
+      toolSettings: "9:16 · 6 s",
     },
     {
-      section: "resolve",
-      setup: "D",
-      voiceover: "Los pedidos salen antes del cierre del proveedor. Los huecos de turno aparecen una semana antes, no a las cinco y cincuenta y cinco.",
-      onScreenText: "Enterate antes de las 18.",
-      visualPrompt:
-        "A full, neatly faced bread rack next to a fully stocked milk fridge in the same small corner store in the morning, shelves fully stocked, soft daylight from the front window. Eye-level wide shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Plain packaging, blank labels, no signage.",
-      videoPrompt:
-        "Daylight slowly strengthens across the full shelves; dust drifts in the sunbeam. Slow pan from the bread rack to the fridge, no other camera move. Audio: soft street sounds through the window, no music, no speech.",
-      toolSettings: "9:16 · 15 s",
-      disclosure: "none",
+      topic: "T1", beat: "good", speaker: "iman", seconds: 4, setup: "D", disclosure: "none",
+      voiceover: "Y a la noche, la caja cuadra con la planilla.", onScreenText: "Caja ✓",
+      visualPrompt: "A tidy shop counter at night with a closed cash drawer and a calm phone resting upright on the store counter, its screen glowing softly, out of focus, warm lamp light, fully stocked shelves behind. Medium close shot, 35mm photo, shallow depth of field, realistic film still. No readable screen, no signage.",
+      videoPrompt: "The cash drawer slides shut with a soft click; the phone glow steadies. Locked-off camera. Audio: drawer click, quiet night, no music.",
+      toolSettings: "9:16 · 6 s",
     },
     {
-      section: "button",
-      setup: "A",
-      voiceover: "La góndola dice cuarenta. El sistema también. Probá [PLANNER] gratis treinta días.",
-      onScreenText: "Góndola: 40. Sistema: 40.",
-      visualPrompt:
-        "A tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater, standing behind the counter of her store holding a mug of coffee, a relaxed half smile, full shelves behind her, warm morning light. Eye-level medium shot, 35mm photo, shallow depth of field, realistic film still. Plain mug, no signage.",
-      videoPrompt:
-        "She takes a slow sip of coffee and looks out the front window, calm. Locked-off camera. The shelves behind her stay still. Audio: quiet morning store, a cup set down on the counter, no music, no speech.",
-      toolSettings: "9:16 · 10 s",
-      disclosure: "none",
+      topic: "T1", beat: "good", speaker: "desorden", seconds: 3, setup: "A", disclosure: "none",
+      voiceover: "¿Y yo qué hago?", onScreenText: "",
+      visualPrompt: "A lanky man in a rumpled gray suit covered in crumpled paper receipts, messy hair, sly grin now gone, standing alone in front of fully stocked shelves in the same small corner store in the morning, soft daylight from the front window, looking lost. Medium shot, 35mm photo, shallow depth of field, realistic film still. Plain packaging, no signage.",
+      videoPrompt: "He looks left, then right, finding nothing to hide; his shoulders drop. Locked-off camera. Audio: quiet store, a single receipt rustles, no music.",
+      toolSettings: "9:16 · 6 s",
     },
-  ],
-  cta: "Probá [PLANNER] gratis 30 días",
-  callback: {
-    planted: "El sistema dice 40, la góndola dice 3.",
-    payoff: "La góndola dice 40, y el sistema también.",
-  },
-  checklist: [
-    { item: "El cliente es el héroe", pass: true, note: "Marta y su góndola son la historia; el producto llega en 0:40." },
-    { item: "Detalle concreto", pass: true, note: "40 contra 3, las 18:02, la grilla manchada de café, el yogur del martes." },
-    { item: "El blanco es el problema", pass: true, note: "Los chistes caen sobre la góndola y la grilla de papel, nunca sobre la dueña." },
-    { item: "Hay Giro", pass: true, note: "Once años abriendo a las 6; recuperar un domingo." },
-    { item: "Un solo llamado a la acción", pass: true, note: "Solo la prueba gratis de 30 días." },
-    { item: "Sin afirmaciones sin verificar", pass: false, note: "Marta es ilustrativa; hay que confirmar la oferta de prueba." },
-    { item: "Sin propiedad ajena", pass: true, note: "Personaje y textos originales; nada del programa." },
-  ],
-  verify: [
-    "[VERIFY] Marta es una dueña ilustrativa. Reemplazala por una dueña real que dé su consentimiento, o etiquetalo como dramatización.",
-    "[VERIFY] La prueba gratis de 30 días es una oferta real y vigente.",
-    "[VERIFY] 'Los pedidos salen antes del cierre del proveedor' coincide con lo que el producto hace hoy.",
+    {
+      topic: "T1", beat: "good", speaker: "marta", seconds: 4, setup: "B", disclosure: "none",
+      voiceover: "Vos andá a esconderle el pan a otro.", onScreenText: "",
+      visualPrompt: "A tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater, behind the counter of her store sipping mate with a relaxed half smile, fully stocked shelves behind her, warm morning light. Eye-level medium shot, 35mm photo, shallow depth of field, realistic film still. Plain gourd, no signage.",
+      videoPrompt: "She takes a slow sip of mate and glances off to the side, amused. Locked-off camera. Audio: quiet morning store, no music.",
+      toolSettings: "9:16 · 6 s",
+    },
   ],
 };

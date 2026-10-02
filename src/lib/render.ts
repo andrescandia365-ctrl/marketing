@@ -1,6 +1,6 @@
 // Turns the storyboard into a video in the browser. Each shot plays its uploaded clip, or its still with a
-// slow push-in, or a colour card; shots crossfade; the caption, subtitles, CTA and disclosure line are drawn
-// on top. Clips' own sound can be mixed in. Encoded with WebCodecs through mediabunny, faster than real time.
+// slow push-in, or a colour card; shots crossfade; the caption, the speaker's name and line, and the
+// disclosure line are drawn on top. Clips' own sound can be mixed in. Encoded with WebCodecs through mediabunny, faster than real time.
 import {
   ALL_FORMATS,
   AudioBufferSink,
@@ -18,8 +18,8 @@ import {
   getFirstEncodableVideoCodec,
   type WrappedCanvas,
 } from "mediabunny";
-import type { Brief, Script } from "../../shared/schema.ts";
-import { TEMPLATE, TOTAL_SECONDS, timeShots, type TimedShot } from "../../shared/template.ts";
+import type { Board, Brief, Role } from "../../shared/schema.ts";
+import { timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 
 const FPS = 30;
 const FADE = 0.35;
@@ -34,12 +34,23 @@ const BEAT_COLORS = {
 
 export type ShotMedia = { image?: string; clip?: Blob };
 
+export type Speaker = { name: string; role: Role };
+
+// Speaker names are tinted by role so the Good-vs-Bad argument reads with the sound off.
+const ROLE_COLOR: Record<Role, string> = {
+  good: "#7fe3bf",
+  bad: "#ff9c85",
+  human: "#c9bfff",
+  narrator: "#ffffff",
+};
+
 export type RenderOptions = {
   format: Brief["format"];
   disclosure: string;
   // Show each still or clip whole, with no zoom or crop, so a tool's watermark stays visible.
   fullFrame: boolean;
   keepSound: boolean;
+  speakers: Record<string, Speaker>;
 };
 
 export type RenderResult = { blob: Blob; extension: string; mimeType: string; notes: string[] };
@@ -112,7 +123,7 @@ function paintStill(
   layer.fillStyle = "#000";
   layer.fillRect(0, 0, w, h);
   if (!img) {
-    const [a, b] = BEAT_COLORS[TEMPLATE[shot.section].beat];
+    const [a, b] = BEAT_COLORS[shot.beat];
     const g = layer.createLinearGradient(0, 0, w, h);
     g.addColorStop(0, a);
     g.addColorStop(1, b);
@@ -131,7 +142,13 @@ function paintStill(
   layer.drawImage(img, (w - dw) / 2 + drift, (h - dh) / 2, dw, dh);
 }
 
-function drawOverlay(ctx: CanvasRenderingContext2D, shot: TimedShot, script: Script, t: number, disclosure: string) {
+function drawOverlay(
+  ctx: CanvasRenderingContext2D,
+  shot: TimedShot,
+  speaker: Speaker | undefined,
+  t: number,
+  disclosure: string,
+) {
   const { width: w, height: h } = ctx.canvas;
   const unit = Math.min(w, h);
 
@@ -171,24 +188,11 @@ function drawOverlay(ctx: CanvasRenderingContext2D, shot: TimedShot, script: Scr
   }
 
   let subtitleTop = h * 0.8;
-  if (shot.section === "button" && script.cta) {
-    ctx.shadowBlur = 0;
-    const size = unit * 0.05;
-    ctx.font = `700 ${size}px ${FONT}`;
-    const tw = Math.min(ctx.measureText(script.cta).width, w * 0.8);
-    const pillH = size * 1.9;
-    const pillY = h * 0.62;
+  if (speaker && shot.voiceover) {
+    ctx.font = `700 ${unit * 0.032}px ${FONT}`;
+    ctx.fillStyle = ROLE_COLOR[speaker.role];
+    ctx.fillText(speaker.name.toUpperCase(), w / 2, subtitleTop - unit * 0.05);
     ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.roundRect(w / 2 - tw / 2 - size, pillY, tw + size * 2, pillH, pillH / 2);
-    ctx.fill();
-    ctx.fillStyle = "#15171c";
-    ctx.textBaseline = "middle";
-    ctx.fillText(script.cta, w / 2, pillY + pillH / 2, w * 0.8);
-    ctx.textBaseline = "top";
-    ctx.fillStyle = "#ffffff";
-    ctx.shadowBlur = unit * 0.012;
-    subtitleTop = Math.max(subtitleTop, pillY + pillH + size);
   }
 
   const subtitle = subtitleAt(shot, t);
@@ -224,8 +228,8 @@ async function openClip(blob: Blob, shot: TimedShot, w: number, h: number, fullF
 }
 
 // Mixes each clip's own sound onto the 75-second timeline, cut to its shot with short fades.
-async function mixSound(shots: TimedShot[], media: Record<number, ShotMedia>): Promise<AudioBuffer | null> {
-  const ctx = new OfflineAudioContext(2, SAMPLE_RATE * TOTAL_SECONDS, SAMPLE_RATE);
+async function mixSound(shots: TimedShot[], media: Record<number, ShotMedia>, total: number): Promise<AudioBuffer | null> {
+  const ctx = new OfflineAudioContext(2, Math.ceil(SAMPLE_RATE * total), SAMPLE_RATE);
   let any = false;
   for (const shot of shots) {
     const clip = media[shot.index]?.clip;
@@ -257,7 +261,7 @@ async function mixSound(shots: TimedShot[], media: Record<number, ShotMedia>): P
 }
 
 export async function renderVideo(
-  script: Script,
+  board: Board,
   media: Record<number, ShotMedia>,
   options: RenderOptions,
   onProgress: (fraction: number) => void,
@@ -271,7 +275,8 @@ export async function renderVideo(
   if (!codec) throw new Error("Este navegador no tiene un codificador de video disponible.");
   const mp4 = codec === "avc";
 
-  const shots = timeShots(script.shots);
+  const shots = timeShots(board.shots);
+  const total = totalSeconds(board.shots);
   const stills = await Promise.all(shots.map((s) => loadImage(media[s.index]?.image)));
   // Canvas text only uses a web font once it has loaded; without this the first frames fall back.
   await Promise.all(
@@ -280,7 +285,7 @@ export async function renderVideo(
 
   let sound: AudioBuffer | null = null;
   if (options.keepSound && shots.some((s) => media[s.index]?.clip)) {
-    sound = await mixSound(shots, media);
+    sound = await mixSound(shots, media, total);
     if (!sound) notes.push("Los clips no traían sonido que este navegador pueda leer.");
   }
   onProgress(0.05);
@@ -320,7 +325,7 @@ export async function renderVideo(
 
   const open = new Map<number, OpenClip>();
   try {
-    const frames = TOTAL_SECONDS * FPS;
+    const frames = Math.round(total * FPS);
     for (let f = 0; f < frames; f++) {
       const t = f / FPS;
       const i = Math.max(
@@ -354,7 +359,7 @@ export async function renderVideo(
       }
       ctx.drawImage(layer.canvas, 0, 0);
       ctx.globalAlpha = 1;
-      drawOverlay(ctx, shot, script, t, options.disclosure.trim());
+      drawOverlay(ctx, shot, options.speakers[shot.speaker], t, options.disclosure.trim());
 
       await video.add(t, 1 / FPS);
       if (f % 15 === 0) onProgress(0.05 + 0.95 * (f / frames));

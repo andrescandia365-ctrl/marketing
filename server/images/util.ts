@@ -2,7 +2,7 @@ import { buildImagePrompt } from "../../shared/prompt.ts";
 
 export type Aspect = "vertical" | "horizontal";
 
-export type ImageRequest = { prompt: string; style: string; aspect: Aspect; section: string };
+export type ImageRequest = { prompt: string; style: string; aspect: Aspect; beat: string };
 
 export interface ImageProvider {
   id: string;

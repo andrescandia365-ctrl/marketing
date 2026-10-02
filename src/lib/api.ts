@@ -1,4 +1,4 @@
-import type { Brief, Hook, HooksResult, Script, Shot, Status } from "../../shared/schema.ts";
+import type { Board, Brief, Menu, Shot, Status, Story, TopicIdea } from "../../shared/schema.ts";
 
 async function call<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -11,12 +11,19 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
   return data as T;
 }
 
+type Demo = { demo: boolean };
+
 export const api = {
   status: () => call<Status>("/api/status"),
-  hooks: (brief: Brief) => call<HooksResult & { demo: boolean }>("/api/hooks", { brief }),
-  script: (brief: Brief, hook: Hook) => call<{ script: Script; demo: boolean }>("/api/script", { brief, hook }),
-  rewrite: (brief: Brief, script: Script, index: number, note: string) =>
-    call<{ shot: Shot; demo: boolean }>("/api/rewrite", { brief, script, index, note }),
-  image: (provider: string, prompt: string, style: string, aspect: Brief["format"], section: string) =>
-    call<{ dataUrl: string }>("/api/image", { provider, prompt, style, aspect, section }),
+  menu: (brief: Brief) => call<Menu & Demo>("/api/menu", { brief }),
+  story: (brief: Brief, topics: TopicIdea[]) => call<{ story: Story } & Demo>("/api/story", { brief, topics }),
+  reviseStory: (brief: Brief, story: Story, note: string) =>
+    call<{ story: Story } & Demo>("/api/story/revise", { brief, story, note }),
+  board: (brief: Brief, story: Story) => call<{ board: Board } & Demo>("/api/board", { brief, story }),
+  reviseBoard: (brief: Brief, story: Story, board: Board, note: string, shotNotes: { index: number; note: string }[]) =>
+    call<{ board: Board } & Demo>("/api/board/revise", { brief, story, board, note, shotNotes }),
+  rewriteShot: (brief: Brief, story: Story, board: Board, index: number, note: string) =>
+    call<{ shot: Shot } & Demo>("/api/shot/rewrite", { brief, story, board, index, note }),
+  image: (provider: string, prompt: string, style: string, aspect: Brief["format"], beat: string) =>
+    call<{ dataUrl: string }>("/api/image", { provider, prompt, style, aspect, beat }),
 };

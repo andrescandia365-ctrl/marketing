@@ -1,35 +1,38 @@
 import { useRef, useState } from "react";
 import { buildCopyPrompt } from "../../shared/prompt.ts";
-import type { Brief, Script, Shot } from "../../shared/schema.ts";
-import { TEMPLATE, TOTAL_SECONDS, formatTime, timeShots, type TimedShot } from "../../shared/template.ts";
+import type { Board, Brief, Shot, Story } from "../../shared/schema.ts";
+import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 import { copyText } from "../lib/files.ts";
 import { formatElapsed, type LogEntry } from "../lib/markdown.ts";
-import { Button, SectionChip, Spinner, inputClass } from "./ui.tsx";
+import { BeatChip, Button, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
 
 export type ClipFile = { url: string; blob: Blob; name: string; duration: number };
 export type MediaState = { image?: string; clip?: ClipFile; loading?: boolean; error?: string };
 
 const BAR = { negative: "bg-neg", touching: "bg-touch", good: "bg-good" };
 
-export function Timeline({ script }: { script: Script }) {
-  const shots = timeShots(script.shots);
+export function Timeline({ board }: { board: Board }) {
+  const shots = timeShots(board.shots);
+  const total = totalSeconds(board.shots);
   return (
     <div>
       <div className="flex h-3 overflow-hidden rounded-full">
         {shots.map((s) => (
           <div
             key={s.index}
-            className={`${BAR[TEMPLATE[s.section].beat]} border-r border-white/70 last:border-r-0`}
-            style={{ width: `${((s.end - s.start) / TOTAL_SECONDS) * 100}%` }}
-            title={`${TEMPLATE[s.section].label} ${formatTime(s.start)}–${formatTime(s.end)}`}
+            className={`${BAR[s.beat]} border-r border-white/70 last:border-r-0`}
+            style={{ width: `${(s.seconds / total) * 100}%` }}
+            title={`Toma ${s.index + 1} · ${formatTime(s.start)}–${formatTime(s.end)}`}
           />
         ))}
       </div>
       <div className="mt-1.5 flex justify-between font-mono text-xs text-muted">
-        <span>0:00 Negativo</span>
-        <span>0:25 Emotivo</span>
-        <span>0:40 Bueno</span>
-        <span>1:15</span>
+        <span>0:00</span>
+        <span>
+          <span className="text-neg">■</span> Negativo <span className="text-touch">■</span> Emotivo{" "}
+          <span className="text-good">■</span> Bueno
+        </span>
+        <span>{formatTime(total)}</span>
       </div>
     </div>
   );
@@ -120,7 +123,7 @@ function DropSlot({
 }
 
 function clipNote(clip: ClipFile, shot: TimedShot): string {
-  const need = shot.end - shot.start;
+  const need = shot.seconds;
   if (clip.duration >= need - 0.05) {
     return `Clip de ${clip.duration.toFixed(1)} s → se usan ${need.toFixed(1)} s.`;
   }
@@ -129,7 +132,8 @@ function clipNote(clip: ClipFile, shot: TimedShot): string {
 
 type CardProps = {
   brief: Brief;
-  script: Script;
+  story: Story;
+  board: Board;
   shot: TimedShot;
   media: MediaState;
   toolName: string;
@@ -141,12 +145,14 @@ type CardProps = {
 };
 
 function ShotCard(props: CardProps) {
-  const { brief, script, shot, media, toolName, onShotChange, onGenerate, onUploadImage, onUploadClip, onRewrite } = props;
+  const { brief, story, board, shot, media, toolName, onShotChange, onGenerate, onUploadImage, onUploadClip, onRewrite } =
+    props;
   const [open, setOpen] = useState(true);
   const [note, setNote] = useState("");
   const [rewriting, setRewriting] = useState(false);
   const vertical = brief.format === "vertical";
-  const setup = script.setups.find((s) => s.id === shot.setup);
+  const setup = board.setups.find((s) => s.id === shot.setup);
+  const who = story.characters.find((c) => c.id === shot.speaker);
   const set = <K extends keyof Shot>(key: K, value: Shot[K]) => onShotChange(shot.index, { ...shot, [key]: value });
   const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length;
 
@@ -162,8 +168,11 @@ function ShotCard(props: CardProps) {
           <span className="w-24 shrink-0 font-mono text-xs text-muted">
             {formatTime(shot.start)}–{formatTime(shot.end)}
           </span>
-          <SectionChip section={shot.section} />
-          <span className="min-w-0 flex-1 truncate">{shot.onScreenText ? `“${shot.onScreenText}”` : shot.voiceover}</span>
+          <BeatChip beat={shot.beat} />
+          <span className="min-w-0 flex-1 truncate">
+            {who && <b className={ROLE_TEXT[who.role]}>{who.name}: </b>}
+            {shot.voiceover || shot.onScreenText || "(sin texto)"}
+          </span>
           <span className="text-xs text-muted">Setup {shot.setup}</span>
           <span className="rounded border border-line px-1.5 font-mono text-xs">{status}</span>
         </button>
@@ -182,9 +191,9 @@ function ShotCard(props: CardProps) {
     <li className="rounded-xl border border-line bg-white p-3 sm:p-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-xs text-muted">
-          Toma {shot.index + 1} · {formatTime(shot.start)}–{formatTime(shot.end)}
+          Toma {shot.index + 1} · {formatTime(shot.start)}–{formatTime(shot.end)} · {shot.seconds} s
         </span>
-        <SectionChip section={shot.section} />
+        <BeatChip beat={shot.beat} />
         <span className="rounded border border-line px-1.5 py-0.5 text-xs font-medium">
           Setup {shot.setup}
           {setup ? ` · ${setup.name}` : ""}
@@ -299,7 +308,9 @@ function ShotCard(props: CardProps) {
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="text-xs font-semibold text-muted">Locución (va encima)</span>
+              <span className="text-xs font-semibold text-muted">
+                Lo que se dice{who ? <> · <b className={ROLE_TEXT[who.role]}>{who.name}</b></> : ""}
+              </span>
               <textarea
                 className={`${inputClass} mt-0.5`}
                 rows={2}
@@ -322,7 +333,7 @@ function ShotCard(props: CardProps) {
               <input
                 className={`${inputClass} mt-0.5`}
                 value={note}
-                placeholder="ej. la góndola se ve demasiado moderna"
+                placeholder="ej. el Malo se ve distinto que en la toma 1"
                 onChange={(e) => setNote(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && note.trim() && !rewriting) rewrite();
@@ -350,7 +361,7 @@ type Props = Omit<CardProps, "shot" | "media"> & { media: Record<number, MediaSt
 export function ScriptView(props: Props) {
   return (
     <ol className="space-y-3">
-      {timeShots(props.script.shots).map((shot) => (
+      {timeShots(props.board.shots).map((shot) => (
         <ShotCard key={shot.index} {...props} shot={shot} media={props.media[shot.index] ?? {}} />
       ))}
     </ol>
@@ -358,16 +369,16 @@ export function ScriptView(props: Props) {
 }
 
 export function SetupsPanel({
-  script,
+  board,
   media,
   toolName,
 }: {
-  script: Script;
+  board: Board;
   media: Record<number, MediaState>;
   toolName: string;
 }) {
-  if (!script.setups.length) return null;
-  const shots = timeShots(script.shots);
+  if (!board.setups.length) return null;
+  const shots = timeShots(board.shots);
   return (
     <div className="space-y-3 rounded-xl border border-line bg-white p-4">
       <div>
@@ -378,7 +389,7 @@ export function SetupsPanel({
         </p>
       </div>
       <ul className="space-y-3">
-        {script.setups.map((s) => {
+        {board.setups.map((s) => {
           const inSetup = shots.filter((sh) => sh.setup === s.id);
           const hero = inSetup.some((sh) => media[sh.index]?.image);
           return (
@@ -429,21 +440,23 @@ export function DirectionLog({ log }: { log: LogEntry[] }) {
   );
 }
 
-export function ScriptNotes({ script }: { script: Script }) {
+export function StoryNotes({ story }: { story: Story }) {
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-line bg-white p-4">
-        <p className="text-sm font-semibold">Callback</p>
-        <p className="mt-1 text-sm text-muted">
-          Se siembra: “{script.callback.planted}”
-          <br />
-          Se paga: {script.callback.payoff}
-        </p>
+        <p className="text-sm font-semibold">Callbacks</p>
+        <ul className="mt-1 space-y-1 text-sm text-muted">
+          {story.callbacks.map((c, i) => (
+            <li key={i}>
+              {c.planted} → {c.payoff}
+            </li>
+          ))}
+        </ul>
       </div>
       <div className="rounded-xl border border-line bg-white p-4">
         <p className="text-sm font-semibold">Checklist</p>
         <ul className="mt-2 space-y-2">
-          {script.checklist.map((c) => (
+          {story.checklist.map((c) => (
             <li key={c.item} className="flex gap-2 text-sm">
               <span className={`mt-0.5 font-bold ${c.pass ? "text-good" : "text-neg"}`}>{c.pass ? "✓" : "✗"}</span>
               <span>
@@ -454,11 +467,11 @@ export function ScriptNotes({ script }: { script: Script }) {
           ))}
         </ul>
       </div>
-      {script.verify.length > 0 && (
+      {story.verify.length > 0 && (
         <div className="rounded-xl border border-neg/30 bg-neg-soft p-4">
           <p className="text-sm font-semibold text-neg">Verificar antes de publicar</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-            {script.verify.map((v) => (
+            {story.verify.map((v) => (
               <li key={v}>{v}</li>
             ))}
           </ul>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { Brief, Script } from "../../shared/schema.ts";
+import type { Board, Brief, Story } from "../../shared/schema.ts";
+import { formatTime, totalSeconds } from "../../shared/template.ts";
 import { download, slug } from "../lib/markdown.ts";
 import { renderVideo, type RenderResult, type ShotMedia } from "../lib/render.ts";
 import { Button, Notice, Segmented, inputClass } from "./ui.tsx";
@@ -8,13 +9,14 @@ const DISCLOSURE = { en: "Illustrative images", es: "Imágenes ilustrativas" };
 
 type Props = {
   brief: Brief;
-  script: Script;
+  story: Story;
+  board: Board;
   media: Record<number, ShotMedia>;
   // Tools that watermark their output start with the full frame on.
   watermarked: boolean;
 };
 
-export function VideoPanel({ brief, script, media, watermarked }: Props) {
+export function VideoPanel({ brief, story, board, media, watermarked }: Props) {
   const [progress, setProgress] = useState<number | null>(null);
   const [result, setResult] = useState<(RenderResult & { url: string }) | null>(null);
   const [error, setError] = useState("");
@@ -27,18 +29,25 @@ export function VideoPanel({ brief, script, media, watermarked }: Props) {
     if (result) URL.revokeObjectURL(result.url);
   }, [result]);
 
-  const total = script.shots.length;
-  const clips = script.shots.filter((_, i) => media[i]?.clip).length;
-  const empty = script.shots.filter((_, i) => !media[i]?.clip && !media[i]?.image).length;
+  const total = board.shots.length;
+  const clips = board.shots.filter((_, i) => media[i]?.clip).length;
+  const empty = board.shots.filter((_, i) => !media[i]?.clip && !media[i]?.image).length;
+  const speakers = Object.fromEntries(story.characters.map((c) => [c.id, { name: c.name, role: c.role }]));
 
   async function render() {
     setError("");
     setProgress(0);
     try {
       const out = await renderVideo(
-        script,
+        board,
         media,
-        { format: brief.format, disclosure: showDisclosure ? disclosure : "", fullFrame, keepSound: sound === "keep" },
+        {
+          format: brief.format,
+          disclosure: showDisclosure ? disclosure : "",
+          fullFrame,
+          keepSound: sound === "keep",
+          speakers,
+        },
         setProgress,
       );
       setResult({ ...out, url: URL.createObjectURL(out.blob) });
@@ -54,7 +63,7 @@ export function VideoPanel({ brief, script, media, watermarked }: Props) {
   return (
     <div className="space-y-3 rounded-xl border border-line bg-white p-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold">Video · 1:15</p>
+        <p className="text-sm font-semibold">Video · {formatTime(totalSeconds(board.shots))}</p>
         <Button onClick={render} disabled={progress !== null}>
           {progress !== null ? `Generando ${Math.round(progress * 100)}%` : result ? "Generar de nuevo" : "Generar video"}
         </Button>
@@ -126,7 +135,7 @@ export function VideoPanel({ brief, script, media, watermarked }: Props) {
           <Button
             variant="secondary"
             className="w-full"
-            onClick={() => download(result.blob, `${slug(script.title)}.${result.extension}`)}
+            onClick={() => download(result.blob, `${slug(story.title)}.${result.extension}`)}
           >
             Descargar .{result.extension}
           </Button>
@@ -135,7 +144,7 @@ export function VideoPanel({ brief, script, media, watermarked }: Props) {
               {n}
             </p>
           ))}
-          <p className="text-xs text-muted">Todavía no hay voz en off: los textos y subtítulos llevan el guion.</p>
+          <p className="text-xs text-muted">Todavía no hay voces: el nombre de quien habla y su línea van en subtítulos.</p>
         </div>
       )}
     </div>

@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import type { Section } from "../../shared/schema.ts";
-import { TEMPLATE } from "../../shared/template.ts";
+import type { Beat, Role } from "../../shared/schema.ts";
+import { BEAT_INFO } from "../../shared/template.ts";
 
 export function Button({
   variant = "primary",
@@ -67,12 +67,19 @@ const BEAT_CHIP = {
   good: "bg-good-soft text-good border-good/40",
 };
 
-export function SectionChip({ section }: { section: Section }) {
-  const slot = TEMPLATE[section];
+export function BeatChip({ beat }: { beat: Beat }) {
   return (
-    <span className={`rounded border px-1.5 py-0.5 text-xs font-semibold ${BEAT_CHIP[slot.beat]}`}>{slot.label}</span>
+    <span className={`rounded border px-1.5 py-0.5 text-xs font-semibold ${BEAT_CHIP[beat]}`}>{BEAT_INFO[beat].label}</span>
   );
 }
+
+// Colour per role, so the Good-vs-Bad dialogue reads at a glance.
+export const ROLE_TEXT: Record<Role, string> = {
+  good: "text-good",
+  bad: "text-neg",
+  human: "text-touch",
+  narrator: "text-muted",
+};
 
 export function Spinner() {
   return <span className="inline-block size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />;

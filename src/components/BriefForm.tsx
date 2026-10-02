@@ -1,71 +1,55 @@
-import type { Brief, ToolInfo } from "../../shared/schema.ts";
+import type { Brief, SeriesInfo, ToolInfo } from "../../shared/schema.ts";
+import { LENGTHS } from "../../shared/template.ts";
 import { Field, Segmented, inputClass } from "./ui.tsx";
 
-type Props = { brief: Brief; tools: ToolInfo[]; onChange: (brief: Brief) => void };
+type Props = { brief: Brief; series: SeriesInfo[]; tools: ToolInfo[]; onChange: (brief: Brief) => void };
 
-export function BriefForm({ brief, tools, onChange }: Props) {
+export function BriefForm({ brief, series, tools, onChange }: Props) {
   const set = <K extends keyof Brief>(key: K, value: Brief[K]) => onChange({ ...brief, [key]: value });
-  const text = (key: keyof Brief, rows = 2, placeholder = "") => (
-    <textarea
-      className={inputClass}
-      rows={rows}
-      value={brief[key]}
-      placeholder={placeholder}
-      onChange={(e) => set(key, e.target.value as never)}
-    />
-  );
+  const isMasogar = brief.series === "masogar";
 
   return (
     <div className="grid gap-5 md:grid-cols-2">
       <div className="md:col-span-2">
-        <Field label="¿Qué trabajo?">
+        <Field label="Serie">
           <Segmented
-            value={brief.job}
-            onChange={(v) => set("job", v)}
+            value={brief.series}
+            onChange={(v) => set("series", v)}
+            options={series.map((s) => ({ value: s.id, label: s.name }))}
+          />
+        </Field>
+      </div>
+
+      <div className="md:col-span-2">
+        <Field label="Largo">
+          <Segmented
+            value={brief.length}
+            onChange={(v) => set("length", v)}
             options={[
-              { value: "A", label: "A · Planificador para locales" },
-              { value: "B", label: "B · Sentirse bien en casa" },
+              { value: "short", label: LENGTHS.short.label },
+              { value: "episode", label: LENGTHS.episode.label },
             ]}
           />
         </Field>
       </div>
 
-      <Field label="Nombre del producto">
-        <input className={inputClass} value={brief.productName} onChange={(e) => set("productName", e.target.value)} />
+      <Field
+        label={isMasogar ? "Producto de este episodio" : "Foco (opcional)"}
+        hint={
+          isMasogar
+            ? "Qué es y qué problema resuelve. Ej.: burletes para puertas, frenan el frío que entra por abajo."
+            : "Un paso del loop o una función. Ej.: Vence, cierre de caja, sin internet."
+        }
+      >
+        <textarea className={inputClass} rows={3} value={brief.product} onChange={(e) => set("product", e.target.value)} />
       </Field>
-      <Field label="Quién lo compra">{text("buyer", 2, "ej. dueño de uno o dos kioscos")}</Field>
-
-      <Field label="Qué hace">{text("whatItDoes", 3)}</Field>
-      <Field label="El dolor para abrir" hint="Concreto: el objeto, el número, la hora.">
-        {text("pain", 3)}
-      </Field>
-
-      <Field label="Qué funciona hoy" hint="Solo esto se muestra como real.">
-        {text("shippedToday", 3)}
-      </Field>
-      <Field label="Lo que viene (todavía no existe)" hint="Solo aparece como concepto, con etiqueta.">
-        {text("roadmap", 3)}
-      </Field>
-
-      <Field label="Oferta / llamado a la acción">
-        <input className={inputClass} value={brief.offer} onChange={(e) => set("offer", e.target.value)} />
-      </Field>
-      <Field label="Temas prohibidos">
-        <input className={inputClass} value={brief.offLimits} onChange={(e) => set("offLimits", e.target.value)} />
+      <Field label="Gancho del momento (opcional)" hint="Algo que la gente ya siente: una fecha, la primera semana de frío, un aumento.">
+        <textarea className={inputClass} rows={3} value={brief.angle} onChange={(e) => set("angle", e.target.value)} />
       </Field>
 
       <div className="md:col-span-2">
-        <Field
-          label="Datos verificados"
-          hint="Números o citas con fuente. Cualquier otra afirmación del guion queda marcada [VERIFY]."
-        >
-          {text("facts", 2)}
-        </Field>
-      </div>
-
-      <div className="md:col-span-2">
-        <Field label="Estilo visual" hint="Opcional. Se aplica a todas las imágenes para que las tomas combinen.">
-          {text("visualStyle", 2)}
+        <Field label="Notas" hint="Datos verificados, temas prohibidos, personajes que ya existen, lo que quieras que Claude sepa.">
+          <textarea className={inputClass} rows={2} value={brief.notes} onChange={(e) => set("notes", e.target.value)} />
         </Field>
       </div>
 
@@ -81,7 +65,7 @@ export function BriefForm({ brief, tools, onChange }: Props) {
             ]}
           />
         </Field>
-        <Field label="Idioma del aviso">
+        <Field label="Idioma de lo que se dice">
           <Segmented
             value={brief.language}
             onChange={(v) => set("language", v)}
