@@ -48,6 +48,11 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 ### 11. Voz en off
 - **Qué:** hoy las líneas van solo en subtítulos. Más adelante, voz.
 
+### 13. Prompt de edición cuando se repite el setup
+- **Qué pasó:** la toma 3 usaba el mismo setup que la toma 2 (B · El Yogur), pero su prompt era para generar de cero y sumaba elementos nuevos (un flan adelante, el yogur más al fondo). Generando de cero, el personaje puede salir distinto.
+- **Idea:** si una toma repite el setup de la anterior, la app da además un **prompt de edición**: "Partí de la imagen de la toma N y cambiá solo esto: …" (para editar la imagen en Grok, usarla con `@` o seguir desde el último fotograma). Así se mantiene la continuidad.
+- **Relacionado:** la toma duraba 8 s y el recuadro de Grok decía 6 s; ver la idea 6 (largos según Grok).
+
 ### 12. Ver la imagen o el clip con un clic
 - **Qué pasó:** en Producción, un clic sobre una imagen o un clip ya cargado abre el selector de archivos en vez de mostrarlo.
 - **Idea:** el clic lo abre en grande encima de la página (la imagen completa, el clip reproduciéndose con controles); se cierra con Esc o con un clic afuera. Para reemplazarlo: soltar otro archivo encima o un botón "Cambiar" en la esquina. Y un botón "Quitar" para dejar la toma vacía.
