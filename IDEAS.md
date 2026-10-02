@@ -9,12 +9,14 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Qué:** una toma con tres imágenes (inicial = el Malo, intermedia = el giro, final = el Bueno) y un solo prompt de video que va de una a otra. Ej.: heladera desordenada con el yogur vencido → la mano que lo saca / el celular que avisa "Vence" → heladera ordenada.
 - **Por qué:** Grok Imagine permite imagen inicial, intermedia y final en un clip. Es el Bueno contra el Malo hecho imagen.
 - **Límite:** un clip dura hasta ~15 s (a confirmar). Sirve para el momento clave de cada tema, no para toda la historia.
-- **Falta saber:** si el ícono del medio en Grok es la imagen intermedia; qué largos ofrece (¿1 a 15 libre o 6/10/15?).
+- **Confirmado:** el ícono del medio en la barra del clip es la imagen intermedia.
+- **Falta saber:** qué largos ofrece Grok (¿1 a 15 libre o 6/10/15?).
 
 ### 2. Personajes y lugares como imágenes de referencia (`@`)
 - **Qué:** cada setup del storyboard (El Desorden, Marta, la heladera) pasa a ser una imagen de referencia con nombre, para usar con `@` en Grok.
 - **Por qué:** hoy la consistencia depende de repetir la misma descripción; con una imagen de referencia el personaje se ve igual en todas las tomas.
-- **Falta saber:** si `@` toma imágenes subidas por vos o solo las generadas en Grok; cuántas se pueden usar.
+- **Confirmado:** se pueden subir imágenes propias.
+- **Falta saber:** cuántas referencias se pueden usar a la vez.
 
 ### 3. Masogar: el producto recortado
 - **Qué:** una toma tipo "producto" pensada para **Eliminar fondo** en Grok: el producto del episodio limpio, para ponerlo en distintas escenas de casa.
@@ -52,8 +54,15 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Idea (tuya):** usar las imágenes de los setups como imagen inicial, intermedia y final al generar los videos en Grok.
 - **Cómo:** cada setup (El Desorden, Marta, la heladera, el yogur) tiene **una imagen aprobada**, guardada una vez en la app. En cada toma, la app dice qué imagen de setup va como inicial, intermedia (opcional) y final, y el prompt de video describe solo el movimiento entre ellas.
 - **Un paso más:** guardar los setups fijos **con la serie**, no con cada pieza. Así los personajes y lugares son los mismos en todos los episodios (como los personajes fijos de un programa); cada episodio nuevo los reusa y solo se generan imágenes nuevas para lo nuevo.
+- **Confirmado:** se pueden subir imágenes propias como inicial, intermedia y final.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
+
+### 15. ¿Los personajes hablan o no?
+- **Qué pasó:** en la toma 2 la línea es de El Yogur ("Yo vencí el martes…"), pero el prompt de video pide "no speech" y el clip sale sin que hable.
+- **Cómo es hoy:** la app pide clips sin voz a propósito; quién habla y su línea aparecen como subtítulo con el nombre del personaje. No hay voz todavía.
+- **Opciones a decidir:** (a) solo subtítulos, como ahora; (b) que Grok haga hablar al personaje con la línea en español (a probar: si respeta el texto y el acento); (c) voz en off generada aparte y agregada por la app (idea 11); (d) grabar la voz vos y subirla.
+- **Pregunta para el final de la sesión.**
 
 ### 13. Prompt de edición cuando se repite el setup
 - **Qué pasó:** la toma 3 usaba el mismo setup que la toma 2 (B · El Yogur), pero su prompt era para generar de cero y sumaba elementos nuevos (un flan adelante, el yogur más al fondo). Generando de cero, el personaje puede salir distinto.
@@ -66,8 +75,8 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
 ## Para anotar en el perfil de Grok (`server/tools/grok-imagine.md`, con "ok")
 - Largo de clip de hasta 15 s (visto en la app; confirmar opciones).
-- Imagen inicial, intermedia y final en un mismo clip.
-- `@` para referenciar imágenes.
+- [TESTED] Imagen inicial, intermedia y final en un mismo clip (el ícono del medio es la intermedia); acepta imágenes propias.
+- `@` para referenciar imágenes (acepta imágenes subidas).
 - Segmentos: cada objeto de la imagen separado y editable; "Descargar todo".
 - Eliminar fondo, Relación de aspecto, Crear video.
 - 720p y 10 s como valores por defecto en el editor; botón de sonido.
