@@ -3,6 +3,32 @@
 Lista de ideas que fueron saliendo. **Nada de esto está construido.** Se construye solo con "go".
 Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
+## Decisiones tomadas (2 Oct 2026)
+1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma.
+2. **Escuchar en voz alta:** para escucharlos vos.
+3. **Proyectos:** se guardan en una carpeta de la compu (`playbook-studio/proyectos/<pieza>/`).
+4. **Setups fijos:** con la serie (personajes y locaciones), y se pueden cambiar.
+5. **Largo de las tomas:** cada toma dura 6, 10 o 15 s, como los clips de Grok.
+6. **Tomas de transformación:** la IA decide dónde convienen.
+7. **Pantallas reales:** las capturas de celular y PC llegan en breve.
+8. **Música y efectos de sonido:** la música se baja de otro lado (subirla a la app); los efectos de sonido también importan: ver otro generador o API.
+9. **Sonido de Grok:** el usuario lo prende o apaga en Grok; la app indica por toma cuál conviene.
+10. **Referencias:** Grok acepta hasta 14 imágenes de referencia y tiene una biblioteca de referencias con nombre (@Nombre).
+11. **Modelo:** seguir con Kimi por NVIDIA y endurecer las reglas.
+12. **Cartel de arriba:** opcional por toma + interruptor para todo el video; se llama **"Headline"**.
+13. **Estilo del texto:** uno por serie.
+14. Pendiente: explicado de nuevo.
+- **A (ok):** perfil de Grok actualizado.
+- **B / datos:** IMAN es una serie de marketing de SaaS; los datos de cada marca se cargan en la app (brief / serie), no se escriben a mano en el código.
+- **E (ok):** mergear el PR #1.
+
+### 23. Dos tipos de serie: Software (SaaS) y E-commerce
+- **Idea (tuya):** el playbook sirve para dos cosas: marketing de software y de e-commerce. Todo se carga desde la app.
+- **Cómo:** al crear o editar una serie se elige el tipo:
+  - **Software (SaaS):** funciones que existen hoy, el loop del producto, pantallas reales (capturas de celular y PC).
+  - **E-commerce:** un producto por episodio (catálogo), antes/después de la casa, producto recortado.
+- Reemplaza las casillas sueltas ("Un producto distinto en cada episodio", "Es una app / tiene pantalla").
+
 ## Para construir (con "go")
 
 ### 1. Tomas de transformación: del Malo al Bueno en un solo clip
