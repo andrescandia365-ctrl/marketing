@@ -18,7 +18,8 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   (Anthropic SDK) or Kimi (`kimi.ts`, OpenAI-compatible Chat Completions, streamed, strict `json_schema` with a
   JSON-mode fallback and one retry on a schema mismatch); `LLM_PROVIDER` picks when both keys are set.
   `projects.ts` saves each piece as a folder in `proyectos/` (project.json, pieza.md, toma-NN-imagen/clip, video);
-  the browser autosaves into it.
+  the browser autosaves into it. Each series has a type (software / e-commerce) and a fixed cast (characters,
+  places, products, real screens) stored as JSON in its Markdown; approved images live in `biblioteca/<series>/`.
 - `src/` — React 19 + Tailwind v4 UI, all copy in Spanish (Rioplatense). `MenuPicker`, `StoryView`, `BoardView`
   and `ScriptView` are the steps. `lib/render.ts` plays each shot's uploaded clip (or still, or colour card), mixes
   the clips' sound, draws the speaker and line on top and encodes with WebCodecs via mediabunny; `lib/markdown.ts`
@@ -33,6 +34,10 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
 - The writer grades its own story (checklist, open loops, series loop, claims vs "Lo que existe hoy") and board
   (issues); `shared/checks.ts` turns that into problems that block approval until fixed ("Arreglalo") or dismissed.
 - Every shot has a slate (`title`, `action`); its image prompt is one frozen moment, actions go in the video prompt.
+- A shot lists every setup in frame (`setups`, main first); a setup linked to the series cast has `castId` and is
+  referenced in Grok as @ref. `kind` is single, transform (initial/middle/end frames) or screen (a real screenshot
+  from the cast, never drawn by AI). `editFrom`/`editPrompt` reuse an earlier shot's image. Old saved boards go
+  through `migrateBoard()`.
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.
 - Tool features change: edit the tool's `.md` in `server/tools/`, never hard-code them. Tag each line
   [DOCS], [NOT SURE] or [TESTED]. Series are edited in the app (Brief → Editar serie / + Nueva serie); their files are in Spanish, and the

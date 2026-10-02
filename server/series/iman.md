@@ -1,7 +1,7 @@
 # IMAN
 
 Frase: Números claros. Local que crece.
-Producto por episodio: no
+Tipo: Software (SaaS)
 Estilo de texto: {"subtitleSize":100,"headlineSize":100,"textColor":"#ffffff","headlineColor":"#ffffff","backing":"shadow","backingColor":"#000000"}
 
 ## Qué es

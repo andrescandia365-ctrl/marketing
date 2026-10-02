@@ -1,11 +1,21 @@
 // Series bibles: one Markdown file per series in server/series/ (iman.md, masogar.md). The writer reads the
 // chosen series' file with every request. The app edits them in the "Editar serie" form (PUT/POST/DELETE
 // /api/series); editing a file by hand works too and is picked up on the next restart.
-import { readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { SeriesInfo } from "../shared/schema.ts";
-import { markdownToSeries, seriesId, seriesToMarkdown, type SeriesFields, type TextStyle } from "../shared/series.ts";
+import {
+  markdownToSeries,
+  seriesId,
+  seriesToMarkdown,
+  type CastMember,
+  type SeriesFields,
+  type TextStyle,
+} from "../shared/series.ts";
 
 const DIR = new URL("./series/", import.meta.url);
+// Approved images of each series' fixed cast: biblioteca/<series>/<cast id>.<ext>. Not in git: they are the brand's.
+export const LIBRARY_DIR = resolve(process.env.LIBRARY_DIR || "biblioteca");
 const ID = /^[a-z0-9-]{1,40}$/;
 
 type Series = SeriesInfo & { text: string };
@@ -21,7 +31,16 @@ function load(): Series[] {
 
 function toSeries(id: string, text: string): Series {
   const f = markdownToSeries(text, id);
-  return { id, name: f.name, tagline: f.tagline, productPerEpisode: f.productPerEpisode, textStyle: f.textStyle, text };
+  return {
+    id,
+    name: f.name,
+    tagline: f.tagline,
+    type: f.type,
+    productPerEpisode: f.type === "ecommerce",
+    textStyle: f.textStyle,
+    cast: f.cast,
+    text,
+  };
 }
 
 export class SeriesError extends Error {}
@@ -58,6 +77,43 @@ export function saveSeries(id: string, fields: SeriesFields) {
 // The video panel saves its text style back into the series, so every piece of the brand looks the same.
 export function saveTextStyle(id: string, textStyle: TextStyle) {
   saveSeries(id, { ...getSeriesFields(id), textStyle });
+}
+
+// Adds a cast member to the series, or replaces the one with the same id (keeping its image if none is given).
+export function upsertCastMember(id: string, member: CastMember) {
+  const fields = getSeriesFields(id);
+  const old = fields.cast.find((m) => m.id === member.id);
+  const next = { ...member, image: member.image || old?.image || "" };
+  fields.cast = old ? fields.cast.map((m) => (m.id === member.id ? next : m)) : [...fields.cast, next];
+  saveSeries(id, fields);
+}
+
+const IMAGE_EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+
+export function setCastImage(id: string, castId: string, data: Buffer, type: string): string {
+  const fields = getSeriesFields(id);
+  const member = fields.cast.find((m) => m.id === castId);
+  if (!member) throw new SeriesError("Ese integrante del elenco no existe.");
+  const ext = IMAGE_EXT[type.split(";")[0].trim()];
+  if (!ext) throw new SeriesError("Ese archivo no es una imagen.");
+  const dir = join(LIBRARY_DIR, id);
+  mkdirSync(dir, { recursive: true });
+  const file = `${castId}.${ext}`;
+  if (member.image && member.image !== file) rmSync(join(dir, member.image), { force: true });
+  writeFileSync(join(dir, file), data);
+  member.image = file;
+  saveSeries(id, fields);
+  return file;
+}
+
+export function readLibraryFile(id: string, name: string): { data: Buffer; type: string } {
+  if (!ID.test(id) || !/^[a-z0-9-]{1,40}\.(png|jpg|webp|gif)$/.test(name)) throw new SeriesError("Ese archivo no existe.");
+  const type = Object.entries(IMAGE_EXT).find(([, e]) => name.endsWith(`.${e}`))?.[0] ?? "application/octet-stream";
+  try {
+    return { data: readFileSync(join(LIBRARY_DIR, id, name)), type };
+  } catch {
+    throw new SeriesError("Ese archivo no existe.");
+  }
 }
 
 export function createSeries(fields: SeriesFields): string {

@@ -1,5 +1,5 @@
 import type { Board, Brief, Menu, SeriesInfo, Shot, Status, Story, TopicIdea } from "../../shared/schema.ts";
-import type { SeriesFields, TextStyle } from "../../shared/series.ts";
+import type { CastMember, SeriesFields, TextStyle } from "../../shared/series.ts";
 
 export type ProjectSummary = {
   id: string;
@@ -28,6 +28,8 @@ async function upload<T>(path: string, body: Blob, type: string): Promise<T> {
 }
 
 const enc = encodeURIComponent;
+export const libraryFileUrl = (seriesId: string, file: string, version = 0) =>
+  `/api/series/${enc(seriesId)}/files/${enc(file)}${version ? `?v=${version}` : ""}`;
 export const projectFileUrl = (id: string, file: string) => `/api/projects/${enc(id)}/files/${enc(file)}`;
 
 async function call<T>(path: string, body?: unknown, method?: "PUT" | "DELETE"): Promise<T> {
@@ -63,6 +65,11 @@ export const api = {
   deleteSeries: (id: string) => call<{ series: SeriesInfo[] }>(`/api/series/${encodeURIComponent(id)}`, undefined, "DELETE"),
   saveSeriesStyle: (id: string, textStyle: TextStyle) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${enc(id)}/style`, { textStyle }, "PUT"),
+
+  upsertCast: (seriesId: string, member: CastMember) =>
+    call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(member.id)}`, member, "PUT"),
+  uploadCastImage: (seriesId: string, castId: string, image: Blob) =>
+    upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/image`, image, image.type),
 
   projects: () => call<{ projects: ProjectSummary[] }>("/api/projects"),
   createProject: (series: string) => call<{ id: string }>("/api/projects", { series }),

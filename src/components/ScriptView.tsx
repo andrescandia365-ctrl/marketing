@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { buildCopyPrompt } from "../../shared/prompt.ts";
-import { SHOT_LENGTHS, type Board, type Brief, type Shot, type Story } from "../../shared/schema.ts";
+import { SHOT_LENGTHS, type Board, type Brief, type Setup, type Shot, type Story } from "../../shared/schema.ts";
+import type { CastMember } from "../../shared/series.ts";
 import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 import { copyText } from "../lib/files.ts";
 import { formatElapsed, type LogEntry } from "../lib/markdown.ts";
@@ -8,6 +9,8 @@ import { ActionWarning, BEAT_EDGE } from "./BoardView.tsx";
 import { BeatChip, Button, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
 
 export type ClipFile = { url: string; blob: Blob; name: string; duration: number };
+// A member of the series' fixed cast, with the URL of its approved image.
+export type LibraryEntry = CastMember & { url?: string };
 export type MediaState = { image?: string; clip?: ClipFile; loading?: boolean; error?: string };
 
 const BAR = { negative: "bg-neg", touching: "bg-touch", good: "bg-good" };
@@ -195,7 +198,117 @@ type CardProps = {
   onUploadClip: (index: number, file: File) => void;
   onRemoveMedia: (index: number, kind: "image" | "clip") => void;
   onRewrite: (index: number, note: string) => Promise<boolean>;
+  // The series' fixed cast by id: approved images, @ references and real screens.
+  library: Record<string, LibraryEntry>;
 };
+
+// One prompt with its copy button. Image prompts are checked for actions (an image is one moment).
+function PromptBox({
+  label,
+  hint,
+  value,
+  copy,
+  rows = 3,
+  still = false,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  value: string;
+  copy: string;
+  rows?: number;
+  still?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const words = value.trim().split(/\s+/).filter(Boolean).length;
+  return (
+    <div className="overflow-hidden rounded-lg border border-line">
+      <div className="flex items-center justify-between gap-2 border-b border-line bg-paper py-1.5 pr-1.5 pl-3">
+        <span className="text-xs font-semibold">
+          {label} <span className="font-normal text-muted">· {words} palabras · {hint}</span>
+        </span>
+        <CopyButton text={copy} />
+      </div>
+      <textarea
+        aria-label={label}
+        className="block w-full resize-y border-0 px-3 py-2 text-sm outline-none"
+        rows={rows}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {still && (
+        <div className="px-3 pb-2 empty:hidden">
+          <ActionWarning prompt={value} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Who and what is in the frame. Linked members of the fixed cast show their @ reference for the image tool.
+function InFrame({
+  shot,
+  setups,
+  library,
+  toolName,
+  onChange,
+}: {
+  shot: Shot;
+  setups: Setup[];
+  library: Record<string, LibraryEntry>;
+  toolName: string;
+  onChange: (setups: string[]) => void;
+}) {
+  const byId = Object.fromEntries(setups.map((s) => [s.id, s]));
+  const missing = setups.filter((s) => !shot.setups.includes(s.id));
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+      <span className="font-semibold text-muted">En cuadro:</span>
+      {shot.setups.map((id) => {
+        const setup = byId[id];
+        const member = setup?.castId ? library[setup.castId] : undefined;
+        return (
+          <span
+            key={id}
+            className="inline-flex items-center gap-1 rounded-full border border-line bg-white py-0.5 pr-1 pl-1"
+            title={member ? `En ${toolName}: escribí @${member.ref} para usar su imagen aprobada` : setup?.identity}
+          >
+            {member?.url ? (
+              <img src={member.url} alt="" className="size-5 rounded-full object-cover" />
+            ) : (
+              <span className="grid size-5 place-items-center rounded-full bg-ink text-[10px] font-bold text-white">{id}</span>
+            )}
+            {setup?.name ?? id}
+            {member && <b className="font-mono text-good">@{member.ref}</b>}
+            <button
+              type="button"
+              onClick={() => onChange(shot.setups.filter((x) => x !== id))}
+              className="rounded-full px-1 text-muted hover:text-neg"
+              aria-label={`Sacar ${setup?.name ?? id} de la toma`}
+            >
+              ×
+            </button>
+          </span>
+        );
+      })}
+      {missing.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => e.target.value && onChange([...shot.setups, e.target.value])}
+          className="rounded-full border border-dashed border-line bg-white px-2 py-0.5 text-xs text-muted"
+          aria-label="Sumar a la toma"
+        >
+          <option value="">+ sumar</option>
+          {missing.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
 
 function ShotCard(props: CardProps) {
   const {
@@ -211,16 +324,19 @@ function ShotCard(props: CardProps) {
     onUploadClip,
     onRemoveMedia,
     onRewrite,
+    library,
   } = props;
   const [open, setOpen] = useState(true);
   const [viewing, setViewing] = useState<"image" | "clip" | null>(null);
   const [note, setNote] = useState("");
   const [rewriting, setRewriting] = useState(false);
   const vertical = brief.format === "vertical";
-  const setup = board.setups.find((s) => s.id === shot.setup);
+  const setup = board.setups.find((s) => s.id === shot.setups[0]);
+  const screen = shot.kind === "screen" ? library[shot.screen] : undefined;
+  // A screen shot shows the real screenshot from the series unless the person uploaded another image.
+  const image = media.image ?? screen?.url;
   const who = story.characters.find((c) => c.id === shot.speaker);
   const set = <K extends keyof Shot>(key: K, value: Shot[K]) => onShotChange(shot.index, { ...shot, [key]: value });
-  const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length;
 
   if (!open) {
     const status = media.clip ? "imagen ✓ clip ✓" : media.image ? "imagen ✓" : "sin empezar";
@@ -243,7 +359,7 @@ function ShotCard(props: CardProps) {
               {shot.voiceover || shot.onScreenText || "(sin texto)"}
             </span>
           </span>
-          <span className="text-xs text-muted">Setup {shot.setup}</span>
+          <span className="text-xs text-muted">{shot.setups.join(" + ")}</span>
           <span className="rounded border border-line px-1.5 font-mono text-xs">{status}</span>
         </button>
       </li>
@@ -262,7 +378,7 @@ function ShotCard(props: CardProps) {
 
   return (
     <li className={`rounded-xl border border-l-4 border-line bg-white p-3 shadow-sm sm:p-4 ${BEAT_EDGE[shot.beat]}`}>
-      {viewing === "image" && media.image && <MediaViewer kind="image" src={media.image} onClose={() => setViewing(null)} />}
+      {viewing === "image" && image && <MediaViewer kind="image" src={image} onClose={() => setViewing(null)} />}
       {viewing === "clip" && media.clip && <MediaViewer kind="clip" src={media.clip.url} onClose={() => setViewing(null)} />}
       <div className="mb-3 border-b border-line pb-3">
         <p className="font-mono text-xs text-muted">
@@ -285,10 +401,12 @@ function ShotCard(props: CardProps) {
           ))}
         </span>
         <BeatChip beat={shot.beat} />
-        <span className="rounded border border-line px-1.5 py-0.5 text-xs font-medium">
-          Setup {shot.setup}
-          {setup ? ` · ${setup.name}` : ""}
-        </span>
+        {shot.kind === "transform" && (
+          <span className="rounded bg-touch-soft px-1.5 py-0.5 text-xs font-semibold text-touch">Transformación</span>
+        )}
+        {shot.kind === "screen" && (
+          <span className="rounded bg-good-soft px-1.5 py-0.5 text-xs font-semibold text-good">Pantalla real</span>
+        )}
         <select
           value={shot.disclosure}
           onChange={(e) => set("disclosure", e.target.value as Shot["disclosure"])}
@@ -322,12 +440,12 @@ function ShotCard(props: CardProps) {
               empty="Soltá la imagen"
               vertical={vertical}
               onFile={(f) => onUploadImage(shot.index, f)}
-              onView={media.image ? () => setViewing("image") : undefined}
+              onView={image ? () => setViewing("image") : undefined}
               onRemove={media.image ? () => onRemoveMedia(shot.index, "image") : undefined}
             >
-              {media.image || media.loading ? (
+              {image || media.loading ? (
                 <>
-                  {media.image && <img src={media.image} alt="" className="absolute inset-0 size-full object-cover" />}
+                  {image && <img src={image} alt="" className="absolute inset-0 size-full object-cover" />}
                   {media.loading && (
                     <span className="absolute inset-0 grid place-items-center bg-white/70 text-muted">
                       <Spinner />
@@ -362,9 +480,22 @@ function ShotCard(props: CardProps) {
             </DropSlot>
           </div>
           {media.clip && <p className="text-xs text-muted">{clipNote(media.clip, shot)}</p>}
-          {!media.clip && !media.image && setup && (
+          {!media.clip && !image && setup && shot.kind === "single" && (
             <p className="text-xs text-muted">
-              Primero la imagen (setup {setup.id}); después animala en {toolName}.
+              {shot.editFrom > 0
+                ? `Partí de la imagen de la toma ${shot.editFrom} y editala; después animala en ${toolName}.`
+                : `Primero la imagen (${setup.name}); después animala en ${toolName}.`}
+            </p>
+          )}
+          {!media.clip && shot.kind === "transform" && (
+            <p className="text-xs text-muted">
+              En {toolName}: cargá la imagen inicial{shot.middlePrompt ? ", la intermedia" : ""} y la final en la barra del
+              clip, y pegá el prompt de video.
+            </p>
+          )}
+          {shot.kind === "screen" && (
+            <p className="text-xs text-muted">
+              {screen ? `Pantalla real: ${screen.name}. No se genera con IA.` : `Falta la pantalla "${shot.screen}" en el elenco de la serie.`}
             </p>
           )}
           <button
@@ -379,41 +510,65 @@ function ShotCard(props: CardProps) {
         </div>
 
         <div className="min-w-0 space-y-3">
-          <div className="overflow-hidden rounded-lg border border-line">
-            <div className="flex items-center justify-between gap-2 border-b border-line bg-paper py-1.5 pr-1.5 pl-3">
-              <span className="text-xs font-semibold">
-                Prompt de imagen{" "}
-                <span className="font-normal text-muted">· {words(shot.visualPrompt)} palabras · se hace primero</span>
-              </span>
-              <CopyButton text={buildCopyPrompt(shot.visualPrompt, brief.format)} />
-            </div>
-            <textarea
-              aria-label="Prompt de imagen"
-              className="block w-full resize-y border-0 px-3 py-2 text-sm outline-none"
-              rows={4}
+          <InFrame
+            shot={shot}
+            setups={board.setups}
+            library={library}
+            toolName={toolName}
+            onChange={(setups) => set("setups", setups)}
+          />
+          {shot.kind !== "screen" && (
+            <PromptBox
+              label={shot.kind === "transform" ? "Imagen inicial" : "Prompt de imagen"}
+              hint={shot.kind === "transform" ? "el Malo, el arranque" : "se hace primero"}
               value={shot.visualPrompt}
-              onChange={(e) => set("visualPrompt", e.target.value)}
+              copy={buildCopyPrompt(shot.visualPrompt, brief.format)}
+              rows={4}
+              still
+              onChange={(v) => set("visualPrompt", v)}
             />
-            <div className="px-3 pb-2 empty:hidden">
-              <ActionWarning prompt={shot.visualPrompt} />
-            </div>
-          </div>
-          <div className="overflow-hidden rounded-lg border border-line">
-            <div className="flex items-center justify-between gap-2 border-b border-line bg-paper py-1.5 pr-1.5 pl-3">
-              <span className="text-xs font-semibold">
-                Prompt de video{" "}
-                <span className="font-normal text-muted">· {words(shot.videoPrompt)} palabras · anima la imagen</span>
-              </span>
-              <CopyButton text={shot.videoPrompt} />
-            </div>
-            <textarea
-              aria-label="Prompt de video"
-              className="block w-full resize-y border-0 px-3 py-2 text-sm outline-none"
-              rows={3}
+          )}
+          {shot.editFrom > 0 && shot.kind !== "screen" && (
+            <PromptBox
+              label={`Editar la imagen de la toma ${shot.editFrom}`}
+              hint="mismo personaje, solo cambia esto"
+              value={shot.editPrompt}
+              copy={shot.editPrompt}
+              rows={2}
+              onChange={(v) => set("editPrompt", v)}
+            />
+          )}
+          {shot.kind === "transform" && (
+            <>
+              <PromptBox
+                label="Imagen intermedia (opcional)"
+                hint="el giro"
+                value={shot.middlePrompt}
+                copy={buildCopyPrompt(shot.middlePrompt, brief.format)}
+                rows={2}
+                still
+                onChange={(v) => set("middlePrompt", v)}
+              />
+              <PromptBox
+                label="Imagen final"
+                hint="el Bueno, el cierre"
+                value={shot.endPrompt}
+                copy={buildCopyPrompt(shot.endPrompt, brief.format)}
+                rows={3}
+                still
+                onChange={(v) => set("endPrompt", v)}
+              />
+            </>
+          )}
+          {(shot.kind !== "screen" || shot.videoPrompt) && (
+            <PromptBox
+              label="Prompt de video"
+              hint={shot.kind === "transform" ? "el cambio de una imagen a la otra" : "anima la imagen"}
               value={shot.videoPrompt}
-              onChange={(e) => set("videoPrompt", e.target.value)}
+              copy={shot.videoPrompt}
+              onChange={(v) => set("videoPrompt", v)}
             />
-          </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="text-xs font-semibold text-muted">
@@ -478,50 +633,161 @@ export function ScriptView(props: Props) {
   );
 }
 
-export function SetupsPanel({
-  board,
-  media,
-  toolName,
-}: {
+type SetupsProps = {
   board: Board;
   media: Record<number, MediaState>;
   toolName: string;
-}) {
-  if (!board.setups.length) return null;
-  const shots = timeShots(board.shots);
+  seriesName: string;
+  library: Record<string, LibraryEntry>;
+  // Saves a setup into the series' fixed cast (with an image), or replaces the image of a linked one.
+  onFix: (setup: Setup, kind: CastMember["kind"], image: Blob | null) => Promise<void>;
+};
+
+function SetupRow({ setup, board, media, toolName, seriesName, library, onFix }: SetupsProps & { setup: Setup }) {
+  const shots = timeShots(board.shots).filter((sh) => sh.setups.includes(setup.id));
+  const withImage = shots.filter((sh) => media[sh.index]?.image);
+  const member = setup.castId ? library[setup.castId] : undefined;
+  const [kind, setKind] = useState<CastMember["kind"]>(member?.kind ?? "character");
+  const [from, setFrom] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+
+  async function fix(image: Blob | null) {
+    setBusy(true);
+    setError("");
+    try {
+      await onFix(setup, kind, image);
+      setFrom("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function fromShot(index: string) {
+    const src = media[Number(index)]?.image;
+    if (src) await fix(await (await fetch(src)).blob());
+  }
+
+  return (
+    <li className="grid grid-cols-[56px_minmax(0,1fr)] gap-x-3 text-sm">
+      {member?.url ? (
+        <a href={member.url} download className="block" title="Descargar la imagen fija">
+          <img src={member.url} alt="" className="aspect-[9/16] w-14 rounded-md object-cover" />
+        </a>
+      ) : (
+        <span className="grid aspect-[9/16] w-14 place-items-center rounded-md border border-dashed border-line text-xs font-bold text-muted">
+          {setup.id}
+        </span>
+      )}
+      <div className="min-w-0 space-y-1">
+        <div className="flex flex-wrap items-center justify-between gap-1">
+          <span className="font-semibold">{setup.name}</span>
+          {member ? (
+            <span className="font-mono text-xs text-good">@{member.ref}</span>
+          ) : (
+            <span className="text-xs text-muted">solo en esta pieza</span>
+          )}
+        </div>
+        <p className="text-xs text-muted">
+          Tomas {shots.map((sh) => sh.index + 1).join(", ") || "—"} · “{setup.identity}”
+        </p>
+        {member ? (
+          <p className="text-xs text-muted">
+            Fijo en {seriesName}. En {toolName}: Referencias → + Nuevo, subí esta imagen y llamala <b>@{member.ref}</b>.
+          </p>
+        ) : (
+          <label className="flex items-center gap-1 text-xs">
+            Guardar en la serie como
+            <select
+              value={kind}
+              onChange={(e) => setKind(e.target.value as CastMember["kind"])}
+              className="rounded border border-line bg-white px-1 py-0.5"
+            >
+              <option value="character">personaje</option>
+              <option value="place">lugar</option>
+              <option value="product">producto</option>
+            </select>
+          </label>
+        )}
+        <div className="flex flex-wrap items-center gap-1">
+          <CopyButton text={setup.identity} idle="Copiar descripción" variant="secondary" />
+          {withImage.length > 0 && (
+            <select
+              value={from}
+              disabled={busy}
+              onChange={(e) => {
+                setFrom(e.target.value);
+                if (e.target.value) fromShot(e.target.value);
+              }}
+              className="rounded-lg border border-line bg-white px-2 py-1 text-xs"
+              aria-label={`Imagen fija de ${setup.name}`}
+            >
+              <option value="">{member ? "Cambiar por la imagen de…" : "Fijar con la imagen de…"}</option>
+              {withImage.map((sh) => (
+                <option key={sh.index} value={sh.index}>
+                  la toma {sh.index + 1}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => input.current?.click()}
+            className="rounded px-2 py-1 text-xs font-semibold text-muted hover:bg-black/5 hover:text-ink"
+          >
+            {busy ? <Spinner /> : member ? "Subir otra" : "Subir imagen"}
+          </button>
+          {!member && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => fix(null)}
+              className="rounded px-2 py-1 text-xs font-semibold text-muted hover:bg-black/5 hover:text-ink"
+              title="Guarda la descripción ahora; la imagen la sumás después"
+            >
+              Guardar sin imagen
+            </button>
+          )}
+          <input
+            ref={input}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) fix(file);
+              e.target.value = "";
+            }}
+          />
+        </div>
+        {error && <p className="text-xs text-neg">{error}</p>}
+      </div>
+    </li>
+  );
+}
+
+// The piece's setups. Each one can be fixed into the series' cast with an approved image, so every episode
+// (and the image tool, through its @ reference) uses the same face, place or product.
+export function SetupsPanel(props: SetupsProps) {
+  if (!props.board.setups.length) return null;
   return (
     <div className="space-y-3 rounded-xl border border-line bg-white p-4">
       <div>
-        <p className="text-sm font-semibold">Setups · una imagen principal por cada uno</p>
+        <p className="text-sm font-semibold">Setups · imágenes fijas</p>
         <p className="mt-1 text-xs text-muted">
-          {toolName} mantiene igual a una persona o un lugar gracias a la imagen, no a las palabras. Hacé la imagen
-          principal una vez y reusala (o adjuntala como referencia) en cada toma del setup.
+          {props.toolName} mantiene igual a un personaje o un lugar gracias a la imagen, no a las palabras. Fijá una
+          imagen por setup: queda en el elenco de {props.seriesName || "la serie"} para todos los episodios y se usa
+          como referencia con @ en {props.toolName}.
         </p>
       </div>
-      <ul className="space-y-3">
-        {board.setups.map((s) => {
-          const inSetup = shots.filter((sh) => sh.setup === s.id);
-          const hero = inSetup.some((sh) => media[sh.index]?.image);
-          return (
-            <li key={s.id} className="grid grid-cols-[28px_minmax(0,1fr)] gap-x-2 text-sm">
-              <span className="grid size-7 place-items-center rounded-md bg-ink text-xs font-bold text-white">{s.id}</span>
-              <div className="min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold">{s.name}</span>
-                  <span className={`font-mono text-xs ${hero ? "text-good" : "text-muted"}`}>
-                    {hero ? "imagen ✓" : "falta imagen"}
-                  </span>
-                </div>
-                <p className="text-xs text-muted">
-                  Tomas {inSetup.map((sh) => sh.index + 1).join(", ") || "—"} · “{s.identity}”
-                </p>
-                <div className="mt-1">
-                  <CopyButton text={s.identity} idle="Copiar descripción" variant="secondary" />
-                </div>
-              </div>
-            </li>
-          );
-        })}
+      <ul className="space-y-4">
+        {props.board.setups.map((s) => (
+          <SetupRow key={s.id} {...props} setup={s} />
+        ))}
       </ul>
     </div>
   );

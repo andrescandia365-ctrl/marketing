@@ -1,8 +1,128 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SeriesInfo } from "../../shared/schema.ts";
-import { EMPTY_SERIES, type SeriesFields } from "../../shared/series.ts";
-import { api } from "../lib/api.ts";
-import { Button, Field, Notice, Spinner, inputClass } from "./ui.tsx";
+import {
+  CAST_KIND_LABEL,
+  EMPTY_SERIES,
+  SERIES_TYPE_LABEL,
+  castRef,
+  type CastKind,
+  type CastMember,
+  type SeriesFields,
+} from "../../shared/series.ts";
+import { api, libraryFileUrl } from "../lib/api.ts";
+import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
+
+// One member of the fixed cast: name, @ reference, description and approved image.
+function CastCard({
+  member,
+  seriesId,
+  version,
+  onChange,
+  onRemove,
+  onImage,
+}: {
+  member: CastMember;
+  seriesId: string | null;
+  version: number;
+  onChange: (member: CastMember) => void;
+  onRemove: () => void;
+  onImage: (file: File) => Promise<void>;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const screen = member.kind === "screen";
+  const url = seriesId && member.image ? libraryFileUrl(seriesId, member.image, version) : undefined;
+  const set = <K extends keyof CastMember>(key: K, value: CastMember[K]) => onChange({ ...member, [key]: value });
+
+  async function upload(file: File) {
+    setBusy(true);
+    setError("");
+    try {
+      await onImage(file);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li className="grid grid-cols-[72px_minmax(0,1fr)] gap-3 rounded-lg border border-line p-3">
+      <div className="space-y-1">
+        <button
+          type="button"
+          disabled={!seriesId || busy}
+          onClick={() => input.current?.click()}
+          className="relative block aspect-[9/16] w-[72px] overflow-hidden rounded-md border border-dashed border-line bg-paper text-[10px] font-semibold text-muted disabled:opacity-60"
+          title={seriesId ? "Subir la imagen aprobada" : "Guardá la serie primero"}
+        >
+          {url ? <img src={url} alt="" className="absolute inset-0 size-full object-cover" /> : busy ? <Spinner /> : screen ? "Subir captura" : "Subir imagen"}
+        </button>
+        <input
+          ref={input}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) upload(file);
+            e.target.value = "";
+          }}
+        />
+      </div>
+      <div className="min-w-0 space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            className={`${inputClass} w-40 py-1`}
+            value={member.name}
+            placeholder="Nombre"
+            aria-label="Nombre"
+            onChange={(e) => {
+              const name = e.target.value;
+              // The @ reference follows the name until it is edited by hand.
+              const auto = member.ref === castRef(member.name);
+              onChange({ ...member, name, ref: auto ? castRef(name) : member.ref });
+            }}
+          />
+          <span className="text-xs text-muted">{CAST_KIND_LABEL[member.kind]}</span>
+          <label className="flex items-center gap-0.5 font-mono text-xs text-good" title="Nombre de la referencia en Grok">
+            @
+            <input
+              className="w-28 rounded border border-line px-1 py-0.5"
+              value={member.ref}
+              aria-label="Referencia"
+              onChange={(e) => set("ref", e.target.value.replace(/[^A-Za-z0-9_]/g, ""))}
+            />
+          </label>
+          <button type="button" onClick={onRemove} className="ml-auto text-xs font-semibold text-muted hover:text-neg">
+            Sacar
+          </button>
+        </div>
+        <textarea
+          className={`${inputClass} py-1.5 text-xs`}
+          rows={2}
+          value={member.identity}
+          placeholder={
+            screen
+              ? "Qué muestra esta pantalla. Ej.: lista de Vence en el celular, con los productos que vencen esta semana."
+              : "Descripción visual en inglés, la que se repite en cada prompt. Ej.: a tired but kind corner-store owner in her fifties…"
+          }
+          aria-label={screen ? "Qué muestra" : "Descripción visual"}
+          onChange={(e) => set("identity", e.target.value)}
+        />
+        <input
+          className={`${inputClass} py-1 text-xs`}
+          value={member.note}
+          placeholder="Cuándo usarlo (opcional)"
+          aria-label="Cuándo usarlo"
+          onChange={(e) => set("note", e.target.value)}
+        />
+        {error && <p className="text-xs text-neg">{error}</p>}
+      </div>
+    </li>
+  );
+}
 
 type Props = {
   // null: a new series.
@@ -17,6 +137,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
   // "Lo que existe hoy" is edited as text, one item per line.
   const [works, setWorks] = useState("");
   const [loop, setLoop] = useState("");
+  const [version, setVersion] = useState(Date.now());
   const [busy, setBusy] = useState<null | "save" | "delete">(null);
   const [error, setError] = useState("");
 
@@ -37,7 +158,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
   }
 
   const set = <K extends keyof SeriesFields>(key: K, value: SeriesFields[K]) => setFields({ ...fields, [key]: value });
-  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "loop" | "productPerEpisode" | "textStyle">, rows = 4) => (
+  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "loop" | "type" | "textStyle" | "cast">, rows = 4) => (
     <textarea className={inputClass} rows={rows} value={fields[key]} onChange={(e) => set(key, e.target.value)} />
   );
 
@@ -64,6 +185,24 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
     } finally {
       setBusy(null);
     }
+  }
+
+  function addMember(kind: CastKind) {
+    if (!fields) return;
+    let n = fields.cast.filter((m) => m.kind === kind).length + 1;
+    const base = { character: "personaje", place: "lugar", product: "producto", screen: "pantalla" }[kind];
+    while (fields.cast.some((m) => m.id === `${base}-${n}`)) n++;
+    const name = `${CAST_KIND_LABEL[kind]} ${n}`;
+    set("cast", [...fields.cast, { id: `${base}-${n}`, name, ref: castRef(name), kind, identity: "", note: "", image: "" }]);
+  }
+
+  // The image goes straight to the series library; the member is saved first so the server knows it.
+  async function memberImage(member: CastMember, file: File) {
+    if (!id || !fields) return;
+    await api.upsertCast(id, member);
+    const { file: name } = await api.uploadCastImage(id, member.id, file);
+    setFields((f) => (f ? { ...f, cast: f.cast.map((m) => (m.id === member.id ? { ...member, image: name } : m)) } : f));
+    setVersion(Date.now());
   }
 
   async function remove() {
@@ -98,20 +237,24 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
         </Field>
       </div>
 
-      <label className="flex items-start gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="mt-1 size-4"
-          checked={fields.productPerEpisode}
-          onChange={(e) => set("productPerEpisode", e.target.checked)}
+      <Field
+        label="Tipo de serie"
+        group
+        hint={
+          fields.type === "software"
+            ? "Software: funciones que existen hoy, el loop del producto y pantallas reales de la app."
+            : 'E-commerce: un producto distinto en cada episodio; el brief pide "Producto de este episodio".'
+        }
+      >
+        <Segmented
+          value={fields.type}
+          onChange={(v) => set("type", v)}
+          options={[
+            { value: "software", label: SERIES_TYPE_LABEL.software },
+            { value: "ecommerce", label: SERIES_TYPE_LABEL.ecommerce },
+          ]}
         />
-        <span>
-          <b>Un producto distinto en cada episodio</b>
-          <span className="block text-xs text-muted">
-            Como Masogar: el brief pide "Producto de este episodio" y es obligatorio.
-          </span>
-        </span>
-      </label>
+      </Field>
 
       <Field label="Qué es">{text("what", 3)}</Field>
 
@@ -128,6 +271,71 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
       >
         <textarea className={`${inputClass} font-mono`} rows={6} value={loop} onChange={(e) => setLoop(e.target.value)} />
       </Field>
+
+      <Field
+        label="Elenco fijo"
+        group
+        hint="Personajes, lugares y productos que se repiten en todos los episodios, cada uno con su imagen aprobada y su referencia @ para Grok. La IA los reusa tal cual."
+      >
+        <div className="space-y-2">
+          <ul className="space-y-2">
+            {fields.cast
+              .filter((m) => m.kind !== "screen")
+              .map((m) => (
+                <CastCard
+                  key={m.id}
+                  member={m}
+                  seriesId={id}
+                  version={version}
+                  onChange={(next) => set("cast", fields.cast.map((x) => (x.id === m.id ? next : x)))}
+                  onRemove={() => set("cast", fields.cast.filter((x) => x.id !== m.id))}
+                  onImage={(file) => memberImage(m, file)}
+                />
+              ))}
+          </ul>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => addMember("character")}>
+              + Personaje
+            </Button>
+            <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => addMember("place")}>
+              + Lugar
+            </Button>
+            <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => addMember("product")}>
+              + Producto
+            </Button>
+          </div>
+          {!id && <p className="text-xs text-muted">Las imágenes se suben después de guardar la serie.</p>}
+        </div>
+      </Field>
+
+      {fields.type === "software" && (
+        <Field
+          label="Pantallas reales de la app"
+          group
+          hint="Capturas reales (celular y PC), una por función. La IA no puede dibujar la interfaz: las tomas que muestran la app usan estas capturas tal cual."
+        >
+          <div className="space-y-2">
+            <ul className="space-y-2">
+              {fields.cast
+                .filter((m) => m.kind === "screen")
+                .map((m) => (
+                  <CastCard
+                    key={m.id}
+                    member={m}
+                    seriesId={id}
+                    version={version}
+                    onChange={(next) => set("cast", fields.cast.map((x) => (x.id === m.id ? next : x)))}
+                    onRemove={() => set("cast", fields.cast.filter((x) => x.id !== m.id))}
+                    onImage={(file) => memberImage(m, file)}
+                  />
+                ))}
+            </ul>
+            <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => addMember("screen")}>
+              + Pantalla real
+            </Button>
+          </div>
+        </Field>
+      )}
 
       <Field label="La historia que contamos (opcional)" hint="El hilo de la serie. Ej.: el loop diario del kiosco.">
         {text("story")}

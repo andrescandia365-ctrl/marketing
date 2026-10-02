@@ -154,16 +154,16 @@ export const DEMO_STORY: Story = {
 export const DEMO_BOARD: Board = {
   style: "35mm photo, shallow depth of field, muted colors, realistic film still",
   setups: [
-    { id: "A", name: "El Desorden", identity: "a lanky man in a rumpled gray suit covered in crumpled paper receipts, messy hair, sly grin" },
-    { id: "B", name: "Marta", identity: "a tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater" },
-    { id: "C", name: "Kiosco, de tarde", identity: "a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves" },
-    { id: "D", name: "Kiosco, de mañana", identity: "the same small corner store in the morning, shelves fully stocked, soft daylight from the front window" },
+    { id: "A", name: "El Desorden", identity: "a lanky man in a rumpled gray suit covered in crumpled paper receipts, messy hair, sly grin", castId: "" },
+    { id: "B", name: "Marta", identity: "a tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater", castId: "" },
+    { id: "C", name: "Kiosco, de tarde", identity: "a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves", castId: "" },
+    { id: "D", name: "Kiosco, de mañana", identity: "the same small corner store in the morning, shelves fully stocked, soft daylight from the front window", castId: "" },
   ],
   shots: [
     {
       title: "El Desorden se presenta",
       action: "A las 18:02, el Desorden se presenta apoyado en el estante vacío del pan.",
-      topic: "T1", beat: "negative", speaker: "desorden", seconds: 6, setup: "A", disclosure: "none",
+      topic: "T1", beat: "negative", speaker: "desorden", seconds: 6, setups: ["A"], kind: "single", screen: "", middlePrompt: "", endPrompt: "", editFrom: 0, editPrompt: "", disclosure: "none",
       voiceover: "Buenas tardes. Soy el Desorden. Hoy vine a esconderte el pan.", onScreenText: "18:02",
       visualPrompt: "A lanky man in a rumpled gray suit covered in crumpled paper receipts, messy hair, sly grin, leaning against an empty metal bread rack in a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves, a wall clock behind him. Eye-level medium shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank clock face, no signage.",
       videoPrompt: "He tips an imaginary hat toward the camera and smirks; the empty rack stays still. Slow push-in, no other camera move. Audio: fluorescent hum, a soft chuckle, no music.",
@@ -172,7 +172,7 @@ export const DEMO_BOARD: Board = {
     {
       title: "Marta mira la heladera",
       action: "Marta abre la heladera y la encuentra casi vacía.",
-      topic: "T1", beat: "negative", speaker: "marta", seconds: 6, setup: "B", disclosure: "none",
+      topic: "T1", beat: "negative", speaker: "marta", seconds: 6, setups: ["B"], kind: "single", screen: "", middlePrompt: "", endPrompt: "", editFrom: 0, editPrompt: "", disclosure: "none",
       voiceover: "El sistema dice cuarenta yogures.", onScreenText: "Sistema: 40",
       visualPrompt: "A tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater, staring into a nearly empty glass-door fridge in a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves. Over-the-shoulder shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank labels, no signage.",
       videoPrompt: "She slowly opens the fridge door and pauses, looking at the bare shelves. Locked-off camera. Audio: fridge hum, door seal, no music.",
@@ -181,7 +181,9 @@ export const DEMO_BOARD: Board = {
     {
       title: "Los 37 yogures que faltan",
       action: "El Desorden muestra un cartón de leche como trofeo.",
-      topic: "T1", beat: "negative", speaker: "desorden", seconds: 6, setup: "A", disclosure: "none",
+      topic: "T1", beat: "negative", speaker: "desorden", seconds: 6, setups: ["A", "C"], kind: "single", screen: "", middlePrompt: "", endPrompt: "", editFrom: 1,
+      editPrompt: "Replace the empty bread rack with a nearly empty fridge and put a single plain milk carton in his raised hand, held like a trophy. Keep him, the light and the store exactly the same.",
+      disclosure: "none",
       voiceover: "Y la góndola dice tres. Los otros treinta y siete se fueron de vacaciones.", onScreenText: "Góndola: 3",
       visualPrompt: "A lanky man in a rumpled gray suit covered in crumpled paper receipts, messy hair, sly grin, holding up a single plain milk carton like a trophy beside a nearly empty fridge in a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves. Medium shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank carton, no signage.",
       videoPrompt: "He lifts the carton higher, proud, then shrugs. Slow push-in. The fridge stays still. Audio: fridge hum, no music.",
@@ -190,7 +192,7 @@ export const DEMO_BOARD: Board = {
     {
       title: "El yogur vencido, adelante",
       action: "Un yogur vencido quedó al frente de la heladera, a la vista.",
-      topic: "T1", beat: "negative", speaker: "desorden", seconds: 6, setup: "C", disclosure: "none",
+      topic: "T1", beat: "negative", speaker: "desorden", seconds: 6, setups: ["C"], kind: "single", screen: "", middlePrompt: "", endPrompt: "", editFrom: 0, editPrompt: "", disclosure: "none",
       voiceover: "Y el yogur que venció el martes lo dejé adelante. Para que se vea.", onScreenText: "Venció el martes",
       visualPrompt: "A row of plain white yogurt cups at the very front of a fridge shelf in a small corner store at six in the evening, cold fluorescent light, half-empty metal shelves, one cup turned toward the lens. Low close shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank lids and labels.",
       videoPrompt: "A gloved hand made of crumpled receipts nudges the turned cup a little further forward. Locked-off camera. Audio: soft plastic tap, fridge hum, no music.",
@@ -199,7 +201,7 @@ export const DEMO_BOARD: Board = {
     {
       title: "Marta abre al amanecer",
       action: "Marta levanta la persiana al amanecer: once años abriendo a las seis.",
-      topic: "T1", beat: "touching", speaker: "marta", seconds: 10, setup: "B", disclosure: "none",
+      topic: "T1", beat: "touching", speaker: "marta", seconds: 10, setups: ["B"], kind: "single", screen: "", middlePrompt: "", endPrompt: "", editFrom: 0, editPrompt: "", disclosure: "none",
       voiceover: "Hace once años que abro a las seis de la mañana. Me gustaría un domingo.", onScreenText: "",
       visualPrompt: "A tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater, lifting a corrugated metal shop shutter at dawn, narrow quiet street, warm low golden sunlight from the left, long soft shadows. Eye-level medium shot, 35mm photo, shallow depth of field, realistic film still. Bare shutter, no signage.",
       videoPrompt: "She slowly lifts the shutter a short way; the slats clack and catch the light. Her head stays down. Slow push-in, no other camera move. Audio: metal clacks, distant birds, no music.",
@@ -208,7 +210,7 @@ export const DEMO_BOARD: Board = {
     {
       title: "Llegó el pedido",
       action: "Entran los cajones y Marta marca el pedido con el celular.",
-      topic: "T1", beat: "good", speaker: "iman", seconds: 6, setup: "D", disclosure: "none",
+      topic: "T1", beat: "good", speaker: "iman", seconds: 6, setups: ["D"], kind: "single", screen: "", middlePrompt: "", endPrompt: "", editFrom: 0, editPrompt: "", disclosure: "none",
       voiceover: "Llegó el pedido: lo marcás con el celu y ya está en el stock.", onScreenText: "Llegó",
       visualPrompt: "A tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater, tapping a phone while a delivery man sets plastic crates on the floor of the same small corner store in the morning, shelves fully stocked, soft daylight from the front window. Medium shot, 35mm photo, shallow depth of field, realistic film still. Blank phone glow, plain crates.",
       videoPrompt: "She taps the phone once and nods; the crates settle. Slow push-in. Audio: crates on the floor, morning street, no music.",
@@ -217,16 +219,18 @@ export const DEMO_BOARD: Board = {
     {
       title: "Vence: lo vencido se saca",
       action: "Con el aviso de Vence, Marta saca el yogur vencido de la heladera.",
-      topic: "T1", beat: "good", speaker: "iman", seconds: 6, setup: "D", disclosure: "none",
+      topic: "T1", beat: "good", speaker: "iman", seconds: 10, setups: ["D"], kind: "transform", screen: "",
+      middlePrompt: "",
+      endPrompt: "A fully stocked fridge in the same small corner store in the morning, the front row neat and in date, the old yogurt cup gone, soft daylight from the front window. Close shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank lids and labels.", editFrom: 0, editPrompt: "", disclosure: "none",
       voiceover: "Vence te muestra lo que vence esta semana, antes que el cliente.", onScreenText: "Vence",
       visualPrompt: "A hand taking one plain white yogurt cup from the front of a fully stocked fridge in the same small corner store in the morning, shelves fully stocked, soft daylight from the front window. Close shot, 35mm photo, shallow depth of field, muted colors, realistic film still. Blank lids and labels.",
       videoPrompt: "The hand sets the cup aside on the counter; the full shelf behind stays still. Locked-off camera. Audio: soft plastic tap, quiet store, no music.",
-      toolSettings: "9:16 · 6 s",
+      toolSettings: "9:16 · 10 s",
     },
     {
       title: "La caja cuadra",
       action: "De noche, la caja cerrada y el mostrador ordenado.",
-      topic: "T1", beat: "good", speaker: "iman", seconds: 6, setup: "D", disclosure: "none",
+      topic: "T1", beat: "good", speaker: "iman", seconds: 6, setups: ["D"], kind: "single", screen: "", middlePrompt: "", endPrompt: "", editFrom: 0, editPrompt: "", disclosure: "none",
       voiceover: "Y a la noche, la caja cuadra con la planilla.", onScreenText: "Caja ✓",
       visualPrompt: "A tidy shop counter at night with a closed cash drawer and a calm phone resting upright on the store counter, its screen glowing softly, out of focus, warm lamp light, fully stocked shelves behind. Medium close shot, 35mm photo, shallow depth of field, realistic film still. No readable screen, no signage.",
       videoPrompt: "The cash drawer slides shut with a soft click; the phone glow steadies. Locked-off camera. Audio: drawer click, quiet night, no music.",
@@ -235,7 +239,7 @@ export const DEMO_BOARD: Board = {
     {
       title: "El Desorden sin trabajo",
       action: "El Desorden, solo frente a estantes llenos, no tiene nada que esconder.",
-      topic: "T1", beat: "good", speaker: "desorden", seconds: 6, setup: "A", disclosure: "none",
+      topic: "T1", beat: "good", speaker: "desorden", seconds: 6, setups: ["A"], kind: "single", screen: "", middlePrompt: "", endPrompt: "", editFrom: 0, editPrompt: "", disclosure: "none",
       voiceover: "¿Y yo qué hago?", onScreenText: "",
       visualPrompt: "A lanky man in a rumpled gray suit covered in crumpled paper receipts, messy hair, his sly grin gone, standing alone in front of fully stocked shelves in the same small corner store in the morning, soft daylight from the front window, looking lost. Medium shot, 35mm photo, shallow depth of field, realistic film still. Plain packaging, no signage.",
       videoPrompt: "He looks left, then right, finding nothing to hide; his shoulders drop. Locked-off camera. Audio: quiet store, a single receipt rustles, no music.",
@@ -244,7 +248,7 @@ export const DEMO_BOARD: Board = {
     {
       title: "Marta, con un mate",
       action: "Marta toma mate detrás del mostrador y lo despide.",
-      topic: "T1", beat: "good", speaker: "marta", seconds: 6, setup: "B", disclosure: "none",
+      topic: "T1", beat: "good", speaker: "marta", seconds: 6, setups: ["B"], kind: "single", screen: "", middlePrompt: "", endPrompt: "", editFrom: 0, editPrompt: "", disclosure: "none",
       voiceover: "Vos andá a esconderle el pan a otro.", onScreenText: "",
       visualPrompt: "A tired but kind corner-store owner in her fifties, short graying hair, faded navy work jacket over a gray sweater, behind the counter of her store sipping mate with a relaxed half smile, fully stocked shelves behind her, warm morning light. Eye-level medium shot, 35mm photo, shallow depth of field, realistic film still. Plain gourd, no signage.",
       videoPrompt: "She takes a slow sip of mate and glances off to the side, amused. Locked-off camera. Audio: quiet morning store, no music.",
