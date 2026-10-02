@@ -63,6 +63,14 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 21. Estilo del texto en el video: tamaño y color
+- **Qué pasó:** al generar el video final faltaban controles de texto, y el narrador salió sin audio (no hay voz todavía: ver idea 15).
+- **Idea:** en el panel del video, controles para:
+  - **Tamaño** del subtítulo (lo que se dice) y del cartel de arriba (texto en pantalla), por separado.
+  - **Color** del texto y del fondo o borde que lo hace legible; color del nombre de quien habla.
+  - Quizás: posición (arriba / centro / abajo) y tipografía.
+  - Vista previa en vivo sobre una toma, y que la configuración quede guardada para la serie (cada marca con su estilo).
+
 ### 20. Prompt de imagen = un solo momento congelado
 - **Qué pasó:** Kimi escribió un prompt de imagen con tres momentos: el yogur al frente con la etiqueta (estado), la mano de una clienta que lo levanta (acción) y la cara que "now reads indignant" (cambio en el tiempo). Además arrastró "dusty" de otra toma y sumó una clienta sin setup.
 - **Regla:** la imagen es **un momento congelado**; las acciones y los cambios van al prompt de video. Palabras como *now, then, after, reaches, lifts, turns* en un prompt de imagen son señal de error.
