@@ -57,6 +57,14 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 18. Varios setups y personajes en una misma toma
+- **Qué pasó:** la toma 7 dice "Setup C · Marta", pero en la escena también están el yogur (setup B) y la heladera (setup A). Hoy cada toma tiene **un solo** setup, así que el prompt describe a los otros de nuevo y Grok los genera distintos: no es el mismo yogur del setup.
+- **Idea:**
+  - Cada toma lista **todos** los setups que aparecen: personajes y lugar (ej.: Marta + El Yogur + La heladera).
+  - Se pueden **editar** a mano: sumar o sacar un personaje o un lugar de la toma, y cambiar la descripción de un personaje (y que el cambio llegue a todas sus tomas).
+  - El prompt nombra cada setup como referencia (`@Marta`, `@Yogur`, `@Heladera`) para usar sus imágenes aprobadas (idea 14) en Grok.
+- **Mientras tanto, en Grok:** partir de la imagen donde ya está el yogur (toma anterior) y sumar a Marta subiendo su imagen como referencia con `@`, en vez de generar todo de cero.
+
 ### 17. La interfaz real de la app en las imágenes y los videos (IMAN y cualquier otra)
 - **Idea (tuya):** IMAN es software y tiene su propia interfaz; las piezas tienen que mostrarla, y los prompts tienen que tenerlo en cuenta.
 - **El problema:** la IA no puede dibujar la pantalla real de IMAN (inventa botones y textos). Por eso hoy los prompts piden "pantalla en blanco, sin texto".
