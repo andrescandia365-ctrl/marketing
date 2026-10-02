@@ -11,8 +11,9 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
 - `shared/` — zod schemas and types (`schema.ts`), beats/roles/lengths and shot timing (`template.ts`), the
   example brief, prompt helpers.
 - `server/` — Hono API. `claude.ts` writes the menu, the story, the storyboard, revisions and single-shot rewrites
-  (structured output, prompt-cached system prompt; series and tool blocks go after the cache). `series.ts` loads
-  `series/*.md`; `tools/` holds one Markdown profile per image/video tool, read at startup; `images/` holds one file
+  (structured output, prompt-cached system prompt; series and tool blocks go after the cache). `series.ts` loads,
+  saves, creates and deletes `series/*.md` (the app's "Editar serie" form; `shared/series.ts` maps the
+  Markdown to form fields and back); `tools/` holds one Markdown profile per image/video tool, read at startup; `images/` holds one file
   per image generator API; `demo.ts` is the sample output used when no model key is set. The writer is Claude
   (Anthropic SDK) or Kimi (`kimi.ts`, OpenAI-compatible Chat Completions, streamed, strict `json_schema` with a
   JSON-mode fallback and one retry on a schema mismatch); `LLM_PROVIDER` picks when both keys are set.
@@ -29,7 +30,8 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   strict values.
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.
 - Tool features change: edit the tool's `.md` in `server/tools/`, never hard-code them. Tag each line
-  [DOCS], [NOT SURE] or [TESTED]. A new series is a new `.md` in `server/series/` (`# Name`, `Tagline:` lines).
+  [DOCS], [NOT SURE] or [TESTED]. Series are edited in the app (Brief → Editar serie / + Nueva serie); their files are in Spanish, and the
+  "Lo que existe hoy" list is the only thing the writer may show as real (heading name in `shared/series.ts`).
 - Never crop or hide a tool's watermark: "Cuadro completo" (full frame, no zoom) is on by default for Grok.
   Never add features that strip AI metadata or provenance; the disclosure line is on by default.
 

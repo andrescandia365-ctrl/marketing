@@ -1,21 +1,22 @@
 # Masogar
 
-Tagline: [VERIFY: tagline]
+Frase: [VERIFY: frase de la marca]
+Producto por episodio: sí
 
-## What Masogar is
-A home store that sells MANY products for the house. Every episode features one product ("product X"), which changes from episode to episode.
+## Qué es
+Una tienda para el hogar que vende MUCHOS productos para la casa. Cada episodio presenta un producto ("el producto X"), que cambia de episodio a episodio.
 
-## The Good
-Masogar is always the good one: the helper who shows up with the right product for the problem. The person at home is still the hero; Masogar is the guide that makes them win.
+## El Malo
+El dolor que resuelve el producto de este episodio, personificado. Cambia en cada episodio; Masogar se queda. Puntos de partida: el Desorden, el Frío, la Humedad, el Ruido que no deja dormir a nadie, la mesa vacía sin cena en familia, una casa que no querés que vean las visitas.
 
-## The Bad
-The pain that this episode's product solves, personified. It changes every episode; Masogar stays. Starting points: Clutter, the Cold, Damp, Noise that won't let anyone sleep, the bare table with no family dinner, a house you don't want guests to see.
+## El Bueno
+Masogar siempre es el bueno: el que aparece con el producto justo para el problema. La persona en su casa sigue siendo la protagonista; Masogar es la guía que la hace ganar.
 
-## Rules for this series
-- Sell only the good feeling: the negative appears only as the pain the product removes. Never sell fear, shame or guilt.
-- No health, safety or sleep claims. No invented reviews or customer stories.
-- Every piece answers: what did the house feel like before, and what does it feel like after?
-- Only describe what the product does if the brief says so; anything else is [VERIFY].
+## Reglas de la serie
+- Vender solo la sensación buena: lo negativo aparece solo como el dolor que el producto saca. Nunca vender miedo, vergüenza ni culpa.
+- Nada de afirmaciones de salud, seguridad o sueño. Nada de reseñas ni historias de clientes inventadas.
+- Cada pieza responde: ¿cómo se sentía la casa antes y cómo se siente después?
+- Describir lo que hace el producto solo si el brief lo dice; todo lo demás va como [VERIFY].
 
-## Who watches
-Families and people who care about their home, in Argentina.
+## Quién mira
+Familias y personas que cuidan su casa, en Argentina.

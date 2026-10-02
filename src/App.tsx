@@ -6,6 +6,7 @@ import { BEAT_INFO, formatTime, timeShots } from "../shared/template.ts";
 import { BoardView } from "./components/BoardView.tsx";
 import { BriefForm } from "./components/BriefForm.tsx";
 import { MenuPicker } from "./components/MenuPicker.tsx";
+import { SeriesEditor } from "./components/SeriesEditor.tsx";
 import {
   CopyButton,
   DirectionLog,
@@ -68,6 +69,8 @@ export function App() {
   const [provider, setProvider] = useState("placeholder");
   const [busy, setBusy] = useState<null | "menu" | "story" | "revise" | "board" | "reviseBoard">(null);
   const [error, setError] = useState("");
+  // undefined: not editing; null: a new series; a string: that series.
+  const [editingSeries, setEditingSeries] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
     api
@@ -98,6 +101,8 @@ export function App() {
 
   const toolName = status?.tools.find((t) => t.id === pieceBrief.tool)?.name ?? "la herramienta";
   const seriesName = status?.series.find((s) => s.id === pieceBrief.series)?.name ?? "";
+  const currentSeries = status?.series.find((s) => s.id === brief.series);
+  const needsProduct = Boolean(currentSeries?.productPerEpisode) && !brief.product.trim();
 
   function addLog(entry: Omit<LogEntry, "at">) {
     setLog((l) => [...l, { ...entry, at: Date.now() - logStart.current }]);
@@ -334,7 +339,25 @@ export function App() {
         )}
         {error && <Notice tone="error">{error}</Notice>}
 
-        {step === "brief" && (
+        {step === "brief" && editingSeries !== undefined && (
+          <SeriesEditor
+            key={editingSeries ?? "new"}
+            id={editingSeries}
+            onSaved={(series, id) => {
+              setStatus((s) => (s ? { ...s, series } : s));
+              setBrief((b) => ({ ...b, series: id }));
+              setEditingSeries(undefined);
+            }}
+            onDeleted={(series) => {
+              setStatus((s) => (s ? { ...s, series } : s));
+              setBrief((b) => ({ ...b, series: series[0]?.id ?? "" }));
+              setEditingSeries(undefined);
+            }}
+            onClose={() => setEditingSeries(undefined)}
+          />
+        )}
+
+        {step === "brief" && editingSeries === undefined && (
           <section className="space-y-6">
             <div className="flex flex-wrap gap-2">
               <Button
@@ -347,9 +370,16 @@ export function App() {
                 Borrar
               </Button>
             </div>
-            <BriefForm brief={brief} series={status?.series ?? []} tools={status?.tools ?? []} onChange={setBrief} />
+            <BriefForm
+              brief={brief}
+              series={status?.series ?? []}
+              tools={status?.tools ?? []}
+              onChange={setBrief}
+              onEditSeries={(id) => setEditingSeries(id)}
+              onNewSeries={() => setEditingSeries(null)}
+            />
             <div className="flex items-center gap-3 border-t border-line pt-5">
-              <Button onClick={openMenu} disabled={busy !== null || (brief.series === "masogar" && !brief.product.trim())}>
+              <Button onClick={openMenu} disabled={busy !== null || needsProduct}>
                 {busy === "menu" ? (
                   <>
                     <Spinner /> Armando el menú…
@@ -358,8 +388,8 @@ export function App() {
                   "Ver el menú de temas"
                 )}
               </Button>
-              {brief.series === "masogar" && !brief.product.trim() && (
-                <span className="text-sm text-muted">Para Masogar, escribí el producto del episodio.</span>
+              {needsProduct && (
+                <span className="text-sm text-muted">Para {currentSeries?.name}, escribí el producto del episodio.</span>
               )}
             </div>
           </section>

@@ -18,6 +18,7 @@ import {
   type TopicIdea,
 } from "../shared/schema.ts";
 import { LENGTHS } from "../shared/template.ts";
+import { WORKS_TODAY } from "../shared/series.ts";
 import { getSeries } from "./series.ts";
 import { KIMI_MODEL, askKimi, kimiKey } from "./kimi.ts";
 import { getTool } from "./tools.ts";
@@ -69,7 +70,7 @@ function contextBlocks(brief: Brief, withTool: boolean): string[] {
   const series = getSeries(brief.series);
   if (!series) throw new WriterError(`No existe la serie "${brief.series}".`);
   const blocks = [
-    `The series for this piece. Its "Works today" list is the only thing that may be shown as real.\n\n${series.text}`,
+    `The series for this piece (its bible is written in Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real.\n\n${series.text}`,
   ];
   if (withTool) {
     const tool = getTool(brief.tool);
@@ -85,7 +86,7 @@ function describeBrief(brief: Brief): string {
   const lines = [
     `Series: ${getSeries(brief.series)?.name ?? brief.series}`,
     `Length: ${brief.length === "short" ? `a short, ${len.min}–${len.max} s, ONE topic` : `an episode, ${len.min / 60}–${len.max / 60} min, 3–4 topics`}`,
-    `${brief.series === "masogar" ? "This episode's product" : "Focus (optional)"}: ${brief.product || "your call"}`,
+    `${getSeries(brief.series)?.productPerEpisode ? "This episode's product" : "Focus (optional)"}: ${brief.product || "your call"}`,
     `A moment the audience already feels (optional peg): ${brief.angle || "none given"}`,
     `Notes, verified facts, off-limits: ${brief.notes || "none given"}`,
     `Comedic voice: ${brief.tone}`,
@@ -209,7 +210,7 @@ const BOARD_RULES = `Shot rules:
 - Put the style line inside each visualPrompt so it stands alone. No text, signs, logos, brand names or real people's likeness in any image. How the Bad looks on screen follows the story's character line.
 - The spoken lines and captions are added on top later, so video prompts never ask anyone to speak or sing, and ask for no music.
 - toolSettings uses only lengths the tool profile documents.
-- disclosure: "concept" or "simulation" for anything not in the series' "Works today" list.`;
+- disclosure: "concept" or "simulation" for anything not in the series' "${WORKS_TODAY}" list.`;
 
 // Step 3: the storyboard.
 export async function writeBoard(brief: Brief, story: Story): Promise<Board> {

@@ -160,7 +160,8 @@ export function normalizeBoard(wire: z.infer<typeof BoardWireSchema>): Board {
 
 // ── Server status ───────────────────────────────────────────────────────────────
 export type ToolInfo = { id: string; name: string; checked: string };
-export type SeriesInfo = { id: string; name: string; tagline: string };
+// productPerEpisode: every episode features a different product (Masogar), so the brief must name it.
+export type SeriesInfo = { id: string; name: string; tagline: string; productPerEpisode: boolean };
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };
 
 export type Status = {

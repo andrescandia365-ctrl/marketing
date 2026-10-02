@@ -1,27 +1,42 @@
 import type { Brief, SeriesInfo, ToolInfo } from "../../shared/schema.ts";
 import { LENGTHS } from "../../shared/template.ts";
-import { Field, Segmented, inputClass } from "./ui.tsx";
+import { Button, Field, Segmented, inputClass } from "./ui.tsx";
 
-type Props = { brief: Brief; series: SeriesInfo[]; tools: ToolInfo[]; onChange: (brief: Brief) => void };
+type Props = {
+  brief: Brief;
+  series: SeriesInfo[];
+  tools: ToolInfo[];
+  onChange: (brief: Brief) => void;
+  onEditSeries: (id: string) => void;
+  onNewSeries: () => void;
+};
 
-export function BriefForm({ brief, series, tools, onChange }: Props) {
+export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewSeries }: Props) {
   const set = <K extends keyof Brief>(key: K, value: Brief[K]) => onChange({ ...brief, [key]: value });
-  const isMasogar = brief.series === "masogar";
+  const productMode = series.find((s) => s.id === brief.series)?.productPerEpisode ?? false;
 
   return (
     <div className="grid gap-5 md:grid-cols-2">
       <div className="md:col-span-2">
-        <Field label="Serie">
-          <Segmented
-            value={brief.series}
-            onChange={(v) => set("series", v)}
-            options={series.map((s) => ({ value: s.id, label: s.name }))}
-          />
+        <Field label="Serie" group hint="Lo que la IA sabe de cada marca sale de su serie. Editala cuando cambie algo.">
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmented
+              value={brief.series}
+              onChange={(v) => set("series", v)}
+              options={series.map((s) => ({ value: s.id, label: s.name }))}
+            />
+            <Button variant="secondary" onClick={() => onEditSeries(brief.series)} disabled={!brief.series}>
+              Editar serie
+            </Button>
+            <Button variant="ghost" onClick={onNewSeries}>
+              + Nueva serie
+            </Button>
+          </div>
         </Field>
       </div>
 
       <div className="md:col-span-2">
-        <Field label="Largo">
+        <Field label="Largo" group>
           <Segmented
             value={brief.length}
             onChange={(v) => set("length", v)}
@@ -34,11 +49,11 @@ export function BriefForm({ brief, series, tools, onChange }: Props) {
       </div>
 
       <Field
-        label={isMasogar ? "Producto de este episodio" : "Foco (opcional)"}
+        label={productMode ? "Producto de este episodio" : "Foco (opcional)"}
         hint={
-          isMasogar
+          productMode
             ? "Qué es y qué problema resuelve. Ej.: burletes para puertas, frenan el frío que entra por abajo."
-            : "Un paso del loop o una función. Ej.: Vence, cierre de caja, sin internet."
+            : "Una función o un tema. Ej.: vencimientos, cierre de caja, sin internet."
         }
       >
         <textarea className={inputClass} rows={3} value={brief.product} onChange={(e) => set("product", e.target.value)} />
@@ -54,7 +69,7 @@ export function BriefForm({ brief, series, tools, onChange }: Props) {
       </div>
 
       <div className="flex flex-wrap gap-6 md:col-span-2">
-        <Field label="Tono">
+        <Field label="Tono" group>
           <Segmented
             value={brief.tone}
             onChange={(v) => set("tone", v)}
@@ -65,7 +80,7 @@ export function BriefForm({ brief, series, tools, onChange }: Props) {
             ]}
           />
         </Field>
-        <Field label="Idioma de lo que se dice">
+        <Field label="Idioma de lo que se dice" group>
           <Segmented
             value={brief.language}
             onChange={(v) => set("language", v)}
@@ -75,7 +90,7 @@ export function BriefForm({ brief, series, tools, onChange }: Props) {
             ]}
           />
         </Field>
-        <Field label="Formato">
+        <Field label="Formato" group>
           <Segmented
             value={brief.format}
             onChange={(v) => set("format", v)}

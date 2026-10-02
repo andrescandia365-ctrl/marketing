@@ -4,7 +4,7 @@ Hace contenido con historia, no publicidad: un ida y vuelta entre **el Bueno** (
 
 **Brief → menú de temas → historia en rondas → storyboard → producción → video.**
 
-1. **Brief.** La serie (IMAN o Masogar), el largo (corto de 60–90 s con un tema, o episodio de 5–8 min con 3–4 temas), el producto del episodio (obligatorio en Masogar), un gancho del momento, notas, tono, idioma, formato y la herramienta de imagen y video.
+1. **Brief.** La serie (IMAN, Masogar o las que agregues), el largo (corto de 60–90 s con un tema, o episodio de 5–8 min con 3–4 temas), el producto del episodio (obligatorio en las series de un producto por episodio, como Masogar), un gancho del momento, notas, tono, idioma, formato y la herramienta de imagen y video.
 2. **Menú.** Claude propone temas: el dolor, quién hace de Malo, cómo gana el Bueno y con qué arranca. Elegís uno (corto) o hasta cuatro en orden (episodio), o agregás uno propio.
 3. **Historia.** Claude escribe la historia con personajes, diálogo marcado Negativo / Emotivo / Bueno, puentes y callbacks, y corre el checklist. Vos le dejás **notas de director** y la reescribe en otra ronda, las veces que haga falta. Cuando te cierra, la aprobás.
 4. **Storyboard.** Claude la parte en tomas con *setups* (una persona o un lugar que se repite igual). Podés dejar una nota por toma y una para todo el storyboard, y revisarlo en rondas antes de aprobarlo.
@@ -12,12 +12,9 @@ Hace contenido con historia, no publicidad: un ida y vuelta entre **el Bueno** (
 
 ## Series
 
-Cada serie es un archivo en `server/series/` (la biblia de la serie: qué funciona hoy, el Malo, el Bueno, quién mira):
+Cada serie es una marca: qué es, **lo que existe hoy** (lo único que la IA puede mostrar como real), la historia que contamos, el Malo, el Bueno, las reglas y quién mira. Se editan desde la app: en el paso **Brief**, **Editar serie** o **+ Nueva serie**. Si la marca presenta un producto distinto en cada episodio (como Masogar), marcá esa casilla y el brief va a pedir el producto.
 
-- `iman.md`: IMAN, la app de kiosco. La historia es el loop diario que te ordena el día.
-- `masogar.md`: Masogar siempre es el Bueno; el Malo es el dolor que resuelve el producto de cada episodio.
-
-Para sumar una serie, agregá otro `.md` con las líneas `# Nombre` y `Tagline:` y reiniciá.
+Cada serie se guarda como un archivo en `server/series/` (`iman.md`, `masogar.md`), que es lo que la IA lee con cada pedido.
 
 ## Cómo correrla
 

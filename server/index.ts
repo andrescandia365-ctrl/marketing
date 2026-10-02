@@ -24,13 +24,15 @@ import {
 import { KimiError } from "./kimi.ts";
 import { DEMO_BOARD, DEMO_MENU, DEMO_STORY } from "./demo.ts";
 import { getProvider, listProviders } from "./images/index.ts";
-import { listSeries } from "./series.ts";
+import { SeriesFieldsSchema } from "../shared/series.ts";
+import { SeriesError, createSeries, deleteSeries, getSeriesFields, listSeries, saveSeries } from "./series.ts";
 import { listTools } from "./tools.ts";
 
 const app = new Hono();
 
 app.onError((error, c) => {
   if (error instanceof WriterError || error instanceof KimiError) return c.json({ error: error.message }, 502);
+  if (error instanceof SeriesError) return c.json({ error: error.message }, 400);
   if (error instanceof z.ZodError) return c.json({ error: "Al pedido le faltaban datos." }, 400);
   console.error(error);
   return c.json({ error: error.message || "Algo salió mal." }, 500);
@@ -49,6 +51,30 @@ app.get("/api/status", (c) => {
     tools: listTools(),
     series: listSeries(),
   });
+});
+
+// Series bibles, edited from the app.
+async function seriesFields(c: { req: { json: () => Promise<unknown> } }) {
+  const parsed = z.object({ fields: SeriesFieldsSchema }).safeParse(await c.req.json());
+  if (!parsed.success) throw new SeriesError(parsed.error.issues[0]?.message ?? "Faltan datos de la serie.");
+  return parsed.data.fields;
+}
+
+app.get("/api/series/:id", (c) => c.json({ fields: getSeriesFields(c.req.param("id")) }));
+
+app.put("/api/series/:id", async (c) => {
+  saveSeries(c.req.param("id"), await seriesFields(c));
+  return c.json({ series: listSeries() });
+});
+
+app.post("/api/series", async (c) => {
+  const id = createSeries(await seriesFields(c));
+  return c.json({ id, series: listSeries() });
+});
+
+app.delete("/api/series/:id", (c) => {
+  deleteSeries(c.req.param("id"));
+  return c.json({ series: listSeries() });
 });
 
 app.post("/api/menu", async (c) => {
