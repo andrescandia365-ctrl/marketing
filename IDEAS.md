@@ -57,6 +57,12 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 16. Botón para escuchar los prompts en voz alta
+- **Idea (tuya):** un botón al lado de cada prompt que lo lee en voz alta.
+- **Cómo:** con la voz del navegador (gratis, sin clave). Los prompts están en inglés, así que se leen con voz en inglés; las líneas habladas, con voz en español.
+- **Extra:** el mismo botón en "Lo que se dice" sirve para escuchar cuánto dura la línea antes de generar el clip.
+- **Pregunta para el final:** ¿es para escucharlos vos, o para dictárselos a Grok por voz?
+
 ### 15. ¿Los personajes hablan o no?
 - **Qué pasó:** en la toma 2 la línea es de El Yogur ("Yo vencí el martes…"), pero el prompt de video pide "no speech" y el clip sale sin que hable.
 - **Cómo es hoy:** la app pide clips sin voz a propósito; quién habla y su línea aparecen como subtítulo con el nombre del personaje. No hay voz todavía.
