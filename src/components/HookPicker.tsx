@@ -29,16 +29,16 @@ export function HookPicker({ hooks, questions, pending, onPick }: Props) {
                 <span className="flex items-center gap-2 text-xs font-semibold text-muted group-hover:text-ink">
                   {busy ? (
                     <>
-                      <Spinner /> Writing the script…
+                      <Spinner /> Escribiendo el guion…
                     </>
                   ) : (
-                    "Use this hook →"
+                    "Usar este gancho →"
                   )}
                 </span>
               </div>
               <p className="mt-3 text-lg leading-snug font-bold">“{hook.line}”</p>
               <p className="mt-2 text-sm text-muted">
-                <span className="font-semibold text-ink">On screen:</span> {hook.visual}
+                <span className="font-semibold text-ink">En pantalla:</span> {hook.visual}
               </p>
               <p className="mt-1 text-sm text-muted">{hook.why}</p>
             </button>
@@ -48,7 +48,7 @@ export function HookPicker({ hooks, questions, pending, onPick }: Props) {
 
       {questions.length > 0 && (
         <div className="rounded-xl border border-touch/30 bg-touch-soft p-4">
-          <p className="text-sm font-semibold text-touch">Fill these in before it ships</p>
+          <p className="text-sm font-semibold text-touch">Completá esto antes de publicar</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
             {questions.map((q) => (
               <li key={q}>{q}</li>

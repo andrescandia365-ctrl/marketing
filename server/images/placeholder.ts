@@ -1,5 +1,7 @@
 // Works with no API key: a flat card in the beat's colour with the shot description, so the
 // whole pipeline (storyboard → video) can be tried before any image generator is connected.
+import type { Section } from "../../shared/schema.ts";
+import { TEMPLATE } from "../../shared/template.ts";
 import type { ImageProvider } from "./util.ts";
 
 const COLORS: Record<string, [string, string]> = {
@@ -29,8 +31,8 @@ function wrap(text: string, max: number): string[] {
 
 export const placeholder: ImageProvider = {
   id: "placeholder",
-  label: "Placeholder cards (no key)",
-  hint: "Always available. Shows the shot description instead of a picture.",
+  label: "Bocetos (sin clave)",
+  hint: "Siempre disponible. Muestra la descripción de la toma en lugar de una imagen.",
   available: () => true,
   async generate({ prompt, aspect, section }) {
     const [w, h] = aspect === "vertical" ? [1080, 1920] : [1920, 1080];
@@ -43,7 +45,7 @@ export const placeholder: ImageProvider = {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
 <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${dark}"/><stop offset="1" stop-color="${light}"/></linearGradient></defs>
 <rect width="100%" height="100%" fill="url(#g)"/>
-<text x="${w / 2}" y="${top - 110}" text-anchor="middle" font-family="sans-serif" font-size="34" letter-spacing="6" fill="#ffffff" fill-opacity="0.6">PLACEHOLDER · ${escape(section.toUpperCase())}</text>
+<text x="${w / 2}" y="${top - 110}" text-anchor="middle" font-family="sans-serif" font-size="34" letter-spacing="6" fill="#ffffff" fill-opacity="0.6">BOCETO · ${escape((TEMPLATE[section as Section]?.label ?? section).toUpperCase())}</text>
 <g font-family="sans-serif" font-size="46" fill="#ffffff" fill-opacity="0.92">${text}</g>
 </svg>`;
     return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;

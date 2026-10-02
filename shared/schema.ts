@@ -34,6 +34,7 @@ export const BriefSchema = z.object({
   language: z.enum(["en", "es"]),
   format: z.enum(["vertical", "horizontal"]),
   visualStyle: z.string(),
+  tool: z.string(),
 });
 export type Brief = z.infer<typeof BriefSchema>;
 
@@ -55,15 +56,22 @@ export type HooksResult = z.infer<typeof HooksResultSchema>;
 
 // Claude returns plain strings for section and disclosure (the SDK sends enums only as hints),
 // and normalizeScript() maps them onto the strict values the app relies on.
-const ShotWireSchema = z.object({
+export const ShotWireSchema = z.object({
   section: z.string().describe(`One of: ${SECTIONS.join(", ")}.`),
   voiceover: z.string().describe("What the narrator says during this shot."),
   onScreenText: z.string().describe("Short caption burned into the frame, max ~8 words. May be empty."),
+  setup: z.string().describe("Id of the setup (person or place) this shot belongs to, e.g. A."),
   visualPrompt: z
     .string()
     .describe(
-      "Image-generator prompt for this shot: subject, setting, framing, light. No words, logos or real people.",
+      "Complete, standalone image prompt for this shot, in the chosen tool's format (style included). No words, logos or real people.",
     ),
+  videoPrompt: z
+    .string()
+    .describe("Prompt that animates this shot's still, in the chosen tool's format, ending with a sound line."),
+  toolSettings: z
+    .string()
+    .describe("What to set in the tool's own controls for this shot, very short, e.g. '9:16 · 6 s'."),
   disclosure: z
     .string()
     .describe("One of: none, concept, simulation. 'concept' or 'simulation' when the shot shows anything not shipped today."),
@@ -88,6 +96,17 @@ export const ScriptWireSchema = z.object({
     .array(ShotWireSchema)
     .describe("In order: 1 hook, 3 agitate (escalating), 1 turn, 1-2 resolve, 1 button."),
   cta: z.string().describe("The single call to action shown on the last frame."),
+  setups: z
+    .array(
+      z.object({
+        id: z.string().describe("A, B, C…"),
+        name: z.string().describe("Two to four words, e.g. 'Marta' or 'Store aisle, evening'."),
+        identity: z
+          .string()
+          .describe("The short identity line repeated word for word in every prompt with this person or place."),
+      }),
+    )
+    .describe("Each person or place that appears in more than one shot, or that needs one hero still."),
   callback: z.object({
     planted: z.string().describe("The line or image planted in the hook."),
     payoff: z.string().describe("How the button pays it off."),
@@ -113,10 +132,13 @@ export function normalizeScript(wire: z.infer<typeof ScriptWireSchema>): Script 
   return { ...wire, shots };
 }
 
+export type ToolInfo = { id: string; name: string; checked: string };
+
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };
 
 export type Status = {
   claude: boolean;
   model: string;
   imageProviders: ImageProviderInfo[];
+  tools: ToolInfo[];
 };

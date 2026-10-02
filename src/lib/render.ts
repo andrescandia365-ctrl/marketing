@@ -1,20 +1,30 @@
-// Turns the storyboard into a video in the browser: each shot's image with a slow push-in,
-// a short crossfade between shots, the caption on top, subtitles at the bottom, and the CTA on the
-// last shot. Encoded with WebCodecs through mediabunny, so it runs faster than real time.
+// Turns the storyboard into a video in the browser. Each shot plays its uploaded clip, or its still with a
+// slow push-in, or a colour card; shots crossfade; the caption, subtitles, CTA and disclosure line are drawn
+// on top. Clips' own sound can be mixed in. Encoded with WebCodecs through mediabunny, faster than real time.
 import {
+  ALL_FORMATS,
+  AudioBufferSink,
+  AudioBufferSource,
+  BlobSource,
   BufferTarget,
+  CanvasSink,
   CanvasSource,
+  Input,
   Mp4OutputFormat,
   Output,
   QUALITY_HIGH,
   WebMOutputFormat,
+  getFirstEncodableAudioCodec,
   getFirstEncodableVideoCodec,
+  type WrappedCanvas,
 } from "mediabunny";
 import type { Brief, Script } from "../../shared/schema.ts";
 import { TEMPLATE, TOTAL_SECONDS, timeShots, type TimedShot } from "../../shared/template.ts";
 
 const FPS = 30;
 const FADE = 0.35;
+const SAMPLE_RATE = 48000;
+const FONT = `"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif`;
 
 const BEAT_COLORS = {
   negative: ["#2a1410", "#8a2a12"],
@@ -22,7 +32,17 @@ const BEAT_COLORS = {
   good: ["#0b231d", "#0f6e56"],
 } as const;
 
-export type RenderResult = { blob: Blob; extension: string; mimeType: string };
+export type ShotMedia = { image?: string; clip?: Blob };
+
+export type RenderOptions = {
+  format: Brief["format"];
+  disclosure: string;
+  // Show each still or clip whole, with no zoom or crop, so a tool's watermark stays visible.
+  fullFrame: boolean;
+  keepSound: boolean;
+};
+
+export type RenderResult = { blob: Blob; extension: string; mimeType: string; notes: string[] };
 
 function loadImage(src: string | undefined): Promise<HTMLImageElement | null> {
   if (!src) return Promise.resolve(null);
@@ -61,31 +81,6 @@ function subtitleAt(shot: TimedShot, t: number): string {
   return parts[parts.length - 1];
 }
 
-function drawCover(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement | null,
-  shot: TimedShot,
-  t: number,
-  w: number,
-  h: number,
-) {
-  const progress = Math.min(Math.max((t - shot.start) / (shot.end - shot.start), 0), 1);
-  if (!img) {
-    const [a, b] = BEAT_COLORS[TEMPLATE[shot.section].beat];
-    const g = ctx.createLinearGradient(0, 0, w, h);
-    g.addColorStop(0, a);
-    g.addColorStop(1, b);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-    return;
-  }
-  const scale = Math.max(w / img.naturalWidth, h / img.naturalHeight) * (1.04 + 0.08 * progress);
-  const dw = img.naturalWidth * scale;
-  const dh = img.naturalHeight * scale;
-  const drift = (shot.index % 2 === 0 ? 1 : -1) * (dw - w) * 0.25 * (progress - 0.5);
-  ctx.drawImage(img, (w - dw) / 2 + drift, (h - dh) / 2, dw, dh);
-}
-
 function drawText(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -94,40 +89,53 @@ function drawText(
   size: number,
   maxWidth: number,
   weight: number,
-): number {
-  ctx.font = `${weight} ${size}px Inter, system-ui, -apple-system, "Segoe UI", sans-serif`;
-  const lines = wrapLines(ctx, text, maxWidth);
+) {
+  ctx.font = `${weight} ${size}px ${FONT}`;
   const lineHeight = size * 1.18;
-  lines.forEach((line, i) => ctx.fillText(line, x, y + i * lineHeight));
-  return lines.length * lineHeight;
+  wrapLines(ctx, text, maxWidth).forEach((line, i) => ctx.fillText(line, x, y + i * lineHeight));
 }
 
-function drawFrame(
-  ctx: CanvasRenderingContext2D,
-  shots: TimedShot[],
-  images: (HTMLImageElement | null)[],
-  script: Script,
+function fitRect(sw: number, sh: number, w: number, h: number, mode: "contain" | "cover", zoom = 1) {
+  const scale = (mode === "contain" ? Math.min(w / sw, h / sh) : Math.max(w / sw, h / sh)) * zoom;
+  return { dw: sw * scale, dh: sh * scale };
+}
+
+// One layer per shot holds that shot's latest picture, so the crossfade can show the previous shot's last frame.
+function paintStill(
+  layer: CanvasRenderingContext2D,
+  img: HTMLImageElement | null,
+  shot: TimedShot,
   t: number,
-  w: number,
-  h: number,
-  disclosure: string,
+  fullFrame: boolean,
 ) {
-  const i = Math.max(
-    shots.findIndex((s) => t >= s.start && t < s.end),
-    t >= TOTAL_SECONDS ? shots.length - 1 : 0,
-  );
-  const shot = shots[i];
+  const { width: w, height: h } = layer.canvas;
+  layer.fillStyle = "#000";
+  layer.fillRect(0, 0, w, h);
+  if (!img) {
+    const [a, b] = BEAT_COLORS[TEMPLATE[shot.section].beat];
+    const g = layer.createLinearGradient(0, 0, w, h);
+    g.addColorStop(0, a);
+    g.addColorStop(1, b);
+    layer.fillStyle = g;
+    layer.fillRect(0, 0, w, h);
+    return;
+  }
+  if (fullFrame) {
+    const { dw, dh } = fitRect(img.naturalWidth, img.naturalHeight, w, h, "contain");
+    layer.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    return;
+  }
+  const progress = Math.min(Math.max((t - shot.start) / (shot.end - shot.start), 0), 1);
+  const { dw, dh } = fitRect(img.naturalWidth, img.naturalHeight, w, h, "cover", 1.04 + 0.08 * progress);
+  const drift = (shot.index % 2 === 0 ? 1 : -1) * (dw - w) * 0.25 * (progress - 0.5);
+  layer.drawImage(img, (w - dw) / 2 + drift, (h - dh) / 2, dw, dh);
+}
+
+function drawOverlay(ctx: CanvasRenderingContext2D, shot: TimedShot, script: Script, t: number, disclosure: string) {
+  const { width: w, height: h } = ctx.canvas;
   const unit = Math.min(w, h);
 
-  ctx.globalAlpha = 1;
-  if (i > 0 && t - shot.start < FADE) {
-    drawCover(ctx, images[i - 1], shots[i - 1], t, w, h);
-    ctx.globalAlpha = (t - shot.start) / FADE;
-  }
-  drawCover(ctx, images[i], shot, t, w, h);
-  ctx.globalAlpha = 1;
-
-  // Shade top and bottom so white text reads on any image.
+  // Shade top and bottom so white text reads on any picture.
   const top = ctx.createLinearGradient(0, 0, 0, h * 0.3);
   top.addColorStop(0, "rgba(0,0,0,0.55)");
   top.addColorStop(1, "rgba(0,0,0,0)");
@@ -145,14 +153,12 @@ function drawFrame(
   ctx.shadowBlur = unit * 0.012;
   ctx.fillStyle = "#ffffff";
 
-  if (shot.onScreenText) {
-    drawText(ctx, shot.onScreenText, w / 2, h * 0.08, unit * 0.075, w * 0.86, 800);
-  }
+  if (shot.onScreenText) drawText(ctx, shot.onScreenText, w / 2, h * 0.08, unit * 0.075, w * 0.86, 700);
 
   if (shot.disclosure !== "none") {
     ctx.shadowBlur = 0;
-    ctx.font = `700 ${unit * 0.028}px Inter, system-ui, sans-serif`;
-    const label = shot.disclosure.toUpperCase();
+    ctx.font = `700 ${unit * 0.028}px ${FONT}`;
+    const label = shot.disclosure === "concept" ? "CONCEPTO" : "SIMULACIÓN";
     const pad = unit * 0.018;
     const tw = ctx.measureText(label).width;
     ctx.fillStyle = "rgba(0,0,0,0.6)";
@@ -168,7 +174,7 @@ function drawFrame(
   if (shot.section === "button" && script.cta) {
     ctx.shadowBlur = 0;
     const size = unit * 0.05;
-    ctx.font = `800 ${size}px Inter, system-ui, sans-serif`;
+    ctx.font = `700 ${size}px ${FONT}`;
     const tw = Math.min(ctx.measureText(script.cta).width, w * 0.8);
     const pillH = size * 1.9;
     const pillY = h * 0.62;
@@ -188,7 +194,7 @@ function drawFrame(
   const subtitle = subtitleAt(shot, t);
   if (subtitle) drawText(ctx, subtitle, w / 2, subtitleTop, unit * 0.045, w * 0.84, 600);
 
-  // Small, always-visible note such as "Illustrative images", for platforms that ask for AI disclosure.
+  // Small, always-visible note such as "Imágenes ilustrativas", for platforms that ask for AI disclosure.
   if (disclosure) {
     ctx.globalAlpha = 0.8;
     ctx.textBaseline = "bottom";
@@ -199,47 +205,174 @@ function drawFrame(
   ctx.shadowBlur = 0;
 }
 
+type OpenClip = { input: Input; frames: AsyncGenerator<WrappedCanvas | null, void, unknown> };
+
+// Frames of a clip at exactly the times its shot needs; a clip shorter than its shot holds its last frame.
+async function openClip(blob: Blob, shot: TimedShot, w: number, h: number, fullFrame: boolean): Promise<OpenClip> {
+  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
+  const track = await input.getPrimaryVideoTrack();
+  if (!track) throw new Error(`El clip de la toma ${shot.index + 1} no tiene video.`);
+  if (!(await track.canDecode())) {
+    throw new Error(`Este navegador no puede leer el clip de la toma ${shot.index + 1}. Probá con Chrome o Edge.`);
+  }
+  const duration = await track.computeDuration();
+  const sink = new CanvasSink(track, { width: w, height: h, fit: fullFrame ? "contain" : "cover" });
+  const times: number[] = [];
+  const frames = Math.round((shot.end - shot.start) * FPS);
+  for (let f = 0; f < frames; f++) times.push(Math.min(f / FPS, Math.max(duration - 1 / FPS, 0)));
+  return { input, frames: sink.canvasesAtTimestamps(times) };
+}
+
+// Mixes each clip's own sound onto the 75-second timeline, cut to its shot with short fades.
+async function mixSound(shots: TimedShot[], media: Record<number, ShotMedia>): Promise<AudioBuffer | null> {
+  const ctx = new OfflineAudioContext(2, SAMPLE_RATE * TOTAL_SECONDS, SAMPLE_RATE);
+  let any = false;
+  for (const shot of shots) {
+    const clip = media[shot.index]?.clip;
+    if (!clip) continue;
+    const input = new Input({ source: new BlobSource(clip), formats: ALL_FORMATS });
+    try {
+      const track = await input.getPrimaryAudioTrack();
+      if (!track || !(await track.canDecode())) continue;
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0, shot.start);
+      gain.gain.linearRampToValueAtTime(1, shot.start + 0.08);
+      gain.gain.setValueAtTime(1, Math.max(shot.end - 0.08, shot.start + 0.08));
+      gain.gain.linearRampToValueAtTime(0, shot.end);
+      for await (const { buffer, timestamp } of new AudioBufferSink(track).buffers(0, shot.end - shot.start)) {
+        const when = shot.start + timestamp;
+        if (when >= shot.end) break;
+        const node = ctx.createBufferSource();
+        node.buffer = buffer;
+        node.connect(gain);
+        node.start(when, 0, Math.min(buffer.duration, shot.end - when));
+        any = true;
+      }
+    } finally {
+      input.dispose();
+    }
+  }
+  return any ? ctx.startRendering() : null;
+}
+
 export async function renderVideo(
   script: Script,
-  images: Record<number, string>,
-  format: Brief["format"],
-  disclosure: string,
+  media: Record<number, ShotMedia>,
+  options: RenderOptions,
   onProgress: (fraction: number) => void,
 ): Promise<RenderResult> {
   if (typeof VideoEncoder === "undefined") {
-    throw new Error("This browser cannot encode video. Use a recent Chrome, Edge or Safari.");
+    throw new Error("Este navegador no puede generar video. Usá una versión reciente de Chrome, Edge o Safari.");
   }
-  const [w, h] = format === "vertical" ? [1080, 1920] : [1920, 1080];
+  const notes: string[] = [];
+  const [w, h] = options.format === "vertical" ? [1080, 1920] : [1920, 1080];
   const codec = await getFirstEncodableVideoCodec(["avc", "vp9", "av1", "vp8"], { width: w, height: h });
-  if (!codec) throw new Error("No video encoder is available in this browser.");
+  if (!codec) throw new Error("Este navegador no tiene un codificador de video disponible.");
+  const mp4 = codec === "avc";
 
   const shots = timeShots(script.shots);
-  const loaded = await Promise.all(shots.map((s) => loadImage(images[s.index])));
+  const stills = await Promise.all(shots.map((s) => loadImage(media[s.index]?.image)));
+  // Canvas text only uses a web font once it has loaded; without this the first frames fall back.
+  await Promise.all(
+    ["500", "600", "700"].map((weight) => document.fonts?.load(`${weight} 48px "IBM Plex Sans"`).catch(() => [])),
+  );
+
+  let sound: AudioBuffer | null = null;
+  if (options.keepSound && shots.some((s) => media[s.index]?.clip)) {
+    sound = await mixSound(shots, media);
+    if (!sound) notes.push("Los clips no traían sonido que este navegador pueda leer.");
+  }
+  onProgress(0.05);
 
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d")!;
+  const layers = shots.map(() => {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    return c.getContext("2d")!;
+  });
 
-  const mp4 = codec === "avc";
   const output = new Output({
     format: mp4 ? new Mp4OutputFormat({ fastStart: "in-memory" }) : new WebMOutputFormat(),
     target: new BufferTarget(),
   });
-  const source = new CanvasSource(canvas, { codec, quality: QUALITY_HIGH });
-  output.addVideoTrack(source, { frameRate: FPS });
-  await output.start();
+  const video = new CanvasSource(canvas, { codec, quality: QUALITY_HIGH });
+  output.addVideoTrack(video, { frameRate: FPS });
 
-  const frames = TOTAL_SECONDS * FPS;
-  for (let f = 0; f < frames; f++) {
-    const t = f / FPS;
-    drawFrame(ctx, shots, loaded, script, t, w, h, disclosure.trim());
-    await source.add(t, 1 / FPS);
-    if (f % 15 === 0) onProgress(f / frames);
+  let audio: AudioBufferSource | null = null;
+  if (sound) {
+    const audioCodec = await getFirstEncodableAudioCodec(mp4 ? ["aac", "opus"] : ["opus", "vorbis"], {
+      numberOfChannels: 2,
+      sampleRate: SAMPLE_RATE,
+    });
+    if (audioCodec) {
+      audio = new AudioBufferSource({ codec: audioCodec, quality: QUALITY_HIGH });
+      output.addAudioTrack(audio);
+    } else notes.push("El sonido quedó afuera: este navegador no puede codificar audio.");
   }
-  await output.finalize();
+
+  await output.start();
+  if (audio && sound) await audio.add(sound);
+
+  const open = new Map<number, OpenClip>();
+  try {
+    const frames = TOTAL_SECONDS * FPS;
+    for (let f = 0; f < frames; f++) {
+      const t = f / FPS;
+      const i = Math.max(
+        shots.findIndex((s) => t >= s.start && t < s.end),
+        0,
+      );
+      const shot = shots[i];
+      const layer = layers[i];
+      const clip = media[shot.index]?.clip;
+
+      if (clip) {
+        let reader = open.get(i);
+        if (!reader) {
+          reader = await openClip(clip, shot, w, h, options.fullFrame);
+          open.set(i, reader);
+        }
+        const next = await reader.frames.next();
+        if (!next.done && next.value) {
+          layer.fillStyle = "#000";
+          layer.fillRect(0, 0, w, h);
+          layer.drawImage(next.value.canvas, 0, 0, w, h);
+        }
+      } else {
+        paintStill(layer, stills[i], shot, t, options.fullFrame);
+      }
+
+      ctx.globalAlpha = 1;
+      if (i > 0 && t - shot.start < FADE) {
+        ctx.drawImage(layers[i - 1].canvas, 0, 0);
+        ctx.globalAlpha = (t - shot.start) / FADE;
+      }
+      ctx.drawImage(layer.canvas, 0, 0);
+      ctx.globalAlpha = 1;
+      drawOverlay(ctx, shot, script, t, options.disclosure.trim());
+
+      await video.add(t, 1 / FPS);
+      if (f % 15 === 0) onProgress(0.05 + 0.95 * (f / frames));
+    }
+    await output.finalize();
+  } finally {
+    for (const reader of open.values()) {
+      await reader.frames.return(undefined);
+      reader.input.dispose();
+    }
+  }
   onProgress(1);
 
   const mimeType = mp4 ? "video/mp4" : "video/webm";
-  return { blob: new Blob([output.target.buffer!], { type: mimeType }), extension: mp4 ? "mp4" : "webm", mimeType };
+  return {
+    blob: new Blob([output.target.buffer!], { type: mimeType }),
+    extension: mp4 ? "mp4" : "webm",
+    mimeType,
+    notes,
+  };
 }

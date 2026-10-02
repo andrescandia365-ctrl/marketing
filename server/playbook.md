@@ -1,7 +1,7 @@
 # Marketing playbook (operative rules)
 
-Source: `andrescandia365-ctrl/marketing`, `CLAUDE.md`, branch `claude/relaxed-faraday-2vmdxx`, commit `e73e803`.
-This file keeps only the parts that steer writing. The research, the show's business facts and the episode log stay in that repo.
+Source: `PLAYBOOK.md` in this repo (from commit `e73e803`).
+This file keeps only the parts that steer writing. The research, the show's business facts and the episode log stay in `PLAYBOOK.md`.
 The playbook studies how a late-night satire show builds a segment and borrows the **mechanics only**: never the show's name, clips, music, people, persona or politics.
 
 ## 1. Two jobs, one frame

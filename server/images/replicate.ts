@@ -7,7 +7,7 @@ type Prediction = { status: string; output?: string | string[]; error?: string; 
 export const replicate: ImageProvider = {
   id: "replicate",
   label: "Replicate (Flux)",
-  hint: "Set REPLICATE_API_TOKEN (and optionally REPLICATE_IMAGE_MODEL).",
+  hint: "Configurá REPLICATE_API_TOKEN (y si querés REPLICATE_IMAGE_MODEL).",
   available: () => Boolean(process.env.REPLICATE_API_TOKEN),
   async generate(req) {
     const res = await fetch(`https://api.replicate.com/v1/models/${MODEL}/predictions`, {
@@ -27,11 +27,11 @@ export const replicate: ImageProvider = {
     });
     const body = (await res.json()) as Prediction;
     if (!res.ok) throw new Error(`Replicate: ${body.detail ?? body.error ?? res.statusText}`);
-    if (body.status !== "succeeded") throw new Error(`Replicate: image not ready (${body.status}). Try again.`);
+    if (body.status !== "succeeded") throw new Error(`Replicate: la imagen no está lista (${body.status}). Probá de nuevo.`);
     const url = Array.isArray(body.output) ? body.output[0] : body.output;
-    if (!url) throw new Error("Replicate returned no image.");
+    if (!url) throw new Error("Replicate no devolvió ninguna imagen.");
     const image = await fetch(url);
-    if (!image.ok) throw new Error("Replicate: could not download the image.");
+    if (!image.ok) throw new Error("Replicate: no se pudo descargar la imagen.");
     return toDataUrl(image);
   },
 };

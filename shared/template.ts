@@ -1,12 +1,13 @@
 // The §3 script template: 75 seconds, five sections, each tied to a Negative / Touching / Good beat.
+// Labels are what the person reads in the app (Spanish).
 import type { Section, Shot } from "./schema.ts";
 
 export const TEMPLATE: Record<Section, { start: number; end: number; beat: "negative" | "touching" | "good"; label: string }> = {
-  hook: { start: 0, end: 5, beat: "negative", label: "Hook" },
-  agitate: { start: 5, end: 25, beat: "negative", label: "Agitate" },
-  turn: { start: 25, end: 40, beat: "touching", label: "Turn" },
-  resolve: { start: 40, end: 65, beat: "good", label: "Resolve" },
-  button: { start: 65, end: 75, beat: "good", label: "Button" },
+  hook: { start: 0, end: 5, beat: "negative", label: "Gancho" },
+  agitate: { start: 5, end: 25, beat: "negative", label: "Agitar" },
+  turn: { start: 25, end: 40, beat: "touching", label: "Giro" },
+  resolve: { start: 40, end: 65, beat: "good", label: "Resolución" },
+  button: { start: 65, end: 75, beat: "good", label: "Remate" },
 };
 
 export const TOTAL_SECONDS = 75;

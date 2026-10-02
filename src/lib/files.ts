@@ -15,15 +15,15 @@ export async function copyText(text: string): Promise<void> {
   area.select();
   const ok = document.execCommand("copy");
   area.remove();
-  if (!ok) throw new Error("Could not copy. Select the prompt text and copy it by hand.");
+  if (!ok) throw new Error("No se pudo copiar. Seleccioná el texto y copialo a mano.");
 }
 
 export function readImageFile(file: File): Promise<string> {
-  if (!file.type.startsWith("image/")) return Promise.reject(new Error("That file is not an image."));
+  if (!file.type.startsWith("image/")) return Promise.reject(new Error("Ese archivo no es una imagen."));
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("Could not read that file."));
+    reader.onerror = () => reject(new Error("No se pudo leer ese archivo."));
     reader.readAsDataURL(file);
   });
 }

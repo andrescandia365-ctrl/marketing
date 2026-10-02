@@ -4,18 +4,19 @@ import type { Brief } from "./schema.ts";
 export const EXAMPLE_BRIEF: Brief = {
   job: "A",
   productName: "[PLANNER]",
-  whatItDoes: "A planner for corner stores: stock, orders to suppliers, shifts and expiry dates in one place.",
-  buyer: "Owner-operator of one or two convenience stores who still covers the counter.",
-  shippedToday: "Stock counts, supplier orders, shift schedule, expiry alerts.",
-  roadmap: "A manager agent that runs the plan; later a 3D-simulated store and a robot manager.",
-  pain: "The system says one thing, the shelf says another, and the owner finds out at 6 p.m.",
-  offer: "Try it free for 30 days.",
+  whatItDoes: "Un planificador para kioscos y almacenes: stock, pedidos a proveedores, turnos y vencimientos en un solo lugar.",
+  buyer: "Dueño de uno o dos kioscos que todavía atiende el mostrador.",
+  shippedToday: "Conteo de stock, pedidos a proveedores, grilla de turnos, avisos de vencimiento.",
+  roadmap: "Un agente encargado que ejecuta el plan; más adelante un local simulado en 3D y un encargado robot.",
+  pain: "El sistema dice una cosa, la góndola dice otra, y el dueño se entera a las 6 de la tarde.",
+  offer: "Probalo gratis 30 días.",
   facts: "",
-  offLimits: "Politics, religion.",
+  offLimits: "Política, religión.",
   tone: "dry",
-  language: "en",
+  language: "es",
   format: "vertical",
-  visualStyle: "Handheld documentary look, fluorescent store light, warm dawn light for the turn.",
+  visualStyle: "Estilo documental cámara en mano, luz fluorescente de local, luz cálida de amanecer para el giro.",
+  tool: "grok-imagine",
 };
 
 export const EMPTY_BRIEF: Brief = {
@@ -30,7 +31,8 @@ export const EMPTY_BRIEF: Brief = {
   facts: "",
   offLimits: "",
   tone: "dry",
-  language: "en",
+  language: "es",
   format: "vertical",
   visualStyle: "",
+  tool: "grok-imagine",
 };
