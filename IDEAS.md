@@ -48,6 +48,10 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 ### 11. Voz en off
 - **Qué:** hoy las líneas van solo en subtítulos. Más adelante, voz.
 
+### 12. Ver la imagen o el clip con un clic
+- **Qué pasó:** en Producción, un clic sobre una imagen o un clip ya cargado abre el selector de archivos en vez de mostrarlo.
+- **Idea:** el clic lo abre en grande encima de la página (la imagen completa, el clip reproduciéndose con controles); se cierra con Esc o con un clic afuera. Para reemplazarlo: soltar otro archivo encima o un botón "Cambiar" en la esquina. Y un botón "Quitar" para dejar la toma vacía.
+
 ## Para anotar en el perfil de Grok (`server/tools/grok-imagine.md`, con "ok")
 - Largo de clip de hasta 15 s (visto en la app; confirmar opciones).
 - Imagen inicial, intermedia y final en un mismo clip.
