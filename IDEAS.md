@@ -63,6 +63,17 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 22. Check de loops: gancho → retención → recompensa, y el loop de la serie
+- **Idea (tuya):** un check que revise si la pieza tiene los **loops cerrados** y si cubre lo que promete el **loop** de la serie.
+- **Check 1, loops de atención:**
+  - **Gancho:** los primeros 1–3 s frenan el scroll (dolor concreto o pregunta).
+  - **Retención:** se abren preguntas o tensiones que hacen seguir mirando; la escalada crece.
+  - **Recompensa:** **cada loop abierto se cierra** (la pregunta del título se responde; el callback del final paga lo plantado al principio).
+  - **Mapa de loops:** cada loop con dónde se abre (toma o línea) y dónde se cierra; los que quedan abiertos, en rojo.
+- **Check 2, el loop de la serie:** para IMAN, abrir → vender → Llegó → Vence → pedir → cerrar caja → Sincronizar → el dueño mira los números. Revisa qué pasos aparecen, que el paso en foco se muestre completo (dolor → paso de IMAN → resultado) y que todo lo mencionado esté en "Lo que existe hoy". Cada serie define su loop en Editar serie.
+- **Dónde:** en el checklist de la historia y otra vez en el storyboard.
+- **Pregunta:** si falla, ¿solo avisa, bloquea la aprobación, o avisa con un botón "Arreglalo" que manda el problema como nota de director? (recomendado: lo último).
+
 ### 21. Estilo del texto en el video: tamaño y color
 - **Qué pasó:** al generar el video final faltaban controles de texto, y el narrador salió sin audio (no hay voz todavía: ver idea 15).
 - **Idea:** en el panel del video, controles para:
