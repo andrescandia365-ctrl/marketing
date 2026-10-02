@@ -57,6 +57,15 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 19. Claqueta: cada toma con título, resumen y continuidad
+- **Qué pasó:** en la toma 7 las imágenes y el video salieron por cualquier lado. La toma 6 era el celular avisando qué vence; la 7 tenía que ser Marta dándose cuenta de que uno se venció y el resto está bien. La tarjeta solo decía "Toma 7 · Setup C · Marta", sin decir qué pasa.
+- **Idea (tuya):**
+  - **Claqueta** arriba de cada toma, grande y resaltada con el color del momento: "Toma 7 · Marta se da cuenta: uno vencido, el resto bien".
+  - **Resumen de la acción** en castellano, escrito por la IA; los prompts de imagen y video tienen que coincidir con ese resumen.
+  - **Continuidad:** la IA revisa que cada toma siga a la anterior (6: el aviso → 7: la reacción).
+- **Encontrado de paso, un error de historia:** el yogur dice "Yo vencí el martes" (toma 2), el cartel dice "Este se vence mañana" (toma 6) y Marta lo pone "al frente, en oferta" (toma 7). Si ya venció, eso es vender un producto vencido: al revés de lo que resuelve IMAN, y prohibido. El checklist de la historia tiene que detectarlo: **lo vencido se saca; lo que vence pronto se pasa adelante.** Sumarlo como regla en la serie IMAN.
+- **Relacionado:** reescribir una toma con una nota hoy no cambia la línea hablada; quizás debería poder hacerlo si la nota lo pide.
+
 ### 18. Varios setups y personajes en una misma toma
 - **Qué pasó:** la toma 7 dice "Setup C · Marta", pero en la escena también están el yogur (setup B) y la heladera (setup A). Hoy cada toma tiene **un solo** setup, así que el prompt describe a los otros de nuevo y Grok los genera distintos: no es el mismo yogur del setup.
 - **Idea:**
