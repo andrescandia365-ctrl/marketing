@@ -8,9 +8,8 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 ### 1. Tomas de transformación: del Malo al Bueno en un solo clip
 - **Qué:** una toma con tres imágenes (inicial = el Malo, intermedia = el giro, final = el Bueno) y un solo prompt de video que va de una a otra. Ej.: heladera desordenada con el yogur vencido → la mano que lo saca / el celular que avisa "Vence" → heladera ordenada.
 - **Por qué:** Grok Imagine permite imagen inicial, intermedia y final en un clip. Es el Bueno contra el Malo hecho imagen.
-- **Límite:** un clip dura hasta ~15 s (a confirmar). Sirve para el momento clave de cada tema, no para toda la historia.
+- **Límite:** un clip dura como mucho 15 s. Sirve para el momento clave de cada tema, no para toda la historia.
 - **Confirmado:** el ícono del medio en la barra del clip es la imagen intermedia.
-- **Falta saber:** qué largos ofrece Grok (¿1 a 15 libre o 6/10/15?).
 
 ### 2. Personajes y lugares como imágenes de referencia (`@`)
 - **Qué:** cada setup del storyboard (El Desorden, Marta, la heladera) pasa a ser una imagen de referencia con nombre, para usar con `@` en Grok.
@@ -32,7 +31,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
 ### 6. Largo de las tomas según Grok
 - **Qué:** que la IA elija el largo de cada toma entre los que Grok ofrece de verdad, y que una línea hablada entre en el clip (~2,5 palabras por segundo: 15 s ≈ 37 palabras).
-- **Depende de:** confirmar los largos de Grok (idea 1).
+- **Confirmado:** Grok ofrece tres largos: 6, 10 y 15 s. La toma debería durar uno de esos, o la app avisa cuánto se recorta o se sostiene el último cuadro. Ej.: una toma de 8 s → clip de 10 s, se usan 8.
 
 ### 7. Revisión de imágenes por la IA (paso 5 del plan)
 - **Qué:** cuando subís una imagen o un clip, la IA lo mira y dice si cumple: el personaje igual que en su setup, sin texto ni logos, el formato correcto.
@@ -74,7 +73,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Idea:** el clic lo abre en grande encima de la página (la imagen completa, el clip reproduciéndose con controles); se cierra con Esc o con un clic afuera. Para reemplazarlo: soltar otro archivo encima o un botón "Cambiar" en la esquina. Y un botón "Quitar" para dejar la toma vacía.
 
 ## Para anotar en el perfil de Grok (`server/tools/grok-imagine.md`, con "ok")
-- Largo de clip de hasta 15 s (visto en la app; confirmar opciones).
+- [TESTED] Largos de clip: 6, 10 o 15 s (solo esas tres opciones).
 - [TESTED] Imagen inicial, intermedia y final en un mismo clip (el ícono del medio es la intermedia); acepta imágenes propias.
 - `@` para referenciar imágenes (acepta imágenes subidas).
 - Segmentos: cada objeto de la imagen separado y editable; "Descargar todo".
