@@ -23,11 +23,11 @@ Para sumar una serie, agregá otro `.md` con las líneas `# Nombre` y `Tagline:`
 
 ```bash
 npm install
-cp .env.example .env   # agregá ANTHROPIC_API_KEY
+cp .env.example .env   # agregá ANTHROPIC_API_KEY o KIMI_API_KEY
 npm run dev            # http://localhost:5173
 ```
 
-Producción: `npm run build && npm start` sirve la app y la API en `PORT` (8787 por defecto). Sin clave de Claude corre en modo de muestra, con una historia de ejemplo fija de IMAN.
+Producción: `npm run build && npm start` sirve la app y la API en `PORT` (8787 por defecto). Sin clave de IA corre en modo de muestra, con una historia de ejemplo fija de IMAN.
 
 ## Herramientas de imagen y video
 
@@ -42,7 +42,8 @@ Claude lee el archivo elegido antes de escribir los prompts. Para actualizarlo, 
 
 | Qué | Variable | Sin ella |
 |---|---|---|
-| Claude (menú, historia, storyboard, revisiones) | `ANTHROPIC_API_KEY` | Modo de muestra |
+| Claude (menú, historia, storyboard, revisiones) | `ANTHROPIC_API_KEY` | Kimi, si está; si no, modo de muestra |
+| Kimi K3 (lo mismo, en lugar de Claude) | `KIMI_API_KEY` (`LLM_PROVIDER=kimi` si tenés las dos) | Modo de muestra |
 | OpenAI Images | `OPENAI_API_KEY` | Copiá los prompts y subí tus imágenes |
 | Replicate (Flux) | `REPLICATE_API_TOKEN` | Copiá los prompts y subí tus imágenes |
 | Bocetos | ninguna | Siempre disponible |

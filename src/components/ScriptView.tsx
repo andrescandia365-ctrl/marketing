@@ -329,7 +329,7 @@ function ShotCard(props: CardProps) {
           </div>
           <div className="flex items-end gap-2">
             <label className="block flex-1">
-              <span className="text-xs font-semibold text-muted">Nota para Claude</span>
+              <span className="text-xs font-semibold text-muted">Nota para la IA</span>
               <input
                 className={`${inputClass} mt-0.5`}
                 value={note}

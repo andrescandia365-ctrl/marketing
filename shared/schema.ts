@@ -164,8 +164,8 @@ export type SeriesInfo = { id: string; name: string; tagline: string };
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };
 
 export type Status = {
-  claude: boolean;
-  model: string;
+  // The model that writes (Claude or Kimi); null in sample mode.
+  writer: { label: string; model: string } | null;
   imageProviders: ImageProviderInfo[];
   tools: ToolInfo[];
   series: SeriesInfo[];

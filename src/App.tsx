@@ -248,7 +248,7 @@ export function App() {
       addLog({
         shot: index,
         text: `“${note}”`,
-        outcome: result.demo ? "modo de muestra: sin cambios (falta la clave de Claude)" : "prompts reescritos",
+        outcome: result.demo ? "modo de muestra: sin cambios (falta la clave de la IA)" : "prompts reescritos",
       });
       return true;
     } catch (e) {
@@ -295,9 +295,9 @@ export function App() {
         {status && (
           <div className="flex flex-wrap gap-2 text-xs">
             <span
-              className={`rounded-full border px-2.5 py-1 font-medium ${status.claude ? "border-good/40 bg-good-soft text-good" : "border-line bg-white text-muted"}`}
+              className={`rounded-full border px-2.5 py-1 font-medium ${status.writer ? "border-good/40 bg-good-soft text-good" : "border-line bg-white text-muted"}`}
             >
-              {status.claude ? `Claude · ${status.model}` : "Claude sin conectar"}
+              {status.writer ? `${status.writer.label} · ${status.writer.model}` : "IA sin conectar"}
             </span>
             {realProviders.map((p) => (
               <span key={p.id} className="rounded-full border border-good/40 bg-good-soft px-2.5 py-1 font-medium text-good">
@@ -325,10 +325,10 @@ export function App() {
       </nav>
 
       <div className="mt-6 space-y-4">
-        {status && !status.claude && (
+        {status && !status.writer && (
           <Notice tone="warn">
-            <b>Modo de muestra.</b> No hay clave de Claude: el menú, la historia y el storyboard son un ejemplo fijo de
-            IMAN, y las revisiones no cambian nada. Agregá <code>ANTHROPIC_API_KEY</code> en <code>.env</code> y reiniciá
+            <b>Modo de muestra.</b> No hay clave de IA: el menú, la historia y el storyboard son un ejemplo fijo de
+            IMAN, y las revisiones no cambian nada. Agregá <code>ANTHROPIC_API_KEY</code> (Claude) o <code>KIMI_API_KEY</code> (Kimi) en <code>.env</code> y reiniciá
             para escribir los de verdad.
           </Notice>
         )}

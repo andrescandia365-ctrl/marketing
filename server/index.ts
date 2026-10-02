@@ -12,9 +12,8 @@ import {
   type Status,
 } from "../shared/schema.ts";
 import {
-  ClaudeError,
-  MODEL,
-  claudeConfigured,
+  WriterError,
+  currentWriter,
   proposeMenu,
   reviseBoard,
   reviseStory,
@@ -22,6 +21,7 @@ import {
   writeBoard,
   writeStory,
 } from "./claude.ts";
+import { KimiError } from "./kimi.ts";
 import { DEMO_BOARD, DEMO_MENU, DEMO_STORY } from "./demo.ts";
 import { getProvider, listProviders } from "./images/index.ts";
 import { listSeries } from "./series.ts";
@@ -30,26 +30,26 @@ import { listTools } from "./tools.ts";
 const app = new Hono();
 
 app.onError((error, c) => {
-  if (error instanceof ClaudeError) return c.json({ error: error.message }, 502);
+  if (error instanceof WriterError || error instanceof KimiError) return c.json({ error: error.message }, 502);
   if (error instanceof z.ZodError) return c.json({ error: "Al pedido le faltaban datos." }, 400);
   console.error(error);
   return c.json({ error: error.message || "Algo salió mal." }, 500);
 });
 
-// Story and board come back from the browser; parse them with the same shapes Claude returns.
+// Story and board come back from the browser; parse them with the same shapes the writer returns.
 const StoryInput = StoryWireSchema.transform(normalizeStory);
 const BoardInput = BoardWireSchema.transform(normalizeBoard);
-const demo = () => !claudeConfigured();
+const demo = () => currentWriter() === null;
 
-app.get("/api/status", (c) =>
-  c.json<Status>({
-    claude: claudeConfigured(),
-    model: MODEL,
+app.get("/api/status", (c) => {
+  const writer = currentWriter();
+  return c.json<Status>({
+    writer: writer && { label: writer.label, model: writer.model },
     imageProviders: listProviders(),
     tools: listTools(),
     series: listSeries(),
-  }),
-);
+  });
+});
 
 app.post("/api/menu", async (c) => {
   const { brief } = z.object({ brief: BriefSchema }).parse(await c.req.json());
@@ -131,5 +131,6 @@ if (process.env.NODE_ENV === "production") {
 
 const port = Number(process.env.PORT) || 8787;
 serve({ fetch: app.fetch, port }, () => {
-  console.log(`API on http://localhost:${port} · Claude ${claudeConfigured() ? "conectado" : "sin clave (modo de muestra)"}`);
+  const writer = currentWriter();
+  console.log(`API on http://localhost:${port} · ${writer ? `${writer.label} (${writer.model})` : "sin clave de IA (modo de muestra)"}`);
 });

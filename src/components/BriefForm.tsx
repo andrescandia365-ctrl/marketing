@@ -48,7 +48,7 @@ export function BriefForm({ brief, series, tools, onChange }: Props) {
       </Field>
 
       <div className="md:col-span-2">
-        <Field label="Notas" hint="Datos verificados, temas prohibidos, personajes que ya existen, lo que quieras que Claude sepa.">
+        <Field label="Notas" hint="Datos verificados, temas prohibidos, personajes que ya existen, lo que quieras que la IA sepa.">
           <textarea className={inputClass} rows={2} value={brief.notes} onChange={(e) => set("notes", e.target.value)} />
         </Field>
       </div>

@@ -19,6 +19,7 @@ import {
 } from "../shared/schema.ts";
 import { LENGTHS } from "../shared/template.ts";
 import { getSeries } from "./series.ts";
+import { KIMI_MODEL, askKimi, kimiKey } from "./kimi.ts";
 import { getTool } from "./tools.ts";
 
 export const MODEL = process.env.CLAUDE_MODEL || "claude-opus-5-5";
@@ -37,14 +38,25 @@ ${ENGINE}
 
 ${PLAYBOOK}`;
 
-export class ClaudeError extends Error {}
+// Errors whose message is shown to the person as is.
+export class WriterError extends Error {}
+
+// Who writes: Claude or Kimi. LLM_PROVIDER picks one; without it, Claude if its key is set, else Kimi.
+// Neither key means sample mode.
+export type Writer = { id: "claude" | "kimi"; label: string; model: string };
+
+export function currentWriter(): Writer | null {
+  // The SDK also reads ANTHROPIC_AUTH_TOKEN and `ant auth login` profiles; an explicit key is the documented setup.
+  const claude = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+  const kimi = Boolean(kimiKey());
+  const pick = process.env.LLM_PROVIDER?.trim().toLowerCase();
+  const id = pick === "kimi" ? (kimi ? "kimi" : null) : pick === "claude" ? (claude ? "claude" : null) : claude ? "claude" : kimi ? "kimi" : null;
+  if (id === "claude") return { id, label: "Claude", model: MODEL };
+  if (id === "kimi") return { id, label: "Kimi", model: KIMI_MODEL };
+  return null;
+}
 
 let client: Anthropic | null = null;
-
-// The SDK also reads ANTHROPIC_AUTH_TOKEN and `ant auth login` profiles; an explicit key is the documented setup.
-export function claudeConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-}
 
 function getClient(): Anthropic {
   client ??= new Anthropic();
@@ -55,7 +67,7 @@ function getClient(): Anthropic {
 // re-bills the engine and playbook.
 function contextBlocks(brief: Brief, withTool: boolean): string[] {
   const series = getSeries(brief.series);
-  if (!series) throw new ClaudeError(`No existe la serie "${brief.series}".`);
+  if (!series) throw new WriterError(`No existe la serie "${brief.series}".`);
   const blocks = [
     `The series for this piece. Its "Works today" list is the only thing that may be shown as real.\n\n${series.text}`,
   ];
@@ -86,6 +98,7 @@ function describeBrief(brief: Brief): string {
 }
 
 async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z.ZodType<T>): Promise<T> {
+  if (currentWriter()?.id === "kimi") return askKimi([SYSTEM, ...contextBlocks(brief, withTool)], prompt, schema);
   const stream = getClient().beta.messages.stream({
     model: MODEL,
     max_tokens: 64000,
@@ -105,27 +118,27 @@ async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z
     message = await stream.finalMessage();
   } catch (error) {
     if (!(error instanceof Anthropic.APIError) && error instanceof Anthropic.AnthropicError) {
-      throw new ClaudeError("La respuesta de Claude no vino con la forma esperada. Probá de nuevo.");
+      throw new WriterError("La respuesta de Claude no vino con la forma esperada. Probá de nuevo.");
     }
     if (error instanceof Anthropic.AuthenticationError) {
-      throw new ClaudeError("La clave de Claude fue rechazada. Revisá ANTHROPIC_API_KEY.");
+      throw new WriterError("La clave de Claude fue rechazada. Revisá ANTHROPIC_API_KEY.");
     }
     if (error instanceof Anthropic.RateLimitError) {
-      throw new ClaudeError("Claude está saturado de pedidos. Probá en un minuto.");
+      throw new WriterError("Claude está saturado de pedidos. Probá en un minuto.");
     }
     if (error instanceof Anthropic.APIError) {
-      throw new ClaudeError(`Claude devolvió un error (${error.status ?? "red"}): ${error.message}`);
+      throw new WriterError(`Claude devolvió un error (${error.status ?? "red"}): ${error.message}`);
     }
     throw error;
   }
 
   if (message.stop_reason === "refusal") {
-    throw new ClaudeError("Claude no aceptó este pedido. Reformulalo y probá de nuevo.");
+    throw new WriterError("Claude no aceptó este pedido. Reformulalo y probá de nuevo.");
   }
   if (message.stop_reason === "max_tokens") {
-    throw new ClaudeError("La respuesta se cortó por larga. Probá con un formato corto o menos temas.");
+    throw new WriterError("La respuesta se cortó por larga. Probá con un formato corto o menos temas.");
   }
-  if (!message.parsed_output) throw new ClaudeError("No se pudo leer la respuesta de Claude. Probá de nuevo.");
+  if (!message.parsed_output) throw new WriterError("No se pudo leer la respuesta de Claude. Probá de nuevo.");
   return message.parsed_output as T;
 }
 
@@ -254,7 +267,7 @@ ${BOARD_RULES}`,
 // In production: one shot, one note.
 export async function rewriteShot(brief: Brief, story: Story, board: Board, index: number, note: string): Promise<Shot> {
   const shot = board.shots[index];
-  if (!shot) throw new ClaudeError("Esa toma ya no existe.");
+  if (!shot) throw new WriterError("Esa toma ya no existe.");
   const setup = board.setups.find((s) => s.id === shot.setup);
   const wire = await ask(
     brief,

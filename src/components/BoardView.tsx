@@ -102,7 +102,7 @@ export function BoardView({ story, board, round, busy, onRevise, onApprove }: Pr
         <label className="block">
           <span className="text-sm font-semibold">Nota para todo el storyboard</span>
           <span className="block text-xs text-muted">
-            Junto con las notas de cada toma, Claude revisa el storyboard entero ({pending.length} nota
+            Junto con las notas de cada toma, la IA revisa el storyboard entero ({pending.length} nota
             {pending.length === 1 ? "" : "s"} de tomas).
           </span>
           <textarea

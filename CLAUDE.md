@@ -13,7 +13,9 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
 - `server/` — Hono API. `claude.ts` writes the menu, the story, the storyboard, revisions and single-shot rewrites
   (structured output, prompt-cached system prompt; series and tool blocks go after the cache). `series.ts` loads
   `series/*.md`; `tools/` holds one Markdown profile per image/video tool, read at startup; `images/` holds one file
-  per image generator API; `demo.ts` is the sample output used when no Claude key is set.
+  per image generator API; `demo.ts` is the sample output used when no model key is set. The writer is Claude
+  (Anthropic SDK) or Kimi (`kimi.ts`, OpenAI-compatible Chat Completions, streamed, strict `json_schema` with a
+  JSON-mode fallback and one retry on a schema mismatch); `LLM_PROVIDER` picks when both keys are set.
 - `src/` — React 19 + Tailwind v4 UI, all copy in Spanish (Rioplatense). `MenuPicker`, `StoryView`, `BoardView`
   and `ScriptView` are the steps. `lib/render.ts` plays each shot's uploaded clip (or still, or colour card), mixes
   the clips' sound, draws the speaker and line on top and encodes with WebCodecs via mediabunny; `lib/markdown.ts`

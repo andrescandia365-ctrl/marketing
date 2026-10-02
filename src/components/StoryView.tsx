@@ -96,7 +96,7 @@ export function StoryView({ story, round, length, busy, onRevise, onApprove }: P
         <label className="block">
           <span className="text-sm font-semibold">Notas para esta ronda</span>
           <span className="block text-xs text-muted">
-            Como un director: qué no funciona, qué falta, qué sobra. Claude reescribe y aparece la ronda {round + 1}.
+            Como un director: qué no funciona, qué falta, qué sobra. La IA reescribe y aparece la ronda {round + 1}.
           </span>
           <textarea
             className={`${inputClass} mt-1.5`}
