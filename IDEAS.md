@@ -48,6 +48,13 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 ### 11. Voz en off
 - **Qué:** hoy las líneas van solo en subtítulos. Más adelante, voz.
 
+### 14. Setups fijos: imágenes aprobadas como fotogramas del video
+- **Idea (tuya):** usar las imágenes de los setups como imagen inicial, intermedia y final al generar los videos en Grok.
+- **Cómo:** cada setup (El Desorden, Marta, la heladera, el yogur) tiene **una imagen aprobada**, guardada una vez en la app. En cada toma, la app dice qué imagen de setup va como inicial, intermedia (opcional) y final, y el prompt de video describe solo el movimiento entre ellas.
+- **Un paso más:** guardar los setups fijos **con la serie**, no con cada pieza. Así los personajes y lugares son los mismos en todos los episodios (como los personajes fijos de un programa); cada episodio nuevo los reusa y solo se generan imágenes nuevas para lo nuevo.
+- **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
+- **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
+
 ### 13. Prompt de edición cuando se repite el setup
 - **Qué pasó:** la toma 3 usaba el mismo setup que la toma 2 (B · El Yogur), pero su prompt era para generar de cero y sumaba elementos nuevos (un flan adelante, el yogur más al fondo). Generando de cero, el personaje puede salir distinto.
 - **Idea:** si una toma repite el setup de la anterior, la app da además un **prompt de edición**: "Partí de la imagen de la toma N y cambiá solo esto: …" (para editar la imagen en Grok, usarla con `@` o seguir desde el último fotograma). Así se mantiene la continuidad.
