@@ -57,7 +57,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
-### 17. La interfaz real de IMAN en las imágenes y los videos
+### 17. La interfaz real de la app en las imágenes y los videos (IMAN y cualquier otra)
 - **Idea (tuya):** IMAN es software y tiene su propia interfaz; las piezas tienen que mostrarla, y los prompts tienen que tenerlo en cuenta.
 - **El problema:** la IA no puede dibujar la pantalla real de IMAN (inventa botones y textos). Por eso hoy los prompts piden "pantalla en blanco, sin texto".
 - **Cómo:**
@@ -66,7 +66,11 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Transformación hacia la pantalla real:** en Grok, imagen inicial = la escena de IA con el celular; imagen final = la captura real. El clip "entra" en la pantalla.
   - **Biblioteca de capturas en la serie:** una captura o grabación por función (Vender, Stock, Llegó, Vence, Dueño, cierre de caja), guardada con la serie IMAN como los setups fijos (idea 14). La IA elige cuál va en cada toma.
 - **Cuidado:** si Grok anima una captura, puede deformar los textos de la pantalla. Mejor: capturas quietas (con el acercamiento lento de la app) o grabaciones de pantalla reales.
-- **Pregunta para el final:** ¿tenés capturas o grabaciones de cada función, del celular y de la caja?
+- **Para cualquier app, no solo IMAN (tuyo):** se configura al principio:
+  - **En la serie (Editar serie):** una casilla "Es una app / tiene pantalla" y una sección **"Pantallas reales"**: cada pantalla con un nombre, la función que muestra y su captura o grabación subida.
+  - **En el brief:** "Usar pantallas reales en esta pieza" (sí/no) y cuáles están disponibles para este episodio.
+  - **La IA lo tiene en cuenta:** en las escenas de IA la pantalla va de espaldas o fuera de foco, y pone tomas de pantalla real donde se muestra la función.
+- **Pregunta para el final:** ¿tenés capturas o grabaciones de cada función de IMAN, del celular y de la caja?
 
 ### 16. Botón para escuchar los prompts en voz alta
 - **Idea (tuya):** un botón al lado de cada prompt que lo lee en voz alta.
