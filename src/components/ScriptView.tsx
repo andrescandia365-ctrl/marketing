@@ -5,13 +5,21 @@ import type { CastMember } from "../../shared/series.ts";
 import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 import { copyText } from "../lib/files.ts";
 import { formatElapsed, type LogEntry } from "../lib/markdown.ts";
+import { SpeakButton, VoiceRow, type AudioFile, type VoiceRowProps } from "./Audio.tsx";
 import { ActionWarning, BEAT_EDGE } from "./BoardView.tsx";
 import { BeatChip, Button, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
 
 export type ClipFile = { url: string; blob: Blob; name: string; duration: number };
 // A member of the series' fixed cast, with the URL of its approved image.
 export type LibraryEntry = CastMember & { url?: string };
-export type MediaState = { image?: string; clip?: ClipFile; loading?: boolean; error?: string };
+export type MediaState = {
+  image?: string;
+  clip?: ClipFile;
+  voice?: AudioFile;
+  sfx?: AudioFile;
+  loading?: boolean;
+  error?: string;
+};
 
 const BAR = { negative: "bg-neg", touching: "bg-touch", good: "bg-good" };
 
@@ -200,6 +208,8 @@ type CardProps = {
   onRewrite: (index: number, note: string) => Promise<boolean>;
   // The series' fixed cast by id: approved images, @ references and real screens.
   library: Record<string, LibraryEntry>;
+  // How lines are heard: the voice row under each shot.
+  voice: Omit<VoiceRowProps, "shot" | "index" | "speaker" | "voice" | "sfx">;
 };
 
 // One prompt with its copy button. Image prompts are checked for actions (an image is one moment).
@@ -227,7 +237,10 @@ function PromptBox({
         <span className="text-xs font-semibold">
           {label} <span className="font-normal text-muted">· {words} palabras · {hint}</span>
         </span>
-        <CopyButton text={copy} />
+        <span className="flex items-center gap-1">
+          <SpeakButton text={value} lang="en-US" />
+          <CopyButton text={copy} />
+        </span>
       </div>
       <textarea
         aria-label={label}
@@ -325,6 +338,7 @@ function ShotCard(props: CardProps) {
     onRemoveMedia,
     onRewrite,
     library,
+    voice,
   } = props;
   const [open, setOpen] = useState(true);
   const [viewing, setViewing] = useState<"image" | "clip" | null>(null);
@@ -592,6 +606,14 @@ function ShotCard(props: CardProps) {
               />
             </label>
           </div>
+          <VoiceRow
+            {...voice}
+            shot={shot}
+            index={shot.index}
+            speaker={who}
+            voice={media.voice}
+            sfx={media.sfx}
+          />
           <div className="flex items-end gap-2">
             <label className="block flex-1">
               <span className="text-xs font-semibold text-muted">Nota para la IA</span>

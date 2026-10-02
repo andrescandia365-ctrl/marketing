@@ -8,6 +8,8 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
 - **Tanda 2 (3 Oct 2026):** tipo de serie Software/E-commerce (23), elenco fijo con imágenes aprobadas y referencia @ guardado con la serie (14, 2), varios setups por toma editables a mano (18), tomas de transformación con imagen inicial/intermedia/final (1), tomas de pantalla real con capturas de la app elegidas en el brief (17), prompt de edición cuando se repite el lugar (13).
 
+- **Tanda 3 (3 Oct 2026):** las 4 formas de voz por toma y por personaje (15): solo subtítulos, la dice Grok (prompt de video con la línea y su voz), voz generada (OpenAI, `OPENAI_API_KEY`) y grabada en la app o subida; aviso y ajuste de largo si la voz no entra; botón 🔊 para escuchar prompts y líneas (16); efecto de sonido por toma, música de la pieza que baja bajo la voz y cortes al ritmo (8). Pendiente: API para generar efectos de sonido.
+
 ## Decisiones tomadas (2 Oct 2026)
 1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma. **Personajes:** usar las voces de Grok (panel Audio: Ara, Eve, Leo, Rex, Sal…, más audios subidos o grabados); cada personaje tiene una voz asignada y el prompt de video la pide. Grok no deja descargar el audio solo, así que esa voz vive dentro del clip. **Narrador:** las 4 opciones, según la escena.
 2. **Escuchar en voz alta:** para escucharlos vos.

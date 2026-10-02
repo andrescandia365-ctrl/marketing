@@ -12,7 +12,10 @@ const MAX_STATE = 8 * 1024 * 1024;
 
 export class ProjectError extends Error {}
 
-export type MediaRecord = { image?: string; clip?: { file: string; name: string; duration: number } };
+export type MediaFile = { file: string; name: string; duration: number };
+// Per shot: the still, the clip, the voice (recorded, uploaded or generated) and a sound effect.
+export type MediaRecord = { image?: string; clip?: MediaFile; voice?: MediaFile; sfx?: MediaFile };
+export type MediaKind = "image" | "clip" | "voice" | "sfx";
 
 export type ProjectFile = {
   id: string;
@@ -23,6 +26,8 @@ export type ProjectFile = {
   // Shot index → files in the folder.
   media: Record<string, MediaRecord>;
   video?: string;
+  // One music track for the whole piece.
+  music?: MediaFile;
 };
 
 export type ProjectSummary = {
@@ -43,12 +48,38 @@ const TYPES: Record<string, string> = {
   mp4: "video/mp4",
   webm: "video/webm",
   mov: "video/quicktime",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  m4a: "audio/mp4",
+  weba: "audio/webm",
   md: "text/markdown; charset=utf-8",
   json: "application/json",
 };
 
-function extension(type: string, kind: "image" | "clip" | "video"): string {
-  const ext = Object.entries(TYPES).find(([, t]) => type.split(";")[0].trim() === t)?.[0];
+const AUDIO_TYPES: Record<string, string> = {
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/wave": "wav",
+  "audio/ogg": "ogg",
+  "audio/mp4": "m4a",
+  "audio/x-m4a": "m4a",
+  "audio/aac": "m4a",
+  "audio/webm": "weba",
+  // A voice recorded in the browser can come as a WebM file with only an audio track.
+  "video/webm": "weba",
+};
+
+function extension(type: string, kind: MediaKind | "video" | "music"): string {
+  const mime = type.split(";")[0].trim();
+  if (kind === "voice" || kind === "sfx" || kind === "music") {
+    const ext = AUDIO_TYPES[mime];
+    if (ext) return ext;
+    throw new ProjectError("Ese archivo no es un audio.");
+  }
+  const ext = Object.entries(TYPES).find(([, t]) => mime === t)?.[0];
   if (kind === "image" && ext && ["png", "jpg", "webp", "gif"].includes(ext)) return ext;
   if (kind !== "image" && ext && ["mp4", "webm", "mov"].includes(ext)) return ext;
   throw new ProjectError(kind === "image" ? "Ese archivo no es una imagen." : "Ese archivo no es un video.");
@@ -157,13 +188,13 @@ export function saveState(id: string, state: Record<string, unknown>, markdown: 
   });
 }
 
-const slot = (index: number, kind: "image" | "clip") =>
-  `toma-${String(index + 1).padStart(2, "0")}-${kind === "image" ? "imagen" : "clip"}`;
+const SLOT_NAME: Record<MediaKind, string> = { image: "imagen", clip: "clip", voice: "voz", sfx: "efecto" };
+const slot = (index: number, kind: MediaKind) => `toma-${String(index + 1).padStart(2, "0")}-${SLOT_NAME[kind]}`;
 
 export function saveMedia(
   id: string,
   index: number,
-  kind: "image" | "clip",
+  kind: MediaKind,
   data: Buffer,
   type: string,
   meta: { name: string; duration: number },
@@ -173,27 +204,26 @@ export function saveMedia(
   return locked(id, async () => {
     const project = await read(id);
     const record = (project.media[index] ??= {});
-    const previous = kind === "image" ? record.image : record.clip?.file;
+    const previous = kind === "image" ? record.image : record[kind]?.file;
     await writeFile(join(folder(id), file), data);
     if (previous && previous !== file) await rm(join(folder(id), previous), { force: true });
     if (kind === "image") record.image = file;
-    else record.clip = { file, name: meta.name.slice(0, 200), duration: meta.duration };
+    else record[kind] = { file, name: meta.name.slice(0, 200), duration: meta.duration };
     project.updatedAt = new Date().toISOString();
     await write(project);
     return file;
   });
 }
 
-export function removeMedia(id: string, index: number, kind: "image" | "clip") {
+export function removeMedia(id: string, index: number, kind: MediaKind) {
   return locked(id, async () => {
     const project = await read(id);
     const record = project.media[index];
-    const file = kind === "image" ? record?.image : record?.clip?.file;
+    const file = kind === "image" ? record?.image : record?.[kind]?.file;
     if (!record || !file) return;
     await rm(join(folder(id), file), { force: true });
-    if (kind === "image") delete record.image;
-    else delete record.clip;
-    if (!record.image && !record.clip) delete project.media[index];
+    delete record[kind];
+    if (!Object.keys(record).length) delete project.media[index];
     project.updatedAt = new Date().toISOString();
     await write(project);
   });
@@ -218,6 +248,29 @@ export function saveVideo(id: string, data: Buffer, type: string) {
     project.updatedAt = new Date().toISOString();
     await write(project);
     return file;
+  });
+}
+
+export function saveMusic(id: string, data: Buffer, type: string, meta: { name: string; duration: number }) {
+  const file = `musica.${extension(type, "music")}`;
+  return locked(id, async () => {
+    const project = await read(id);
+    if (project.music && project.music.file !== file) await rm(join(folder(id), project.music.file), { force: true });
+    await writeFile(join(folder(id), file), data);
+    project.music = { file, name: meta.name.slice(0, 200), duration: meta.duration };
+    project.updatedAt = new Date().toISOString();
+    await write(project);
+    return project.music;
+  });
+}
+
+export function removeMusic(id: string) {
+  return locked(id, async () => {
+    const project = await read(id);
+    if (!project.music) return;
+    await rm(join(folder(id), project.music.file), { force: true });
+    delete project.music;
+    await write(project);
   });
 }
 

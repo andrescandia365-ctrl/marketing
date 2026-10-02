@@ -35,10 +35,13 @@ import {
   listProjects,
   readProjectFile,
   removeMedia,
+  removeMusic,
   saveMedia,
+  saveMusic,
   saveState,
   saveVideo,
 } from "./projects.ts";
+import { DEFAULT_VOICE, VoiceError, speak, voiceAvailable } from "./voice.ts";
 import {
   SeriesError,
   createSeries,
@@ -58,6 +61,7 @@ const app = new Hono();
 app.onError((error, c) => {
   if (error instanceof WriterError || error instanceof KimiError) return c.json({ error: error.message }, 502);
   if (error instanceof SeriesError || error instanceof ProjectError) return c.json({ error: error.message }, 400);
+  if (error instanceof VoiceError) return c.json({ error: error.message }, 502);
   if (error instanceof z.ZodError) return c.json({ error: "Al pedido le faltaban datos." }, 400);
   console.error(error);
   return c.json({ error: error.message || "Algo salió mal." }, 500);
@@ -76,6 +80,7 @@ app.get("/api/status", (c) => {
     tools: listTools(),
     series: listSeries(),
     projectsDir: PROJECTS_DIR,
+    voice: { available: voiceAvailable(), defaultVoice: DEFAULT_VOICE },
   });
 });
 
@@ -134,7 +139,14 @@ app.post("/api/projects", async (c) => {
 
 app.get("/api/projects/:id", async (c) => {
   const p = await getProject(c.req.param("id"));
-  return c.json({ id: p.id, state: p.state, media: p.media, video: p.video ?? null, updatedAt: p.updatedAt });
+  return c.json({
+    id: p.id,
+    state: p.state,
+    media: p.media,
+    video: p.video ?? null,
+    music: p.music ?? null,
+    updatedAt: p.updatedAt,
+  });
 });
 
 app.put("/api/projects/:id", async (c) => {
@@ -149,7 +161,7 @@ app.delete("/api/projects/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-const Kind = z.enum(["image", "clip"]);
+const Kind = z.enum(["image", "clip", "voice", "sfx"]);
 
 app.put("/api/projects/:id/media/:index/:kind", async (c) => {
   const index = Number(c.req.param("index"));
@@ -171,6 +183,30 @@ app.delete("/api/projects/:id/media/:index/:kind", async (c) => {
 app.delete("/api/projects/:id/media", async (c) => {
   await clearMedia(c.req.param("id"));
   return c.json({ ok: true });
+});
+
+app.put("/api/projects/:id/music", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
+  const music = await saveMusic(c.req.param("id"), data, c.req.header("content-type") ?? "", {
+    name: c.req.query("name") ?? "",
+    duration: Number(c.req.query("duration")) || 0,
+  });
+  return c.json({ music });
+});
+
+app.delete("/api/projects/:id/music", async (c) => {
+  await removeMusic(c.req.param("id"));
+  return c.json({ ok: true });
+});
+
+// A generated voice for one line. The browser stores it in the project like a recorded one.
+app.post("/api/voice", async (c) => {
+  const { text, voice, language } = z
+    .object({ text: z.string().trim().min(1).max(1500), voice: z.string().max(40).default(""), language: z.enum(["es", "en"]) })
+    .parse(await c.req.json());
+  const audio = await speak(text, voice, language);
+  return c.body(new Uint8Array(audio), 200, { "Content-Type": "audio/mpeg" });
 });
 
 app.put("/api/projects/:id/video", async (c) => {

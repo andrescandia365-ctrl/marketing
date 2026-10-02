@@ -10,12 +10,15 @@ export type ProjectSummary = {
   shots: number;
   hasVideo: boolean;
 };
-export type MediaRecord = { image?: string; clip?: { file: string; name: string; duration: number } };
+export type MediaFileRecord = { file: string; name: string; duration: number };
+export type MediaRecord = { image?: string; clip?: MediaFileRecord; voice?: MediaFileRecord; sfx?: MediaFileRecord };
+export type MediaKind = "image" | "clip" | "voice" | "sfx";
 export type ProjectData = {
   id: string;
   state: Record<string, unknown>;
   media: Record<string, MediaRecord>;
   video: string | null;
+  music: MediaFileRecord | null;
   updatedAt: string;
 };
 
@@ -77,14 +80,34 @@ export const api = {
   saveProject: (id: string, state: Record<string, unknown>, markdown?: string) =>
     call<{ updatedAt: string }>(`/api/projects/${enc(id)}`, { state, markdown }, "PUT"),
   deleteProject: (id: string) => call<{ ok: true }>(`/api/projects/${enc(id)}`, undefined, "DELETE"),
-  uploadMedia: (id: string, index: number, kind: "image" | "clip", file: Blob, meta?: { name: string; duration: number }) =>
+  uploadMedia: (id: string, index: number, kind: MediaKind, file: Blob, meta?: { name: string; duration: number }) =>
     upload<{ file: string }>(
       `/api/projects/${enc(id)}/media/${index}/${kind}${meta ? `?name=${enc(meta.name)}&duration=${meta.duration}` : ""}`,
       file,
       file.type,
     ),
-  removeMedia: (id: string, index: number, kind: "image" | "clip") =>
+  removeMedia: (id: string, index: number, kind: MediaKind) =>
     call<{ ok: true }>(`/api/projects/${enc(id)}/media/${index}/${kind}`, undefined, "DELETE"),
   clearMedia: (id: string) => call<{ ok: true }>(`/api/projects/${enc(id)}/media`, undefined, "DELETE"),
+  uploadMusic: (id: string, file: Blob, meta: { name: string; duration: number }) =>
+    upload<{ music: MediaFileRecord }>(
+      `/api/projects/${enc(id)}/music?name=${enc(meta.name)}&duration=${meta.duration}`,
+      file,
+      file.type,
+    ),
+  removeMusic: (id: string) => call<{ ok: true }>(`/api/projects/${enc(id)}/music`, undefined, "DELETE"),
+  // A generated voice for one line, as an mp3.
+  speak: async (text: string, voice: string, language: "es" | "en"): Promise<Blob> => {
+    const res = await fetch("/api/voice", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice, language }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: "El servidor no respondió." }));
+      throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    }
+    return res.blob();
+  },
   saveVideo: (id: string, video: Blob) => upload<{ file: string }>(`/api/projects/${enc(id)}/video`, video, video.type),
 };

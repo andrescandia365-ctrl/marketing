@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import type { AudioSettings } from "../../shared/audio.ts";
 import type { Board, Brief, Story } from "../../shared/schema.ts";
 import type { TextStyle } from "../../shared/series.ts";
 import { formatTime, totalSeconds } from "../../shared/template.ts";
 import { download, slug } from "../lib/markdown.ts";
 import { renderPreview, renderVideo, type RenderResult, type ShotMedia } from "../lib/render.ts";
+import type { AudioFile } from "./Audio.tsx";
 import { Button, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
 
 const DISCLOSURE = { en: "Illustrative images", es: "Imágenes ilustrativas" };
@@ -20,6 +22,13 @@ type Props = {
   onSaveStyle: (style: TextStyle) => Promise<void>;
   // Called with each finished video so it can be saved into the project folder.
   onRendered: (video: Blob) => Promise<string | null>;
+  audio: AudioSettings;
+  onAudio: (patch: Partial<AudioSettings>) => void;
+  // Shots where someone is heard speaking, so the music ducks under them.
+  spoken: boolean[];
+  music: AudioFile | null;
+  onMusic: (file: File) => Promise<void>;
+  onRemoveMusic: () => void;
 };
 
 function Slider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
@@ -50,7 +59,25 @@ function Swatch({ label, value, onChange }: { label: string; value: string; onCh
   );
 }
 
-export function VideoPanel({ brief, story, board, media, watermarked, seriesName, seriesStyle, onSaveStyle, onRendered }: Props) {
+export function VideoPanel({
+  brief,
+  story,
+  board,
+  media,
+  watermarked,
+  seriesName,
+  seriesStyle,
+  onSaveStyle,
+  onRendered,
+  audio,
+  onAudio,
+  spoken,
+  music,
+  onMusic,
+  onRemoveMusic,
+}: Props) {
+  const musicInput = useRef<HTMLInputElement>(null);
+  const [musicBusy, setMusicBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [result, setResult] = useState<(RenderResult & { url: string }) | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -114,7 +141,20 @@ export function VideoPanel({ brief, story, board, media, watermarked, seriesName
       const out = await renderVideo(
         board,
         media,
-        { format: brief.format, disclosure: disclosureText, fullFrame, keepSound: sound === "keep", speakers, headlines, style },
+        {
+          format: brief.format,
+          disclosure: disclosureText,
+          fullFrame,
+          keepSound: sound === "keep",
+          speakers,
+          headlines,
+          style,
+          spoken,
+          music: music?.blob,
+          musicVolume: audio.musicVolume,
+          sfxVolume: audio.sfxVolume,
+          beatSync: audio.beatSync,
+        },
         setProgress,
       );
       setResult({ ...out, url: URL.createObjectURL(out.blob) });
@@ -211,6 +251,91 @@ export function VideoPanel({ brief, story, board, media, watermarked, seriesName
         </span>
       </label>
 
+      <div className="space-y-2 rounded-lg border border-line p-3">
+        <p className="text-xs font-semibold">Música</p>
+        {music ? (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <audio src={music.url} controls className="h-8 w-full" />
+              <span className="min-w-0 flex-1 truncate text-xs text-muted">
+                {music.name} · {music.duration.toFixed(0)} s
+              </span>
+              <button type="button" onClick={onRemoveMusic} className="text-xs font-semibold text-muted hover:text-neg">
+                Quitar
+              </button>
+            </div>
+            <label className="block text-xs">
+              <span className="flex justify-between font-semibold">
+                Volumen <span className="font-mono text-muted">{Math.round(audio.musicVolume * 100)}%</span>
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={audio.musicVolume}
+                onChange={(e) => onAudio({ musicVolume: Number(e.target.value) })}
+                className="w-full"
+              />
+            </label>
+            <label className="flex items-start gap-2 text-xs">
+              <input type="checkbox" className="mt-0.5 size-4" checked={audio.beatSync} onChange={(e) => onAudio({ beatSync: e.target.checked })} />
+              <span>
+                <b>Cortes al ritmo</b>
+                <span className="block text-muted">Cada corte se corre al golpe de la música más cercano (hasta un tercio de segundo).</span>
+              </span>
+            </label>
+            {music.duration < totalSeconds(board.shots) && (
+              <p className="text-xs text-muted">La música dura menos que el video: el final queda sin música.</p>
+            )}
+          </>
+        ) : (
+          <Button
+            variant="secondary"
+            className="px-3 py-1.5 text-xs"
+            disabled={musicBusy}
+            onClick={() => musicInput.current?.click()}
+          >
+            {musicBusy ? <Spinner /> : null}
+            Subir música
+          </Button>
+        )}
+        <p className="text-xs text-muted">Libre de derechos. Baja sola cuando alguien habla.</p>
+        <input
+          ref={musicInput}
+          type="file"
+          accept="audio/*"
+          className="hidden"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (!file) return;
+            setMusicBusy(true);
+            try {
+              await onMusic(file);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+            } finally {
+              setMusicBusy(false);
+            }
+          }}
+        />
+        <label className="block border-t border-line pt-2 text-xs">
+          <span className="flex justify-between font-semibold">
+            Efectos de sonido <span className="font-mono text-muted">{Math.round(audio.sfxVolume * 100)}%</span>
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={audio.sfxVolume}
+            onChange={(e) => onAudio({ sfxVolume: Number(e.target.value) })}
+            className="w-full"
+          />
+        </label>
+      </div>
+
       <div className="space-y-1">
         <span className="text-xs font-semibold">Sonido de los clips</span>
         <div>
@@ -283,7 +408,7 @@ export function VideoPanel({ brief, story, board, media, watermarked, seriesName
               {n}
             </p>
           ))}
-          <p className="text-xs text-muted">Todavía no hay voces: el nombre de quien habla y su línea van en subtítulos.</p>
+
         </div>
       )}
     </div>
