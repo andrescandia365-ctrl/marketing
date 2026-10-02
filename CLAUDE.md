@@ -9,6 +9,7 @@ This file tells Claude **why the show works** and **how to borrow its mechanics*
 - `[V]` found in a source during research (see §10). Several sources were only readable as search snippets, not full text.
 - `[BK]` background knowledge, not re-checked this session. Verify before using in anything public.
 - `[INF]` my analysis or inference. A hypothesis to test, not a fact.
+- `[EP]` user-supplied episode summary (§2.6). Not checked against the video.
 
 ---
 
@@ -84,6 +85,48 @@ These are my labels for recurring moves, derived from the sources above. Test th
 | **The Button** | A short, sharp last line (laugh or sting). | Final line + CTA. |
 | **The Curiosity Gap** | Title/open promises a payoff the viewer needs to see. | Title states the tension, not the answer. |
 | **The Field Visit** | Go to where the people are; let them talk. | Ride-alongs: a real store at 2 a.m.; a real living room on a bad day. |
+| **The Callback** *(from EP-01)* | Plant a line or rule early; return to it later so the irony pays off. | Plant a promise at 0:10 of the video; pay it off in the button. |
+| **The Remote Stand-up** *(from EP-01)* | Cut to a correspondent "on location" who escalates the absurdity. | "The Manager" reports live from the store; the concept gag stays labeled as a gag. |
+
+### 2.6 Episode case library
+The user supplies episode breakdowns one at a time; each is logged here in the same format. Tag `[EP]` = **user-supplied episode summary, not checked against the video.** Extract the *structure*; do not repeat an episode's political claims, names, or quotes in marketing (§3 rule 7). Keep the user's own labels, and flag any term we are interpreting.
+
+**Entry template for new episodes:**
+```
+#### EP-NN — <title> [EP]
+Source (URL/date) · Runtime covered · Topic table (timecode · duration · how it opens · key beats · callback)
+Observations [INF] · Marketing translation · Check against the video
+```
+
+#### EP-01 — "Pete Hegseth & Trump Headlines" `[EP]`
+- **Source:** user-supplied summary. Video URL and air date **not yet provided** (ask). Runtime covered: 0:00–10:44, which may be an excerpt of a longer episode.
+- **Subject:** satirical commentary on Trump-administration headlines and Pete Hegseth's military policies. Quotes and names ("no beardos, weirdos, wimps, or radicals," "Project Meridian," the "best minds" panel) are **as given in the summary and not independently verified.**
+- **Terminology:** the summary's label "Autos-comeback" is read here as **"callback"**, a return to an earlier topic or joke. `[INF]` Confirm with the user.
+
+| # | Time | Dur. | Topic | How it opens | Key beats | Callback |
+|---|---|---|---|---|---|---|
+| 1 | 0:00–2:08 | 2:08 | Hispanic Heritage Month & Trump's White House event | Calendar observation → Trump's event and comments (Jordan Klepper) | Trump's shifting relationship with the Hispanic community vs. his earlier "murderers and rapists" label | 2:00, back to the shifting-relationship theme |
+| 2 | 2:09–4:47 | 2:38 | Hegseth's vision for the military | Poll numbers → Hegseth | "No beardos, weirdos, wimps, or radicals" (2:45); biblical rhetoric (4:02) | None listed |
+| 3 | 4:48–8:02 | 3:14 | Project Meridian / future of warfare | Hegseth's new initiative | "Best minds" panel: Elon Musk, Palmer Luckey, Newt Gingrich (5:26) | 6:23, back to the 2:45 rule: irony of Luckey's casual look |
+| 4 | 8:03–10:44 | 2:41 | Field report: Pentagon update | Cut to Josh Johnson outside the Pentagon | Future-war gags, "Mecha Newt Gingrich" (9:30) | 10:23, back to the episode's thesis: absurd future fantasies vs. unaddressed current logistics |
+
+**Observations** `[INF]` (one episode only; do not generalize until more are logged):
+- **Pacing:** four topics averaging ~2:41, with three transitions. A new beat roughly every 2–3 minutes, so each topic can stand alone as a clip (matches §2.4).
+- **Bridges, not hard cuts:** each switch hangs on something concrete: a calendar date, a poll number, a named initiative, a cut to a correspondent. The next topic is attached to an artifact.
+- **Callbacks carry the argument.** Three of four topics have one. Two land near the end of their topic (2:00 is 8 s before topic 1 ends; 10:23 is 21 s before the end). One is a **cross-topic callback** (6:23 → 2:45, about 3.5 minutes apart). The thesis arrives by callback instead of being announced up front.
+- **The Contradiction in its purest form:** a rule is stated (2:45), then a named person on the "best minds" panel visibly breaks it (6:23).
+- **Absurdity as a lens, then grounding:** the field report escalates into the ridiculous ("Mecha Newt Gingrich"), then snaps back to the real problem (current logistics). The gag proves the point instead of replacing it.
+- **Role split:** the host desk carries the argument; the on-location correspondent carries the escalation.
+- **No visible Turn:** the summary shows no sincere/touching beat; the close is the thesis callback. Either the summary omits it or this episode ends on argument. **Check the video before concluding anything** about the §3 "always include the Turn" rule.
+
+**Marketing translation (non-political):**
+- **Calendar peg → occasion hook.** Open on a date or moment the audience already feels ("first cold week," "inventory day").
+- **Poll number → verified stat as a bridge** into the product topic. Only with a real, cited number.
+- **Callback = the button.** Plant a line in the hook and pay it off in the last line (ties to the §3 script: BUTTON calls back to HOOK).
+- **Remote Stand-up for Job A:** "The Manager" reports from the store; the robot/3D-manager idea can be the escalating gag, **clearly labeled as concept**, then the piece returns to the real problem.
+- **Caution for Job A:** the episode's thesis is "focusing on future fantasies while ignoring current logistics." A robot-manager roadmap could invite exactly that criticism. **Lead with what [PLANNER] fixes today** (orders, shifts, expiry), and tease the future second.
+
+**Check against the video:** URL/date; who hosts; whether a sincere beat exists; the cold open and title/thumbnail hook; what the exact opener line is; audience reaction (comments, retention if known).
 
 ---
 
@@ -172,6 +215,7 @@ Deliver **5 hook variants** per script and name which move each uses (§2.5).
 4. **Run the checklist** before delivering: customer is hero · concrete detail · target is the problem · Turn present · single CTA · no unverified claims · no borrowed IP.
 5. **Keep deliverables as Markdown** in this repo; propose folder names (e.g. `scripts/`, `campaigns/`) rather than assuming them. `[proposal]`
 6. **Re-verify** any `[V]` figure before it appears in public copy; numbers move (ratings, subscribers, contract status).
+7. **Log new episode breakdowns** from the user in §2.6 using the entry template, and fold any move that repeats across episodes into §2.5.
 
 ---
 
@@ -184,7 +228,7 @@ Deliver **5 hook variants** per script and name which move each uses (§2.5).
 
 ## 9. Known limitations of this research
 - Full text of Deadline, NBC, TheWrap, Awards Focus, WGA East, and Shorty Awards pages was **blocked by the network proxy**; those facts rest on search-result summaries.
-- No episodes were watched and no YouTube analytics were available. Channel numbers are from a third-party snapshot, and the hook taxonomy in §2.5 is analysis, not an official description.
+- No episodes were watched and no YouTube analytics were available. Episode breakdowns (§2.6) are user-supplied summaries, not verified against the video; one episode is logged so far, which is too few to call any pattern a rule. Channel numbers are from a third-party snapshot, and the hook taxonomy in §2.5 is analysis, not an official description.
 - Convenience-store and home-product pain points are hypotheses, not research findings.
 - A thorough pass would add: watching 15–20 episodes and clips and logging their hooks; reading Jones and Amarasingam in full; customer interviews for both jobs.
 
