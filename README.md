@@ -22,6 +22,12 @@ Para sumar una serie, agregá otro `.md` con las líneas `# Nombre` y `Tagline:`
 ## Cómo correrla
 
 ```bash
+bash iniciar.sh        # revisa Node, crea .env, pide la clave de Kimi, instala y arranca
+```
+
+Abrí http://localhost:5173. A mano es lo mismo:
+
+```bash
 npm install
 cp .env.example .env   # agregá ANTHROPIC_API_KEY o KIMI_API_KEY
 npm run dev            # http://localhost:5173
