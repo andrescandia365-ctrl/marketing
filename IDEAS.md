@@ -57,6 +57,12 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 20. Prompt de imagen = un solo momento congelado
+- **Qué pasó:** Kimi escribió un prompt de imagen con tres momentos: el yogur al frente con la etiqueta (estado), la mano de una clienta que lo levanta (acción) y la cara que "now reads indignant" (cambio en el tiempo). Además arrastró "dusty" de otra toma y sumó una clienta sin setup.
+- **Regla:** la imagen es **un momento congelado**; las acciones y los cambios van al prompt de video. Palabras como *now, then, after, reaches, lifts, turns* en un prompt de imagen son señal de error.
+- **Idea:** poner la regla más fuerte en las instrucciones del storyboard, y que la app marque en amarillo los prompts de imagen con esas palabras ("¿Esto es una acción? Va en el video").
+- **Para comparar modelos:** anotar si Kimi respeta estas reglas peor que Claude.
+
 ### 19. Claqueta: cada toma con título, resumen y continuidad
 - **Qué pasó:** en la toma 7 las imágenes y el video salieron por cualquier lado. La toma 6 era el celular avisando qué vence; la 7 tenía que ser Marta dándose cuenta de que uno se venció y el resto está bien. La tarjeta solo decía "Toma 7 · Setup C · Marta", sin decir qué pasa.
 - **Idea (tuya):**
