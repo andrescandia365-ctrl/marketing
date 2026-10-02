@@ -116,6 +116,11 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Qué pasó:** en Producción, un clic sobre una imagen o un clip ya cargado abre el selector de archivos en vez de mostrarlo.
 - **Idea:** el clic lo abre en grande encima de la página (la imagen completa, el clip reproduciéndose con controles); se cierra con Esc o con un clic afuera. Para reemplazarlo: soltar otro archivo encima o un botón "Cambiar" en la esquina. Y un botón "Quitar" para dejar la toma vacía.
 
+## Ideas para IMAN (el producto, no esta app)
+- **Etiqueta de oferta imprimible:** desde la lista de "Vence", un toque imprime una etiqueta de oferta en la impresora de tickets ("vence mañana · 30% off"). Salió de la toma 7: la historia mostraba a Marta poniendo una etiqueta de oferta como si la hiciera IMAN, y IMAN hoy no la tiene. Cuando exista, sumarla a "Lo que existe hoy" en la serie IMAN.
+- **Mientras no exista:** en las piezas, IMAN avisa qué vence (real) y la etiqueta la hace Marta a mano; o la toma va marcada como "Concepto".
+- **Lección para esta app:** la toma 7 estaba marcada "Real / ya existe" mostrando algo que IMAN no hace. El checklist tiene que revisar cada toma contra "Lo que existe hoy", no solo la historia.
+
 ## Para anotar en el perfil de Grok (`server/tools/grok-imagine.md`, con "ok")
 - [TESTED] Largos de clip: 6, 10 o 15 s (solo esas tres opciones).
 - [TESTED] Imagen inicial, intermedia y final en un mismo clip (el ícono del medio es la intermedia); acepta imágenes propias.
