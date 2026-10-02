@@ -4,23 +4,24 @@ Lista de ideas que fueron saliendo. **Nada de esto está construido.** Se constr
 Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
 ## Decisiones tomadas (2 Oct 2026)
-1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma.
+1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma. **Personajes:** usar las voces de Grok (panel Audio: Ara, Eve, Leo, Rex, Sal…, más audios subidos o grabados); cada personaje tiene una voz asignada y el prompt de video la pide. Grok no deja descargar el audio solo, así que esa voz vive dentro del clip. **Narrador:** las 4 opciones, según la escena.
 2. **Escuchar en voz alta:** para escucharlos vos.
 3. **Proyectos:** se guardan en una carpeta de la compu (`playbook-studio/proyectos/<pieza>/`).
 4. **Setups fijos:** con la serie (personajes y locaciones), y se pueden cambiar.
 5. **Largo de las tomas:** cada toma dura 6, 10 o 15 s, como los clips de Grok.
 6. **Tomas de transformación:** la IA decide dónde convienen.
 7. **Pantallas reales:** las capturas de celular y PC llegan en breve.
-8. **Música y efectos de sonido:** la música se baja de otro lado (subirla a la app); los efectos de sonido también importan: ver otro generador o API.
+8. **Música y efectos de sonido:** (a) subir música y efectos libres de derechos por toma, y usar el sonido de Grok (prendido, sin voces) para los efectos de escena. **Pendiente (pin):** una API que genere efectos de sonido; investigar y proponer antes de construir.
 9. **Sonido de Grok:** el usuario lo prende o apaga en Grok; la app indica por toma cuál conviene.
 10. **Referencias:** Grok acepta hasta 14 imágenes de referencia y tiene una biblioteca de referencias con nombre (@Nombre).
 11. **Modelo:** seguir con Kimi por NVIDIA y endurecer las reglas.
 12. **Cartel de arriba:** opcional por toma + interruptor para todo el video; se llama **"Headline"**.
 13. **Estilo del texto:** uno por serie.
-14. Pendiente: explicado de nuevo.
+14. **Si un check falla:** bloquea la aprobación **y** trae el botón "Arreglalo" (manda el problema como nota de director).
 - **A (ok):** perfil de Grok actualizado.
-- **B / datos:** IMAN es una serie de marketing de SaaS; los datos de cada marca se cargan en la app (brief / serie), no se escriben a mano en el código.
-- **E (ok):** mergear el PR #1.
+- **B (sí):** IMAN es una serie de marketing de SaaS; los datos y reglas de cada marca se cargan en la app (brief / serie), no se escriben en el código. La regla "lo vencido se saca; lo que vence pronto pasa adelante" la carga el usuario en la serie IMAN.
+- **Idea 23 (sí):** tipo de serie Software (SaaS) / E-commerce.
+- **E (ok):** el PR #1 ya estaba mergeado (hasta la reforma de la historia); lo que vino después va en un PR nuevo.
 
 ### 23. Dos tipos de serie: Software (SaaS) y E-commerce
 - **Idea (tuya):** el playbook sirve para dos cosas: marketing de software y de e-commerce. Todo se carga desde la app.
@@ -181,6 +182,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - Segmentos: cada objeto de la imagen separado y editable; "Descargar todo".
 - Eliminar fondo, Relación de aspecto, Crear video.
 - 720p y 10 s como valores por defecto en el editor; botón de sonido.
+- [TESTED] Panel **Audio**: voces de muestra (Ara, Eve, Leo, Rex, Sal…) y audios propios subidos o grabados, para usar en los videos (ej. la voz de un personaje). El audio solo no se puede descargar. (Sumar al perfil con "ok".)
 - Marcar [TESTED] lo que viste vos y [NOT SURE] lo demás.
 
 ## Contenido y datos que faltan (no es código)
