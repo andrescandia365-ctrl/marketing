@@ -43,8 +43,14 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 ### 9. `iniciar.sh` que pregunte el proveedor
 - **Qué:** que el script pregunte "¿Kimi directo, NVIDIA u OpenRouter?" y pida solo la clave y el modelo, sin tocar `.env` a mano.
 
-### 10. Guardar proyectos
-- **Qué:** hoy todo vive en la pestaña abierta; si la cerrás, se pierde. Guardar cada pieza (historia, storyboard, notas) para retomarla.
+### 10. Guardar proyectos — PRIORIDAD ALTA
+- **Qué pasó:** se generaron todas las tomas de una pieza y no había cómo guardar el trabajo. Hoy solo se guarda el brief; la historia, el storyboard, las imágenes y los clips viven en la pestaña abierta y se pierden si se cierra o se recarga.
+- **Idea:**
+  - **Autoguardado** mientras se trabaja (historia, rondas, storyboard, notas, imágenes y clips subidos), en el navegador.
+  - **Lista de proyectos** al abrir la app: retomar una pieza donde quedó.
+  - **Exportar / importar** el proyecto completo como un archivo (.zip con el .md, las imágenes, los clips y el video), para tenerlo en una carpeta o pasarlo a otra compu.
+  - Aviso si querés cerrar la pestaña con trabajo sin guardar.
+- **Mientras tanto:** descargar el video, "Descargar todo .md" y guardar las imágenes y los clips en una carpeta por pieza.
 
 ### 11. Voz en off
 - **Qué:** hoy las líneas van solo en subtítulos. Más adelante, voz.
@@ -105,6 +111,8 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Qué pasó:** en la toma 2 la línea es de El Yogur ("Yo vencí el martes…"), pero el prompt de video pide "no speech" y el clip sale sin que hable.
 - **Cómo es hoy:** la app pide clips sin voz a propósito; quién habla y su línea aparecen como subtítulo con el nombre del personaje. No hay voz todavía.
 - **Opciones a decidir:** (a) solo subtítulos, como ahora; (b) que Grok haga hablar al personaje con la línea en español (a probar: si respeta el texto y el acento); (c) voz en off generada aparte y agregada por la app (idea 11); (d) grabar la voz vos y subirla.
+- **Inclinación tuya:** capaz grabarla vos. Idea: en cada toma, un botón **Grabar** que muestra la línea y graba con el micrófono (o subir un audio por toma); la app pone la voz sobre su toma, baja el sonido del clip mientras se habla, y ajusta el largo de la toma si la voz dura más.
+- **Mientras tanto:** grabar cada línea con el celular y ponerla sobre el video descargado en un editor (CapCut u otro).
 - **Pregunta para el final de la sesión.**
 
 ### 13. Prompt de edición cuando se repite el setup
