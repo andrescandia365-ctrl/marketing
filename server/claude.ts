@@ -18,7 +18,9 @@ import {
   type TopicIdea,
 } from "../shared/schema.ts";
 import { LENGTHS } from "../shared/template.ts";
+import { WORKS_TODAY } from "../shared/series.ts";
 import { getSeries } from "./series.ts";
+import { KIMI_MODEL, askKimi, kimiKey } from "./kimi.ts";
 import { getTool } from "./tools.ts";
 
 export const MODEL = process.env.CLAUDE_MODEL || "claude-opus-5-5";
@@ -37,14 +39,25 @@ ${ENGINE}
 
 ${PLAYBOOK}`;
 
-export class ClaudeError extends Error {}
+// Errors whose message is shown to the person as is.
+export class WriterError extends Error {}
+
+// Who writes: Claude or Kimi. LLM_PROVIDER picks one; without it, Claude if its key is set, else Kimi.
+// Neither key means sample mode.
+export type Writer = { id: "claude" | "kimi"; label: string; model: string };
+
+export function currentWriter(): Writer | null {
+  // The SDK also reads ANTHROPIC_AUTH_TOKEN and `ant auth login` profiles; an explicit key is the documented setup.
+  const claude = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+  const kimi = Boolean(kimiKey());
+  const pick = process.env.LLM_PROVIDER?.trim().toLowerCase();
+  const id = pick === "kimi" ? (kimi ? "kimi" : null) : pick === "claude" ? (claude ? "claude" : null) : claude ? "claude" : kimi ? "kimi" : null;
+  if (id === "claude") return { id, label: "Claude", model: MODEL };
+  if (id === "kimi") return { id, label: "Kimi", model: KIMI_MODEL };
+  return null;
+}
 
 let client: Anthropic | null = null;
-
-// The SDK also reads ANTHROPIC_AUTH_TOKEN and `ant auth login` profiles; an explicit key is the documented setup.
-export function claudeConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-}
 
 function getClient(): Anthropic {
   client ??= new Anthropic();
@@ -55,9 +68,9 @@ function getClient(): Anthropic {
 // re-bills the engine and playbook.
 function contextBlocks(brief: Brief, withTool: boolean): string[] {
   const series = getSeries(brief.series);
-  if (!series) throw new ClaudeError(`No existe la serie "${brief.series}".`);
+  if (!series) throw new WriterError(`No existe la serie "${brief.series}".`);
   const blocks = [
-    `The series for this piece. Its "Works today" list is the only thing that may be shown as real.\n\n${series.text}`,
+    `The series for this piece (its bible is written in Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real.\n\n${series.text}`,
   ];
   if (withTool) {
     const tool = getTool(brief.tool);
@@ -73,7 +86,7 @@ function describeBrief(brief: Brief): string {
   const lines = [
     `Series: ${getSeries(brief.series)?.name ?? brief.series}`,
     `Length: ${brief.length === "short" ? `a short, ${len.min}–${len.max} s, ONE topic` : `an episode, ${len.min / 60}–${len.max / 60} min, 3–4 topics`}`,
-    `${brief.series === "masogar" ? "This episode's product" : "Focus (optional)"}: ${brief.product || "your call"}`,
+    `${getSeries(brief.series)?.productPerEpisode ? "This episode's product" : "Focus (optional)"}: ${brief.product || "your call"}`,
     `A moment the audience already feels (optional peg): ${brief.angle || "none given"}`,
     `Notes, verified facts, off-limits: ${brief.notes || "none given"}`,
     `Comedic voice: ${brief.tone}`,
@@ -86,6 +99,7 @@ function describeBrief(brief: Brief): string {
 }
 
 async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z.ZodType<T>): Promise<T> {
+  if (currentWriter()?.id === "kimi") return askKimi([SYSTEM, ...contextBlocks(brief, withTool)], prompt, schema);
   const stream = getClient().beta.messages.stream({
     model: MODEL,
     max_tokens: 64000,
@@ -105,27 +119,27 @@ async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z
     message = await stream.finalMessage();
   } catch (error) {
     if (!(error instanceof Anthropic.APIError) && error instanceof Anthropic.AnthropicError) {
-      throw new ClaudeError("La respuesta de Claude no vino con la forma esperada. Probá de nuevo.");
+      throw new WriterError("La respuesta de Claude no vino con la forma esperada. Probá de nuevo.");
     }
     if (error instanceof Anthropic.AuthenticationError) {
-      throw new ClaudeError("La clave de Claude fue rechazada. Revisá ANTHROPIC_API_KEY.");
+      throw new WriterError("La clave de Claude fue rechazada. Revisá ANTHROPIC_API_KEY.");
     }
     if (error instanceof Anthropic.RateLimitError) {
-      throw new ClaudeError("Claude está saturado de pedidos. Probá en un minuto.");
+      throw new WriterError("Claude está saturado de pedidos. Probá en un minuto.");
     }
     if (error instanceof Anthropic.APIError) {
-      throw new ClaudeError(`Claude devolvió un error (${error.status ?? "red"}): ${error.message}`);
+      throw new WriterError(`Claude devolvió un error (${error.status ?? "red"}): ${error.message}`);
     }
     throw error;
   }
 
   if (message.stop_reason === "refusal") {
-    throw new ClaudeError("Claude no aceptó este pedido. Reformulalo y probá de nuevo.");
+    throw new WriterError("Claude no aceptó este pedido. Reformulalo y probá de nuevo.");
   }
   if (message.stop_reason === "max_tokens") {
-    throw new ClaudeError("La respuesta se cortó por larga. Probá con un formato corto o menos temas.");
+    throw new WriterError("La respuesta se cortó por larga. Probá con un formato corto o menos temas.");
   }
-  if (!message.parsed_output) throw new ClaudeError("No se pudo leer la respuesta de Claude. Probá de nuevo.");
+  if (!message.parsed_output) throw new WriterError("No se pudo leer la respuesta de Claude. Probá de nuevo.");
   return message.parsed_output as T;
 }
 
@@ -164,7 +178,9 @@ ${describeBrief(brief)}
 The chosen topic${topics.length > 1 ? "s, in this order" : ""}:
 ${ideasText(topics)}
 
-Write the story. Cast the Good, the Bad (named and personified for this piece) and any human characters. Each topic gets a concrete bridge in and its lines in Negative → Touching → Good order, with the Negative escalating in three beats and one sincere Touching line. Plant callbacks and pay them off; the last line calls back to the first. Spoken lines should add up to ${len.min}–${len.max} seconds at about 2.5 words per second. Run the checklist honestly.`,
+Write the story. Cast the Good, the Bad (named and personified for this piece) and any human characters. Each topic gets a concrete bridge in and its lines in Negative → Touching → Good order, with the Negative escalating in three beats and one sincere Touching line. Plant callbacks and pay them off; the last line calls back to the first. Spoken lines should add up to ${len.min}–${len.max} seconds at about 2.5 words per second.
+
+${STORY_CHECKS}`,
       StoryWireSchema,
     ),
   );
@@ -183,20 +199,32 @@ ${JSON.stringify(story, null, 2)}
 
 The director's notes on this draft: "${note}"
 
-Rewrite the story to answer the notes. Keep everything the notes don't touch; don't add what they don't ask for. Re-run the checklist.`,
+Rewrite the story to answer the notes. Keep everything the notes don't touch; don't add what they don't ask for.
+
+${STORY_CHECKS}`,
       StoryWireSchema,
     ),
   );
 }
 
+// The checks the writer runs on its own story; the app blocks approval on any that fail.
+const STORY_CHECKS = `Then check the story like a strict critic who did not write it. A pass you cannot point to in the text is a fail.
+- checklist: Gancho (the first 3 seconds stop the scroll with a concrete pain or a question), Retención (open questions and tension keep people watching; the escalation grows), Recompensa (every open loop pays off), Bueno contra Malo, Momento emotivo, Detalle concreto, Puentes, Callbacks, Continuidad (each line follows from the one before), Lo que existe hoy, El chiste es el problema.
+- loops: every open loop (the hook's question, each tension, each planted callback), where it opens and where it pays off. One that never pays off is not closed.
+- seriesLoop: walk the series loop from the bible step by step: does the piece show it, and if so, does it show the pain, the step doing its job and the result?
+- claims: everything the brand or product is shown doing, each checked against "${WORKS_TODAY}". A thing that is not on the list is only allowed as a clearly labelled concept; the same goes for anything that could break a law or the brand's rules (for example, selling an expired product).`;
+
 const BOARD_RULES = `Shot rules:
 - Cover every line of the story, in order, once. A shot holds one line, or two short lines from the same speaker.
-- seconds: long enough to say its line at about 2.5 words per second, never under 2 or over 15; a silent shot (speaker "none") lasts 2–4 s.
-- setups: every character and every place that appears in more than one shot gets a setup with a short identity line; reuse the story's character identity lines word for word. Every prompt with that setup repeats its line word for word.
-- Put the style line inside each visualPrompt so it stands alone. No text, signs, logos, brand names or real people's likeness in any image. How the Bad looks on screen follows the story's character line.
+- title and action come first: the slate says in a few words what happens, and action says in one sentence what we see, following on from the previous shot. The prompts must show exactly that action.
+- visualPrompt is the first frame of the action: ONE frozen moment. Nothing that changes over time and no sequence words (now, then, after, reaches, lifts, turns, becomes). Every action and change goes in videoPrompt, which is one action.
+- seconds: exactly 6, 10 or 15, the only clip lengths the tool makes. Pick the shortest that fits the spoken line at about 2.5 words per second (6 s up to 15 words, 10 s up to 25, 15 s up to 37). Split a longer line into two shots. A silent shot is 6 s. toolSettings says the same length.
+- onScreenText is the headline at the top of the frame: up to 6 words that make sense without the voice (a fact, a time, a number, a name). Leave it empty rather than write a joke that needs the spoken line. The spoken line is added on its own as the subtitle.
+- setups: every character and every place that appears in more than one shot gets a setup with a short identity line; reuse the story's character identity lines word for word. Every prompt that shows a character or place repeats its identity line word for word, even when the shot's setup is another one.
+- Put the style line inside each visualPrompt so it stands alone. No text, signs, logos, brand names or real people's likeness in any image. A phone or computer screen faces away from the camera or is out of focus; the tool cannot draw the real interface. How the Bad looks on screen follows the story's character line.
 - The spoken lines and captions are added on top later, so video prompts never ask anyone to speak or sing, and ask for no music.
-- toolSettings uses only lengths the tool profile documents.
-- disclosure: "concept" or "simulation" for anything not in the series' "Works today" list.`;
+- disclosure: "concept" or "simulation" for anything the brand is shown doing that is not in the series' "${WORKS_TODAY}" list.
+- issues: after writing the board, check it like a strict critic: a shot whose action does not follow the previous one (continuity), the brand shown doing something not on its list without a label (reality), an image prompt with more than one moment (image), an open loop never paid off (loop). List every problem you still see; empty only if there are none.`;
 
 // Step 3: the storyboard.
 export async function writeBoard(brief: Brief, story: Story): Promise<Board> {
@@ -251,11 +279,15 @@ ${BOARD_RULES}`,
   );
 }
 
-// In production: one shot, one note.
+// In production: one shot, one note. The neighbours come along so the shot keeps following on.
 export async function rewriteShot(brief: Brief, story: Story, board: Board, index: number, note: string): Promise<Shot> {
   const shot = board.shots[index];
-  if (!shot) throw new ClaudeError("Esa toma ya no existe.");
+  if (!shot) throw new WriterError("Esa toma ya no existe.");
   const setup = board.setups.find((s) => s.id === shot.setup);
+  const slate = (i: number) => {
+    const s = board.shots[i];
+    return s ? `Shot ${i + 1}: "${s.title}". ${s.action} (line: "${s.voiceover || "none"}")` : "none";
+  };
   const wire = await ask(
     brief,
     true,
@@ -265,14 +297,19 @@ ${describeBrief(brief)}
 The story "${story.title}". Board style: ${board.style}. Setups:
 ${board.setups.map((s) => `- ${s.id} · ${s.name}: ${s.identity}`).join("\n") || "- none"}
 
+The shot before: ${slate(index - 1)}
+The shot after: ${slate(index + 1)}
+
 Shot ${index + 1} of ${board.shots.length} (setup ${shot.setup}${setup ? ` · ${setup.name}` : ""}):
 ${JSON.stringify(shot, null, 2)}
 
 The director's note on this shot: "${note}"
 
-Rewrite this one shot to answer the note. Keep its topic, beat, speaker, line, setup and length, keep the identity line word for word, and change only what the note asks (usually the prompts). Fix the source in the prompt; never ask for anything to be painted on later.`,
+Rewrite this one shot to answer the note, so it follows the shot before and leads into the shot after. Keep its topic, beat, speaker and setup, and keep identity lines word for word. Change the spoken line or the headline only if the note asks for it; if the line changes, pick the length again. Update the title and action if the note changes what happens. Fix the source in the prompt; never ask for anything to be painted on later.
+
+${BOARD_RULES}`,
     ShotWireSchema,
   );
   const next = normalizeShot(wire);
-  return { ...next, topic: shot.topic, beat: shot.beat, speaker: shot.speaker, setup: shot.setup, seconds: shot.seconds };
+  return { ...next, topic: shot.topic, beat: shot.beat, speaker: shot.speaker, setup: shot.setup };
 }

@@ -1,6 +1,7 @@
 // Shapes shared by the server (Claude output validation) and the browser (types only).
 // Flow: Brief → Menu (topics) → Story (Good vs Bad, in rounds) → Board (shots) → production.
 import { z } from "zod";
+import type { TextStyle } from "./series.ts";
 
 export const BEATS = ["negative", "touching", "good"] as const;
 export type Beat = (typeof BEATS)[number];
@@ -83,8 +84,38 @@ export const StoryWireSchema = z.object({
   checklist: z
     .array(ChecklistItemSchema)
     .describe(
-      "Good vs Bad present, three beats per topic, a sincere beat, concrete details, bridges, callbacks paid off, last line calls back to the first, no invented claims, joke at the problem not the person.",
+      "A strict critic's checklist, items named in Spanish: Gancho (the first 3 seconds stop the scroll), Retención (open questions keep people watching, the escalation grows), Recompensa (every open loop pays off), Bueno contra Malo, Momento emotivo, Detalle concreto, Puentes, Callbacks, Continuidad (each line follows the one before), Lo que existe hoy (the brand only does what its list says), El chiste es el problema. A pass you cannot point to in the text is a fail.",
     ),
+  loops: z
+    .array(
+      z.object({
+        question: z.string().describe("The open loop: the question or tension that keeps people watching. Spanish."),
+        opens: z.string().describe("Where it opens: topic and a few quoted words."),
+        closes: z.string().describe("Where it pays off: topic and a few quoted words. Empty if it never does."),
+        closed: z.boolean(),
+      }),
+    )
+    .describe("Every open loop: the hook's question, each tension, each planted callback. One that never pays off is closed=false."),
+  seriesLoop: z
+    .array(
+      z.object({
+        step: z.string().describe("A step of the series loop, as the series bible names it."),
+        appears: z.boolean().describe("The piece mentions or shows this step."),
+        complete: z.boolean().describe("If it appears: the piece shows the pain, the step doing its job and the result."),
+        note: z.string().describe("Where and how, or why it is left out. Spanish."),
+      }),
+    )
+    .describe("Each step of the series loop from the bible. Empty if the bible has no loop."),
+  claims: z
+    .array(
+      z.object({
+        claim: z.string().describe("Something the brand or product is shown doing. Spanish."),
+        real: z.boolean().describe("true only if it is in the series' list of what exists today."),
+        concept: z.boolean().describe("true if the story clearly presents it as a concept or the future."),
+        note: z.string(),
+      }),
+    )
+    .describe("Everything the brand or product does in the story, each checked against the list of what exists today."),
   verify: z.array(z.string()).describe("Every claim marked [VERIFY]. Empty if none."),
 });
 export type Story = Omit<z.infer<typeof StoryWireSchema>, "characters" | "topics"> & {
@@ -93,18 +124,31 @@ export type Story = Omit<z.infer<typeof StoryWireSchema>, "characters" | "topics
 };
 
 // ── Step 3: the storyboard ──────────────────────────────────────────────────────
+// Grok makes clips of exactly these lengths, so every shot is one of them.
+export const SHOT_LENGTHS = [6, 10, 15] as const;
+
 export const ShotWireSchema = z.object({
+  title: z.string().describe("The slate: what happens in this shot, up to 8 words, in Spanish."),
+  action: z
+    .string()
+    .describe("One sentence in Spanish: what we see happen, following on from the previous shot. The prompts must match it."),
   topic: z.string().describe("The topic id this shot belongs to."),
   beat: z.string().describe("One of: negative, touching, good."),
   speaker: z.string().describe("Character id of who speaks, or 'none' for no line."),
   voiceover: z.string().describe("The exact line(s) spoken during this shot, taken from the story. May be empty."),
-  onScreenText: z.string().describe("Short caption burned into the frame, max ~8 words. May be empty."),
-  seconds: z.number().describe("Length of the shot in seconds, 2 to 15, enough to say its line (~2.5 words/s)."),
+  onScreenText: z
+    .string()
+    .describe("The headline at the top of the frame: up to 6 words that make sense without the voice (a fact, a time, a number). May be empty."),
+  seconds: z.number().describe("Exactly 6, 10 or 15: the shortest that fits the spoken line at ~2.5 words/s."),
   setup: z.string().describe("Setup id (a character or place shown in more than one shot)."),
   visualPrompt: z
     .string()
-    .describe("Complete, standalone image prompt in the chosen tool's format (style included). English."),
-  videoPrompt: z.string().describe("Prompt that animates this shot's still, in the chosen tool's format. English."),
+    .describe(
+      "Complete, standalone image prompt in the chosen tool's format (style included): the first frame of the action, one frozen moment, nothing that changes over time. English.",
+    ),
+  videoPrompt: z
+    .string()
+    .describe("Prompt that animates this shot's still: the one action of this shot, in the chosen tool's format. English."),
   toolSettings: z.string().describe("What to set in the tool's own controls, very short, e.g. '9:16 · 6 s'."),
   disclosure: z.string().describe("One of: none, concept, simulation."),
 });
@@ -120,12 +164,24 @@ const SetupSchema = z.object({
 });
 export type Setup = z.infer<typeof SetupSchema>;
 
+const BoardIssueSchema = z.object({
+  shot: z.number().describe("Shot number, from 1. 0 for the whole board."),
+  kind: z.string().describe("One of: continuity, reality, image, loop, other."),
+  note: z.string().describe("The problem, in Spanish, specific enough to fix."),
+});
+export type BoardIssue = z.infer<typeof BoardIssueSchema>;
+
 export const BoardWireSchema = z.object({
   style: z.string().describe("One visual style line, also included inside every visualPrompt. English."),
   setups: z.array(SetupSchema),
   shots: z.array(ShotWireSchema).describe("Every line of the story covered, in order."),
+  issues: z
+    .array(BoardIssueSchema)
+    .describe(
+      "A strict critic's pass over the finished board: a shot that does not follow the one before (continuity); the brand shown doing something not in its list of what exists today without a concept or simulation label (reality); an image prompt with more than one moment (image); an open loop never paid off (loop). Empty only if none.",
+    ),
 });
-export type Board = { style: string; setups: Setup[]; shots: Shot[] };
+export type Board = { style: string; setups: Setup[]; shots: Shot[]; issues: BoardIssue[] };
 
 // ── Normalizers: the SDK sends enum choices only as hints, so Claude returns plain strings ──
 function pick<T extends string>(value: string, options: readonly T[], fallback: T): T {
@@ -144,12 +200,17 @@ export function normalizeStory(wire: z.infer<typeof StoryWireSchema>): Story {
   };
 }
 
+// The shortest Grok clip length that holds the shot.
+export function snapSeconds(seconds: number): number {
+  return SHOT_LENGTHS.find((l) => l >= (seconds || 0) - 0.5) ?? 15;
+}
+
 export function normalizeShot(wire: z.infer<typeof ShotWireSchema>): Shot {
   const d = wire.disclosure.toLowerCase();
   return {
     ...wire,
     beat: pick(wire.beat, BEATS, "negative"),
-    seconds: Math.min(Math.max(Math.round(wire.seconds * 10) / 10 || 4, 2), 15),
+    seconds: snapSeconds(wire.seconds),
     disclosure: d.includes("concept") ? "concept" : d.includes("simulation") ? "simulation" : "none",
   };
 }
@@ -160,13 +221,16 @@ export function normalizeBoard(wire: z.infer<typeof BoardWireSchema>): Board {
 
 // ── Server status ───────────────────────────────────────────────────────────────
 export type ToolInfo = { id: string; name: string; checked: string };
-export type SeriesInfo = { id: string; name: string; tagline: string };
+// productPerEpisode: every episode features a different product (Masogar), so the brief must name it.
+export type SeriesInfo = { id: string; name: string; tagline: string; productPerEpisode: boolean; textStyle: TextStyle };
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };
 
 export type Status = {
-  claude: boolean;
-  model: string;
+  // The model that writes (Claude or Kimi); null in sample mode.
+  writer: { label: string; model: string } | null;
   imageProviders: ImageProviderInfo[];
   tools: ToolInfo[];
   series: SeriesInfo[];
+  // Where projects are saved on this computer.
+  projectsDir: string;
 };

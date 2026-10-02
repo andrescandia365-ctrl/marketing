@@ -1,6 +1,6 @@
 # Grok Imagine
 
-Last checked: 2 Oct 2026
+Last checked: 2 Oct 2026 (app tested by the person the same day)
 
 Source: Grok's own answer, checked against xAI's Imagine docs (image generation, video generation, image-to-video, reference-to-video, extension; docs dated through 29 Sep 2026). The person pastes every prompt into the Grok app or grok.com/imagine by hand; the API is not used.
 
@@ -13,13 +13,17 @@ Tags: **[DOCS]** in xAI's docs · **[NOT SURE]** not confirmed, don't rely on it
 - [DOCS] Text-to-video and image-to-video. In image-to-video the still is the pinned first frame and the prompt animates it.
 - [DOCS] Video in 9:16. Image-to-video keeps the still's shape, so the still must already be 9:16 or it gets stretched.
 - [DOCS] Clips of 1 to 15 seconds (API). Length is a control in Grok, not something the prompt sets.
-- [NOT SURE] Which lengths the app offers today (older builds: 6 s and 10 s; newer posts: up to 15 s).
+- [TESTED] The Grok app offers exactly three clip lengths: 6, 10 or 15 seconds. Plan every shot as one of these.
 - [DOCS] Video resolution 480p, 720p or 1080p (1080p for text-to-video and image-to-video on Video 1.5).
 - [DOCS] Sound is generated with the clip by default: ambience, effects and speech.
+- [TESTED] Sound on or off is a control the person sets in Grok for each clip.
 - [NOT SURE] Whether "no music, no speech" in the prompt is always obeyed.
 - [DOCS] Extend continues a clip from its last frame, adding 2 to 10 seconds, capped at 720p.
-- [DOCS] Reference images (up to 7) keep a person or place the same across clips.
-- [NOT SURE] The app's exact limit on reference images.
+- [DOCS] Reference images keep a person or place the same across clips.
+- [TESTED] The Grok app keeps a library of named references ("Referencias", "+ Nuevo"); a prompt calls one with @name (e.g. @Marta). Up to 14 reference images. Own uploaded images work. References must be invented characters, never a real person's likeness.
+- [TESTED] A clip can take an initial, a middle and a final image (the middle icon in the clip bar is the middle frame), so one clip can move from one state to another. Own uploaded images work as frames; frames should share the shape (9:16) and similar light.
+- [TESTED] Editing tools on a generated image: Segmentos (every object separated and editable on its own, "Descargar todo"), Eliminar fondo (remove background), Relación de aspecto, Crear video. Never use them to cover or remove the watermark.
+- [TESTED] The video editor defaults to 720p and 10 s.
 
 ## How to write prompts
 
@@ -49,4 +53,4 @@ Video: "He slowly lifts the metal shutter a short way; the slats clack and catch
 
 1. Timed beats: animate one still with "0–2 s: the door swings shut; 2–4 s: the light flickers." Do both happen, in order?
 2. Silence: add "Audio: fridge hum only, no music, no speech." Is there music or a voice anyway?
-3. Lengths: write down the clip lengths the Grok app offers today.
+3. Lengths: done: 6, 10 or 15 s.

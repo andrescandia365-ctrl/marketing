@@ -21,13 +21,15 @@ export function Button({
   );
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+// `group` for fields that hold buttons: a <label> would click its first button whenever its text is clicked.
+export function Field({ label, hint, group, children }: { label: string; hint?: string; group?: boolean; children: ReactNode }) {
+  const Tag = group ? "div" : "label";
   return (
-    <label className="block">
+    <Tag className="block" role={group ? "group" : undefined} aria-label={group ? label : undefined}>
       <span className="text-sm font-semibold">{label}</span>
       {hint && <span className="mt-0.5 block text-xs text-muted">{hint}</span>}
       <div className="mt-1.5">{children}</div>
-    </label>
+    </Tag>
   );
 }
 

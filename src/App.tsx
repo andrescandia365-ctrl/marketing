@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/checks.ts";
 import { buildCopyPrompt } from "../shared/prompt.ts";
 import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
 import type { Board, Brief, Menu, Shot, Status, Story, TopicIdea } from "../shared/schema.ts";
+import { DEFAULT_TEXT_STYLE, type TextStyle } from "../shared/series.ts";
 import { BEAT_INFO, formatTime, timeShots } from "../shared/template.ts";
 import { BoardView } from "./components/BoardView.tsx";
 import { BriefForm } from "./components/BriefForm.tsx";
 import { MenuPicker } from "./components/MenuPicker.tsx";
+import { ProjectsPanel } from "./components/ProjectsPanel.tsx";
+import { SeriesEditor } from "./components/SeriesEditor.tsx";
 import {
   CopyButton,
   DirectionLog,
@@ -19,11 +23,29 @@ import {
 import { StoryView } from "./components/StoryView.tsx";
 import { VideoPanel } from "./components/VideoPanel.tsx";
 import { Button, Notice, Spinner } from "./components/ui.tsx";
-import { api } from "./lib/api.ts";
-import { readImageFile } from "./lib/files.ts";
+import { api, projectFileUrl, type ProjectSummary } from "./lib/api.ts";
+import { blobToDataUrl, readImageFile } from "./lib/files.ts";
 import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from "./lib/markdown.ts";
 
 type Step = "brief" | "menu" | "story" | "board" | "production";
+
+// What a project folder's project.json holds (media files are tracked by the server).
+type SavedState = {
+  version: 1;
+  step: Step;
+  pieceBrief: Brief;
+  menu: Menu | null;
+  demo: boolean;
+  story: Story | null;
+  storyRound: number;
+  board: Board | null;
+  boardRound: number;
+  boardApproved: boolean;
+  log: LogEntry[];
+  startedAt: number;
+  // Check problems the person marked "no es un problema".
+  dismissed: string[];
+};
 
 const BRIEF_KEY = "playbook-studio.brief.v2";
 
@@ -60,14 +82,28 @@ export function App() {
   const [storyRound, setStoryRound] = useState(1);
   const [board, setBoard] = useState<Board | null>(null);
   const [boardRound, setBoardRound] = useState(1);
+  const [boardApproved, setBoardApproved] = useState(false);
   const [demo, setDemo] = useState(false);
   const [media, setMedia] = useState<Record<number, MediaState>>({});
   const [log, setLog] = useState<LogEntry[]>([]);
+  const [dismissed, setDismissed] = useState<string[]>([]);
   const logStart = useRef(Date.now());
   const clipUrls = useRef<string[]>([]);
   const [provider, setProvider] = useState("placeholder");
-  const [busy, setBusy] = useState<null | "menu" | "story" | "revise" | "board" | "reviseBoard">(null);
+  const [busy, setBusy] = useState<
+    null | "menu" | "story" | "revise" | "fixStory" | "board" | "reviseBoard" | "fixBoard" | "open"
+  >(null);
   const [error, setError] = useState("");
+  // undefined: not editing; null: a new series; a string: that series.
+  const [editingSeries, setEditingSeries] = useState<string | null | undefined>(undefined);
+
+  // The project folder this piece autosaves into.
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const unsaved = useRef(false);
+  const uploads = useRef(0);
+  const saveSeq = useRef(0);
 
   useEffect(() => {
     api
@@ -96,8 +132,70 @@ export function App() {
 
   useEffect(() => () => clipUrls.current.forEach((u) => URL.revokeObjectURL(u)), []);
 
+  const refreshProjects = () =>
+    api
+      .projects()
+      .then((r) => setProjects(r.projects))
+      .catch(() => undefined);
+
+  useEffect(() => {
+    if (step === "brief") refreshProjects();
+  }, [step]);
+
+  // Warn before closing the tab while a save or an upload is still on its way.
+  useEffect(() => {
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (unsaved.current || uploads.current > 0) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, []);
+
   const toolName = status?.tools.find((t) => t.id === pieceBrief.tool)?.name ?? "la herramienta";
-  const seriesName = status?.series.find((s) => s.id === pieceBrief.series)?.name ?? "";
+  const pieceSeries = status?.series.find((s) => s.id === pieceBrief.series);
+  const currentSeries = status?.series.find((s) => s.id === brief.series);
+  const needsProduct = Boolean(currentSeries?.productPerEpisode) && !brief.product.trim();
+
+  // Autosave: a short pause after any change writes the state (and pieza.md) into the project folder.
+  useEffect(() => {
+    if (!projectId) return;
+    unsaved.current = true;
+    setSaveStatus("saving");
+    const seq = ++saveSeq.current;
+    const timer = setTimeout(async () => {
+      const state: SavedState = {
+        version: 1,
+        step,
+        pieceBrief,
+        menu,
+        demo,
+        story,
+        storyRound,
+        board,
+        boardRound,
+        boardApproved,
+        log,
+        startedAt: logStart.current,
+        dismissed,
+      };
+      const markdown =
+        story && board ? pieceToMarkdown(pieceBrief, story, board, toolName, log) : story ? storyToMarkdown(story) : undefined;
+      try {
+        await api.saveProject(projectId, state, markdown);
+        if (seq === saveSeq.current) {
+          unsaved.current = false;
+          setSaveStatus("saved");
+        }
+      } catch (e) {
+        if (seq === saveSeq.current) {
+          setSaveStatus("error");
+          setError(`No se pudo guardar el proyecto: ${message(e)}`);
+        }
+      }
+    }, 800);
+    return () => clearTimeout(timer);
+    // toolName only changes with the brief or the status, which are covered.
+  }, [projectId, step, pieceBrief, menu, demo, story, storyRound, board, boardRound, boardApproved, log, dismissed]);
 
   function addLog(entry: Omit<LogEntry, "at">) {
     setLog((l) => [...l, { ...entry, at: Date.now() - logStart.current }]);
@@ -105,6 +203,19 @@ export function App() {
 
   function setShotMedia(index: number, patch: Partial<MediaState>) {
     setMedia((prev) => ({ ...prev, [index]: { ...prev[index], ...patch } }));
+  }
+
+  // Sends a file to the project folder; the shot shows an error if it could not be saved.
+  async function keep(index: number, work: (id: string) => Promise<unknown>) {
+    if (!projectId) return;
+    uploads.current++;
+    try {
+      await work(projectId);
+    } catch (e) {
+      setShotMedia(index, { error: `No se guardó en el proyecto: ${message(e)}` });
+    } finally {
+      uploads.current--;
+    }
   }
 
   async function run<T>(kind: NonNullable<typeof busy>, work: () => Promise<T>): Promise<T | null> {
@@ -120,18 +231,101 @@ export function App() {
     }
   }
 
-  // Step 1 → menu
+  function resetPiece() {
+    clipUrls.current.forEach((u) => URL.revokeObjectURL(u));
+    clipUrls.current = [];
+    setMenu(null);
+    setStory(null);
+    setStoryRound(1);
+    setBoard(null);
+    setBoardRound(1);
+    setBoardApproved(false);
+    setMedia({});
+    setLog([]);
+    setDismissed([]);
+    logStart.current = Date.now();
+  }
+
+  function newPiece() {
+    resetPiece();
+    setProjectId(null);
+    setSaveStatus("idle");
+    setStep("brief");
+  }
+
+  async function openProject(id: string) {
+    const project = await run("open", () => api.project(id));
+    if (!project) return;
+    const st = project.state as Partial<SavedState>;
+    resetPiece();
+    const pb = { ...EMPTY_BRIEF, ...(st.pieceBrief ?? brief) };
+    setBrief(pb);
+    setPieceBrief(pb);
+    setMenu(st.menu ?? null);
+    setDemo(st.demo ?? false);
+    setStory(st.story ?? null);
+    setStoryRound(st.storyRound ?? 1);
+    setBoard(st.board ?? null);
+    setBoardRound(st.boardRound ?? 1);
+    setBoardApproved(st.boardApproved ?? false);
+    setLog(st.log ?? []);
+    setDismissed(st.dismissed ?? []);
+    logStart.current = st.startedAt ?? Date.now();
+    setProjectId(id);
+    setStep(st.step ?? "brief");
+    // Images and clips come back from the folder.
+    for (const [key, record] of Object.entries(project.media)) {
+      const index = Number(key);
+      if (record.image) {
+        fetch(projectFileUrl(id, record.image))
+          .then((r) => r.blob())
+          .then(blobToDataUrl)
+          .then((image) => setShotMedia(index, { image }))
+          .catch(() => setShotMedia(index, { error: "No se pudo leer la imagen guardada." }));
+      }
+      if (record.clip) {
+        const { file, name, duration } = record.clip;
+        fetch(projectFileUrl(id, file))
+          .then((r) => r.blob())
+          .then((blob) => {
+            const url = URL.createObjectURL(blob);
+            clipUrls.current.push(url);
+            setShotMedia(index, { clip: { url, blob, name, duration } });
+          })
+          .catch(() => setShotMedia(index, { error: "No se pudo leer el clip guardado." }));
+      }
+    }
+  }
+
+  async function removeProject(project: ProjectSummary) {
+    if (!confirm(`¿Borrar "${project.title}" y su carpeta (imágenes, clips, video)? No se puede deshacer.`)) return;
+    try {
+      await api.deleteProject(project.id);
+      if (project.id === projectId) newPiece();
+      refreshProjects();
+    } catch (e) {
+      setError(message(e));
+    }
+  }
+
+  // Step 1 → menu. A new piece gets its own project folder.
   async function openMenu() {
     const result = await run("menu", () => api.menu(brief));
     if (!result) return;
+    const reuse = projectId && !story ? projectId : null;
+    resetPiece();
     setPieceBrief(brief);
     setMenu(result);
     setDemo(result.demo);
-    setStory(null);
-    setBoard(null);
-    logStart.current = Date.now();
-    setLog([]);
     setStep("menu");
+    if (reuse) return;
+    try {
+      const { id } = await api.createProject(brief.series);
+      setProjectId(id);
+    } catch (e) {
+      setProjectId(null);
+      setError(`Se puede seguir, pero no se pudo crear la carpeta del proyecto: ${message(e)}`);
+    }
   }
 
   // Step 2 → story
@@ -141,22 +335,28 @@ export function App() {
     setStory(result.story);
     setStoryRound(1);
     setBoard(null);
+    setBoardApproved(false);
     setDemo(result.demo);
     addLog({ text: `Temas elegidos: ${topics.map((t) => `“${t.title}”`).join(", ")}`, outcome: "historia, ronda 1" });
     setStep("story");
   }
 
-  async function reviseStory(note: string): Promise<boolean> {
+  async function reviseStory(note: string, kind: "revise" | "fixStory" = "revise"): Promise<boolean> {
     if (!story) return false;
-    const result = await run("revise", () => api.reviseStory(pieceBrief, story, note));
+    const result = await run(kind, () => api.reviseStory(pieceBrief, story, note));
     if (!result) return false;
     setStory(result.story);
     setStoryRound((r) => r + 1);
     addLog({
-      text: `Historia, ronda ${storyRound}: “${note}”`,
+      text: kind === "fixStory" ? `Historia, ronda ${storyRound}: Arreglalo (check)` : `Historia, ronda ${storyRound}: “${note}”`,
       outcome: result.demo ? "modo de muestra: sin cambios" : `historia, ronda ${storyRound + 1}`,
     });
     return true;
+  }
+
+  function dismiss(problem: Problem) {
+    setDismissed((d) => [...d, problem.id]);
+    addLog({ shot: problem.shot, text: `Check: “${problem.label}” marcado como no es un problema`, outcome: problem.detail });
   }
 
   // Step 3 → storyboard
@@ -166,20 +366,26 @@ export function App() {
     if (!result) return;
     setBoard(result.board);
     setBoardRound(1);
+    setBoardApproved(false);
     setMedia({});
+    if (projectId) api.clearMedia(projectId).catch(() => undefined);
     addLog({ text: `Historia aprobada en la ronda ${storyRound}`, outcome: "storyboard, ronda 1" });
     setStep("board");
   }
 
-  async function reviseBoard(note: string, shotNotes: { index: number; note: string }[]): Promise<boolean> {
+  async function reviseBoard(
+    note: string,
+    shotNotes: { index: number; note: string }[],
+    kind: "reviseBoard" | "fixBoard" = "reviseBoard",
+  ): Promise<boolean> {
     if (!story || !board) return false;
-    const result = await run("reviseBoard", () => api.reviseBoard(pieceBrief, story, board, note, shotNotes));
+    const result = await run(kind, () => api.reviseBoard(pieceBrief, story, board, note, shotNotes));
     if (!result) return false;
     setBoard(result.board);
     setBoardRound((r) => r + 1);
     const notes = [note && `“${note}”`, ...shotNotes.map((n) => `toma ${n.index + 1}: “${n.note}”`)].filter(Boolean);
     addLog({
-      text: `Storyboard, ronda ${boardRound}: ${notes.join(" · ")}`,
+      text: kind === "fixBoard" ? `Storyboard, ronda ${boardRound}: Arreglalo (check)` : `Storyboard, ronda ${boardRound}: ${notes.join(" · ")}`,
       outcome: result.demo ? "modo de muestra: sin cambios" : `storyboard, ronda ${boardRound + 1}`,
     });
     return true;
@@ -187,6 +393,7 @@ export function App() {
 
   function approveBoard() {
     addLog({ text: `Storyboard aprobado en la ronda ${boardRound}` });
+    setBoardApproved(true);
     setStep("production");
   }
 
@@ -198,6 +405,8 @@ export function App() {
     try {
       const { dataUrl } = await api.image(provider, shot.visualPrompt, board.style, pieceBrief.format, shot.beat);
       setShotMedia(index, { image: dataUrl, loading: false });
+      const blob = await (await fetch(dataUrl)).blob();
+      await keep(index, (id) => api.uploadMedia(id, index, "image", blob));
     } catch (e) {
       setShotMedia(index, { loading: false, error: message(e) });
     }
@@ -217,6 +426,7 @@ export function App() {
       const image = await readImageFile(file);
       setShotMedia(index, { image, error: undefined });
       addLog({ shot: index, text: `Imagen subida: ${file.name}` });
+      await keep(index, (id) => api.uploadMedia(id, index, "image", file));
     } catch (e) {
       setShotMedia(index, { error: message(e) });
     }
@@ -234,10 +444,22 @@ export function App() {
       const clip: ClipFile = { url, blob: file, name: file.name, duration };
       setShotMedia(index, { clip, error: undefined });
       addLog({ shot: index, text: `Clip subido: ${file.name}, ${duration.toFixed(1)} s` });
+      await keep(index, (id) => api.uploadMedia(id, index, "clip", file, { name: file.name, duration }));
     } catch (e) {
       URL.revokeObjectURL(url);
       setShotMedia(index, { error: message(e) });
     }
+  }
+
+  async function removeMedia(index: number, kind: "image" | "clip") {
+    setMedia((prev) => {
+      const next = { ...prev[index] };
+      if (kind === "image") delete next.image;
+      else delete next.clip;
+      return { ...prev, [index]: next };
+    });
+    addLog({ shot: index, text: kind === "image" ? "Imagen quitada" : "Clip quitado" });
+    await keep(index, (id) => api.removeMedia(id, index, kind));
   }
 
   async function rewriteShot(index: number, note: string): Promise<boolean> {
@@ -248,7 +470,7 @@ export function App() {
       addLog({
         shot: index,
         text: `“${note}”`,
-        outcome: result.demo ? "modo de muestra: sin cambios (falta la clave de Claude)" : "prompts reescritos",
+        outcome: result.demo ? "modo de muestra: sin cambios (falta la clave de la IA)" : "toma reescrita",
       });
       return true;
     } catch (e) {
@@ -261,12 +483,28 @@ export function App() {
     setBoard((b) => (b ? { ...b, shots: b.shots.map((old, i) => (i === index ? shot : old)) } : b));
   }
 
+  async function saveStyle(style: TextStyle) {
+    const { series } = await api.saveSeriesStyle(pieceBrief.series, style);
+    setStatus((s) => (s ? { ...s, series } : s));
+  }
+
+  async function keepVideo(video: Blob): Promise<string | null> {
+    if (!projectId) return null;
+    try {
+      const { file } = await api.saveVideo(projectId, video);
+      return `${status?.projectsDir ?? "proyectos"}/${projectId}/${file}`;
+    } catch (e) {
+      setError(`El video se generó pero no se guardó en el proyecto: ${message(e)}`);
+      return null;
+    }
+  }
+
   const allPrompts = (kind: "image" | "video") =>
     board
       ? timeShots(board.shots)
           .map(
             (s) =>
-              `Toma ${s.index + 1} · ${formatTime(s.start)}–${formatTime(s.end)} · ${BEAT_INFO[s.beat].label} · ${s.toolSettings}\n` +
+              `Toma ${s.index + 1} · ${s.title} · ${formatTime(s.start)}–${formatTime(s.end)} · ${BEAT_INFO[s.beat].label} · ${s.toolSettings}\n` +
               (kind === "image" ? buildCopyPrompt(s.visualPrompt, pieceBrief.format) : s.videoPrompt),
           )
           .join("\n\n")
@@ -276,13 +514,16 @@ export function App() {
   const generating = Object.values(media).some((m) => m.loading);
   const realProviders = status?.imageProviders.filter((p) => p.available && p.id !== "placeholder") ?? [];
   const maxTopics = pieceBrief.length === "short" ? 1 : 4;
+  const open = (p: Problem) => !dismissed.includes(p.id);
+  const storyIssues = story ? storyProblems(story) : [];
+  const boardIssues = board ? boardProblems(board) : [];
 
   const steps: { id: Step; label: string; enabled: boolean }[] = [
     { id: "brief", label: "1 · Brief", enabled: true },
     { id: "menu", label: "2 · Menú", enabled: menu !== null },
     { id: "story", label: "3 · Historia", enabled: story !== null },
     { id: "board", label: "4 · Storyboard", enabled: board !== null },
-    { id: "production", label: "5 · Producción", enabled: board !== null && step === "production" },
+    { id: "production", label: "5 · Producción", enabled: board !== null && (boardApproved || step === "production") },
   ];
 
   return (
@@ -293,11 +534,26 @@ export function App() {
           <p className="text-sm text-muted">Contenido con historia: el Bueno contra el Malo, temas, puentes y callbacks.</p>
         </div>
         {status && (
-          <div className="flex flex-wrap gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {projectId && (
+              <span
+                className={`rounded-full border px-2.5 py-1 font-medium ${
+                  saveStatus === "error" ? "border-neg/40 bg-neg-soft text-neg" : "border-line bg-white text-muted"
+                }`}
+                title={`${status.projectsDir}/${projectId}`}
+              >
+                {saveStatus === "saving" ? "Guardando…" : saveStatus === "error" ? "No se pudo guardar" : "Guardado ✓"}
+              </span>
+            )}
+            {projectId && (
+              <Button variant="ghost" className="px-2 py-1 text-xs" onClick={newPiece}>
+                + Nueva pieza
+              </Button>
+            )}
             <span
-              className={`rounded-full border px-2.5 py-1 font-medium ${status.claude ? "border-good/40 bg-good-soft text-good" : "border-line bg-white text-muted"}`}
+              className={`rounded-full border px-2.5 py-1 font-medium ${status.writer ? "border-good/40 bg-good-soft text-good" : "border-line bg-white text-muted"}`}
             >
-              {status.claude ? `Claude · ${status.model}` : "Claude sin conectar"}
+              {status.writer ? `${status.writer.label} · ${status.writer.model}` : "IA sin conectar"}
             </span>
             {realProviders.map((p) => (
               <span key={p.id} className="rounded-full border border-good/40 bg-good-soft px-2.5 py-1 font-medium text-good">
@@ -325,16 +581,34 @@ export function App() {
       </nav>
 
       <div className="mt-6 space-y-4">
-        {status && !status.claude && (
+        {status && !status.writer && (
           <Notice tone="warn">
-            <b>Modo de muestra.</b> No hay clave de Claude: el menú, la historia y el storyboard son un ejemplo fijo de
-            IMAN, y las revisiones no cambian nada. Agregá <code>ANTHROPIC_API_KEY</code> en <code>.env</code> y reiniciá
+            <b>Modo de muestra.</b> No hay clave de IA: el menú, la historia y el storyboard son un ejemplo fijo de
+            IMAN, y las revisiones no cambian nada. Agregá <code>ANTHROPIC_API_KEY</code> (Claude) o <code>KIMI_API_KEY</code> (Kimi) en <code>.env</code> y reiniciá
             para escribir los de verdad.
           </Notice>
         )}
         {error && <Notice tone="error">{error}</Notice>}
 
-        {step === "brief" && (
+        {step === "brief" && editingSeries !== undefined && (
+          <SeriesEditor
+            key={editingSeries ?? "new"}
+            id={editingSeries}
+            onSaved={(series, id) => {
+              setStatus((s) => (s ? { ...s, series } : s));
+              setBrief((b) => ({ ...b, series: id }));
+              setEditingSeries(undefined);
+            }}
+            onDeleted={(series) => {
+              setStatus((s) => (s ? { ...s, series } : s));
+              setBrief((b) => ({ ...b, series: series[0]?.id ?? "" }));
+              setEditingSeries(undefined);
+            }}
+            onClose={() => setEditingSeries(undefined)}
+          />
+        )}
+
+        {step === "brief" && editingSeries === undefined && (
           <section className="space-y-6">
             <div className="flex flex-wrap gap-2">
               <Button
@@ -347,9 +621,16 @@ export function App() {
                 Borrar
               </Button>
             </div>
-            <BriefForm brief={brief} series={status?.series ?? []} tools={status?.tools ?? []} onChange={setBrief} />
+            <BriefForm
+              brief={brief}
+              series={status?.series ?? []}
+              tools={status?.tools ?? []}
+              onChange={setBrief}
+              onEditSeries={(id) => setEditingSeries(id)}
+              onNewSeries={() => setEditingSeries(null)}
+            />
             <div className="flex items-center gap-3 border-t border-line pt-5">
-              <Button onClick={openMenu} disabled={busy !== null || (brief.series === "masogar" && !brief.product.trim())}>
+              <Button onClick={openMenu} disabled={busy !== null || needsProduct}>
                 {busy === "menu" ? (
                   <>
                     <Spinner /> Armando el menú…
@@ -358,10 +639,18 @@ export function App() {
                   "Ver el menú de temas"
                 )}
               </Button>
-              {brief.series === "masogar" && !brief.product.trim() && (
-                <span className="text-sm text-muted">Para Masogar, escribí el producto del episodio.</span>
+              {needsProduct && (
+                <span className="text-sm text-muted">Para {currentSeries?.name}, escribí el producto del episodio.</span>
               )}
             </div>
+            <ProjectsPanel
+              projects={projects}
+              series={status?.series ?? []}
+              current={projectId}
+              folder={status?.projectsDir ?? "proyectos"}
+              onOpen={openProject}
+              onDelete={removeProject}
+            />
           </section>
         )}
 
@@ -384,8 +673,12 @@ export function App() {
               story={story}
               round={storyRound}
               length={pieceBrief.length}
-              busy={busy === "revise" ? "revise" : busy === "board" ? "board" : null}
-              onRevise={reviseStory}
+              busy={busy === "revise" ? "revise" : busy === "fixStory" ? "fix" : busy === "board" ? "board" : null}
+              problems={storyIssues.filter(open)}
+              dismissed={storyIssues.length - storyIssues.filter(open).length}
+              onRevise={(note) => reviseStory(note)}
+              onFix={() => reviseStory(fixNote(storyIssues.filter(open)), "fixStory")}
+              onDismiss={dismiss}
               onApprove={makeBoard}
             />
             <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
@@ -407,8 +700,12 @@ export function App() {
             story={story}
             board={board}
             round={boardRound}
-            busy={busy === "reviseBoard"}
-            onRevise={reviseBoard}
+            busy={busy === "reviseBoard" ? "revise" : busy === "fixBoard" ? "fix" : null}
+            problems={boardIssues.filter(open)}
+            dismissed={boardIssues.length - boardIssues.filter(open).length}
+            onRevise={(note, shotNotes) => reviseBoard(note, shotNotes)}
+            onFix={() => reviseBoard(fixNote(boardIssues.filter(open)), [], "fixBoard")}
+            onDismiss={dismiss}
             onApprove={approveBoard}
           />
         )}
@@ -417,7 +714,7 @@ export function App() {
           <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
             <div className="min-w-0 space-y-4">
               <div>
-                <p className="font-mono text-xs text-muted">{seriesName}</p>
+                <p className="font-mono text-xs text-muted">{pieceSeries?.name ?? ""}</p>
                 <h2 className="text-xl font-bold tracking-tight">{story.title}</h2>
                 <p className="text-sm text-muted">{story.logline}</p>
               </div>
@@ -472,8 +769,8 @@ export function App() {
               </div>
 
               <Notice tone="warn">
-                <b>En {toolName}, cada vez:</b> elegí la forma y el largo del clip en sus propios controles (el prompt solo
-                lo recuerda). Primero la imagen, después animala.
+                <b>En {toolName}, cada vez:</b> elegí el largo del clip (6, 10 o 15 s) y la forma en sus propios
+                controles; el prompt solo lo recuerda. Primero la imagen, después animala.
               </Notice>
 
               <ScriptView
@@ -486,6 +783,7 @@ export function App() {
                 onGenerate={generateImage}
                 onUploadImage={uploadImage}
                 onUploadClip={uploadClip}
+                onRemoveMedia={removeMedia}
                 onRewrite={rewriteShot}
               />
             </div>
@@ -496,6 +794,10 @@ export function App() {
                 board={board}
                 media={renderMedia}
                 watermarked={pieceBrief.tool === "grok-imagine"}
+                seriesName={pieceSeries?.name ?? ""}
+                seriesStyle={pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE}
+                onSaveStyle={saveStyle}
+                onRendered={keepVideo}
               />
               <SetupsPanel board={board} media={media} toolName={toolName} />
               <DirectionLog log={log} />

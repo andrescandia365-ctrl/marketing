@@ -28,6 +28,15 @@ export function storyToMarkdown(story: Story): string {
     .join("\n\n");
   const callbacks = story.callbacks.map((c) => `- ${c.planted} → ${c.payoff}`).join("\n") || "- Ninguno.";
   const checklist = story.checklist.map((c) => `- [${c.pass ? "x" : " "}] **${c.item}**: ${c.note}`).join("\n");
+  const loops =
+    story.loops.map((l) => `- [${l.closed ? "x" : " "}] **${l.question}** · se abre: ${l.opens} · se cierra: ${l.closes || "nunca"}`).join("\n") ||
+    "- Ninguno.";
+  const seriesLoop = story.seriesLoop
+    .map((s) => `- ${s.appears ? (s.complete ? "✓" : "✗") : "·"} ${s.step}: ${s.note}`)
+    .join("\n");
+  const claims = story.claims
+    .map((c) => `- ${c.real ? "✓" : c.concept ? "Concepto" : "✗ no existe hoy"} · ${c.claim}${c.note ? ` (${c.note})` : ""}`)
+    .join("\n");
   const verify = story.verify.length ? story.verify.map((v) => `- ${v}`).join("\n") : "- Nada.";
 
   return `# ${story.title}
@@ -52,6 +61,10 @@ ${callbacks}
 
 ${checklist}
 
+## Loops (gancho → retención → recompensa)
+
+${loops}
+${seriesLoop ? `\n## Loop de la serie\n\n${seriesLoop}\n` : ""}${claims ? `\n## Lo que hace la marca\n\n${claims}\n` : ""}
 ## Verificar antes de publicar
 
 ${verify}
@@ -64,9 +77,11 @@ export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolNa
     .map((s) => {
       const disclosure = s.disclosure === "none" ? "" : ` · **${s.disclosure === "concept" ? "CONCEPTO" : "SIMULACIÓN"}**`;
       return [
-        `### Toma ${s.index + 1} · ${formatTime(s.start)}–${formatTime(s.end)} · ${BEAT_INFO[s.beat].label} · Setup ${s.setup}${disclosure}`,
+        `### Toma ${s.index + 1} · ${s.title}`,
+        `${formatTime(s.start)}–${formatTime(s.end)} · ${s.seconds} s · ${BEAT_INFO[s.beat].label} · Setup ${s.setup}${disclosure}`,
+        s.action ? `- **Qué pasa:** ${s.action}` : "",
         s.voiceover ? `- **${cast[s.speaker]?.name ?? s.speaker}:** “${s.voiceover}”` : "",
-        s.onScreenText ? `- **En pantalla:** ${s.onScreenText}` : "",
+        s.onScreenText ? `- **Headline:** ${s.onScreenText}` : "",
         `- **En ${toolName}:** ${s.toolSettings}`,
         `- **Prompt de imagen:** ${buildCopyPrompt(s.visualPrompt, brief.format)}`,
         `- **Prompt de video:** ${s.videoPrompt}`,
@@ -76,6 +91,9 @@ export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolNa
     })
     .join("\n\n");
   const setups = board.setups.map((s) => `- **${s.id} · ${s.name}:** ${s.identity}`).join("\n") || "- Ninguno.";
+  const issues = board.issues.length
+    ? board.issues.map((i) => `- ${i.shot ? `Toma ${i.shot}` : "General"} (${i.kind}): ${i.note}`).join("\n")
+    : "- Ninguno.";
   const direction = log.length
     ? log
         .map((e) => {
@@ -95,6 +113,10 @@ ${board.shots.length} tomas · ${formatTime(totalSeconds(board.shots))} · ${too
 ${setups}
 
 ${shots}
+
+### Check del storyboard
+
+${issues}
 
 ## Registro de dirección
 
