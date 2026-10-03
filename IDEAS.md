@@ -136,6 +136,15 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 31. Motion graphics con los elementos de Grok (en exploración)
+- **Idea (tuya):** Grok genera una imagen y la separa en elementos (Segmentos → "Descargar todo"). Con esas capas sueltas se pueden hacer motion graphics.
+- **Posible camino:**
+  - Subir las capas a una toma o a un video de letra.
+  - La app las anima por separado: parallax 2.5D (el fondo se mueve menos que el frente), entradas y salidas, escala, rebote, al ritmo de la música.
+  - Todo se arma en el navegador, como el render de hoy.
+- **Regla:** las capas nunca se usan para sacar ni tapar la marca de agua.
+- **Pendiente:** que me cuentes qué descubriste y qué querés lograr.
+
 ### 30. Varias claves de IA y un selector de modelo
 - **Idea (tuya):** sumar más claves de IA (también la de Anthropic) y una sección en la app para elegir el modelo.
 - **Cómo funcionaría:**
@@ -149,7 +158,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - `claude-sonnet-5-5`: más barato.
   - `claude-haiku-4-5`: el más barato y rápido.
   - `claude-fable-5-1`: el más capaz, más caro.
-- **Pendiente:** qué proveedores querés y si las claves se cargan desde la app o solo en `.env`.
+- **Pendiente (en pausa, "pin"):** qué proveedores querés y si las claves se cargan desde la app o solo en `.env`.
 
 ### 29. Realismo: hero still, hojas y prompt de director con tiempos
 - **Idea (tuya, de un método que viste):** para que el video parezca real, pedir **defectos** y no "cinematic". El prompt para Seedance sirve igual para **Grok**. El método:
