@@ -40,6 +40,7 @@ function toSeries(id: string, text: string): Series {
     productPerEpisode: f.type === "ecommerce",
     textStyle: f.textStyle,
     lyricStyle: f.lyricStyle,
+    look: f.look,
     cast: f.cast,
     text,
   };

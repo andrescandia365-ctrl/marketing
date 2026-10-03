@@ -2,13 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import {
   CAST_KIND_LABEL,
+  EMPTY_LOOK,
   EMPTY_SERIES,
+  LOOK_PRESETS,
   SERIES_TYPE_LABEL,
   castRef,
   type CastKind,
   type CastMember,
   type SeriesFields,
+  type SeriesLook,
 } from "../../shared/series.ts";
+import { SheetBuilder } from "./SheetBuilder.tsx";
+import { CopyButton } from "./ScriptView.tsx";
 import { api, libraryFileUrl } from "../lib/api.ts";
 import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
 
@@ -118,9 +123,62 @@ function CastCard({
           aria-label="Cuándo usarlo"
           onChange={(e) => set("note", e.target.value)}
         />
+        {member.sheet && (
+          <details className="text-xs">
+            <summary className="cursor-pointer font-semibold text-muted">Hoja de referencia</summary>
+            <p className="mt-1 font-mono">{member.sheet}</p>
+            <CopyButton text={member.sheet} idle="Copiar la hoja" variant="secondary" />
+          </details>
+        )}
         {error && <p className="text-xs text-neg">{error}</p>}
       </div>
     </li>
+  );
+}
+
+const LOOK_FIELDS: { key: keyof SeriesLook; label: string; hint: string }[] = [
+  { key: "camera", label: "Cámara", hint: "Ej.: celular en mano; compacta digital de los 2000." },
+  { key: "flash", label: "Flash", hint: "Ej.: flash directo que aplana la cara; sin flash." },
+  { key: "grain", label: "Grano y ruido", hint: "Ej.: ruido en las sombras, compresión de celular." },
+  { key: "focus", label: "Foco", hint: "Ej.: el autofoco busca y a veces se va al fondo." },
+  { key: "light", label: "Luz (nunca cambia)", hint: "De dónde viene. Solo cambia la exposición automática." },
+  { key: "extra", label: "Otros defectos", hint: "Ej.: piel con poros y pecas, sin filtro." },
+];
+
+// The series' look as flaws (camera, flash, grain, focus, light), never "cinematic": it goes into every prompt.
+function LookSection({ look, onChange }: { look: SeriesLook; onChange: (look: SeriesLook) => void }) {
+  return (
+    <Field
+      label="Look (cámara y defectos)"
+      group
+      hint='Para que se vea real: pedí defectos, no "cinematic" ni "vintage". Va en todos los prompts de imagen y de video. En inglés o castellano: la IA lo pasa al prompt.'
+    >
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(LOOK_PRESETS).map(([key, preset]) => (
+            <Button key={key} variant="secondary" className="px-3 py-1 text-xs" onClick={() => onChange(preset.look)}>
+              {preset.label}
+            </Button>
+          ))}
+          <Button variant="ghost" className="px-3 py-1 text-xs" onClick={() => onChange(EMPTY_LOOK)}>
+            Sin look fijo
+          </Button>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {LOOK_FIELDS.map((f) => (
+            <label key={f.key} className="block text-xs">
+              <span className="font-semibold">{f.label}</span>
+              <input
+                className={`${inputClass} mt-0.5 py-1.5 text-xs`}
+                value={look[f.key]}
+                placeholder={f.hint}
+                onChange={(e) => onChange({ ...look, [f.key]: e.target.value })}
+              />
+            </label>
+          ))}
+        </div>
+      </div>
+    </Field>
   );
 }
 
@@ -138,6 +196,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
   const [works, setWorks] = useState("");
   const [practices, setPractices] = useState("");
   const [loop, setLoop] = useState("");
+  const [sheetFor, setSheetFor] = useState<null | "person" | "place">(null);
   const [version, setVersion] = useState(Date.now());
   const [busy, setBusy] = useState<null | "save" | "delete">(null);
   const [error, setError] = useState("");
@@ -161,7 +220,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
 
   const music = fields.type === "music";
   const set = <K extends keyof SeriesFields>(key: K, value: SeriesFields[K]) => setFields({ ...fields, [key]: value });
-  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "type" | "textStyle" | "lyricStyle" | "cast">, rows = 4) => (
+  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "type" | "textStyle" | "lyricStyle" | "look" | "cast">, rows = 4) => (
     <textarea className={inputClass} rows={rows} value={fields[key]} onChange={(e) => set(key, e.target.value)} />
   );
 
@@ -196,7 +255,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
     const base = { character: "personaje", place: "lugar", product: "producto", screen: "pantalla" }[kind];
     while (fields.cast.some((m) => m.id === `${base}-${n}`)) n++;
     const name = `${CAST_KIND_LABEL[kind]} ${n}`;
-    set("cast", [...fields.cast, { id: `${base}-${n}`, name, ref: castRef(name), kind, identity: "", note: "", image: "" }]);
+    set("cast", [...fields.cast, { id: `${base}-${n}`, name, ref: castRef(name), kind, identity: "", note: "", image: "", sheet: "" }]);
   }
 
   // The image goes straight to the series library; the member is saved first so the server knows it.
@@ -269,6 +328,8 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
         {text("what", 3)}
       </Field>
 
+      {!music && <LookSection look={fields.look} onChange={(look) => set("look", look)} />}
+
       {!music && (
         <>
           <Field
@@ -318,7 +379,22 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
                     />
                   ))}
               </ul>
+              {sheetFor && id && (
+                <SheetBuilder
+                  seriesId={id}
+                  place={sheetFor === "place"}
+                  cast={fields.cast}
+                  onAdd={(member) => set("cast", [...fields.cast, member])}
+                  onClose={() => setSheetFor(null)}
+                />
+              )}
               <div className="flex flex-wrap gap-2">
+                <Button className="px-3 py-1 text-xs" onClick={() => setSheetFor("person")} disabled={!id} title={id ? undefined : "Guardá la serie primero"}>
+                  + Personaje con hoja
+                </Button>
+                <Button className="px-3 py-1 text-xs" onClick={() => setSheetFor("place")} disabled={!id} title={id ? undefined : "Guardá la serie primero"}>
+                  + Lugar con hoja
+                </Button>
                 <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => addMember("character")}>
                   + Personaje
                 </Button>

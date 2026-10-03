@@ -8,6 +8,7 @@ import {
   MenuSchema,
   ProductShotSchema,
   SegmentEditSchema,
+  SheetSchema,
   ShotWireSchema,
   StoryWireSchema,
   normalizeBoard,
@@ -19,6 +20,8 @@ import {
   type Menu,
   type ProductShot,
   type SegmentEdit,
+  type Sheet,
+  type SheetTemplate,
   type Shot,
   type Story,
   type TopicIdea,
@@ -108,6 +111,7 @@ function describeBrief(brief: Brief): string {
     `Image and video prompts and identity lines: always in English.`,
     `Picture format: ${brief.format === "vertical" ? "vertical 9:16" : "horizontal 16:9"}`,
     `Real screens this piece may show (screen shots): ${screensFor(brief)}`,
+    `Takes: ${brief.takes === "continuous" ? "CONTINUOUS — 15 s handheld takes, each a scene with timed beats (see the continuous-take rules)" : "one line per shot (6, 10 or 15 s)"}`,
   ];
   return lines.map((l) => `- ${l}`).join("\n");
 }
@@ -208,7 +212,7 @@ ${describeBrief(brief)}
 The chosen topic${topics.length > 1 ? "s, in this order" : ""}:
 ${ideasText(topics)}
 
-Write the story. Its problem is the chosen topic's problem (for several topics, the one problem they share). Cast the Good, the Bad (named and personified for this piece) and any human characters. Each topic gets a concrete bridge in and its lines in Negative → Touching → Good order, with the Negative escalating in three beats and one sincere Touching line. Plant callbacks and pay them off; the last line calls back to the first. Spoken lines should add up to ${len.min}–${len.max} seconds at about 2.5 words per second.
+Write the story. Its problem is the chosen topic's problem (for several topics, the one problem they share). Cast the Good, the Bad (named and personified for this piece) and any human characters. Each topic gets a concrete bridge in and its lines in Negative → Touching → Good order, with the Negative escalating in three beats and one sincere Touching line. Plant callbacks and pay them off; the last line calls back to the first. Give every line its emotion: how it is said, not just the words. Spoken lines should add up to ${len.min}–${len.max} seconds at about 2.5 words per second.
 
 ${STORY_CHECKS}`,
       StoryWireSchema,
@@ -246,7 +250,8 @@ const STORY_CHECKS = `Then check the story like a strict critic who did not writ
 - practices: every way of working the story shows people using without the brand (how they order, count, check, pay, close, keep track), each checked against the series' "${PRACTICES}" list and the brief's notes. known is false when neither says people do it that way.`;
 
 const BOARD_RULES = `Shot rules:
-- Cover every line of the story, in order, once. A shot holds one line, or two short lines from the same speaker.
+- Cover every line of the story, in order, once. A shot holds one line, or two short lines from the same speaker (continuous takes: see below).
+- The look: if the series has a Look line, build the style line from it and put it in every image and video prompt. Always ask for flaws (the camera, its flash, grain, focus that misses, where the light hits) and real skin (pores, freckles, no smoothing); never "cinematic", "vintage" or "film still". The light never changes inside a shot; only the camera's auto-exposure does.
 - title and action come first: the slate says in a few words what happens, and action says in one sentence what we see, following on from the previous shot. The prompts must show exactly that action.
 - visualPrompt is the first frame of the action: ONE frozen moment. Nothing that changes over time and no sequence words (now, then, after, reaches, lifts, turns, becomes). Every action and change goes in videoPrompt, which is one action.
 - seconds: exactly 6, 10 or 15, the only clip lengths the tool makes. Pick the shortest that fits the spoken line at about 2.5 words per second (6 s up to 15 words, 10 s up to 25, 15 s up to 37). Split a longer line into two shots. A silent shot is 6 s. toolSettings says the same length.
@@ -255,7 +260,8 @@ const BOARD_RULES = `Shot rules:
 - kind: "single" for most shots. "transform" where one clip should carry a change on screen, usually the turn from the Bad to the Good: visualPrompt is the initial frame, endPrompt the final frame and middlePrompt an optional middle frame (each one frozen moment), and videoPrompt describes the change between them; give it 10 or 15 s. "screen" only to show the product's real interface with one of the real screens the brief allows: put its id in screen and leave the image prompts empty; the videoPrompt can be empty too.
 - editFrom: when a shot shows the same setup in the same place as an earlier shot, set editFrom to that shot's number and write editPrompt: only what changes in that image, keeping everything else. The person edits the earlier image instead of drawing a new one, so the character stays the same. Still write the full visualPrompt as a fallback.
 - Put the style line inside each visualPrompt so it stands alone. No text, signs, logos, brand names or real people's likeness in any image. A phone or computer screen faces away from the camera or is out of focus; the tool cannot draw the real interface. How the Bad looks on screen follows the story's character line.
-- The spoken lines and captions are added on top later, so video prompts never ask anyone to speak or sing, and ask for no music.
+- The spoken lines and captions are added on top later, so video prompts never ask anyone to speak or sing, and ask for no music (continuous takes are the exception: their dialogue is spoken in the clip).
+- Continuous takes, only when the brief asks for them: each shot is ONE continuous handheld take of exactly 15 s, holding the consecutive lines of one scene (one topic or part of it), kind "single". speaker is the first one who speaks and voiceover all its lines in order. timeline lists every beat from 0 to 15 s: who speaks, the exact line, its emotion, and what the bodies and the camera do, including real camera mistakes (a pan that arrives late and clips a face, autofocus hunting, auto-exposure rolling between inside and outside, a laugh that shakes the frame). visualPrompt is the hero still, frame 0 of the take: exact camera, exact flaws, exact light, everyone in place. videoPrompt is the director's prompt: first a reference map (the initial frame = the hero still; each character = its cast @ref; the place = its cast @ref, environment only; "these images are law"), then "one continuous handheld take, no cuts", then the timed spine with emotion and camera mistakes, then the hard rules: skin never smooth (visible pores, freckles, peach fuzz); grain the whole time; no stabilization, no grade, no music, no text, no digital zoom, no punch-in, no slow motion; brightness changes only from auto-exposure, the light never changes; each line spoken once, exactly as written, in Rioplatense Spanish, with the emotion given; raw phone-mic audio (room tone, handling noise, no denoising). One-line shots have an empty timeline.
 - disclosure: "concept" or "simulation" for anything the brand is shown doing that is not in the series' "${WORKS_TODAY}" list.
 - issues: after writing the board, check it like a strict critic: a shot whose action does not follow the previous one (continuity), the brand shown doing something not on its list without a label (reality), people working in a way the series' "${PRACTICES}" list and the brief don't confirm (practice), an image prompt with more than one moment (image), an open loop never paid off (loop). List every problem you still see; empty only if there are none.`;
 
@@ -454,4 +460,34 @@ The change: "${note}"
 Say what to select and write the edit prompt for that selection only. Keep characters' identity lines word for word if they appear. Never select or alter a watermark, a logo of the tool or any provenance mark.`,
     SegmentEditSchema,
   );
+}
+
+// A reference sheet for the series' cast, made in the tool before any motion so faces and places never drift.
+// People: always invented adults, never a real person's likeness, never sexualized.
+export function referenceSheet(
+  series: string,
+  template: SheetTemplate,
+  details: Record<string, string>,
+  age: number,
+): Promise<Sheet> {
+  const given = Object.entries(details)
+    .map(([k, v]) => `- ${k}: ${v.trim() || "(empty: choose it)"}`)
+    .join("\n");
+  const person = template !== "place";
+  const task = person
+    ? `Build a photorealistic character reference sheet of one invented adult ${template === "girl" ? "woman" : "man"}, ${age} years old, for this series' fixed cast. Never a real person or a lookalike of anyone famous. Everyday clothes, neutral relaxed poses, nothing revealing or sexualized.
+
+Details (in Spanish; choose any that are empty so the character fits the series and its audience, and list your choices in filled):
+${given}
+
+The sheet prompt: 16:9, plain light-grey seamless background, soft even daylight, no text, no labels. Top row: full body front, three-quarter, side profile, back view, standing relaxed. Bottom row: close-up head front, three-quarter, profile, then a four-face expression strip (neutral, soft smile, mid-word talking, easy laugh; adapt them to the character's attitude). Small insets: jewellery or accessories, hands, fabric texture. Skin realism: visible pores, fine texture, faint unevenness, natural sheen, no smoothing, no retouching, no beauty filter. Identical face, hair and body in every panel. Put the full description (age, skin, eyes, brows, nose, lips, hair, build, wardrobe, jewellery) inside the prompt.
+The views: the same character as separate prompts (full body front; three-quarter; side profile; back; head close-ups; expressions; insets), each standalone with the same description.`
+    : `Build a photorealistic location reference sheet of one place for this series' fixed cast, so the set matches from every camera angle.
+
+Details (in Spanish; choose any that are empty so the place fits the series, and list your choices in filled):
+${given}
+
+The sheet prompt: 16:9 grid of six panels, no people, no text. Panel 1: wide exterior. Panel 2: the hero angle, where most scenes are shot, at eye or seated height. Panel 3: the reverse angle. Panels 4 and 5: close details that will show in shots. Panel 6: the view out (a window, the street, the door). The same light in every panel, with where it comes from. Realism: real wear, scuffs, dust, uneven surfaces.
+The views: each panel as a separate standalone prompt with the full description.`;
+  return ask({ ...lyricBrief(series), tool: "grok-imagine" }, true, task, SheetSchema);
 }

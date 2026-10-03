@@ -45,13 +45,13 @@ const ICON_TITLE = { transform: "Transformación (imagen inicial y final)", scre
 function ShotFrame({
   shot,
   image,
-  speaker,
+  speakers,
   look,
   className = "",
 }: {
   shot: TimedShot;
   image: HTMLImageElement | null;
-  speaker: Speaker | undefined;
+  speakers: Record<string, Speaker>;
   look: Look;
   className?: string;
 }) {
@@ -61,11 +61,13 @@ function ShotFrame({
   useEffect(() => {
     const ctx = ref.current?.getContext("2d");
     if (!ctx) return;
-    const draw = () => drawShot(ctx, shot, image, speaker, (shot.start + shot.end) / 2, { disclosure: "", fullFrame: false, headlines: true, style: look.style });
+    // A continuous take shows its first line; a one-line shot, the middle of its line.
+    const t = shot.timeline.length ? shot.start + (shot.timeline.find((b) => b.line)?.from ?? 0) + 0.01 : (shot.start + shot.end) / 2;
+    const draw = () => drawShot(ctx, shot, image, speakers, t, { disclosure: "", fullFrame: false, headlines: true, style: look.style });
     draw();
     // Canvas text needs the web font; draw again once it is there.
     document.fonts?.load(`600 24px "IBM Plex Sans"`).then(draw, () => undefined);
-  }, [shot, image, speaker, look.format, look.style]);
+  }, [shot, image, speakers, look.format, look.style]);
   return (
     <canvas
       ref={ref}
@@ -98,7 +100,7 @@ function Playback({
   const tRef = useRef(0);
   tRef.current = t;
   const clock = useRef({ base: 0, at: performance.now() });
-  const spokenShot = useRef(-1);
+  const spokenShot = useRef("");
   const total = shots.length ? shots[shots.length - 1].end : 0;
   const vertical = look.format === "vertical";
 
@@ -113,13 +115,17 @@ function Playback({
       const now = playing ? Math.min(total, clock.current.base + (performance.now() - clock.current.at) / 1000) : tRef.current;
       const shot = shots.find((s) => now >= s.start && now < s.end) ?? shots[shots.length - 1];
       const ctx = ref.current?.getContext("2d");
-      if (ctx && shot) drawShot(ctx, shot, images[shot.index] ?? null, speakers[shot.speaker], now, { disclosure: "", fullFrame: false, headlines: true, style: look.style });
-      if (playing && shot && spokenShot.current !== shot.index) {
-        spokenShot.current = shot.index;
+      if (ctx && shot) drawShot(ctx, shot, images[shot.index] ?? null, speakers, now, { disclosure: "", fullFrame: false, headlines: true, style: look.style });
+      // A continuous take reads each beat's line when the beat starts; a one-line shot, its line.
+      const beatIndex = shot ? shot.timeline.findIndex((b) => now - shot.start >= b.from && now - shot.start < b.to) : -1;
+      const key = shot ? `${shot.index}:${beatIndex}` : "";
+      if (playing && shot && spokenShot.current !== key) {
+        spokenShot.current = key;
+        const text = shot.timeline.length ? (shot.timeline[beatIndex]?.line ?? "") : shot.voiceover;
         if (voice && "speechSynthesis" in window) {
           window.speechSynthesis.cancel();
-          if (shot.voiceover.trim()) {
-            const u = new SpeechSynthesisUtterance(shot.voiceover);
+          if (text.trim()) {
+            const u = new SpeechSynthesisUtterance(text);
             u.lang = "es-AR";
             window.speechSynthesis.speak(u);
           }
@@ -140,7 +146,7 @@ function Playback({
   function seek(to: number) {
     setT(to);
     clock.current = { base: to, at: performance.now() };
-    spokenShot.current = -1;
+    spokenShot.current = "";
     window.speechSynthesis?.cancel();
   }
 
@@ -291,7 +297,7 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
                 </span>
               )}
               <div className={`rounded-[1.4rem] ${flagged.has(s.index) ? "ring-4 ring-neg/50" : ""}`}>
-                <ShotFrame shot={s} image={images[s.index] ?? null} speaker={speakers[s.speaker]} look={look} />
+                <ShotFrame shot={s} image={images[s.index] ?? null} speakers={speakers} look={look} />
               </div>
               <div className={`border-l-4 pl-2 ${BEAT_EDGE[s.beat]}`}>
                 <p className="text-sm leading-snug font-bold">
@@ -306,6 +312,7 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
                     </span>
                   )}
                   {s.editFrom > 0 && <span title={s.editPrompt}>✎ edita la {s.editFrom}</span>}
+                  {s.timeline.length > 0 && <span className="rounded bg-ink px-1 text-white">toma continua</span>}
                   {s.disclosure !== "none" && (
                     <span className="rounded border border-line px-1">{s.disclosure === "concept" ? "Concepto" : "Simulación"}</span>
                   )}
@@ -320,10 +327,28 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
                 <summary className="cursor-pointer text-muted">Ver detalles</summary>
                 <div className="mt-1.5 space-y-1.5">
                   <p className="text-muted">{s.action}</p>
-                  {s.voiceover && (
-                    <p>
-                      <b>{who?.name ?? "—"}:</b> “{s.voiceover}”
-                    </p>
+                  {s.timeline.length > 0 ? (
+                    <ol className="space-y-0.5">
+                      {s.timeline.map((b, i) => (
+                        <li key={i}>
+                          <span className="font-mono text-muted">
+                            {b.from.toFixed(1)}–{b.to.toFixed(1)} s
+                          </span>{" "}
+                          {b.line && (
+                            <>
+                              <b>{cast[b.speaker]?.name ?? b.speaker}</b> ({b.emotion}): “{b.line}” ·{" "}
+                            </>
+                          )}
+                          <span className="text-muted">{b.action}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    s.voiceover && (
+                      <p>
+                        <b>{who?.name ?? "—"}:</b> “{s.voiceover}”
+                      </p>
+                    )
                   )}
                   {s.onScreenText && (
                     <p>

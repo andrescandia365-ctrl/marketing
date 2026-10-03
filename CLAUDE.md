@@ -52,6 +52,12 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   synced automatically (`alignLyrics` matches the transcription letter by letter) or by tapping, drawn by
   `lib/lyricRender.ts` on an organic background or the piece's own photo/video. The person confirms the song's
   rights before rendering; the credit and the "Fondo hecho con IA" notice are on by default.
+- Realism: a series can have a `look` (camera, flash, grain, focus, light, flaws) that goes into every prompt; prompts
+  ask for flaws, never "cinematic" (`polishWords` warns). Cast members can carry a reference `sheet` (character girl/boy,
+  always invented adults, or a six-panel place) written by `/api/sheet`. With `brief.takes = "continuous"` each shot is
+  a 15 s handheld take with a `timeline` of beats (speaker, line, emotion, camera action); its visualPrompt is the hero
+  still and its videoPrompt the director's prompt; subtitles follow the timeline and its voice defaults to Grok.
+  Every story line has an `emotion`.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
   a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Voices
   and sound effects are per-shot project media; one music track per piece ducks under speech and can pull the

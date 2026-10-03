@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   BoardWireSchema,
   BriefSchema,
+  SHEET_TEMPLATES,
   ShotWireSchema,
   StoryWireSchema,
   TopicIdeaSchema,
@@ -20,6 +21,7 @@ import {
   lyricIdeas,
   proposeMenu,
   productShot,
+  referenceSheet,
   reviewPicture,
   segmentEdit,
   reviseBoard,
@@ -79,13 +81,27 @@ app.onError((error, c) => {
 });
 
 // Story and board come back from the browser; parse them with the same shapes the writer returns.
-// Pieces saved before the problem title and the practices check have neither.
-const StoryInput = StoryWireSchema.extend({
-  problem: z.string().default(""),
-  practices: StoryWireSchema.shape.practices.default([]),
-}).transform(normalizeStory);
+// Pieces saved before a field existed get its empty value: problem and practices, each line's emotion, each shot's
+// timeline.
+type Loose = Record<string, unknown> & { topics?: { lines?: Record<string, unknown>[] }[]; shots?: Record<string, unknown>[] };
+function fillOld(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const v = value as Loose;
+  return {
+    ...v,
+    ...(v.topics && { topics: v.topics.map((t) => ({ ...t, lines: t.lines?.map((l) => ({ emotion: "", ...l })) })) }),
+    ...(v.shots && { shots: v.shots.map((s) => ({ timeline: [], ...s })) }),
+  };
+}
+const StoryInput = z.preprocess(
+  fillOld,
+  StoryWireSchema.extend({
+    problem: z.string().default(""),
+    practices: StoryWireSchema.shape.practices.default([]),
+  }),
+).transform(normalizeStory);
 const TopicInput = TopicIdeaSchema.extend({ problem: z.string().default("") });
-const BoardInput = BoardWireSchema.transform(normalizeBoard);
+const BoardInput = z.preprocess(fillOld, BoardWireSchema).transform(normalizeBoard);
 const demo = () => currentWriter() === null;
 
 app.get("/api/status", (c) => {
@@ -232,6 +248,33 @@ app.post("/api/voice", async (c) => {
   return c.body(new Uint8Array(audio), 200, { "Content-Type": "audio/mpeg" });
 });
 
+// A reference sheet (character girl/boy, or place) for the series' cast. People are adults only.
+app.post("/api/sheet", async (c) => {
+  const { series, template, details, age } = z
+    .object({
+      series: z.string(),
+      template: z.enum(SHEET_TEMPLATES),
+      details: z.record(z.string(), z.string().max(400)),
+      age: z.number().int().max(90).default(25),
+    })
+    .parse(await c.req.json());
+  if (template !== "place" && age < 18) throw new SeriesError("Los personajes son siempre adultos (18 o más).");
+  if (demo()) {
+    const name = details.nombre?.trim() || (template === "place" ? "Lugar" : template === "girl" ? "Ella" : "Él");
+    const who = template === "place" ? `a small place: ${details["qué es"] || "a corner store"}` : `an invented ${template === "girl" ? "woman" : "man"}, ${age} years old`;
+    return c.json({
+      name,
+      identity: who,
+      sheetPrompt: `Photorealistic reference sheet of ${who}, 16:9, plain light-grey background, no text.`,
+      views: [{ title: "Frente", prompt: `Full body front of ${who}, plain light-grey background.` }],
+      filled: [],
+      note: "Hoja de muestra: sin clave de IA.",
+      demo: true,
+    });
+  }
+  return c.json({ ...(await referenceSheet(series, template, details, age)), demo: false });
+});
+
 // E-commerce: the prompt for the episode's product, clean, to cut out in the tool.
 app.post("/api/product-shot", async (c) => {
   const { brief } = z.object({ brief: BriefSchema }).parse(await c.req.json());
@@ -252,7 +295,7 @@ app.post("/api/product-shot", async (c) => {
 const WATERMARK = /marca de agua|watermark|logo de grok|firma de la ia|metadat/i;
 app.post("/api/shot/segment", async (c) => {
   const { brief, shot, note } = z
-    .object({ brief: BriefSchema, shot: ShotWireSchema.transform(normalizeShot), note: z.string().trim().min(1).max(500) })
+    .object({ brief: BriefSchema, shot: z.preprocess((s) => (s && typeof s === "object" ? { timeline: [], ...s } : s), ShotWireSchema).transform(normalizeShot), note: z.string().trim().min(1).max(500) })
     .parse(await c.req.json());
   if (WATERMARK.test(note)) {
     throw new WriterError("Eso no: los segmentos no se usan para tapar ni borrar la marca de agua o la identificación de la IA.");

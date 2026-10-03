@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { polishWords } from "../../shared/checks.ts";
 import { buildCopyPrompt } from "../../shared/prompt.ts";
 import { SHOT_LENGTHS, type Board, type Brief, type ImageReview, type SegmentEdit, type Setup, type Shot, type Story } from "../../shared/schema.ts";
 import type { CastMember } from "../../shared/series.ts";
@@ -239,6 +240,7 @@ function PromptBox({
   onChange: (value: string) => void;
 }) {
   const words = value.trim().split(/\s+/).filter(Boolean).length;
+  const polish = useContext(StrictLook) ? polishWords(value) : [];
   return (
     <div className="overflow-hidden rounded-lg border border-line">
       <div className="flex items-center justify-between gap-2 border-b border-line bg-paper py-1.5 pr-1.5 pl-3">
@@ -262,9 +264,17 @@ function PromptBox({
           <ActionWarning prompt={value} />
         </div>
       )}
+      {polish.length > 0 && (
+        <p className="mx-3 mb-2 rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900">
+          Pide "{polish.join('", "')}": con el look de la serie, pedí defectos (cámara, grano, foco, luz), no un look pulido.
+        </p>
+      )}
     </div>
   );
 }
+
+// True when the series has a look: prompts that ask for a polished look get a yellow note.
+const StrictLook = createContext(false);
 
 // Who and what is in the frame. Linked members of the fixed cast show their @ reference for the image tool.
 function InFrame({
@@ -543,6 +553,28 @@ function ShotCard(props: CardProps) {
             toolName={toolName}
             onChange={(setups) => set("setups", setups)}
           />
+          {shot.timeline.length > 0 && (
+            <div className="rounded-lg border border-line bg-paper p-2 text-xs">
+              <p className="font-semibold">
+                Toma continua · el primer cuadro es el hero still; los tiempos van en el prompt de video
+              </p>
+              <ol className="mt-1 space-y-0.5">
+                {shot.timeline.map((b, i) => (
+                  <li key={i}>
+                    <span className="font-mono text-muted">
+                      {b.from.toFixed(1)}–{b.to.toFixed(1)} s
+                    </span>{" "}
+                    {b.line && (
+                      <>
+                        <b>{story.characters.find((c) => c.id === b.speaker)?.name ?? b.speaker}</b> ({b.emotion}): “{b.line}” ·{" "}
+                      </>
+                    )}
+                    <span className="text-muted">{b.action}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
           {shot.kind !== "screen" && (
             <PromptBox
               label={shot.kind === "transform" ? "Imagen inicial" : "Prompt de imagen"}
@@ -750,15 +782,17 @@ function ReviewBox({ review, onReview }: { review?: ReviewState; onReview: (() =
   );
 }
 
-type Props = Omit<CardProps, "shot" | "media"> & { media: Record<number, MediaState> };
+type Props = Omit<CardProps, "shot" | "media"> & { media: Record<number, MediaState>; strictLook: boolean };
 
-export function ScriptView(props: Props) {
+export function ScriptView({ strictLook, ...props }: Props) {
   return (
-    <ol className="space-y-3">
-      {timeShots(props.board.shots).map((shot) => (
-        <ShotCard key={shot.index} {...props} shot={shot} media={props.media[shot.index] ?? {}} />
-      ))}
-    </ol>
+    <StrictLook.Provider value={strictLook}>
+      <ol className="space-y-3">
+        {timeShots(props.board.shots).map((shot) => (
+          <ShotCard key={shot.index} {...props} shot={shot} media={props.media[shot.index] ?? {}} />
+        ))}
+      </ol>
+    </StrictLook.Provider>
   );
 }
 

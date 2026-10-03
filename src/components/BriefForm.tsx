@@ -138,6 +138,20 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
             ]}
           />
         </Field>
+        <Field
+          label="Tomas"
+          group
+          hint="Toma continua: planos de 15 s en mano con varias líneas, tiempos, errores de cámara y diálogo dicho dentro del clip."
+        >
+          <Segmented
+            value={brief.takes}
+            onChange={(v) => set("takes", v)}
+            options={[
+              { value: "lines", label: "Una línea por toma" },
+              { value: "continuous", label: "Toma continua (15 s)" },
+            ]}
+          />
+        </Field>
         <Field label="Formato" group>
           <Segmented
             value={brief.format}

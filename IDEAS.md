@@ -37,6 +37,18 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Segmentos (4):** "Cambiar un solo objeto"; se niega si es para la marca de agua.
   - **`iniciar.sh` pregunta la IA (9):** Claude, Kimi directo, NVIDIA u OpenRouter (`bash iniciar.sh --ia` para cambiar).
 
+- **Realismo (3 Oct 2026, ideas 28 y 29):**
+  - **Hojas de personaje:** Chica o Chico, solo adultos; la IA completa lo vacío. **Hojas de lugar:** 6 paneles.
+  - **Look de la serie con defectos**, con aviso de look pulido.
+  - **Toma continua de 15 s:** hero still, prompt de director con mapa `@`, tiempos, errores de cámara y reglas duras; subtítulos por tiempos; voz de Grok.
+  - **Emoción en cada línea.**
+  - **Perfil de Grok:** los puntos nuevos quedan [NOT SURE], con dos pruebas (toma continua y hojas).
+  - **Elegido por defecto** (no hubo respuesta a las preguntas):
+    - personajes dentro de cada serie;
+    - grilla más vistas sueltas;
+    - el look y la toma continua se eligen por serie y por pieza;
+    - un hero still por escena.
+
 ## Decisiones tomadas (2 Oct 2026)
 1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma. **Personajes:** usar las voces de Grok (panel Audio: Ara, Eve, Leo, Rex, Sal…, más audios subidos o grabados); cada personaje tiene una voz asignada y el prompt de video la pide. Grok no deja descargar el audio solo, así que esa voz vive dentro del clip. **Narrador:** las 4 opciones, según la escena.
 2. **Escuchar en voz alta:** para escucharlos vos.

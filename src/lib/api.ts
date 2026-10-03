@@ -6,6 +6,8 @@ import type {
   ProductShot,
   SegmentEdit,
   SeriesInfo,
+  Sheet,
+  SheetTemplate,
   Shot,
   Status,
   Story,
@@ -160,6 +162,8 @@ export const api = {
       mood: style.mood,
       format,
     }),
+  sheet: (series: string, template: SheetTemplate, details: Record<string, string>, age: number) =>
+    call<Sheet & Demo>("/api/sheet", { series, template, details, age }),
   productShot: (brief: Brief) => call<ProductShot & Demo>("/api/product-shot", { brief }),
   segmentEdit: (brief: Brief, shot: Shot, note: string) => call<SegmentEdit & Demo>("/api/shot/segment", { brief, shot, note }),
   review: (

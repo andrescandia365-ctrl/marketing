@@ -4,7 +4,7 @@ import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/c
 import { buildCopyPrompt } from "../shared/prompt.ts";
 import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
 import { migrateBoard, migrateStory, type Board, type Brief, type Menu, type Setup, type Shot, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
-import { DEFAULT_TEXT_STYLE, castRef, seriesId, type CastMember, type TextStyle } from "../shared/series.ts";
+import { DEFAULT_TEXT_STYLE, castRef, hasLook, seriesId, type CastMember, type TextStyle } from "../shared/series.ts";
 import { BEAT_INFO, formatTime, timeShots } from "../shared/template.ts";
 import { VoicesPanel, audioDuration, type AudioFile } from "./components/Audio.tsx";
 import { BoardView } from "./components/BoardView.tsx";
@@ -652,6 +652,7 @@ export function App() {
         identity: setup.identity,
         note: "",
         image: "",
+        sheet: "",
       });
       setStatus((s) => (s ? { ...s, series } : s));
       const linked = castId;
@@ -1058,6 +1059,7 @@ export function App() {
                 onUploadClip={uploadClip}
                 onRemoveMedia={removeMedia}
                 onRewrite={rewriteShot}
+                strictLook={pieceSeries ? hasLook(pieceSeries.look) : false}
                 onSegment={async (index, note) => {
                   const result = await api.segmentEdit(pieceBrief, board.shots[index], note);
                   addLog({ shot: index, text: `Segmento: “${note}”`, outcome: result.select });

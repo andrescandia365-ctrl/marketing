@@ -2,7 +2,7 @@
 // Flow: Brief → Menu (topics) → Story (Good vs Bad, in rounds) → Board (shots) → production.
 import { z } from "zod";
 import type { LyricStyle } from "./lyrics.ts";
-import type { CastMember, SeriesType, TextStyle } from "./series.ts";
+import type { CastMember, SeriesLook, SeriesType, TextStyle } from "./series.ts";
 
 export const BEATS = ["negative", "touching", "good"] as const;
 export type Beat = (typeof BEATS)[number];
@@ -24,6 +24,8 @@ export const BriefSchema = z.object({
   tool: z.string(),
   // Software series: which of the series' real screens this piece may show.
   screens: z.array(z.string()).default([]),
+  // lines: one line per shot (6/10/15 s). continuous: 15 s handheld takes, each a scene with timed beats.
+  takes: z.enum(["lines", "continuous"]).default("lines"),
 });
 export type Brief = z.infer<typeof BriefSchema>;
 
@@ -73,6 +75,7 @@ const LineWire = z.object({
   beat: z.string().describe("One of: negative, touching, good."),
   speaker: z.string().describe("A character id."),
   text: z.string().describe("The spoken line, in the piece's language."),
+  emotion: z.string().describe("How it is said, one to three words in Spanish (e.g. divertida, con fastidio, en voz baja)."),
   direction: z.string().describe("What is on screen while it is said, in Spanish."),
 });
 export type Line = Omit<z.infer<typeof LineWire>, "beat"> & { beat: Beat };
@@ -162,6 +165,25 @@ export const ImageReviewSchema = z.object({
 });
 export type ImageReview = z.infer<typeof ImageReviewSchema>;
 
+// ── A reference sheet for the series' cast: a character (girl or boy template) or a place ──
+export const SHEET_TEMPLATES = ["girl", "boy", "place"] as const;
+export type SheetTemplate = (typeof SHEET_TEMPLATES)[number];
+export const SheetSchema = z.object({
+  name: z.string().describe("The name as the cast will call it, in Spanish."),
+  identity: z
+    .string()
+    .describe("The identity line in English, repeated word for word in every prompt: for a person, age, skin, eyes, hair, build, wardrobe and jewellery; for a place, what it is and its fixed details."),
+  sheetPrompt: z.string().describe("The whole reference sheet as one image prompt in English, in the tool's format."),
+  views: z
+    .array(z.object({ title: z.string().describe("In Spanish."), prompt: z.string().describe("English.") }))
+    .describe("The same sheet split into separate prompts, one per view or panel, for when the tool does not hold the grid."),
+  filled: z
+    .array(z.object({ field: z.string(), value: z.string() }))
+    .describe("Each detail the person left empty and you chose, in Spanish (field name as given)."),
+  note: z.string().describe("In Spanish: what to check in the result. Empty if nothing."),
+});
+export type Sheet = z.infer<typeof SheetSchema>;
+
 // ── E-commerce: the episode's product, clean, to cut out in the tool and reuse ──
 export const ProductShotSchema = z.object({
   name: z.string().describe("The product's short name in Spanish, as the cast will call it."),
@@ -231,7 +253,20 @@ export const ShotWireSchema = z.object({
     .describe("Prompt that animates this shot's still: the one action of this shot, in the chosen tool's format. English."),
   toolSettings: z.string().describe("What to set in the tool's own controls, very short, e.g. '9:16 · 6 s'."),
   disclosure: z.string().describe("One of: none, concept, simulation."),
+  timeline: z
+    .array(
+      z.object({
+        from: z.number().describe("Seconds from the start of this shot."),
+        to: z.number(),
+        speaker: z.string().describe("Character id, or 'none'."),
+        line: z.string().describe("The exact line said in this beat, or empty."),
+        emotion: z.string().describe("How it is said, in Spanish."),
+        action: z.string().describe("What the bodies and the camera do, including its mistakes, in Spanish."),
+      }),
+    )
+    .describe("Continuous takes only: the timed beats inside the shot, in order, covering it. Empty for a one-line shot."),
 });
+export type TimelineBeat = z.infer<typeof ShotWireSchema>["timeline"][number];
 export const SHOT_KINDS = ["single", "transform", "screen"] as const;
 export type ShotKind = (typeof SHOT_KINDS)[number];
 
@@ -278,7 +313,12 @@ function pick<T extends string>(value: string, options: readonly T[], fallback: 
 
 // Stories saved before the problem title and the practices check.
 export function migrateStory(story: Story): Story {
-  return { ...story, problem: story.problem ?? "", practices: story.practices ?? [] };
+  return {
+    ...story,
+    problem: story.problem ?? "",
+    practices: story.practices ?? [],
+    topics: story.topics.map((t) => ({ ...t, lines: t.lines.map((l) => ({ ...l, emotion: l.emotion ?? "" })) })),
+  };
 }
 
 export function normalizeStory(wire: z.infer<typeof StoryWireSchema>): Story {
@@ -299,6 +339,12 @@ export function snapSeconds(seconds: number): number {
 
 export function normalizeShot(wire: z.infer<typeof ShotWireSchema>): Shot {
   const d = wire.disclosure.toLowerCase();
+  const seconds = snapSeconds(wire.seconds);
+  // Beats stay inside the shot and in order.
+  const timeline = wire.timeline
+    .map((b) => ({ ...b, from: Math.max(0, Math.min(b.from, seconds)), to: Math.max(0, Math.min(b.to, seconds)) }))
+    .filter((b) => b.to > b.from)
+    .sort((a, b) => a.from - b.from);
   let kind = pick(wire.kind, SHOT_KINDS, "single");
   if (kind === "screen" && !wire.screen.trim()) kind = "single";
   if (kind === "transform" && !wire.endPrompt.trim()) kind = "single";
@@ -308,7 +354,8 @@ export function normalizeShot(wire: z.infer<typeof ShotWireSchema>): Shot {
     setups: wire.setups.map((x) => x.trim()).filter(Boolean),
     editFrom: Math.max(0, Math.round(wire.editFrom || 0)),
     beat: pick(wire.beat, BEATS, "negative"),
-    seconds: snapSeconds(wire.seconds),
+    seconds,
+    timeline,
     disclosure: d.includes("concept") ? "concept" : d.includes("simulation") ? "simulation" : "none",
   };
 }
@@ -335,6 +382,7 @@ export function migrateBoard(board: Board): Board {
         endPrompt: old.endPrompt ?? "",
         editFrom: old.editFrom ?? 0,
         editPrompt: old.editPrompt ?? "",
+        timeline: old.timeline ?? [],
       } as Shot;
     }),
   };
@@ -351,6 +399,7 @@ export type SeriesInfo = {
   productPerEpisode: boolean;
   textStyle: TextStyle;
   lyricStyle: LyricStyle;
+  look: SeriesLook;
   cast: CastMember[];
 };
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };

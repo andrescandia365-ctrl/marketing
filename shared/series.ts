@@ -25,6 +25,45 @@ export const DEFAULT_TEXT_STYLE: TextStyle = {
   backingColor: "#000000",
 };
 
+// The series' look, written as flaws, not "cinematic": what camera, its flash, the grain, how focus behaves and where
+// the light comes from (it never changes). Goes into every image and video prompt. Empty fields: the writer decides.
+export const SeriesLookSchema = z.object({
+  camera: z.string().max(300),
+  flash: z.string().max(300),
+  grain: z.string().max(300),
+  focus: z.string().max(300),
+  light: z.string().max(300),
+  extra: z.string().max(400),
+});
+export type SeriesLook = z.infer<typeof SeriesLookSchema>;
+export const EMPTY_LOOK: SeriesLook = { camera: "", flash: "", grain: "", focus: "", light: "", extra: "" };
+const REAL_SKIN = "skin with visible pores, freckles and fine texture, no smoothing, no retouching, no beauty filter";
+export const LOOK_PRESETS: Record<"phone" | "digicam", { label: string; look: SeriesLook }> = {
+  phone: {
+    label: "Celular en mano",
+    look: {
+      camera: "a recent smartphone's main camera, handheld",
+      flash: "no flash; the phone's auto-exposure adjusts on its own",
+      grain: "visible sensor noise in the shadows, light phone compression",
+      focus: "autofocus that sometimes hunts and lands on the background for a moment",
+      light: "the place's own light (window daylight or the store's fluorescent tubes); it never changes",
+      extra: REAL_SKIN,
+    },
+  },
+  digicam: {
+    label: "Compacta digital de los 2000 con flash",
+    look: {
+      camera: "an early-2000s point-and-shoot digicam",
+      flash: "harsh direct on-camera flash that flattens faces and puts sharp highlights on shiny surfaces",
+      grain: "minor digital noise, warm slightly saturated CCD tones, bloom and halation at bright edges",
+      focus: "slightly soft corners, focus a little off on fast moves",
+      light: "the place's own light behind, underexposed against the flash; it never changes",
+      extra: REAL_SKIN,
+    },
+  },
+};
+export const hasLook = (look: SeriesLook) => Object.values(look).some((v) => v.trim());
+
 // The two jobs of the playbook, plus lyric videos. Software: features that exist today, the product's loop, real
 // screens. E-commerce: a different product in every episode. Music: lyric videos, with no story.
 export const SERIES_TYPES = ["software", "ecommerce", "music"] as const;
@@ -57,6 +96,8 @@ export const CastMemberSchema = z.object({
   note: z.string().trim().max(600),
   // File name in the series library ("" until an image is uploaded).
   image: z.string().max(120),
+  // The reference sheet's prompt, when the member was built with "+ con hoja".
+  sheet: z.string().max(6000).default(""),
 });
 export type CastMember = z.infer<typeof CastMemberSchema>;
 
@@ -96,6 +137,7 @@ export const SeriesFieldsSchema = z.object({
   textStyle: TextStyleSchema,
   // Music series: how their lyric videos look.
   lyricStyle: LyricStyleSchema,
+  look: SeriesLookSchema,
   cast: z.array(CastMemberSchema).max(60),
 });
 export type SeriesFields = z.infer<typeof SeriesFieldsSchema>;
@@ -116,6 +158,7 @@ export const EMPTY_SERIES: SeriesFields = {
   other: "",
   textStyle: DEFAULT_TEXT_STYLE,
   lyricStyle: DEFAULT_LYRIC_STYLE,
+  look: EMPTY_LOOK,
   cast: [],
 };
 
@@ -148,6 +191,7 @@ export function seriesToMarkdown(f: SeriesFields): string {
     `Tipo: ${SERIES_TYPE_LABEL[f.type]}${f.type === "ecommerce" ? " (un producto distinto en cada episodio)" : ""}`,
     `Estilo de texto: ${JSON.stringify(f.textStyle)}`,
     ...(f.type === "music" ? [`Estilo de letra: ${JSON.stringify(f.lyricStyle)}`] : []),
+    ...(hasLook(f.look) ? [`Look (cámara y defectos, en todos los prompts): ${JSON.stringify(f.look)}`] : []),
   ];
   for (const [key, heading] of SECTIONS) {
     const body = isList(key) ? f[key].map((w) => `- ${w}`).join("\n") : f[key].trim();
@@ -187,6 +231,15 @@ export function markdownToSeries(text: string, fallbackName: string): SeriesFiel
     }
   }
 
+  const look = text.match(/^Look[^:]*:\s*(\{.*\})\s*$/im)?.[1];
+  if (look) {
+    try {
+      const parsed = SeriesLookSchema.safeParse({ ...EMPTY_LOOK, ...JSON.parse(look) });
+      if (parsed.success) fields.look = parsed.data;
+    } catch {
+      // A hand-edited line that is not JSON leaves the look empty.
+    }
+  }
   const lyric = text.match(/^Estilo de letra:\s*(\{.*\})\s*$/im)?.[1];
   if (lyric) {
     try {
