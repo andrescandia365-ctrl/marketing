@@ -136,6 +136,21 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 30. Varias claves de IA y un selector de modelo
+- **Idea (tuya):** sumar más claves de IA (también la de Anthropic) y una sección en la app para elegir el modelo.
+- **Cómo funcionaría:**
+  - **Sección "Modelos"** en la app: muestra cada proveedor con clave cargada (✓ o falta) y deja elegir el modelo de una lista.
+  - **La lista sale del proveedor:** se pide en vivo (Anthropic tiene una lista de modelos; Kimi, NVIDIA, OpenRouter y OpenAI también) y se puede escribir uno a mano.
+  - **Las claves quedan en la compu:** se cargan en `.env` o desde la app, que las guarda en ese `.env` y nunca las muestra enteras. Nunca van a GitHub ni al navegador.
+  - **Un modelo por tarea, opcional:** uno para escribir (historia y storyboard) y otro para mirar imágenes (la revisión necesita un modelo que vea).
+  - **Opciones según el modelo:** Opus 5.5, Sonnet 5.5 y Fable 5.1 aceptan pensamiento adaptativo y esfuerzo; Haiku 4.5 no, así que la app ajusta el pedido sola.
+- **Modelos de Claude hoy:**
+  - `claude-opus-5-5`: el de ahora.
+  - `claude-sonnet-5-5`: más barato.
+  - `claude-haiku-4-5`: el más barato y rápido.
+  - `claude-fable-5-1`: el más capaz, más caro.
+- **Pendiente:** qué proveedores querés y si las claves se cargan desde la app o solo en `.env`.
+
 ### 29. Realismo: hero still, hojas y prompt de director con tiempos
 - **Idea (tuya, de un método que viste):** para que el video parezca real, pedir **defectos** y no "cinematic". El prompt para Seedance sirve igual para **Grok**. El método:
   1. **Hero still:** una imagen que fija el look, con cámara, defectos y luz exactos. Es el cuadro 0 del video.
