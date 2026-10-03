@@ -16,8 +16,9 @@ export const LYRIC_FONT_FAMILY: Record<LyricFont, string> = {
 };
 
 export const LyricStyleSchema = z.object({
-  // organic: moving colour fields drawn by the app. media: the piece's own photo or video.
-  background: z.enum(["organic", "media"]),
+  // organic: moving colour fields drawn by the app. media: the piece's own photo or video. layers: Grok's separated
+  // layers, moving by depth (parallax).
+  background: z.enum(["organic", "media", "layers"]),
   palette: z.array(hex).length(3),
   mood: z.enum(["calm", "lively"]),
   // The background swells on each beat of the song.
@@ -47,7 +48,8 @@ export const DEFAULT_LYRIC_STYLE: LyricStyle = {
   highlightColor: "#ffd166",
   position: "center",
   karaoke: true,
-  entrance: "fade",
+  // Not "fade": the studio's rules ban everything fading in.
+  entrance: "slide",
   keywords: true,
 };
 
@@ -95,6 +97,8 @@ export type LyricPiece = {
   fullFrame: boolean;
   // Say on screen that the own background was made with AI.
   aiBackground: boolean;
+  // How many of Grok's layers the piece has (project media slots 200 + n), back to front.
+  layers: number;
 };
 
 export function newLyricPiece(style: LyricStyle, format: "vertical" | "horizontal"): LyricPiece {
@@ -114,6 +118,7 @@ export function newLyricPiece(style: LyricStyle, format: "vertical" | "horizonta
     credit: true,
     fullFrame: true,
     aiBackground: true,
+    layers: 0,
   };
 }
 

@@ -19,6 +19,7 @@ import {
   backgroundPrompts,
   currentWriter,
   lyricIdeas,
+  motionScript,
   proposeMenu,
   productShot,
   referenceSheet,
@@ -34,7 +35,7 @@ import {
 import { KimiError } from "./kimi.ts";
 import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
 import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, LyricStyleSchema, alignLyrics, cleanIdeas } from "../shared/lyrics.ts";
-import { DEMO_BOARD, DEMO_MENU, DEMO_STORY } from "./demo.ts";
+import { DEMO_BOARD, DEMO_MENU, DEMO_STORY, demoMotion } from "./demo.ts";
 import { getProvider, listProviders } from "./images/index.ts";
 import { CastMemberSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
 import {
@@ -63,6 +64,7 @@ import {
   readLibraryFile,
   saveLyricStyle,
   saveSeries,
+  setLogo,
   saveTextStyle,
   setCastImage,
   upsertCastMember,
@@ -140,6 +142,12 @@ app.put("/api/series/:id/style", async (c) => {
   const { textStyle } = z.object({ textStyle: TextStyleSchema }).parse(await c.req.json());
   saveTextStyle(c.req.param("id"), textStyle);
   return c.json({ series: listSeries() });
+});
+
+app.put("/api/series/:id/logo", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  const file = setLogo(c.req.param("id"), data, c.req.header("content-type") ?? "");
+  return c.json({ file, series: listSeries() });
 });
 
 app.put("/api/series/:id/lyric-style", async (c) => {
@@ -246,6 +254,15 @@ app.post("/api/voice", async (c) => {
     .parse(await c.req.json());
   const audio = await speak(text, voice, language);
   return c.body(new Uint8Array(audio), 200, { "Content-Type": "audio/mpeg" });
+});
+
+// A motion-graphics explainer script. target: seconds, or null to let the writer choose.
+app.post("/api/motion", async (c) => {
+  const { brief, target, layers } = z
+    .object({ brief: BriefSchema, target: z.number().int().min(10).max(120).nullable(), layers: z.number().int().min(0).max(12).default(0) })
+    .parse(await c.req.json());
+  if (demo()) return c.json({ script: demoMotion(brief, target), demo: true });
+  return c.json({ script: await motionScript(brief, target, layers), demo: false });
 });
 
 // A reference sheet (character girl/boy, or place) for the series' cast. People are adults only.

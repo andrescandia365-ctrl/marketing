@@ -2,7 +2,7 @@
 // Flow: Brief → Menu (topics) → Story (Good vs Bad, in rounds) → Board (shots) → production.
 import { z } from "zod";
 import type { LyricStyle } from "./lyrics.ts";
-import type { CastMember, SeriesLook, SeriesType, TextStyle } from "./series.ts";
+import type { Brand, CastMember, SeriesLook, SeriesType, TextStyle } from "./series.ts";
 
 export const BEATS = ["negative", "touching", "good"] as const;
 export type Beat = (typeof BEATS)[number];
@@ -26,6 +26,8 @@ export const BriefSchema = z.object({
   screens: z.array(z.string()).default([]),
   // lines: one line per shot (6/10/15 s). continuous: 15 s handheld takes, each a scene with timed beats.
   takes: z.enum(["lines", "continuous"]).default("lines"),
+  // story: Good vs Bad with a storyboard. explainer: a motion-graphics video that explains (software or one product).
+  piece: z.enum(["story", "explainer"]).default("story"),
 });
 export type Brief = z.infer<typeof BriefSchema>;
 
@@ -400,6 +402,7 @@ export type SeriesInfo = {
   textStyle: TextStyle;
   lyricStyle: LyricStyle;
   look: SeriesLook;
+  brand: Brand;
   cast: CastMember[];
 };
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };

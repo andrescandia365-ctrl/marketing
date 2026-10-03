@@ -33,6 +33,23 @@ Hace contenido con historia, no publicidad: un ida y vuelta entre **el Bueno** (
 
 Cada serie es una marca: qué es, **lo que existe hoy** (lo único que la IA puede mostrar como real), la historia que contamos, el Malo, el Bueno, las reglas y quién mira. Se editan desde la app: en el paso **Brief**, **Editar serie** o **+ Nueva serie**. Si la marca presenta un producto distinto en cada episodio (como Masogar), marcá esa casilla y el brief va a pedir el producto.
 
+### Explicativos (motion graphics)
+
+En el brief, **Pieza → Explicativo (motion graphics)** y **Empezar un explicativo**. Sirve para explicar la app (software) o el producto del episodio (e-commerce).
+
+- **Marca de la serie** (Editar serie → Marca): logo, fondo, texto, un solo acento, fuente de títulos y fuente de interfaz (Google Fonts).
+- **Duración:** automática (la IA la elige según el tema) o a mano (15 a 90 s).
+- **Guion por escenas:** la IA arma el guion con plantillas: gancho, pantalla en el celular o la compu, zoom a una función, rótulos, paso a paso, antes/después, producto con precio, número grande y cierre con logo. Usa las pantallas reales, el producto recortado, los personajes y las capas de Grok que subas. Cada escena se puede editar, mover o sacar.
+- **Sonido:**
+  - Voz por escena: generada, grabada o subida.
+  - Música sintetizada en código (tres climas y tempo) o tu tema. Los cortes y los golpes caen en los beats.
+  - El total queda a −14 LUFS.
+- **Reglas del estudio:**
+  - Cada cuadro es una función pura del tiempo, con ruido con semilla.
+  - Sin los clichés (título centrado sobre degradé, todo con fundido, rótulos en las esquinas, brillos, partículas).
+  - **Algo nuevo cada 2 a 4 s:** si hay un tramo quieto, la app no deja generar hasta arreglarlo o marcarlo.
+- **Video:** vista previa con sonido, 9:16, 16:9 o los dos. Sale en H.264 si el navegador lo tiene.
+
 ### Series de música: videos de letra
 
 Una serie de tipo **Música** no escribe historias, sino videos de letra. Elegís la serie en el brief y tocás **Empezar un video de letra**:
@@ -46,7 +63,7 @@ Una serie de tipo **Música** no escribe historias, sino videos de letra. Elegí
    - **Tocando:** apretás **Ahora** o la barra espaciadora cuando empieza cada línea.
    - **Importar .lrc:** si ya la tenés sincronizada; si el archivo no coincide con tu letra, trae también la letra.
 3. **Estilo y video.**
-   - Fondo orgánico que se mueve y late con el ritmo, o tu foto, o hasta 4 videos que se pasan uno tras otro en loop. **Prompts para Grok** escribe los clips de fondo según la letra y los colores. Si el fondo lo hizo una IA, va el aviso al pie, y con **Cuadro completo** no se recorta.
+   - Fondo orgánico que se mueve y late con el ritmo, **capas de Grok** (cada una se mueve según su profundidad), tu foto, o hasta 4 videos que se pasan uno tras otro en loop. **Prompts para Grok** escribe los clips de fondo según la letra y los colores. Si el fondo lo hizo una IA, va el aviso al pie, y con **Cuadro completo** no se recorta.
    - Tipografía, tamaño, colores, karaoke, cómo entra cada línea y palabras clave más grandes. Tocás una palabra para marcarla, o le pedís ideas a la IA.
    - Vista previa en vivo, vertical u horizontal (o **los dos formatos de una vez**), desde y hasta qué segundo, y el crédito de la canción.
    - El estilo se puede guardar en la serie.

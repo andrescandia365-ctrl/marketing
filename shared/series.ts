@@ -64,6 +64,29 @@ export const LOOK_PRESETS: Record<"phone" | "digicam", { label: string; look: Se
 };
 export const hasLook = (look: SeriesLook) => Object.values(look).some((v) => v.trim());
 
+// The brand kit for motion graphics: logo, one background, one text colour, ONE accent, one display face for titles
+// and one UI face for everything else. Fonts come from Google Fonts.
+export const DISPLAY_FONTS = ["Space Grotesk", "Archivo Black", "Bricolage Grotesque", "Syne", "DM Serif Display", "Fraunces", "Bebas Neue"] as const;
+export const UI_FONTS = ["Inter", "IBM Plex Sans", "DM Sans", "Work Sans", "Manrope"] as const;
+export const BrandSchema = z.object({
+  bg: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  text: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  accent: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  displayFont: z.string().max(60),
+  uiFont: z.string().max(60),
+  // File name in the series library ("" until uploaded).
+  logo: z.string().max(120),
+});
+export type Brand = z.infer<typeof BrandSchema>;
+export const DEFAULT_BRAND: Brand = {
+  bg: "#111418",
+  text: "#f4f1ea",
+  accent: "#ff5a36",
+  displayFont: "Space Grotesk",
+  uiFont: "Inter",
+  logo: "",
+};
+
 // The two jobs of the playbook, plus lyric videos. Software: features that exist today, the product's loop, real
 // screens. E-commerce: a different product in every episode. Music: lyric videos, with no story.
 export const SERIES_TYPES = ["software", "ecommerce", "music"] as const;
@@ -138,6 +161,7 @@ export const SeriesFieldsSchema = z.object({
   // Music series: how their lyric videos look.
   lyricStyle: LyricStyleSchema,
   look: SeriesLookSchema,
+  brand: BrandSchema,
   cast: z.array(CastMemberSchema).max(60),
 });
 export type SeriesFields = z.infer<typeof SeriesFieldsSchema>;
@@ -159,6 +183,7 @@ export const EMPTY_SERIES: SeriesFields = {
   textStyle: DEFAULT_TEXT_STYLE,
   lyricStyle: DEFAULT_LYRIC_STYLE,
   look: EMPTY_LOOK,
+  brand: DEFAULT_BRAND,
   cast: [],
 };
 
@@ -192,6 +217,7 @@ export function seriesToMarkdown(f: SeriesFields): string {
     `Estilo de texto: ${JSON.stringify(f.textStyle)}`,
     ...(f.type === "music" ? [`Estilo de letra: ${JSON.stringify(f.lyricStyle)}`] : []),
     ...(hasLook(f.look) ? [`Look (cámara y defectos, en todos los prompts): ${JSON.stringify(f.look)}`] : []),
+    `Marca (logo, colores y fuentes para motion graphics): ${JSON.stringify(f.brand)}`,
   ];
   for (const [key, heading] of SECTIONS) {
     const body = isList(key) ? f[key].map((w) => `- ${w}`).join("\n") : f[key].trim();
@@ -231,6 +257,15 @@ export function markdownToSeries(text: string, fallbackName: string): SeriesFiel
     }
   }
 
+  const brand = text.match(/^Marca[^:]*:\s*(\{.*\})\s*$/im)?.[1];
+  if (brand) {
+    try {
+      const parsed = BrandSchema.safeParse({ ...DEFAULT_BRAND, ...JSON.parse(brand) });
+      if (parsed.success) fields.brand = parsed.data;
+    } catch {
+      // A hand-edited line that is not JSON keeps the default brand.
+    }
+  }
   const look = text.match(/^Look[^:]*:\s*(\{.*\})\s*$/im)?.[1];
   if (look) {
     try {

@@ -1,6 +1,8 @@
 // Sample answers used when no Claude key is set, so every step can be tried. They are written for one
 // IMAN short and do not change with what the person types; revisions in sample mode return them unchanged.
-import type { Board, Menu, Story } from "../shared/schema.ts";
+import { normalizeMotion, type MotionScript } from "../shared/motion.ts";
+import type { Board, Brief, Menu, Story } from "../shared/schema.ts";
+import { getSeries } from "./series.ts";
 
 export const DEMO_MENU: Menu = {
   ideas: [
@@ -272,3 +274,37 @@ export const DEMO_BOARD: Board = {
   ],
   issues: [],
 };
+
+// Sample explainer: built from the series' cast so it shows real screens or the product when they exist.
+export function demoMotion(brief: Brief, target: number | null): MotionScript {
+  const series = getSeries(brief.series);
+  const cast = series?.cast ?? [];
+  const screen = cast.find((m) => m.kind === "screen")?.id ?? "";
+  const product = cast.find((m) => m.kind === "product")?.id ?? "";
+  const shop = series?.type === "ecommerce";
+  const scenes = shop
+    ? [
+        { template: "hook", seconds: 2.5, title: "Entra frío por abajo", text: "La puerta deja pasar el aire.", items: [], asset: "", voice: "¿Sentís el frío que entra por abajo de la puerta?", emotion: "cercana" },
+        { template: "product", seconds: 3, title: brief.product.split(/[,.:]/)[0] || "El producto", text: "", items: ["Precio [VERIFY]"], asset: product, voice: "Esto lo frena.", emotion: "segura" },
+        { template: "callouts", seconds: 4, title: "Cómo es", text: "", items: ["Se pega en un minuto", "Para cualquier puerta", "Se lava"], asset: product, voice: "Se pega en un minuto y sirve para cualquier puerta.", emotion: "clara" },
+        { template: "beforeAfter", seconds: 3.5, title: "Antes y después", text: "", items: ["Antes", "Después"], asset: "", assetB: product, voice: "Antes entraba el aire; ahora no.", emotion: "aliviada" },
+        { template: "logo", seconds: 2.5, title: series?.name ?? "", text: series?.tagline ?? "", items: ["Mirá el link"], asset: "", voice: "Tu casa, más tibia.", emotion: "cálida" },
+      ]
+    : [
+        { template: "hook", seconds: 2.5, title: "El corte es a las 18", text: "Y el pedido se arma a ojo.", items: [], asset: "", voice: "El proveedor corta a las seis.", emotion: "apurada" },
+        { template: "screen", seconds: 3, title: "Stock en el celular", text: "Lo que queda, sin contar a mano.", items: [], asset: screen, voice: "En el celular ves lo que queda.", emotion: "tranquila" },
+        { template: "zoom", seconds: 3.5, title: "Lo que falta", text: "", items: [], asset: screen, focusX: 0.5, focusY: 0.35, zoom: 2.2, voice: "Lo que falta aparece arriba.", emotion: "clara" },
+        { template: "steps", seconds: 4, title: "Pedí antes del corte", text: "", items: ["Abrí Stock", "Marcá lo que falta", "Mandá el pedido"], asset: "", voice: "Tres pasos y el pedido sale.", emotion: "segura" },
+        { template: "stat", seconds: 3, title: "3 minutos", text: "para armar el pedido [VERIFY]", items: [], asset: "", voice: "", emotion: "" },
+        { template: "logo", seconds: 2.5, title: series?.name ?? "IMAN", text: series?.tagline ?? "", items: ["Probalo en tu kiosco"], asset: "", voice: "Números claros.", emotion: "cálida" },
+      ];
+  const scale = target ? target / scenes.reduce((n, s) => n + s.seconds, 0) : 1;
+  return normalizeMotion({
+    problem: shop ? "El frío que entra por abajo de la puerta" : "Armar el pedido antes del corte del proveedor",
+    title: shop ? "El burlete en 15 segundos" : "Pedir antes del corte",
+    durationNote: "Ejemplo de muestra, sin clave de IA.",
+    scenes: scenes.map((s) => ({ assetB: "", focusX: 0.5, focusY: 0.5, zoom: 2, ...s, seconds: s.seconds * scale })),
+    music: { mood: "drive", bpm: 112 },
+    note: "Guion de muestra. Los datos marcados [VERIFY] hay que confirmarlos.",
+  });
+}

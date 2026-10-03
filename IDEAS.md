@@ -49,6 +49,17 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
     - el look y la toma continua se eligen por serie y por pieza;
     - un hero still por escena.
 
+- **Motion graphics, parte A (3 Oct 2026, idea 31):**
+  - **Kit de marca por serie:** logo, fondo, texto, un acento, fuente de títulos y de interfaz.
+  - **Motor:** cada cuadro es una función pura de t, con ruido con semilla, y 9 plantillas sin clichés.
+  - **Explicativo en el brief:** duración automática o a mano; guion de la IA editable por escena.
+  - **Sonido:** voz, música sintetizada o propia, golpes en los beats y −14 LUFS (verificado con ffmpeg).
+  - **Check "algo nuevo cada 2–4 s"**, que bloquea el render.
+  - **Videos de letra:** capas de Grok con parallax; la entrada por defecto pasa de "fundido" a "sube".
+  - **Pendiente:**
+    - B: la línea de tiempo.
+    - C: el loop de calidad con la IA y el render con ffmpeg (H.264 yuv420p, CRF 16).
+
 ## Decisiones tomadas (2 Oct 2026)
 1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma. **Personajes:** usar las voces de Grok (panel Audio: Ara, Eve, Leo, Rex, Sal…, más audios subidos o grabados); cada personaje tiene una voz asignada y el prompt de video la pide. Grok no deja descargar el audio solo, así que esa voz vive dentro del clip. **Narrador:** las 4 opciones, según la escena.
 2. **Escuchar en voz alta:** para escucharlos vos.

@@ -41,6 +41,7 @@ function toSeries(id: string, text: string): Series {
     textStyle: f.textStyle,
     lyricStyle: f.lyricStyle,
     look: f.look,
+    brand: f.brand,
     cast: f.cast,
     text,
   };
@@ -110,6 +111,20 @@ export function setCastImage(id: string, castId: string, data: Buffer, type: str
   writeFileSync(join(dir, file), data);
   member.image = file;
   saveSeries(id, fields);
+  return file;
+}
+
+// The brand logo lives in the series library as logo.<ext>.
+export function setLogo(id: string, data: Buffer, type: string): string {
+  const fields = getSeriesFields(id);
+  const ext = IMAGE_EXT[type.split(";")[0].trim()];
+  if (!ext) throw new SeriesError("Ese archivo no es una imagen.");
+  const dir = join(LIBRARY_DIR, id);
+  mkdirSync(dir, { recursive: true });
+  const file = `logo.${ext}`;
+  if (fields.brand.logo && fields.brand.logo !== file) rmSync(join(dir, fields.brand.logo), { force: true });
+  writeFileSync(join(dir, file), data);
+  saveSeries(id, { ...fields, brand: { ...fields.brand, logo: file } });
   return file;
 }
 

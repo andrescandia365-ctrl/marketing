@@ -53,7 +53,7 @@ export async function audioDuration(blob: Blob): Promise<number> {
 }
 
 // Records the microphone while showing the line to read.
-function Recorder({ line, onDone }: { line: string; onDone: (blob: Blob) => void }) {
+export function Recorder({ line, onDone }: { line: string; onDone: (blob: Blob) => void }) {
   const [state, setState] = useState<"idle" | "recording" | "error">("idle");
   const [error, setError] = useState("");
   const recorder = useRef<MediaRecorder | null>(null);

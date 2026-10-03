@@ -58,6 +58,13 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   a 15 s handheld take with a `timeline` of beats (speaker, line, emotion, camera action); its visualPrompt is the hero
   still and its videoPrompt the director's prompt; subtitles follow the timeline and its voice defaults to Grok.
   Every story line has an `emotion`.
+- Motion graphics (`brief.piece = "explainer"`, `MotionStudio`): the writer returns a scene script (`shared/motion.ts`,
+  templates hook/screen/zoom/callouts/steps/beforeAfter/product/stat/logo); `src/lib/motion.ts` draws frame t as a pure
+  function of time (seeded mulberry32 noise, never Math.random, no timers) with the series `brand` (logo, bg, text, one
+  accent, display + UI Google Fonts). Studio rules: no stock defaults (centred title on gradient, everything fading in,
+  corner labels, frame borders, glow, particle bursts); something new every 2-4 s (`quietGaps` blocks rendering);
+  scenes snap to the beat grid; `motionAudio.ts` synthesizes the score and hits and normalizes to -14 LUFS with the
+  BS.1770 K-weighting (matches ffmpeg ebur128), peaks under -1.5 dBFS. Lyric videos can use Grok's layers (parallax).
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
   a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Voices
   and sound effects are per-shot project media; one music track per piece ducks under speech and can pull the

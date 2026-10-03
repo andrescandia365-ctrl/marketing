@@ -5,6 +5,7 @@ import { Button } from "./ui.tsx";
 const STEP_LABEL: Record<string, string> = {
   brief: "Brief",
   lyrics: "Video de letra",
+  motion: "Explicativo",
   menu: "Menú",
   story: "Historia",
   board: "Storyboard",

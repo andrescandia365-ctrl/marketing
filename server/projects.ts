@@ -154,6 +154,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       const state = p.state as {
         story?: { problem?: string; title?: string };
         lyrics?: { title?: string; artist?: string };
+        motion?: { script?: { problem?: string } | null };
         menu?: unknown;
         pieceBrief?: { series?: string };
         step?: string;
@@ -165,6 +166,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
           state.story?.problem ||
           state.story?.title ||
           (state.lyrics?.title && `♪ ${state.lyrics.title}${state.lyrics.artist ? ` · ${state.lyrics.artist}` : ""}`) ||
+          (state.motion && `▶ ${state.motion.script?.problem || "Explicativo"}`) ||
           "Sin título todavía",
         series: state.pieceBrief?.series ?? "",
         step: state.step ?? "brief",

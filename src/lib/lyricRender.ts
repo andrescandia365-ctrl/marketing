@@ -17,6 +17,7 @@ import {
   getFirstEncodableVideoCodec,
 } from "mediabunny";
 import { LYRIC_FONT_FAMILY, type LyricPiece } from "../../shared/lyrics.ts";
+import { drawLayers, type MotionAsset } from "./motion.ts";
 import { findBeats, type RenderResult } from "./render.ts";
 
 const FPS = 30;
@@ -139,9 +140,16 @@ export function drawLyricFrame(
   piece: LyricPiece,
   bg: Backdrop,
   beats: number[],
+  layers: MotionAsset[] = [],
 ) {
   const style = piece.style;
-  if (style.background === "media" && bg) drawBackdrop(ctx, w, h, bg, piece.fullFrame);
+  if (style.background === "layers" && layers.length) {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, h);
+    drawLayers(ctx, w, h, t, layers, beats, 1003);
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.fillRect(0, 0, w, h);
+  } else if (style.background === "media" && bg) drawBackdrop(ctx, w, h, bg, piece.fullFrame);
   else drawOrganic(ctx, w, h, t, piece, beats);
 
   const unit = Math.min(w, h);
@@ -226,7 +234,7 @@ export function drawLyricFrame(
 
   // The song's credit, and the AI notice when the own background was made with AI.
   const notes = [
-    style.background === "media" && bg && piece.aiBackground ? "Fondo hecho con IA" : "",
+    ((style.background === "media" && bg) || (style.background === "layers" && layers.length)) && piece.aiBackground ? "Fondo hecho con IA" : "",
     piece.credit && (piece.title || piece.artist) ? `♪ ${[piece.title, piece.artist].filter(Boolean).join(" — ")}` : "",
   ].filter(Boolean);
   if (notes.length) {
@@ -285,7 +293,7 @@ function cutSong(buffer: AudioBuffer, from: number, to: number): AudioBuffer {
 
 export async function renderLyricVideo(
   song: Blob,
-  background: { image?: HTMLImageElement; clips?: Blob[] },
+  background: { image?: HTMLImageElement; clips?: Blob[]; layers?: HTMLImageElement[] },
   piece: LyricPiece,
   onProgress: (fraction: number) => void,
 ): Promise<RenderResult> {
@@ -328,6 +336,7 @@ export async function renderLyricVideo(
   } else notes.push("La canción quedó afuera: este navegador no puede codificar audio.");
 
   const useMedia = piece.style.background === "media";
+  const layerAssets: MotionAsset[] = (background.layers ?? []).map((img, k) => ({ image: img, width: img.naturalWidth, height: img.naturalHeight, name: `layer:${k}` }));
   let still: Backdrop = null;
   if (useMedia && background.image) {
     still = { source: background.image, width: background.image.naturalWidth, height: background.image.naturalHeight };
@@ -369,7 +378,7 @@ export async function renderLyricVideo(
         const next = await readers[order[f]].next();
         if (!next.done && next.value) bg = { source: next.value.canvas, width: w, height: h };
       }
-      drawLyricFrame(ctx, w, h, t, piece, bg, beats);
+      drawLyricFrame(ctx, w, h, t, piece, bg, beats, layerAssets);
       await video.add(f / FPS, 1 / FPS);
       if (f % 15 === 0) onProgress(0.03 + 0.97 * (f / frames));
     }

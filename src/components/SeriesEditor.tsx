@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import {
   CAST_KIND_LABEL,
+  DISPLAY_FONTS,
   EMPTY_LOOK,
+  UI_FONTS,
   EMPTY_SERIES,
   LOOK_PRESETS,
   SERIES_TYPE_LABEL,
@@ -10,8 +12,10 @@ import {
   type CastKind,
   type CastMember,
   type SeriesFields,
+  type Brand,
   type SeriesLook,
 } from "../../shared/series.ts";
+import { ensureFont } from "../lib/fonts.ts";
 import { SheetBuilder } from "./SheetBuilder.tsx";
 import { CopyButton } from "./ScriptView.tsx";
 import { api, libraryFileUrl } from "../lib/api.ts";
@@ -136,6 +140,106 @@ function CastCard({
   );
 }
 
+// The brand kit for motion graphics: logo, three colours (one accent) and two fonts.
+function BrandSection({
+  brand,
+  seriesId,
+  version,
+  onChange,
+  onLogo,
+}: {
+  brand: Brand;
+  seriesId: string | null;
+  version: number;
+  onChange: (brand: Brand) => void;
+  onLogo: (file: File) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    ensureFont(brand.displayFont);
+    ensureFont(brand.uiFont);
+  }, [brand.displayFont, brand.uiFont]);
+  const logo = seriesId && brand.logo ? libraryFileUrl(seriesId, brand.logo, version) : undefined;
+  const color = (key: "bg" | "text" | "accent", label: string) => (
+    <label className="flex items-center gap-1.5 text-xs">
+      <input type="color" value={brand[key]} onChange={(e) => onChange({ ...brand, [key]: e.target.value })} />
+      {label}
+    </label>
+  );
+  return (
+    <Field
+      label="Marca (motion graphics)"
+      group
+      hint="Logo, un fondo, un color de texto, UN acento, una fuente de títulos y una de interfaz. Los explicativos y los videos de letra las usan."
+    >
+      <div className="grid gap-3 sm:grid-cols-[120px_minmax(0,1fr)]">
+        <div className="space-y-1">
+          <label
+            className={`grid aspect-square w-[120px] cursor-pointer place-items-center overflow-hidden rounded-lg border border-dashed border-line bg-paper text-xs text-muted ${!seriesId ? "opacity-60" : ""}`}
+            title={seriesId ? "Subir el logo" : "Guardá la serie primero"}
+          >
+            {logo ? <img src={logo} alt="Logo" className="size-full object-contain p-2" /> : busy ? <Spinner /> : "Subir logo"}
+            <input
+              type="file"
+              accept="image/png,image/webp,image/jpeg"
+              className="hidden"
+              disabled={!seriesId || busy}
+              aria-label="Subir el logo"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                setBusy(true);
+                setError("");
+                try {
+                  await onLogo(file);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />
+          </label>
+          {error && <p className="text-xs text-neg">{error}</p>}
+        </div>
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-3">
+            {color("bg", "Fondo")}
+            {color("text", "Texto")}
+            {color("accent", "Acento (uno solo)")}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="block text-xs">
+              <span className="font-semibold">Fuente de títulos</span>
+              <select className={`${inputClass} mt-0.5 py-1`} value={brand.displayFont} onChange={(e) => onChange({ ...brand, displayFont: e.target.value })}>
+                {DISPLAY_FONTS.map((f) => (
+                  <option key={f}>{f}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs">
+              <span className="font-semibold">Fuente de interfaz</span>
+              <select className={`${inputClass} mt-0.5 py-1`} value={brand.uiFont} onChange={(e) => onChange({ ...brand, uiFont: e.target.value })}>
+                {UI_FONTS.map((f) => (
+                  <option key={f}>{f}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="rounded-lg p-3" style={{ background: brand.bg, color: brand.text }}>
+            <p style={{ fontFamily: `"${brand.displayFont}"`, fontWeight: 700, fontSize: 22, lineHeight: 1.1 }}>
+              Armá el pedido <span style={{ color: brand.accent }}>antes del corte</span>
+            </p>
+            <p style={{ fontFamily: `"${brand.uiFont}"`, fontSize: 13, opacity: 0.85 }}>Así se ven los títulos y el texto.</p>
+          </div>
+        </div>
+      </div>
+    </Field>
+  );
+}
+
 const LOOK_FIELDS: { key: keyof SeriesLook; label: string; hint: string }[] = [
   { key: "camera", label: "Cámara", hint: "Ej.: celular en mano; compacta digital de los 2000." },
   { key: "flash", label: "Flash", hint: "Ej.: flash directo que aplana la cara; sin flash." },
@@ -186,11 +290,13 @@ type Props = {
   // null: a new series.
   id: string | null;
   onSaved: (series: SeriesInfo[], id: string) => void;
+  // The logo is saved at once; the app's copy of the series follows.
+  onLogoSaved?: (series: SeriesInfo[]) => void;
   onDeleted: (series: SeriesInfo[]) => void;
   onClose: () => void;
 };
 
-export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
+export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: Props) {
   const [fields, setFields] = useState<SeriesFields | null>(id ? null : EMPTY_SERIES);
   // "Lo que existe hoy" is edited as text, one item per line.
   const [works, setWorks] = useState("");
@@ -220,7 +326,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
 
   const music = fields.type === "music";
   const set = <K extends keyof SeriesFields>(key: K, value: SeriesFields[K]) => setFields({ ...fields, [key]: value });
-  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "type" | "textStyle" | "lyricStyle" | "look" | "cast">, rows = 4) => (
+  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "type" | "textStyle" | "lyricStyle" | "look" | "brand" | "cast">, rows = 4) => (
     <textarea className={inputClass} rows={rows} value={fields[key]} onChange={(e) => set(key, e.target.value)} />
   );
 
@@ -327,6 +433,20 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
       >
         {text("what", 3)}
       </Field>
+
+      <BrandSection
+        brand={fields.brand}
+        seriesId={id}
+        version={version}
+        onChange={(brand) => set("brand", brand)}
+        onLogo={async (file) => {
+          if (!id) return;
+          const { file: logo, series } = await api.uploadLogo(id, file);
+          setFields((f) => (f ? { ...f, brand: { ...f.brand, logo } } : f));
+          setVersion(Date.now());
+          onLogoSaved?.(series);
+        }}
+      />
 
       {!music && <LookSection look={fields.look} onChange={(look) => set("look", look)} />}
 

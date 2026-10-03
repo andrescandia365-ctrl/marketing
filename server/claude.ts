@@ -27,6 +27,7 @@ import {
   type TopicIdea,
 } from "../shared/schema.ts";
 import { EMPTY_BRIEF } from "../shared/example.ts";
+import { MotionScriptSchema, normalizeMotion, type MotionScript } from "../shared/motion.ts";
 import { BackgroundPromptsSchema, LyricIdeasSchema, SecondLinesSchema, type BackgroundPrompts, type LyricIdeas } from "../shared/lyrics.ts";
 import { LENGTHS } from "../shared/template.ts";
 import { CAST, PRACTICES, WORKS_TODAY } from "../shared/series.ts";
@@ -490,4 +491,39 @@ ${given}
 The sheet prompt: 16:9 grid of six panels, no people, no text. Panel 1: wide exterior. Panel 2: the hero angle, where most scenes are shot, at eye or seated height. Panel 3: the reverse angle. Panels 4 and 5: close details that will show in shots. Panel 6: the view out (a window, the street, the door). The same light in every panel, with where it comes from. Realism: real wear, scuffs, dust, uneven surfaces.
 The views: each panel as a separate standalone prompt with the full description.`;
   return ask({ ...lyricBrief(series), tool: "grok-imagine" }, true, task, SheetSchema);
+}
+
+// A motion-graphics explainer (software: how the app does something; e-commerce: the episode's product). Follows the
+// studio's rules: hook in 2 s, something new every 2 to 4 s, no stock defaults, one accent, the brand's fonts.
+export async function motionScript(brief: Brief, target: number | null, layers: number): Promise<MotionScript> {
+  const series = getSeries(brief.series);
+  const cast = (series?.cast ?? [])
+    .map((m) => `- ${m.id} (${m.kind}${m.image ? ", has image" : ", no image yet"}): ${m.name}. ${m.identity}`)
+    .join("\n");
+  return normalizeMotion(
+    await ask(
+      brief,
+      false,
+      `Brief:
+${describeBrief(brief)}
+
+Write a motion-graphics explainer, not a story: ${series?.type === "ecommerce" ? "this episode's product, what it is and what it fixes at home" : "how the app solves one concrete problem, shown on its real screens"}. ${target ? `It lasts ${target} seconds in total.` : "Choose the length from how much there is to explain (15 to 60 seconds) and say why in durationNote."}
+
+What you can show (the series' fixed cast; use ids exactly; only members with an image will render, others show a placeholder):
+${cast || "- (nothing yet: use hook, steps, stat and logo, and say in note what is missing)"}
+${layers ? `Uploaded layers: ${Array.from({ length: layers }, (_, i) => `layer:${i}`).join(", ")}.` : ""}
+
+The studio's rules:
+- The first scene is a hook that names the problem within 2 seconds.
+- Something new appears on screen every 2 to 4 seconds: a scene change, a label, a step, a zoom. Never a still stretch longer than 4 seconds.
+- Never the stock defaults: a centred title on a gradient, everything fading in, corner labels, frame borders, glow on UI chrome, generic particle bursts.
+- The brand's colours with one accent, its display face for titles and its UI face for the rest (the "Marca" line).
+- Readable on a phone: titles up to 6 words, up to 4 labels of up to 5 words.
+- Only what the series lists as working today is shown as real; never invent a feature, a price or a number (leave items empty and note it).
+- Voice lines in Rioplatense Spanish, each with its emotion, fitting its scene at about 2.5 words per second.
+- The last scene is the logo with a soft call to action.
+- music: a mood (calm, drive or bright) and a tempo for the synthesized score.`,
+      MotionScriptSchema,
+    ),
+  );
 }

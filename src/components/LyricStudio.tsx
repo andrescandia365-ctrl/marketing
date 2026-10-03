@@ -21,6 +21,7 @@ import {
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { api, projectFileUrl, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
 import { blobToDataUrl } from "../lib/files.ts";
+import type { MotionAsset } from "../lib/motion.ts";
 import { decodeSong, drawLyricFrame, loadLyricFonts, renderLyricVideo, songBeats, type Backdrop } from "../lib/lyricRender.ts";
 import { download, slug } from "../lib/markdown.ts";
 import { CopyButton } from "./ScriptView.tsx";
@@ -32,6 +33,7 @@ export type LyricOpen = { piece: LyricPiece; music: MediaFileRecord | null; medi
 // Background clips (Grok's or the person's own) play one after the other; each sits in a media slot of the project.
 type BgClip = { slot: number; url: string; blob: Blob; name: string };
 const MAX_CLIPS = 4;
+const LAYER_BASE = 200;
 
 type Props = {
   projectId: string | null;
@@ -71,6 +73,8 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
   const [song, setSong] = useState<AudioFile | null>(null);
   const [buffer, setBuffer] = useState<AudioBuffer | null>(null);
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
+  // Grok's separated layers, back to front (project media slots 200 + n).
+  const [layers, setLayers] = useState<HTMLImageElement[]>([]);
   const [bgClips, setBgClips] = useState<BgClip[]>([]);
   const [busy, setBusy] = useState<null | "sync" | "ideas" | "second" | "render" | "upload" | "style" | "prompts" | "lrc">(null);
   const [error, setError] = useState("");
@@ -107,6 +111,15 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
       img.onload = () => setBgImage(img);
       img.src = projectFileUrl(projectId, media["0"].image);
     }
+    Promise.all(
+      Array.from({ length: initial.piece.layers ?? 0 }, (_, k) => {
+        const file = media[LAYER_BASE + k]?.image;
+        if (!file) return Promise.resolve(null);
+        const img = new Image();
+        img.src = projectFileUrl(projectId, file);
+        return img.decode().then(() => img, () => null);
+      }),
+    ).then((imgs) => setLayers(imgs.filter((x): x is HTMLImageElement => Boolean(x))));
     for (let slot = 0; slot < MAX_CLIPS; slot++) {
       const clip = media[slot]?.clip;
       if (!clip) continue;
@@ -197,6 +210,30 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
       }
       setStyle({ background: "media" });
     });
+  }
+
+  async function addLayers(files: File[]) {
+    await work("upload", async () => {
+      const start = layers.length;
+      const images = files.filter((f) => f.type.startsWith("image/")).slice(0, 8 - start);
+      const loaded: HTMLImageElement[] = [];
+      for (const file of images) {
+        const img = new Image();
+        img.src = await blobToDataUrl(file);
+        await img.decode();
+        loaded.push(img);
+      }
+      setLayers((l) => [...l, ...loaded]);
+      setPiece((p) => ({ ...p, layers: start + loaded.length, style: { ...p.style, background: "layers" } }));
+      if (projectId) for (let k = 0; k < images.length; k++) await api.uploadMedia(projectId, LAYER_BASE + start + k, "image", images[k]);
+    });
+  }
+
+  async function clearLayers() {
+    const count = layers.length;
+    setLayers([]);
+    setPiece((p) => ({ ...p, layers: 0 }));
+    if (projectId) for (let k = 0; k < count; k++) await api.removeMedia(projectId, LAYER_BASE + k, "image").catch(() => undefined);
   }
 
   async function removeClip(slot: number) {
@@ -494,6 +531,9 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
           audio={audioRef}
           bgImage={bgImage}
           bgClips={bgClips}
+          layers={layers}
+          onLayers={addLayers}
+          onClearLayers={clearLayers}
           onRemoveClip={removeClip}
           onPrompts={() =>
             work("prompts", async () => {
@@ -679,6 +719,9 @@ type VideoTabProps = {
   audio: React.RefObject<HTMLAudioElement | null>;
   bgImage: HTMLImageElement | null;
   bgClips: BgClip[];
+  layers: HTMLImageElement[];
+  onLayers: (files: File[]) => void;
+  onClearLayers: () => void;
   onRemoveClip: (slot: number) => void;
   onPrompts: () => Promise<BackgroundPrompts | null>;
   busy: string | null;
@@ -695,7 +738,11 @@ type VideoTabProps = {
 };
 
 function VideoTab(props: VideoTabProps) {
-  const { piece, song, beats, audio, bgImage, bgClips, busy, set, setStyle } = props;
+  const { piece, song, beats, audio, bgImage, bgClips, layers, busy, set, setStyle } = props;
+  const layerAssets: MotionAsset[] = useMemo(
+    () => layers.map((img, k) => ({ image: img, width: img.naturalWidth, height: img.naturalHeight, name: `layer:${k}` })),
+    [layers],
+  );
   const style = piece.style;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -728,13 +775,13 @@ function VideoTab(props: VideoTabProps) {
         let bg: Backdrop = null;
         if (video && video.readyState >= 2) bg = { source: video, width: video.videoWidth, height: video.videoHeight };
         else if (bgImage) bg = { source: bgImage, width: bgImage.naturalWidth, height: bgImage.naturalHeight };
-        drawLyricFrame(ctx, canvas.width, canvas.height, t, pieceRef.current, bg, beats);
+        drawLyricFrame(ctx, canvas.width, canvas.height, t, pieceRef.current, bg, beats, layerAssets);
       }
       frame = requestAnimationFrame(draw);
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
-  }, [audio, bgImage, beats]);
+  }, [audio, bgImage, beats, layerAssets]);
 
   // One format, or both one after the other; each is saved in the project as video-vertical / video-horizontal.
   async function render(formats: LyricPiece["format"][]) {
@@ -747,7 +794,7 @@ function VideoTab(props: VideoTabProps) {
       for (const [n, format] of formats.entries()) {
         const out = await renderLyricVideo(
           song.blob,
-          { image: bgImage ?? undefined, clips: bgClips.map((c) => c.blob) },
+          { image: bgImage ?? undefined, clips: bgClips.map((c) => c.blob), layers },
           { ...piece, format },
           (f) => setProgress((n + f) / formats.length),
         );
@@ -809,11 +856,45 @@ function VideoTab(props: VideoTabProps) {
             onChange={(background) => setStyle({ background })}
             options={[
               { value: "organic", label: "Orgánico" },
+              { value: "layers", label: "Capas de Grok" },
               { value: "media", label: "Foto o video propio" },
             ]}
           />
         </Field>
-        {style.background === "organic" ? (
+        {style.background === "layers" && (
+          <div className="space-y-2">
+            <p className="text-xs text-muted">
+              Las capas que separa Grok (Segmentos → Descargar todo), del fondo al frente. Cada una se mueve según su profundidad y
+              late con el ritmo.
+            </p>
+            <input
+              type="file"
+              accept="image/png,image/webp,image/*"
+              multiple
+              aria-label="Subir capas"
+              className="text-sm"
+              onChange={(e) => {
+                if (e.target.files?.length) props.onLayers([...e.target.files]);
+                e.target.value = "";
+              }}
+            />
+            {layers.length > 0 && (
+              <p className="flex items-center gap-2 text-xs text-muted">
+                {layers.length} capa(s).
+                <button type="button" className="font-semibold hover:text-ink" onClick={props.onClearLayers}>
+                  Quitar
+                </button>
+              </p>
+            )}
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" checked={piece.aiBackground} onChange={(e) => set({ aiBackground: e.target.checked })} />
+              <span>
+                <b>Aviso: fondo hecho con IA</b>
+              </span>
+            </label>
+          </div>
+        )}
+        {style.background === "layers" ? null : style.background === "organic" ? (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               {style.palette.map((c, i) => (

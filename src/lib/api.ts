@@ -13,6 +13,7 @@ import type {
   Story,
   TopicIdea,
 } from "../../shared/schema.ts";
+import type { MotionScript } from "../../shared/motion.ts";
 import type { BackgroundPrompts, LyricLanguage, LyricLine, LyricStyle } from "../../shared/lyrics.ts";
 import type { CastMember, SeriesFields, TextStyle } from "../../shared/series.ts";
 
@@ -124,6 +125,8 @@ export const api = {
     }
     return res.blob();
   },
+  uploadLogo: (seriesId: string, image: Blob) =>
+    upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/logo`, image, image.type),
   saveLyricStyle: (id: string, lyricStyle: LyricStyle) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${enc(id)}/lyric-style`, { lyricStyle }, "PUT"),
   // Automatic sync: the song is transcribed with word times and matched to the lines.
@@ -162,6 +165,8 @@ export const api = {
       mood: style.mood,
       format,
     }),
+  motion: (brief: Brief, target: number | null, layers: number) =>
+    call<{ script: MotionScript } & Demo>("/api/motion", { brief, target, layers }),
   sheet: (series: string, template: SheetTemplate, details: Record<string, string>, age: number) =>
     call<Sheet & Demo>("/api/sheet", { series, template, details, age }),
   productShot: (brief: Brief) => call<ProductShot & Demo>("/api/product-shot", { brief }),

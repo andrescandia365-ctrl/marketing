@@ -11,6 +11,7 @@ import { BoardView } from "./components/BoardView.tsx";
 import { BriefForm } from "./components/BriefForm.tsx";
 import { MenuPicker } from "./components/MenuPicker.tsx";
 import { LyricStudio, type LyricOpen } from "./components/LyricStudio.tsx";
+import { MotionStudio, type MotionOpen } from "./components/MotionStudio.tsx";
 import { ProductPanel } from "./components/ProductPanel.tsx";
 import { ProjectsPanel } from "./components/ProjectsPanel.tsx";
 import { SeriesEditor } from "./components/SeriesEditor.tsx";
@@ -33,7 +34,8 @@ import { blobToDataUrl, pictureForReview, readImageFile } from "./lib/files.ts";
 import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from "./lib/markdown.ts";
 
 // "lyrics": a lyric video (series of type music), with its own steps inside.
-type Step = "brief" | "menu" | "story" | "board" | "production" | "lyrics";
+// "motion": a motion-graphics explainer (software or one product).
+type Step = "brief" | "menu" | "story" | "board" | "production" | "lyrics" | "motion";
 
 // What a project folder's project.json holds (media files are tracked by the server).
 type SavedState = {
@@ -108,6 +110,7 @@ export function App() {
 
   // The open lyric video, if this piece is one; `key` remounts it for another piece.
   const [lyric, setLyric] = useState<{ key: string; initial: LyricOpen | null } | null>(null);
+  const [motion, setMotion] = useState<{ key: string; initial: MotionOpen | null } | null>(null);
   // The project folder this piece autosaves into.
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -177,8 +180,8 @@ export function App() {
 
   // Autosave: a short pause after any change writes the state (and pieza.md) into the project folder.
   useEffect(() => {
-    // A lyric video saves itself.
-    if (!projectId || lyric) return;
+    // Lyric videos and explainers save themselves.
+    if (!projectId || lyric || motion) return;
     unsaved.current = true;
     setSaveStatus("saving");
     const seq = ++saveSeq.current;
@@ -216,7 +219,7 @@ export function App() {
     }, 800);
     return () => clearTimeout(timer);
     // toolName only changes with the brief or the status, which are covered.
-  }, [projectId, lyric, step, pieceBrief, menu, demo, story, storyRound, board, boardRound, boardApproved, log, dismissed, audio]);
+  }, [projectId, lyric, motion, step, pieceBrief, menu, demo, story, storyRound, board, boardRound, boardApproved, log, dismissed, audio]);
 
   function addLog(entry: Omit<LogEntry, "at">) {
     setLog((l) => [...l, { ...entry, at: Date.now() - logStart.current }]);
@@ -267,6 +270,7 @@ export function App() {
     setAudio(DEFAULT_AUDIO);
     setMusic(null);
     setLyric(null);
+    setMotion(null);
     logStart.current = Date.now();
   }
 
@@ -280,11 +284,17 @@ export function App() {
   async function openProject(id: string) {
     const project = await run("open", () => api.project(id));
     if (!project) return;
-    const st = project.state as Partial<SavedState> & { kind?: string; lyrics?: LyricOpen["piece"] };
+    const st = project.state as Partial<SavedState> & { kind?: string; lyrics?: LyricOpen["piece"]; motion?: MotionOpen["piece"] };
     resetPiece();
     const pb = { ...EMPTY_BRIEF, ...(st.pieceBrief ?? brief) };
     setBrief(pb);
     setPieceBrief(pb);
+    if (st.kind === "motion" && st.motion) {
+      setProjectId(id);
+      setMotion({ key: id, initial: { piece: st.motion, media: project.media, music: project.music } });
+      setStep("motion");
+      return;
+    }
     if (st.kind === "lyrics" && st.lyrics) {
       setProjectId(id);
       setLyric({ key: id, initial: { piece: st.lyrics, music: project.music, media: project.media } });
@@ -351,8 +361,8 @@ export function App() {
     }
   }
 
-  // A lyric video: its own project folder, then the song.
-  async function startLyrics() {
+  // A lyric video or an explainer: its own project folder, then its studio.
+  async function startStudio(kind: "lyrics" | "motion") {
     resetPiece();
     setError("");
     setPieceBrief(brief);
@@ -363,8 +373,10 @@ export function App() {
       setError(`Se puede seguir, pero no se pudo crear la carpeta del proyecto: ${message(e)}`);
     }
     setProjectId(id);
-    setLyric({ key: id ?? String(Date.now()), initial: null });
-    setStep("lyrics");
+    const open = { key: id ?? String(Date.now()), initial: null };
+    if (kind === "lyrics") setLyric(open);
+    else setMotion(open);
+    setStep(kind);
   }
 
   // Step 1 → menu. A new piece gets its own project folder.
@@ -744,13 +756,18 @@ export function App() {
         { id: "brief", label: "1 · Brief", enabled: true },
         { id: "lyrics", label: "2 · Video de letra", enabled: true },
       ]
-    : [
-        { id: "brief", label: "1 · Brief", enabled: true },
-        { id: "menu", label: "2 · Menú", enabled: menu !== null },
-        { id: "story", label: "3 · Historia", enabled: story !== null },
-        { id: "board", label: "4 · Storyboard", enabled: board !== null },
-        { id: "production", label: "5 · Producción", enabled: board !== null && (boardApproved || step === "production") },
-      ];
+    : motion
+      ? [
+          { id: "brief", label: "1 · Brief", enabled: true },
+          { id: "motion", label: "2 · Explicativo", enabled: true },
+        ]
+      : [
+          { id: "brief", label: "1 · Brief", enabled: true },
+          { id: "menu", label: "2 · Menú", enabled: menu !== null },
+          { id: "story", label: "3 · Historia", enabled: story !== null },
+          { id: "board", label: "4 · Storyboard", enabled: board !== null },
+          { id: "production", label: "5 · Producción", enabled: board !== null && (boardApproved || step === "production") },
+        ];
 
   return (
     <div className="mx-auto max-w-6xl px-4 pt-6 pb-16">
@@ -807,7 +824,7 @@ export function App() {
       </nav>
 
       <div className="mt-6 space-y-4">
-        {status && !status.writer && !lyric && (
+        {status && !status.writer && !lyric && !motion && (
           <Notice tone="warn">
             <b>Modo de muestra.</b> No hay clave de IA: el menú, la historia y el storyboard son un ejemplo fijo de
             IMAN, y las revisiones no cambian nada. Agregá <code>ANTHROPIC_API_KEY</code> (Claude) o <code>KIMI_API_KEY</code> (Kimi) en <code>.env</code> y reiniciá
@@ -825,6 +842,7 @@ export function App() {
               setBrief((b) => ({ ...b, series: id }));
               setEditingSeries(undefined);
             }}
+            onLogoSaved={(series) => setStatus((s) => (s ? { ...s, series } : s))}
             onDeleted={(series) => {
               setStatus((s) => (s ? { ...s, series } : s));
               setBrief((b) => ({ ...b, series: series[0]?.id ?? "" }));
@@ -857,7 +875,7 @@ export function App() {
             />
             {currentSeries?.type === "music" ? (
               <div className="flex items-center gap-3 border-t border-line pt-5">
-                <Button onClick={startLyrics} disabled={busy !== null}>
+                <Button onClick={() => startStudio("lyrics")} disabled={busy !== null}>
                   Empezar un video de letra
                 </Button>
                 {lyric && (
@@ -865,6 +883,18 @@ export function App() {
                     Volver al video abierto
                   </Button>
                 )}
+              </div>
+            ) : brief.piece === "explainer" ? (
+              <div className="flex items-center gap-3 border-t border-line pt-5">
+                <Button onClick={() => startStudio("motion")} disabled={busy !== null || needsProduct}>
+                  Empezar un explicativo
+                </Button>
+                {motion && (
+                  <Button variant="secondary" onClick={() => setStep("motion")}>
+                    Volver al explicativo abierto
+                  </Button>
+                )}
+                {needsProduct && <span className="text-sm text-muted">Para {currentSeries?.name}, escribí el producto del episodio.</span>}
               </div>
             ) : (
               <div className="flex items-center gap-3 border-t border-line pt-5">
@@ -891,6 +921,20 @@ export function App() {
               onDelete={removeProject}
             />
           </section>
+        )}
+
+        {step === "motion" && motion && pieceSeries && (
+          <MotionStudio
+            key={motion.key}
+            projectId={projectId}
+            brief={pieceBrief}
+            series={pieceSeries}
+            initial={motion.initial}
+            voiceAvailable={status?.voice.available ?? false}
+            defaultVoice={status?.voice.defaultVoice ?? ""}
+            projectsDir={status?.projectsDir ?? "proyectos"}
+            onSaveStatus={setSaveStatus}
+          />
         )}
 
         {step === "lyrics" && lyric && pieceSeries && (
