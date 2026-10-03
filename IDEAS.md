@@ -124,6 +124,29 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 28. Construcción de personajes: hoja de personaje (chicas y chicos)
+- **Idea (tuya):** un lugar en la app para construir personajes con una **hoja de personaje**, como la de referencia: cuerpo entero de frente, tres cuartos, perfil y espalda, primeros planos de la cara con distintas expresiones, y detalles (collar, manos, tela), todo sobre fondo gris liso. Hay dos plantillas, **chicas** y **chicos**, porque el personaje es parte del gancho que agarra la atención del público.
+- **Cómo funcionaría:**
+  - **Dónde:** en "Editar serie → Elenco fijo", un botón **+ Personaje con hoja**. También se puede abrir desde un setup en Producción.
+  - **Datos:** nombre, plantilla (chica o chico), edad (siempre adulto), pelo, piel, contextura, ropa, accesorios, actitud y su papel en la serie.
+  - **La IA escribe:**
+    - la línea de identidad (en inglés, la que se repite en todos los prompts);
+    - el prompt de la hoja completa para Grok;
+    - prompts sueltos por vista, por si Grok no arma bien la grilla.
+  - **Se sube la hoja** y queda como imagen aprobada del personaje (`@Ref` en Grok). Se pueden recortar partes, como la cara, para usarlas como referencias aparte (Grok acepta hasta 14).
+  - **Revisión:** la revisión de imágenes compara cada toma con la hoja.
+- **Reglas:**
+  - Solo adultos.
+  - Personajes inventados: sin parecido a personas reales ni famosos.
+  - Sin poses ni ropa sexualizadas.
+  - El aviso de IA sigue prendido.
+  - El chiste sigue siendo el problema, nunca el personaje.
+- **Preguntas:**
+  - ¿Va dentro de cada serie o en un lugar aparte para usar los personajes en varias series?
+  - ¿Una sola imagen con la grilla, o una imagen por vista?
+  - ¿Rango de edad de cada plantilla?
+  - ¿La IA propone el casting según el público de la serie?
+
 ### 27. Tercer tipo de serie: Video de letra (lyric video)
 - **Idea (tuya):** además de Software y E-commerce, un tipo **Música**: videos de letra para canciones, con fondo orgánico en movimiento y la letra animada con motion graphics, bien mostrada.
 - **Es otro flujo:** no hay Bueno contra Malo ni historia. Los pasos serían:
