@@ -1,6 +1,7 @@
 // A series bible as form fields, and the Markdown file it is stored in (server/series/<id>.md).
 // The writer reads the Markdown; the app edits the fields. Sections with an unknown heading are kept in `other`.
 import { z } from "zod";
+import { DEFAULT_LYRIC_STYLE, LyricStyleSchema } from "./lyrics.ts";
 
 // How the type looks on the finished video. Kept with the series so every piece of a brand looks the same.
 export const TextStyleSchema = z.object({
@@ -24,11 +25,15 @@ export const DEFAULT_TEXT_STYLE: TextStyle = {
   backingColor: "#000000",
 };
 
-// The two jobs of the playbook. Software: features that exist today, the product's loop, real screens.
-// E-commerce: a different product in every episode.
-export const SERIES_TYPES = ["software", "ecommerce"] as const;
+// The two jobs of the playbook, plus lyric videos. Software: features that exist today, the product's loop, real
+// screens. E-commerce: a different product in every episode. Music: lyric videos, with no story.
+export const SERIES_TYPES = ["software", "ecommerce", "music"] as const;
 export type SeriesType = (typeof SERIES_TYPES)[number];
-export const SERIES_TYPE_LABEL: Record<SeriesType, string> = { software: "Software (SaaS)", ecommerce: "E-commerce" };
+export const SERIES_TYPE_LABEL: Record<SeriesType, string> = {
+  software: "Software (SaaS)",
+  ecommerce: "E-commerce",
+  music: "Música (video de letra)",
+};
 
 // The series' fixed cast: characters, places, products and real screens with an approved image, reused in every
 // episode. `ref` is the name of the reference in the image tool (Grok: @ref).
@@ -89,6 +94,8 @@ export const SeriesFieldsSchema = z.object({
   audience: z.string().trim().max(3000),
   other: z.string().trim().max(12000),
   textStyle: TextStyleSchema,
+  // Music series: how their lyric videos look.
+  lyricStyle: LyricStyleSchema,
   cast: z.array(CastMemberSchema).max(60),
 });
 export type SeriesFields = z.infer<typeof SeriesFieldsSchema>;
@@ -108,6 +115,7 @@ export const EMPTY_SERIES: SeriesFields = {
   audience: "",
   other: "",
   textStyle: DEFAULT_TEXT_STYLE,
+  lyricStyle: DEFAULT_LYRIC_STYLE,
   cast: [],
 };
 
@@ -139,6 +147,7 @@ export function seriesToMarkdown(f: SeriesFields): string {
     `Frase: ${f.tagline.trim()}`,
     `Tipo: ${SERIES_TYPE_LABEL[f.type]}${f.type === "ecommerce" ? " (un producto distinto en cada episodio)" : ""}`,
     `Estilo de texto: ${JSON.stringify(f.textStyle)}`,
+    ...(f.type === "music" ? [`Estilo de letra: ${JSON.stringify(f.lyricStyle)}`] : []),
   ];
   for (const [key, heading] of SECTIONS) {
     const body = isList(key) ? f[key].map((w) => `- ${w}`).join("\n") : f[key].trim();
@@ -160,15 +169,29 @@ export function seriesToMarkdown(f: SeriesFields): string {
 export function markdownToSeries(text: string, fallbackName: string): SeriesFields {
   const fields: SeriesFields = { ...EMPTY_SERIES };
   fields.name = text.match(/^#\s+(.+)$/m)?.[1].trim() || fallbackName;
-  fields.tagline = text.match(/^(?:Frase|Tagline):\s*(.*)$/im)?.[1].trim() ?? "";
+  // [ \t]*, not \s*: an empty tagline must not swallow the next line.
+  fields.tagline = text.match(/^(?:Frase|Tagline):[ \t]*(.*)$/im)?.[1].trim() ?? "";
   const type = text.match(/^Tipo:\s*(.*)$/im)?.[1].toLowerCase() ?? "";
-  fields.type =
-    type.includes("commerce") || (!type && /^Producto por episodio:\s*s[ií]/im.test(text)) ? "ecommerce" : "software";
+  fields.type = /m[uú]sica|music|letra/.test(type)
+    ? "music"
+    : type.includes("commerce") || (!type && /^Producto por episodio:\s*s[ií]/im.test(text))
+      ? "ecommerce"
+      : "software";
   const style = text.match(/^Estilo de texto:\s*(\{.*\})\s*$/im)?.[1];
   if (style) {
     try {
       const parsed = TextStyleSchema.safeParse({ ...DEFAULT_TEXT_STYLE, ...JSON.parse(style) });
       if (parsed.success) fields.textStyle = parsed.data;
+    } catch {
+      // A hand-edited line that is not JSON keeps the default style.
+    }
+  }
+
+  const lyric = text.match(/^Estilo de letra:\s*(\{.*\})\s*$/im)?.[1];
+  if (lyric) {
+    try {
+      const parsed = LyricStyleSchema.safeParse({ ...DEFAULT_LYRIC_STYLE, ...JSON.parse(lyric) });
+      if (parsed.success) fields.lyricStyle = parsed.data;
     } catch {
       // A hand-edited line that is not JSON keeps the default style.
     }

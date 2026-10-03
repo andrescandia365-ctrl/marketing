@@ -17,6 +17,8 @@ import {
   type Story,
   type TopicIdea,
 } from "../shared/schema.ts";
+import { EMPTY_BRIEF } from "../shared/example.ts";
+import { LyricIdeasSchema, SecondLinesSchema, type LyricIdeas } from "../shared/lyrics.ts";
 import { LENGTHS } from "../shared/template.ts";
 import { CAST, PRACTICES, WORKS_TODAY } from "../shared/series.ts";
 import { getSeries } from "./series.ts";
@@ -321,4 +323,37 @@ ${BOARD_RULES}`,
   );
   const next = normalizeShot(wire);
   return { ...next, topic: shot.topic, beat: shot.beat, speaker: shot.speaker };
+}
+
+// Lyric videos (series of type music). There is no brief; the series bible still goes along.
+function lyricBrief(series: string): Brief {
+  return { ...EMPTY_BRIEF, series };
+}
+
+function numbered(lines: string[]): string {
+  return lines.map((l, i) => `${i}. ${l}`).join("\n");
+}
+
+export function lyricIdeas(series: string, title: string, artist: string, lines: string[]): Promise<LyricIdeas> {
+  return ask(
+    lyricBrief(series),
+    false,
+    `This is a lyric video, not a story: the song's lines appear on a moving, organic colour background (soft colour fields that drift and swell with the beat), and some words stand out bigger.
+
+Song: "${title || "sin título"}"${artist ? ` by ${artist}` : ""}. The lyrics may be in any language (Spanish, Guaraní, Japanese, Korean, romanized…). Lines, numbered from 0:
+${numbered(lines)}
+
+Suggest the background's three colours and pace from the song's feeling, and the words that should stand out.`,
+    LyricIdeasSchema,
+  );
+}
+
+// The smaller line under each lyric line: its romanization or a Spanish translation.
+export async function secondLines(series: string, lines: string[], mode: "romanize" | "translate"): Promise<{ lines: string[]; note: string }> {
+  const task =
+    mode === "romanize"
+      ? "Romanize each line: Japanese in Hepburn romaji (spaces between words), Korean in Revised Romanization, anything already in Latin letters (Spanish, Guaraní…) copied as is. Keep the meaning out; only the sound."
+      : "Translate each line into Spanish (Rioplatense), singable and plain, keeping the feeling. A line already in Spanish is copied as is.";
+  const result = await ask(lyricBrief(series), false, `Song lyrics, numbered from 0:\n${numbered(lines)}\n\n${task}`, SecondLinesSchema);
+  return { lines: lines.map((_, i) => result.lines[i] ?? ""), note: result.note };
 }

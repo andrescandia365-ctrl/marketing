@@ -20,6 +20,23 @@ Hace contenido con historia, no publicidad: un ida y vuelta entre **el Bueno** (
 
 Cada serie es una marca: qué es, **lo que existe hoy** (lo único que la IA puede mostrar como real), la historia que contamos, el Malo, el Bueno, las reglas y quién mira. Se editan desde la app: en el paso **Brief**, **Editar serie** o **+ Nueva serie**. Si la marca presenta un producto distinto en cada episodio (como Masogar), marcá esa casilla y el brief va a pedir el producto.
 
+### Series de música: videos de letra
+
+Una serie de tipo **Música** no escribe historias, sino videos de letra. Elegís la serie en el brief y tocás **Empezar un video de letra**:
+
+1. **Canción y letra.**
+   - Subís la canción y pegás la letra, en cualquier idioma: español, guaraní, japonés, coreano o romanizada.
+   - Si querés, cargás una **segunda línea** más chica con la romanización o la traducción. La podés escribir vos o pedírsela a la IA (**Romanizar con IA** o **Traducir al español con IA**); revisala, porque se puede equivocar.
+   - Confirmás que la canción es tuya o tenés licencia.
+2. **Sincronizar.** Hay dos formas, y después podés ajustar cada línea:
+   - **Automático:** OpenAI escucha la canción y le pone tiempo a cada palabra. Usa la misma `OPENAI_API_KEY`. El guaraní no lo conoce, así que escucha sin idioma.
+   - **Tocando:** apretás **Ahora** o la barra espaciadora cuando empieza cada línea.
+3. **Estilo y video.**
+   - Fondo orgánico que se mueve y late con el ritmo, o tu foto o video. Si los hizo una IA, va el aviso al pie, y con **Cuadro completo** no se recortan.
+   - Tipografía, tamaño, colores, karaoke, cómo entra cada línea y palabras clave más grandes. Tocás una palabra para marcarla, o le pedís ideas a la IA.
+   - Vista previa en vivo, vertical u horizontal, desde y hasta qué segundo, y el crédito de la canción.
+   - El estilo se puede guardar en la serie.
+
 Cada serie se guarda como un archivo en `server/series/` (`iman.md`, `masogar.md`), que es lo que la IA lee con cada pedido.
 
 ## Cómo correrla
@@ -53,7 +70,7 @@ Claude lee el archivo elegido antes de escribir los prompts. Para actualizarlo, 
 |---|---|---|
 | Claude (menú, historia, storyboard, revisiones) | `ANTHROPIC_API_KEY` | Kimi, si está; si no, modo de muestra |
 | Kimi K3 (lo mismo, en lugar de Claude) | `KIMI_API_KEY` (`LLM_PROVIDER=kimi` si tenés las dos) | Modo de muestra |
-| OpenAI Images y Voz generada | `OPENAI_API_KEY` | Copiá los prompts y subí tus imágenes; grabá o subí la voz |
+| OpenAI Images, Voz generada y letra sincronizada automática | `OPENAI_API_KEY` | Copiá los prompts y subí tus imágenes; grabá o subí la voz; sincronizá la letra tocando |
 | Replicate (Flux) | `REPLICATE_API_TOKEN` | Copiá los prompts y subí tus imágenes |
 | Bocetos | ninguna | Siempre disponible |
 

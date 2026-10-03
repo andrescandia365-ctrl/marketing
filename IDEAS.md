@@ -18,6 +18,15 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Kimi:** `KIMI_TEMPERATURE`, opcional; si el modelo no la acepta, la app la saca.
   - Pendiente: cambiar el ejemplo de `PLAYBOOK.md` (con "ok") y sumar más costumbres reales a la serie.
 
+- **Videos de letra (3 Oct 2026, idea 27):**
+  - **Tipo de serie Música:** el brief pasa directo a "Video de letra".
+  - **Letra en cualquier idioma** (español, guaraní, japonés, coreano, romanizada), con una segunda línea opcional (romanización o traducción, a mano o con IA).
+  - **Sincronización** automática (OpenAI) o tocando, ajustable por línea.
+  - **Fondo** orgánico que late con el ritmo, o foto o video propio.
+  - **Letra animada:** karaoke, entrada (aparece, sube o salta) y palabras clave grandes; ideas de la IA para los colores y las palabras.
+  - **Video:** vista previa en vivo, vertical u horizontal, recorte desde/hasta, crédito y confirmación de derechos.
+  - Pendiente: clips de Grok en loop como fondo (3b), importar `.lrc` (2c).
+
 ## Decisiones tomadas (2 Oct 2026)
 1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma. **Personajes:** usar las voces de Grok (panel Audio: Ara, Eve, Leo, Rex, Sal…, más audios subidos o grabados); cada personaje tiene una voz asignada y el prompt de video la pide. Grok no deja descargar el audio solo, así que esa voz vive dentro del clip. **Narrador:** las 4 opciones, según la escena.
 2. **Escuchar en voz alta:** para escucharlos vos.
@@ -128,7 +137,8 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Palabras clave grandes:** la IA marca las palabras fuertes y salen más grandes.
 - **La IA puede proponer:** la paleta y el clima del fondo según la letra, qué palabras destacar y los prompts de Grok.
 - **Derechos:** solo canciones propias o con licencia. La app pide confirmarlo antes de exportar, y en el aviso al pie va el crédito de la canción.
-- **Preguntas:**
+- **Elegido:** 2a + 2b, 3a + 3c, 4a + 4c + 4d, los dos formatos. Sumado: letras en guaraní, japonés, coreano y romanizadas, con segunda línea. **Construido** (ver arriba).
+- **Preguntas que quedaron:**
   - ¿De quién son las canciones?
   - ¿Cómo querés sincronizar?
   - ¿Qué fondo?

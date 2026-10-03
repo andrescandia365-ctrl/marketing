@@ -20,7 +20,8 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   `projects.ts` saves each piece as a folder in `proyectos/` (project.json, pieza.md, toma-NN-imagen/clip, video);
   the browser autosaves into it. Each series has a type (software / e-commerce) and a fixed cast (characters,
   places, products, real screens) stored as JSON in its Markdown; approved images live in `biblioteca/<series>/`.
-  `voice.ts` makes "Voz generada" with OpenAI's speech API (same `OPENAI_API_KEY`).
+  `voice.ts` makes "Voz generada" with OpenAI's speech API (same `OPENAI_API_KEY`). `lyrics.ts` transcribes a
+  song with word times (OpenAI, whisper-1) for lyric videos.
 - `src/` — React 19 + Tailwind v4 UI, all copy in Spanish (Rioplatense). `MenuPicker`, `StoryView`, `BoardView`
   and `ScriptView` are the steps. `lib/render.ts` plays each shot's uploaded clip (or still, or colour card), mixes
   the clips' sound, draws the speaker and line on top and encodes with WebCodecs via mediabunny; `lib/markdown.ts`
@@ -41,6 +42,11 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   referenced in Grok as @ref. `kind` is single, transform (initial/middle/end frames) or screen (a real screenshot
   from the cast, never drawn by AI). `editFrom`/`editPrompt` reuse an earlier shot's image. Old saved boards go
   through `migrateBoard()`.
+- Series of type music make lyric videos instead of stories (`LyricStudio`): song + lyrics in any language
+  (Spanish, Guaraní, Japanese, Korean, romanized) with an optional second line (romanization or translation),
+  synced automatically (`alignLyrics` matches the transcription letter by letter) or by tapping, drawn by
+  `lib/lyricRender.ts` on an organic background or the piece's own photo/video. The person confirms the song's
+  rights before rendering; the credit and the "Fondo hecho con IA" notice are on by default.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
   a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Voices
   and sound effects are per-shot project media; one music track per piece ducks under speech and can pull the

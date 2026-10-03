@@ -3,6 +3,7 @@
 // /api/series); editing a file by hand works too and is picked up on the next restart.
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import type { LyricStyle } from "../shared/lyrics.ts";
 import type { SeriesInfo } from "../shared/schema.ts";
 import {
   markdownToSeries,
@@ -38,6 +39,7 @@ function toSeries(id: string, text: string): Series {
     type: f.type,
     productPerEpisode: f.type === "ecommerce",
     textStyle: f.textStyle,
+    lyricStyle: f.lyricStyle,
     cast: f.cast,
     text,
   };
@@ -77,6 +79,10 @@ export function saveSeries(id: string, fields: SeriesFields) {
 // The video panel saves its text style back into the series, so every piece of the brand looks the same.
 export function saveTextStyle(id: string, textStyle: TextStyle) {
   saveSeries(id, { ...getSeriesFields(id), textStyle });
+}
+
+export function saveLyricStyle(id: string, lyricStyle: LyricStyle) {
+  saveSeries(id, { ...getSeriesFields(id), lyricStyle });
 }
 
 // Adds a cast member to the series, or replaces the one with the same id (keeping its image if none is given).

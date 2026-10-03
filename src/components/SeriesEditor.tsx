@@ -159,8 +159,9 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
     return error ? <Notice tone="error">{error}</Notice> : <Spinner />;
   }
 
+  const music = fields.type === "music";
   const set = <K extends keyof SeriesFields>(key: K, value: SeriesFields[K]) => setFields({ ...fields, [key]: value });
-  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "type" | "textStyle" | "cast">, rows = 4) => (
+  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "type" | "textStyle" | "lyricStyle" | "cast">, rows = 4) => (
     <textarea className={inputClass} rows={rows} value={fields[key]} onChange={(e) => set(key, e.target.value)} />
   );
 
@@ -245,7 +246,9 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
         hint={
           fields.type === "software"
             ? "Software: funciones que existen hoy, el loop del producto y pantallas reales de la app."
-            : 'E-commerce: un producto distinto en cada episodio; el brief pide "Producto de este episodio".'
+            : fields.type === "ecommerce"
+              ? 'E-commerce: un producto distinto en cada episodio; el brief pide "Producto de este episodio".'
+              : "Música: videos de letra. Sin historia: subís la canción, pegás la letra (en cualquier idioma), se sincroniza y se anima sobre un fondo orgánico."
         }
       >
         <Segmented
@@ -254,73 +257,83 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
           options={[
             { value: "software", label: SERIES_TYPE_LABEL.software },
             { value: "ecommerce", label: SERIES_TYPE_LABEL.ecommerce },
+            { value: "music", label: SERIES_TYPE_LABEL.music },
           ]}
         />
       </Field>
 
-      <Field label="Qué es">{text("what", 3)}</Field>
-
       <Field
-        label="Lo que existe hoy"
-        hint="Una función o un producto por línea. Es lo único que la IA puede mostrar como real; todo lo demás lo marca como Concepto."
+        label="Qué es"
+        hint={music ? "El artista o el proyecto, el género, el clima de las canciones. La IA lo lee para proponer colores y palabras." : undefined}
       >
-        <textarea className={`${inputClass} font-mono`} rows={9} value={works} onChange={(e) => setWorks(e.target.value)} />
+        {text("what", 3)}
       </Field>
 
-      <Field
-        label="Cómo se trabaja hoy"
-        hint="Cómo hace la gente cada cosa hoy, sin la marca, una por línea. Ej.: el pedido se arma mirando la góndola. La IA arma los dolores solo con esto y las notas del brief; si muestra otra costumbre, el check la marca."
-      >
-        <textarea
-          className={`${inputClass} font-mono`}
-          rows={6}
-          value={practices}
-          onChange={(e) => setPractices(e.target.value)}
-        />
-      </Field>
+      {!music && (
+        <>
+          <Field
+            label="Lo que existe hoy"
+            hint="Una función o un producto por línea. Es lo único que la IA puede mostrar como real; todo lo demás lo marca como Concepto."
+          >
+            <textarea className={`${inputClass} font-mono`} rows={9} value={works} onChange={(e) => setWorks(e.target.value)} />
+          </Field>
 
-      <Field
-        label="El loop de la serie (opcional)"
-        hint="Los pasos de la rutina que la marca resuelve, uno por línea y en orden. El check revisa que cada paso que aparece se muestre completo: el dolor, el paso y el resultado."
-      >
-        <textarea className={`${inputClass} font-mono`} rows={6} value={loop} onChange={(e) => setLoop(e.target.value)} />
-      </Field>
+          <Field
+            label="Cómo se trabaja hoy"
+            hint="Cómo hace la gente cada cosa hoy, sin la marca, una por línea. Ej.: el pedido se arma mirando la góndola. La IA arma los dolores solo con esto y las notas del brief; si muestra otra costumbre, el check la marca."
+          >
+            <textarea
+              className={`${inputClass} font-mono`}
+              rows={6}
+              value={practices}
+              onChange={(e) => setPractices(e.target.value)}
+            />
+          </Field>
 
-      <Field
-        label="Elenco fijo"
-        group
-        hint="Personajes, lugares y productos que se repiten en todos los episodios, cada uno con su imagen aprobada y su referencia @ para Grok. La IA los reusa tal cual."
-      >
-        <div className="space-y-2">
-          <ul className="space-y-2">
-            {fields.cast
-              .filter((m) => m.kind !== "screen")
-              .map((m) => (
-                <CastCard
-                  key={m.id}
-                  member={m}
-                  seriesId={id}
-                  version={version}
-                  onChange={(next) => set("cast", fields.cast.map((x) => (x.id === m.id ? next : x)))}
-                  onRemove={() => set("cast", fields.cast.filter((x) => x.id !== m.id))}
-                  onImage={(file) => memberImage(m, file)}
-                />
-              ))}
-          </ul>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => addMember("character")}>
-              + Personaje
-            </Button>
-            <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => addMember("place")}>
-              + Lugar
-            </Button>
-            <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => addMember("product")}>
-              + Producto
-            </Button>
-          </div>
-          {!id && <p className="text-xs text-muted">Las imágenes se suben después de guardar la serie.</p>}
-        </div>
-      </Field>
+          <Field
+            label="El loop de la serie (opcional)"
+            hint="Los pasos de la rutina que la marca resuelve, uno por línea y en orden. El check revisa que cada paso que aparece se muestre completo: el dolor, el paso y el resultado."
+          >
+            <textarea className={`${inputClass} font-mono`} rows={6} value={loop} onChange={(e) => setLoop(e.target.value)} />
+          </Field>
+
+          <Field
+            label="Elenco fijo"
+            group
+            hint="Personajes, lugares y productos que se repiten en todos los episodios, cada uno con su imagen aprobada y su referencia @ para Grok. La IA los reusa tal cual."
+          >
+            <div className="space-y-2">
+              <ul className="space-y-2">
+                {fields.cast
+                  .filter((m) => m.kind !== "screen")
+                  .map((m) => (
+                    <CastCard
+                      key={m.id}
+                      member={m}
+                      seriesId={id}
+                      version={version}
+                      onChange={(next) => set("cast", fields.cast.map((x) => (x.id === m.id ? next : x)))}
+                      onRemove={() => set("cast", fields.cast.filter((x) => x.id !== m.id))}
+                      onImage={(file) => memberImage(m, file)}
+                    />
+                  ))}
+              </ul>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => addMember("character")}>
+                  + Personaje
+                </Button>
+                <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => addMember("place")}>
+                  + Lugar
+                </Button>
+                <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => addMember("product")}>
+                  + Producto
+                </Button>
+              </div>
+              {!id && <p className="text-xs text-muted">Las imágenes se suben después de guardar la serie.</p>}
+            </div>
+          </Field>
+        </>
+      )}
 
       {fields.type === "software" && (
         <Field
@@ -351,18 +364,22 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
         </Field>
       )}
 
-      <Field label="La historia que contamos (opcional)" hint="El hilo de la serie. Ej.: el loop diario del kiosco.">
-        {text("story")}
-      </Field>
+      {!music && (
+        <>
+          <Field label="La historia que contamos (opcional)" hint="El hilo de la serie. Ej.: el loop diario del kiosco.">
+            {text("story")}
+          </Field>
 
-      <div className="grid gap-5 md:grid-cols-2">
-        <Field label="El Malo" hint="El dolor personificado: quién es y cómo aparece.">
-          {text("bad")}
-        </Field>
-        <Field label="El Bueno" hint="Cómo gana: el producto, la rutina, la marca.">
-          {text("good")}
-        </Field>
-      </div>
+          <div className="grid gap-5 md:grid-cols-2">
+            <Field label="El Malo" hint="El dolor personificado: quién es y cómo aparece.">
+              {text("bad")}
+            </Field>
+            <Field label="El Bueno" hint="Cómo gana: el producto, la rutina, la marca.">
+              {text("good")}
+            </Field>
+          </div>
+        </>
+      )}
 
       <Field label="Reglas de la serie (opcional)" hint="Lo que nunca se dice o se muestra, el tono, los límites.">
         {text("rules")}

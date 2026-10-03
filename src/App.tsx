@@ -10,6 +10,7 @@ import { VoicesPanel, audioDuration, type AudioFile } from "./components/Audio.t
 import { BoardView } from "./components/BoardView.tsx";
 import { BriefForm } from "./components/BriefForm.tsx";
 import { MenuPicker } from "./components/MenuPicker.tsx";
+import { LyricStudio, type LyricOpen } from "./components/LyricStudio.tsx";
 import { ProjectsPanel } from "./components/ProjectsPanel.tsx";
 import { SeriesEditor } from "./components/SeriesEditor.tsx";
 import {
@@ -30,7 +31,8 @@ import { api, libraryFileUrl, projectFileUrl, type ProjectSummary } from "./lib/
 import { blobToDataUrl, readImageFile } from "./lib/files.ts";
 import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from "./lib/markdown.ts";
 
-type Step = "brief" | "menu" | "story" | "board" | "production";
+// "lyrics": a lyric video (series of type music), with its own steps inside.
+type Step = "brief" | "menu" | "story" | "board" | "production" | "lyrics";
 
 // What a project folder's project.json holds (media files are tracked by the server).
 type SavedState = {
@@ -103,6 +105,8 @@ export function App() {
   // undefined: not editing; null: a new series; a string: that series.
   const [editingSeries, setEditingSeries] = useState<string | null | undefined>(undefined);
 
+  // The open lyric video, if this piece is one; `key` remounts it for another piece.
+  const [lyric, setLyric] = useState<{ key: string; initial: LyricOpen | null } | null>(null);
   // The project folder this piece autosaves into.
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -172,7 +176,8 @@ export function App() {
 
   // Autosave: a short pause after any change writes the state (and pieza.md) into the project folder.
   useEffect(() => {
-    if (!projectId) return;
+    // A lyric video saves itself.
+    if (!projectId || lyric) return;
     unsaved.current = true;
     setSaveStatus("saving");
     const seq = ++saveSeq.current;
@@ -210,7 +215,7 @@ export function App() {
     }, 800);
     return () => clearTimeout(timer);
     // toolName only changes with the brief or the status, which are covered.
-  }, [projectId, step, pieceBrief, menu, demo, story, storyRound, board, boardRound, boardApproved, log, dismissed, audio]);
+  }, [projectId, lyric, step, pieceBrief, menu, demo, story, storyRound, board, boardRound, boardApproved, log, dismissed, audio]);
 
   function addLog(entry: Omit<LogEntry, "at">) {
     setLog((l) => [...l, { ...entry, at: Date.now() - logStart.current }]);
@@ -260,6 +265,7 @@ export function App() {
     setDismissed([]);
     setAudio(DEFAULT_AUDIO);
     setMusic(null);
+    setLyric(null);
     logStart.current = Date.now();
   }
 
@@ -273,11 +279,17 @@ export function App() {
   async function openProject(id: string) {
     const project = await run("open", () => api.project(id));
     if (!project) return;
-    const st = project.state as Partial<SavedState>;
+    const st = project.state as Partial<SavedState> & { kind?: string; lyrics?: LyricOpen["piece"] };
     resetPiece();
     const pb = { ...EMPTY_BRIEF, ...(st.pieceBrief ?? brief) };
     setBrief(pb);
     setPieceBrief(pb);
+    if (st.kind === "lyrics" && st.lyrics) {
+      setProjectId(id);
+      setLyric({ key: id, initial: { piece: st.lyrics, music: project.music, media: project.media["0"] } });
+      setStep("lyrics");
+      return;
+    }
     setMenu(st.menu ?? null);
     setDemo(st.demo ?? false);
     setStory(st.story ? migrateStory(st.story) : null);
@@ -336,6 +348,22 @@ export function App() {
     } catch (e) {
       setError(message(e));
     }
+  }
+
+  // A lyric video: its own project folder, then the song.
+  async function startLyrics() {
+    resetPiece();
+    setError("");
+    setPieceBrief(brief);
+    let id: string | null = null;
+    try {
+      id = (await api.createProject(brief.series)).id;
+    } catch (e) {
+      setError(`Se puede seguir, pero no se pudo crear la carpeta del proyecto: ${message(e)}`);
+    }
+    setProjectId(id);
+    setLyric({ key: id ?? String(Date.now()), initial: null });
+    setStep("lyrics");
   }
 
   // Step 1 → menu. A new piece gets its own project folder.
@@ -657,13 +685,18 @@ export function App() {
   const storyIssues = story ? storyProblems(story) : [];
   const boardIssues = board ? boardProblems(board) : [];
 
-  const steps: { id: Step; label: string; enabled: boolean }[] = [
-    { id: "brief", label: "1 · Brief", enabled: true },
-    { id: "menu", label: "2 · Menú", enabled: menu !== null },
-    { id: "story", label: "3 · Historia", enabled: story !== null },
-    { id: "board", label: "4 · Storyboard", enabled: board !== null },
-    { id: "production", label: "5 · Producción", enabled: board !== null && (boardApproved || step === "production") },
-  ];
+  const steps: { id: Step; label: string; enabled: boolean }[] = lyric
+    ? [
+        { id: "brief", label: "1 · Brief", enabled: true },
+        { id: "lyrics", label: "2 · Video de letra", enabled: true },
+      ]
+    : [
+        { id: "brief", label: "1 · Brief", enabled: true },
+        { id: "menu", label: "2 · Menú", enabled: menu !== null },
+        { id: "story", label: "3 · Historia", enabled: story !== null },
+        { id: "board", label: "4 · Storyboard", enabled: board !== null },
+        { id: "production", label: "5 · Producción", enabled: board !== null && (boardApproved || step === "production") },
+      ];
 
   return (
     <div className="mx-auto max-w-6xl px-4 pt-6 pb-16">
@@ -720,7 +753,7 @@ export function App() {
       </nav>
 
       <div className="mt-6 space-y-4">
-        {status && !status.writer && (
+        {status && !status.writer && !lyric && (
           <Notice tone="warn">
             <b>Modo de muestra.</b> No hay clave de IA: el menú, la historia y el storyboard son un ejemplo fijo de
             IMAN, y las revisiones no cambian nada. Agregá <code>ANTHROPIC_API_KEY</code> (Claude) o <code>KIMI_API_KEY</code> (Kimi) en <code>.env</code> y reiniciá
@@ -768,20 +801,33 @@ export function App() {
               onEditSeries={(id) => setEditingSeries(id)}
               onNewSeries={() => setEditingSeries(null)}
             />
-            <div className="flex items-center gap-3 border-t border-line pt-5">
-              <Button onClick={openMenu} disabled={busy !== null || needsProduct}>
-                {busy === "menu" ? (
-                  <>
-                    <Spinner /> Armando el menú…
-                  </>
-                ) : (
-                  "Ver el menú de temas"
+            {currentSeries?.type === "music" ? (
+              <div className="flex items-center gap-3 border-t border-line pt-5">
+                <Button onClick={startLyrics} disabled={busy !== null}>
+                  Empezar un video de letra
+                </Button>
+                {lyric && (
+                  <Button variant="secondary" onClick={() => setStep("lyrics")}>
+                    Volver al video abierto
+                  </Button>
                 )}
-              </Button>
-              {needsProduct && (
-                <span className="text-sm text-muted">Para {currentSeries?.name}, escribí el producto del episodio.</span>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 border-t border-line pt-5">
+                <Button onClick={openMenu} disabled={busy !== null || needsProduct}>
+                  {busy === "menu" ? (
+                    <>
+                      <Spinner /> Armando el menú…
+                    </>
+                  ) : (
+                    "Ver el menú de temas"
+                  )}
+                </Button>
+                {needsProduct && (
+                  <span className="text-sm text-muted">Para {currentSeries?.name}, escribí el producto del episodio.</span>
+                )}
+              </div>
+            )}
             <ProjectsPanel
               projects={projects}
               series={status?.series ?? []}
@@ -791,6 +837,20 @@ export function App() {
               onDelete={removeProject}
             />
           </section>
+        )}
+
+        {step === "lyrics" && lyric && pieceSeries && (
+          <LyricStudio
+            key={lyric.key}
+            projectId={projectId}
+            brief={pieceBrief}
+            series={pieceSeries}
+            initial={lyric.initial}
+            autoSync={status?.lyrics.autoSync ?? false}
+            projectsDir={status?.projectsDir ?? "proyectos"}
+            onSaveStatus={setSaveStatus}
+            onSeries={(series) => setStatus((s) => (s ? { ...s, series } : s))}
+          />
         )}
 
         {step === "menu" && menu && (

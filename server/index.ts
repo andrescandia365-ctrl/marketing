@@ -14,14 +14,18 @@ import {
 import {
   WriterError,
   currentWriter,
+  lyricIdeas,
   proposeMenu,
   reviseBoard,
   reviseStory,
   rewriteShot,
+  secondLines,
   writeBoard,
   writeStory,
 } from "./claude.ts";
 import { KimiError } from "./kimi.ts";
+import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
+import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, LyricStyleSchema, alignLyrics, cleanIdeas } from "../shared/lyrics.ts";
 import { DEMO_BOARD, DEMO_MENU, DEMO_STORY } from "./demo.ts";
 import { getProvider, listProviders } from "./images/index.ts";
 import { CastMemberSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
@@ -49,6 +53,7 @@ import {
   getSeriesFields,
   listSeries,
   readLibraryFile,
+  saveLyricStyle,
   saveSeries,
   saveTextStyle,
   setCastImage,
@@ -61,7 +66,7 @@ const app = new Hono();
 app.onError((error, c) => {
   if (error instanceof WriterError || error instanceof KimiError) return c.json({ error: error.message }, 502);
   if (error instanceof SeriesError || error instanceof ProjectError) return c.json({ error: error.message }, 400);
-  if (error instanceof VoiceError) return c.json({ error: error.message }, 502);
+  if (error instanceof VoiceError || error instanceof LyricsError) return c.json({ error: error.message }, 502);
   if (error instanceof z.ZodError) return c.json({ error: "Al pedido le faltaban datos." }, 400);
   console.error(error);
   return c.json({ error: error.message || "Algo salió mal." }, 500);
@@ -86,6 +91,7 @@ app.get("/api/status", (c) => {
     series: listSeries(),
     projectsDir: PROJECTS_DIR,
     voice: { available: voiceAvailable(), defaultVoice: DEFAULT_VOICE },
+    lyrics: { autoSync: autoSyncAvailable() },
   });
 });
 
@@ -111,6 +117,12 @@ app.post("/api/series", async (c) => {
 app.put("/api/series/:id/style", async (c) => {
   const { textStyle } = z.object({ textStyle: TextStyleSchema }).parse(await c.req.json());
   saveTextStyle(c.req.param("id"), textStyle);
+  return c.json({ series: listSeries() });
+});
+
+app.put("/api/series/:id/lyric-style", async (c) => {
+  const { lyricStyle } = z.object({ lyricStyle: LyricStyleSchema }).parse(await c.req.json());
+  saveLyricStyle(c.req.param("id"), lyricStyle);
   return c.json({ series: listSeries() });
 });
 
@@ -212,6 +224,40 @@ app.post("/api/voice", async (c) => {
     .parse(await c.req.json());
   const audio = await speak(text, voice, language);
   return c.body(new Uint8Array(audio), 200, { "Content-Type": "audio/mpeg" });
+});
+
+// Lyric videos. Automatic sync: the song (multipart "audio") is transcribed with word times and matched to the
+// lyric lines ("lines" and "seconds", JSON arrays).
+app.post("/api/lyrics/sync", async (c) => {
+  const form = await c.req.formData();
+  const audio = form.get("audio");
+  if (!(audio instanceof Blob)) throw new LyricsError("Falta la canción.");
+  const lines = z.array(z.string()).min(1).max(400).parse(JSON.parse(String(form.get("lines") ?? "[]")));
+  const seconds = z.array(z.string()).parse(JSON.parse(String(form.get("seconds") ?? "[]")));
+  const language = z.enum(LYRIC_LANGUAGES).parse(form.get("language") ?? "auto");
+  const heard = await hearSong(audio, audio instanceof File ? audio.name : "cancion.mp3", language, lines.join("\n"));
+  return c.json({ lines: alignLyrics(lines, seconds, heard.words, heard.duration), heard: heard.words.length });
+});
+
+const LyricRequest = z.object({ series: z.string(), title: z.string().default(""), artist: z.string().default(""), lines: z.array(z.string()).min(1).max(400) });
+
+app.post("/api/lyrics/ideas", async (c) => {
+  const { series, title, artist, lines } = LyricRequest.parse(await c.req.json());
+  if (demo()) {
+    // Sample mode: the longest word of every other line stands out.
+    const keywords = lines
+      .map((l, line) => ({ line, words: [l.split(/\s+/).sort((a, b) => b.length - a.length)[0] ?? ""] }))
+      .filter((k, i) => i % 2 === 0 && k.words[0].length >= 4);
+    return c.json({ palette: DEFAULT_LYRIC_STYLE.palette, mood: "calm", keywords, note: "Ideas de muestra: sin clave de IA.", demo: true });
+  }
+  const ideas = await lyricIdeas(series, title, artist, lines);
+  return c.json({ ...cleanIdeas(ideas, DEFAULT_LYRIC_STYLE), keywords: ideas.keywords, note: ideas.note, demo: false });
+});
+
+app.post("/api/lyrics/second", async (c) => {
+  const { series, lines, mode } = LyricRequest.extend({ mode: z.enum(["romanize", "translate"]) }).parse(await c.req.json());
+  if (demo()) return c.json({ lines, note: "Modo de muestra: sin clave de IA, copié la letra tal cual.", demo: true });
+  return c.json({ ...(await secondLines(series, lines, mode)), demo: false });
 });
 
 app.put("/api/projects/:id/video", async (c) => {

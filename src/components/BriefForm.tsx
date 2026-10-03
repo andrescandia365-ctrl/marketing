@@ -17,25 +17,42 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
   const productMode = current?.productPerEpisode ?? false;
   const screens = current?.type === "software" ? current.cast.filter((m) => m.kind === "screen") : [];
 
+  const seriesField = (
+    <div className="md:col-span-2">
+      <Field label="Serie" group hint="Lo que la IA sabe de cada marca sale de su serie. Editala cuando cambie algo.">
+        <div className="flex flex-wrap items-center gap-2">
+          <Segmented
+            value={brief.series}
+            onChange={(v) => set("series", v)}
+            options={series.map((s) => ({ value: s.id, label: s.name }))}
+          />
+          <Button variant="secondary" onClick={() => onEditSeries(brief.series)} disabled={!brief.series}>
+            Editar serie
+          </Button>
+          <Button variant="ghost" onClick={onNewSeries}>
+            + Nueva serie
+          </Button>
+        </div>
+      </Field>
+    </div>
+  );
+
+  // A music series makes lyric videos: no story, so none of the story's brief.
+  if (current?.type === "music") {
+    return (
+      <div className="grid gap-5 md:grid-cols-2">
+        {seriesField}
+        <p className="text-sm text-muted md:col-span-2">
+          {current.name} es una serie de música: hace videos de letra. La canción, la letra (en cualquier idioma) y el estilo se
+          cargan en el paso siguiente.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-5 md:grid-cols-2">
-      <div className="md:col-span-2">
-        <Field label="Serie" group hint="Lo que la IA sabe de cada marca sale de su serie. Editala cuando cambie algo.">
-          <div className="flex flex-wrap items-center gap-2">
-            <Segmented
-              value={brief.series}
-              onChange={(v) => set("series", v)}
-              options={series.map((s) => ({ value: s.id, label: s.name }))}
-            />
-            <Button variant="secondary" onClick={() => onEditSeries(brief.series)} disabled={!brief.series}>
-              Editar serie
-            </Button>
-            <Button variant="ghost" onClick={onNewSeries}>
-              + Nueva serie
-            </Button>
-          </div>
-        </Field>
-      </div>
+      {seriesField}
 
       <div className="md:col-span-2">
         <Field label="Largo" group>

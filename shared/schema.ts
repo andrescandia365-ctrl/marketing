@@ -1,6 +1,7 @@
 // Shapes shared by the server (Claude output validation) and the browser (types only).
 // Flow: Brief → Menu (topics) → Story (Good vs Bad, in rounds) → Board (shots) → production.
 import { z } from "zod";
+import type { LyricStyle } from "./lyrics.ts";
 import type { CastMember, SeriesType, TextStyle } from "./series.ts";
 
 export const BEATS = ["negative", "touching", "good"] as const;
@@ -315,6 +316,7 @@ export type SeriesInfo = {
   type: SeriesType;
   productPerEpisode: boolean;
   textStyle: TextStyle;
+  lyricStyle: LyricStyle;
   cast: CastMember[];
 };
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };
@@ -329,4 +331,6 @@ export type Status = {
   projectsDir: string;
   // Generated voice ("Voz generada"): needs an OpenAI key.
   voice: { available: boolean; defaultVoice: string };
+  // Lyric videos: automatic sync needs the transcription API (same OpenAI key).
+  lyrics: { autoSync: boolean };
 };

@@ -1,4 +1,5 @@
 import type { Board, Brief, Menu, SeriesInfo, Shot, Status, Story, TopicIdea } from "../../shared/schema.ts";
+import type { LyricLanguage, LyricLine, LyricStyle } from "../../shared/lyrics.ts";
 import type { CastMember, SeriesFields, TextStyle } from "../../shared/series.ts";
 
 export type ProjectSummary = {
@@ -109,5 +110,26 @@ export const api = {
     }
     return res.blob();
   },
+  saveLyricStyle: (id: string, lyricStyle: LyricStyle) =>
+    call<{ series: SeriesInfo[] }>(`/api/series/${enc(id)}/lyric-style`, { lyricStyle }, "PUT"),
+  // Automatic sync: the song is transcribed with word times and matched to the lines.
+  syncLyrics: async (song: Blob, name: string, lines: string[], seconds: string[], language: LyricLanguage) => {
+    const form = new FormData();
+    form.append("audio", song, name);
+    form.append("lines", JSON.stringify(lines));
+    form.append("seconds", JSON.stringify(seconds));
+    form.append("language", language);
+    const res = await fetch("/api/lyrics/sync", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    return data as { lines: LyricLine[]; heard: number };
+  },
+  lyricIdeas: (series: string, title: string, artist: string, lines: string[]) =>
+    call<{ palette: string[]; mood: "calm" | "lively"; keywords: { line: number; words: string[] }[]; note: string } & Demo>(
+      "/api/lyrics/ideas",
+      { series, title, artist, lines },
+    ),
+  secondLines: (series: string, lines: string[], mode: "romanize" | "translate") =>
+    call<{ lines: string[]; note: string } & Demo>("/api/lyrics/second", { series, lines, mode }),
   saveVideo: (id: string, video: Blob) => upload<{ file: string }>(`/api/projects/${enc(id)}/video`, video, video.type),
 };
