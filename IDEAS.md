@@ -108,7 +108,12 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Revisar "El Malo" de IMAN con vos:** sacar el cuaderno y el "stock que no coincide", y poner los dolores reales que vos confirmes.
   - **Los ejemplos del playbook no son datos:** decirle al escritor que los ejemplos del playbook muestran la forma, no hechos del negocio, y que nunca copie sus números ni sus frases. Cambiar ese ejemplo en `PLAYBOOK.md` necesita tu "ok".
   - **Check "¿Pasa así de verdad?":** el escritor marca toda costumbre, horario o herramienta que no esté en la serie o en el brief. Eso bloquea la aprobación, con "Arreglalo" o "No es un problema".
-  - **Que se vea de qué trata:** arriba de cada ronda, primero **de qué trata en palabras simples** ("Armar bien el pedido antes de que corte el proveedor"), con el tema elegido en el menú, y después el título-gancho. El título-gancho tiene que entenderse sin contexto.
+  - **El título es el problema que resuelve (pedido tuyo):** cada tema del menú y cada historia llevan primero un **título del problema**, en palabras simples. Abajo va el gancho, que tiene que entenderse sin contexto. Por ejemplo:
+    - **Problema:** "Productos que vencen sin que nadie los vea" · gancho: "¿Por qué el yogur vence siempre un martes?"
+    - **Problema:** "Armar el pedido antes del corte del proveedor" · gancho: "Pedir a las 18:10, diez minutos tarde"
+    - **Problema:** "La caja que no cierra" · gancho: el que proponga el escritor.
+  - El problema se elige de la serie: para IMAN, un paso del loop (abrir, vender, llega el pedido, vence, pedir antes del corte, cerrar la caja, sincronizar, mirar los números). Así cada pieza dice qué parte del día arregla.
+  - Se ve en el menú, arriba de la historia (cada ronda), en el storyboard, en `pieza.md` y en el nombre del proyecto.
   - **Kimi más quieto:** `temperature` baja, configurable, para que invente menos.
 - **Pendiente:** el "go", y que vos escribas o dictes "Cómo se trabaja hoy" (puedo arrancar con un borrador para que corrijas).
 
