@@ -97,6 +97,21 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 26. Historias con los pies en la tierra (no tripeadas)
+- **Qué pasó:** la historia salió con un cuaderno que habla, y una góndola y un mostrador que "le llevan la contra". Se siente alucinada.
+- **Por qué pasa:** el motor (`server/engine.md`) pide eso: "el Malo es el dolor personificado: tiene voz, opiniones y excusas". Y la serie IMAN dice "el caos del local, personificado". Nada le pide que la escena pueda pasar de verdad.
+- **Arreglo propuesto:**
+  - **Nivel de realidad**, por serie y cambiable en el brief:
+    - **Realista:** solo personas y cosas que pasan de verdad; los objetos no hablan.
+    - **Con un toque:** como mucho un recurso de humor (un objeto que habla o un corresponsal) y la escena vuelve enseguida a lo real.
+    - **Absurdo:** como hoy.
+  - Para IMAN, Realista por defecto.
+  - **Cambiar el motor:** el Malo es el dolor que se ve en personas y cosas reales (el cuaderno tachado, la góndola vacía, el proveedor que ya cortó), no un personaje que habla, salvo que el nivel lo permita.
+  - **"Situaciones reales" en la serie:** una lista de cosas que pasan de verdad en un kiosco, contadas por vos. El menú de temas sale de ahí, y el escritor tiene que partir de una.
+  - **Check de realidad:** por cada toma, "¿esto puede pasar mañana en un kiosco real?". Lo que no pasa bloquea la aprobación, con "Arreglalo" o "No es un problema".
+  - **Kimi más quieto:** mandar `temperature` baja (configurable) para que invente menos.
+- **Pendiente:** el "go".
+
 ### 25. Un storyboard más lindo de ver
 - **Qué pasó:** el storyboard funciona pero se ve poco estético: mucho texto de prompt, pocas imágenes.
 - **Ideas (a elegir):**
