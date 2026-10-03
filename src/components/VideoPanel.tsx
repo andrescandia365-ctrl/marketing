@@ -398,7 +398,7 @@ export function VideoPanel({
           <Button
             variant="secondary"
             className="w-full"
-            onClick={() => download(result.blob, `${slug(story.title)}.${result.extension}`)}
+            onClick={() => download(result.blob, `${slug(story.problem || story.title)}.${result.extension}`)}
           >
             Descargar .{result.extension}
           </Button>

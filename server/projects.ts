@@ -150,7 +150,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
     try {
       const p = await read(name);
       const state = p.state as {
-        story?: { title?: string };
+        story?: { problem?: string; title?: string };
         menu?: unknown;
         pieceBrief?: { series?: string };
         step?: string;
@@ -158,7 +158,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       };
       out.push({
         id: p.id,
-        title: state.story?.title || "Sin título todavía",
+        title: state.story?.problem || state.story?.title || "Sin título todavía",
         series: state.pieceBrief?.series ?? "",
         step: state.step ?? "brief",
         updatedAt: p.updatedAt,

@@ -27,8 +27,21 @@ export const BriefSchema = z.object({
 export type Brief = z.infer<typeof BriefSchema>;
 
 // ── Step 1: the menu ────────────────────────────────────────────────────────────
+// Every piece is named by the problem it solves; the hook title comes second.
+const PROBLEM = z
+  .string()
+  .describe(
+    "The problem this piece solves, named plainly in Spanish in 3–8 words, clear with no context (e.g. 'Armar el pedido antes del corte del proveedor'). When the series has a loop, name the step it fixes.",
+  );
+const HOOK_TITLE = z
+  .string()
+  .describe(
+    "The hook title: states the tension, not the answer, and makes sense with no context. In Spanish. Never copy the playbook's example lines or numbers.",
+  );
+
 export const TopicIdeaSchema = z.object({
-  title: z.string().describe("States the tension, not the answer. In Spanish."),
+  problem: PROBLEM,
+  title: HOOK_TITLE,
   pain: z.string().describe("The concrete pain, with the object, the number or the hour."),
   bad: z.string().describe("How the Bad shows up and what it says in this topic."),
   good: z.string().describe("How the Good fixes it on screen (only real features)."),
@@ -75,7 +88,8 @@ const ChecklistItemSchema = z.object({ item: z.string(), pass: z.boolean(), note
 export type ChecklistItem = z.infer<typeof ChecklistItemSchema>;
 
 export const StoryWireSchema = z.object({
-  title: z.string().describe("States the tension, not the answer."),
+  problem: PROBLEM,
+  title: HOOK_TITLE,
   logline: z.string(),
   characters: z.array(CharacterWire),
   topics: z.array(TopicWire),
@@ -118,6 +132,15 @@ export const StoryWireSchema = z.object({
       }),
     )
     .describe("Everything the brand or product does in the story, each checked against the list of what exists today."),
+  practices: z
+    .array(
+      z.object({
+        practice: z.string().describe("A habit, routine, schedule or tool people use in the story to run the business or the home. Spanish."),
+        known: z.boolean().describe("true only if the series' list of how people work today or the brief's notes say people do it this way."),
+        note: z.string(),
+      }),
+    )
+    .describe("Every way of working the story shows (how people order, count, check, pay, close…), each checked against how people work today."),
   verify: z.array(z.string()).describe("Every claim marked [VERIFY]. Empty if none."),
 });
 export type Story = Omit<z.infer<typeof StoryWireSchema>, "characters" | "topics"> & {
@@ -216,6 +239,11 @@ export type Board = { style: string; setups: Setup[]; shots: Shot[]; issues: Boa
 function pick<T extends string>(value: string, options: readonly T[], fallback: T): T {
   const v = value.toLowerCase();
   return options.find((o) => v.includes(o)) ?? fallback;
+}
+
+// Stories saved before the problem title and the practices check.
+export function migrateStory(story: Story): Story {
+  return { ...story, problem: story.problem ?? "", practices: story.practices ?? [] };
 }
 
 export function normalizeStory(wire: z.infer<typeof StoryWireSchema>): Story {

@@ -136,6 +136,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
   const [fields, setFields] = useState<SeriesFields | null>(id ? null : EMPTY_SERIES);
   // "Lo que existe hoy" is edited as text, one item per line.
   const [works, setWorks] = useState("");
+  const [practices, setPractices] = useState("");
   const [loop, setLoop] = useState("");
   const [version, setVersion] = useState(Date.now());
   const [busy, setBusy] = useState<null | "save" | "delete">(null);
@@ -148,6 +149,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
       .then(({ fields }) => {
         setFields(fields);
         setWorks(fields.worksToday.join("\n"));
+        setPractices(fields.practices.join("\n"));
         setLoop(fields.loop.join("\n"));
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
@@ -158,7 +160,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
   }
 
   const set = <K extends keyof SeriesFields>(key: K, value: SeriesFields[K]) => setFields({ ...fields, [key]: value });
-  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "loop" | "type" | "textStyle" | "cast">, rows = 4) => (
+  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "type" | "textStyle" | "cast">, rows = 4) => (
     <textarea className={inputClass} rows={rows} value={fields[key]} onChange={(e) => set(key, e.target.value)} />
   );
 
@@ -171,7 +173,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
         .split("\n")
         .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
         .filter(Boolean);
-    const next = { ...fields, worksToday: lines(works), loop: lines(loop) };
+    const next = { ...fields, worksToday: lines(works), practices: lines(practices), loop: lines(loop) };
     try {
       if (id) {
         const { series } = await api.saveSeries(id, next);
@@ -263,6 +265,18 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose }: Props) {
         hint="Una función o un producto por línea. Es lo único que la IA puede mostrar como real; todo lo demás lo marca como Concepto."
       >
         <textarea className={`${inputClass} font-mono`} rows={9} value={works} onChange={(e) => setWorks(e.target.value)} />
+      </Field>
+
+      <Field
+        label="Cómo se trabaja hoy"
+        hint="Cómo hace la gente cada cosa hoy, sin la marca, una por línea. Ej.: el pedido se arma mirando la góndola. La IA arma los dolores solo con esto y las notas del brief; si muestra otra costumbre, el check la marca."
+      >
+        <textarea
+          className={`${inputClass} font-mono`}
+          rows={6}
+          value={practices}
+          onChange={(e) => setPractices(e.target.value)}
+        />
       </Field>
 
       <Field

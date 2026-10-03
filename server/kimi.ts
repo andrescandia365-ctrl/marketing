@@ -17,6 +17,10 @@ type Format = "json_schema" | "json_object";
 
 // Remembered after the first rejection so later requests skip straight to JSON mode.
 let format: Format = "json_schema";
+// Lower means less invention. Optional: some reasoning models only take their own value, so a rejected
+// temperature is dropped for the rest of the run.
+let temperature: number | undefined = process.env.KIMI_TEMPERATURE ? Number(process.env.KIMI_TEMPERATURE) : undefined;
+if (temperature !== undefined && !Number.isFinite(temperature)) temperature = undefined;
 
 export async function askKimi<T>(system: string[], prompt: string, schema: z.ZodType<T>): Promise<T> {
   const jsonSchema = z.toJSONSchema(schema);
@@ -83,6 +87,7 @@ async function complete(messages: Message[], jsonSchema: object): Promise<string
         : { type: "json_object" },
   };
   if (process.env.KIMI_REASONING_EFFORT) body.reasoning_effort = process.env.KIMI_REASONING_EFFORT;
+  if (temperature !== undefined) body.temperature = temperature;
 
   let response: Response;
   try {
@@ -97,6 +102,11 @@ async function complete(messages: Message[], jsonSchema: object): Promise<string
 
   if (!response.ok) {
     const detail = await errorDetail(response);
+    if (response.status === 400 && temperature !== undefined && /temperature/i.test(detail)) {
+      console.warn(`Kimi no acepta temperature=${temperature}; sigo sin ella. (${detail})`);
+      temperature = undefined;
+      return complete(messages, jsonSchema);
+    }
     if (response.status === 400 && format === "json_schema" && /response_format|json_schema|schema/i.test(detail)) {
       throw new FormatRejected(detail);
     }

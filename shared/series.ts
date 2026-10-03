@@ -78,6 +78,8 @@ export const SeriesFieldsSchema = z.object({
   type: z.enum(SERIES_TYPES),
   what: z.string().trim().max(6000),
   worksToday: z.array(z.string().trim().min(1).max(600)).max(100),
+  // How people do things today, without the brand. Pains are built only on these (or the brief's notes).
+  practices: z.array(z.string().trim().min(1).max(600)).max(100),
   // The series loop, one step per line (IMAN: the daily loop of the store). The loop check uses it.
   loop: z.array(z.string().trim().min(1).max(300)).max(30),
   story: z.string().trim().max(6000),
@@ -97,6 +99,7 @@ export const EMPTY_SERIES: SeriesFields = {
   type: "software",
   what: "",
   worksToday: [],
+  practices: [],
   loop: [],
   story: "",
   bad: "",
@@ -111,14 +114,16 @@ export const EMPTY_SERIES: SeriesFields = {
 // The heading each field is written under. The writer is told that the WORKS_TODAY list is the only thing
 // that may be shown as real, so that heading must not change without updating server/claude.ts.
 export const WORKS_TODAY = "Lo que existe hoy";
+export const PRACTICES = "Cómo se trabaja hoy";
 export const LOOP = "El loop de la serie";
 export const CAST = "Elenco fijo";
-const LISTS = ["worksToday", "loop"] as const;
+const LISTS = ["worksToday", "practices", "loop"] as const;
 type ListKey = (typeof LISTS)[number];
 const isList = (key: string): key is ListKey => (LISTS as readonly string[]).includes(key);
 const SECTIONS = [
   ["what", "Qué es"],
   ["worksToday", `${WORKS_TODAY} (solo esto se muestra como real)`],
+  ["practices", `${PRACTICES} (sin la marca; la historia no inventa otras costumbres)`],
   ["loop", `${LOOP} (un paso por línea)`],
   ["story", "La historia que contamos"],
   ["bad", "El Malo"],

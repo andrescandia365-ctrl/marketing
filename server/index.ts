@@ -68,7 +68,12 @@ app.onError((error, c) => {
 });
 
 // Story and board come back from the browser; parse them with the same shapes the writer returns.
-const StoryInput = StoryWireSchema.transform(normalizeStory);
+// Pieces saved before the problem title and the practices check have neither.
+const StoryInput = StoryWireSchema.extend({
+  problem: z.string().default(""),
+  practices: StoryWireSchema.shape.practices.default([]),
+}).transform(normalizeStory);
+const TopicInput = TopicIdeaSchema.extend({ problem: z.string().default("") });
 const BoardInput = BoardWireSchema.transform(normalizeBoard);
 const demo = () => currentWriter() === null;
 
@@ -233,7 +238,7 @@ app.post("/api/menu", async (c) => {
 
 app.post("/api/story", async (c) => {
   const { brief, topics } = z
-    .object({ brief: BriefSchema, topics: z.array(TopicIdeaSchema).min(1).max(4) })
+    .object({ brief: BriefSchema, topics: z.array(TopicInput).min(1).max(4) })
     .parse(await c.req.json());
   if (demo()) return c.json({ story: DEMO_STORY, demo: true });
   return c.json({ story: await writeStory(brief, topics), demo: false });

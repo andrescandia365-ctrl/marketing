@@ -18,7 +18,7 @@ import {
   type TopicIdea,
 } from "../shared/schema.ts";
 import { LENGTHS } from "../shared/template.ts";
-import { CAST, WORKS_TODAY } from "../shared/series.ts";
+import { CAST, PRACTICES, WORKS_TODAY } from "../shared/series.ts";
 import { getSeries } from "./series.ts";
 import { KIMI_MODEL, askKimi, kimiKey } from "./kimi.ts";
 import { getTool } from "./tools.ts";
@@ -70,7 +70,7 @@ function contextBlocks(brief: Brief, withTool: boolean): string[] {
   const series = getSeries(brief.series);
   if (!series) throw new WriterError(`No existe la serie "${brief.series}".`);
   const blocks = [
-    `The series for this piece (its bible is written in Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real. Its "${CAST}", if any, is the series' fixed cast: characters, places and products with an approved image (reuse them: same id as castId, identity word for word) and real screens of the product (kind "screen": real screenshots, shown only in screen shots).\n\n${series.text}`,
+    `The series for this piece (its bible is written in Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real. Its "${PRACTICES}" list, if any, is how people work today without the brand: pains are built only on it and the brief's notes. Its "${CAST}", if any, is the series' fixed cast: characters, places and products with an approved image (reuse them: same id as castId, identity word for word) and real screens of the product (kind "screen": real screenshots, shown only in screen shots).\n\n${series.text}`,
   ];
   if (withTool) {
     const tool = getTool(brief.tool);
@@ -153,7 +153,7 @@ function ideasText(ideas: TopicIdea[]): string {
   return ideas
     .map(
       (t, i) =>
-        `${i + 1}. "${t.title}"\n   Pain: ${t.pain}\n   The Bad: ${t.bad}\n   The Good: ${t.good}\n   Opening artifact / bridge: ${t.peg}`,
+        `${i + 1}. Problem: ${t.problem || "(name it)"}\n   Hook title: "${t.title}"\n   Pain: ${t.pain}\n   The Bad: ${t.bad}\n   The Good: ${t.good}\n   Opening artifact / bridge: ${t.peg}`,
     )
     .join("\n");
 }
@@ -166,7 +166,7 @@ export function proposeMenu(brief: Brief): Promise<Menu> {
     `Brief:
 ${describeBrief(brief)}
 
-Propose six topic ideas for this piece, each built on a different concrete pain from the series, ready for the Good-vs-Bad engine. Use the optional peg where it fits. Then list any gaps the person should fill.`,
+Propose six topic ideas for this piece, each built on a different concrete pain from the series and named by the problem it solves, ready for the Good-vs-Bad engine. Every pain follows how people really work today (the series' "${PRACTICES}" list and the brief's notes); never invent a way of working. Use the optional peg where it fits. Then list any gaps the person should fill.`,
     MenuSchema,
   );
 }
@@ -184,7 +184,7 @@ ${describeBrief(brief)}
 The chosen topic${topics.length > 1 ? "s, in this order" : ""}:
 ${ideasText(topics)}
 
-Write the story. Cast the Good, the Bad (named and personified for this piece) and any human characters. Each topic gets a concrete bridge in and its lines in Negative → Touching → Good order, with the Negative escalating in three beats and one sincere Touching line. Plant callbacks and pay them off; the last line calls back to the first. Spoken lines should add up to ${len.min}–${len.max} seconds at about 2.5 words per second.
+Write the story. Its problem is the chosen topic's problem (for several topics, the one problem they share). Cast the Good, the Bad (named and personified for this piece) and any human characters. Each topic gets a concrete bridge in and its lines in Negative → Touching → Good order, with the Negative escalating in three beats and one sincere Touching line. Plant callbacks and pay them off; the last line calls back to the first. Spoken lines should add up to ${len.min}–${len.max} seconds at about 2.5 words per second.
 
 ${STORY_CHECKS}`,
       StoryWireSchema,
@@ -218,7 +218,8 @@ const STORY_CHECKS = `Then check the story like a strict critic who did not writ
 - checklist: Gancho (the first 3 seconds stop the scroll with a concrete pain or a question), Retención (open questions and tension keep people watching; the escalation grows), Recompensa (every open loop pays off), Bueno contra Malo, Momento emotivo, Detalle concreto, Puentes, Callbacks, Continuidad (each line follows from the one before), Lo que existe hoy, El chiste es el problema.
 - loops: every open loop (the hook's question, each tension, each planted callback), where it opens and where it pays off. One that never pays off is not closed.
 - seriesLoop: walk the series loop from the bible step by step: does the piece show it, and if so, does it show the pain, the step doing its job and the result?
-- claims: everything the brand or product is shown doing, each checked against "${WORKS_TODAY}". A thing that is not on the list is only allowed as a clearly labelled concept; the same goes for anything that could break a law or the brand's rules (for example, selling an expired product).`;
+- claims: everything the brand or product is shown doing, each checked against "${WORKS_TODAY}". A thing that is not on the list is only allowed as a clearly labelled concept; the same goes for anything that could break a law or the brand's rules (for example, selling an expired product).
+- practices: every way of working the story shows people using without the brand (how they order, count, check, pay, close, keep track), each checked against the series' "${PRACTICES}" list and the brief's notes. known is false when neither says people do it that way.`;
 
 const BOARD_RULES = `Shot rules:
 - Cover every line of the story, in order, once. A shot holds one line, or two short lines from the same speaker.
@@ -232,7 +233,7 @@ const BOARD_RULES = `Shot rules:
 - Put the style line inside each visualPrompt so it stands alone. No text, signs, logos, brand names or real people's likeness in any image. A phone or computer screen faces away from the camera or is out of focus; the tool cannot draw the real interface. How the Bad looks on screen follows the story's character line.
 - The spoken lines and captions are added on top later, so video prompts never ask anyone to speak or sing, and ask for no music.
 - disclosure: "concept" or "simulation" for anything the brand is shown doing that is not in the series' "${WORKS_TODAY}" list.
-- issues: after writing the board, check it like a strict critic: a shot whose action does not follow the previous one (continuity), the brand shown doing something not on its list without a label (reality), an image prompt with more than one moment (image), an open loop never paid off (loop). List every problem you still see; empty only if there are none.`;
+- issues: after writing the board, check it like a strict critic: a shot whose action does not follow the previous one (continuity), the brand shown doing something not on its list without a label (reality), people working in a way the series' "${PRACTICES}" list and the brief don't confirm (practice), an image prompt with more than one moment (image), an open loop never paid off (loop). List every problem you still see; empty only if there are none.`;
 
 // Step 3: the storyboard.
 export async function writeBoard(brief: Brief, story: Story): Promise<Board> {

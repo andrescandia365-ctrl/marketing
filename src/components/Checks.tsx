@@ -64,7 +64,7 @@ export function ChecksPanel({ problems, dismissed, fixing, disabled, onFix, onDi
   );
 }
 
-// The loops behind the check: what opens, where it pays off, the series loop and what the brand does.
+// The loops behind the check: what opens, where it pays off, the series loop, what the brand does and how people work.
 export function LoopsMap({ story }: { story: Story }) {
   return (
     <details className="rounded-xl border border-line bg-white p-4">
@@ -119,6 +119,24 @@ export function LoopsMap({ story }: { story: Story }) {
                     {c.claim}
                     <span className="block text-xs text-muted">
                       {c.real ? "Existe hoy." : c.concept ? "Mostrado como concepto." : "No existe hoy."} {c.note}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {(story.practices ?? []).length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-muted uppercase">¿Pasa así de verdad?</p>
+            <ul className="mt-1 space-y-1.5">
+              {story.practices.map((p, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className={`font-bold ${p.known ? "text-good" : "text-neg"}`}>{p.known ? "✓" : "✗"}</span>
+                  <span>
+                    {p.practice}
+                    <span className="block text-xs text-muted">
+                      {p.known ? "Así se trabaja hoy." : "Nadie confirmó que se trabaje así."} {p.note}
                     </span>
                   </span>
                 </li>

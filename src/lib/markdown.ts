@@ -37,10 +37,13 @@ export function storyToMarkdown(story: Story): string {
   const claims = story.claims
     .map((c) => `- ${c.real ? "✓" : c.concept ? "Concepto" : "✗ no existe hoy"} · ${c.claim}${c.note ? ` (${c.note})` : ""}`)
     .join("\n");
+  const practices = (story.practices ?? [])
+    .map((p) => `- ${p.known ? "✓" : "✗ no confirmado"} · ${p.practice}${p.note ? ` (${p.note})` : ""}`)
+    .join("\n");
   const verify = story.verify.length ? story.verify.map((v) => `- ${v}`).join("\n") : "- Nada.";
 
-  return `# ${story.title}
-
+  return `# ${story.problem || story.title}
+${story.problem ? `\n**Gancho:** ${story.title}\n` : ""}
 ${story.logline}
 
 ## Personajes
@@ -64,7 +67,7 @@ ${checklist}
 ## Loops (gancho → retención → recompensa)
 
 ${loops}
-${seriesLoop ? `\n## Loop de la serie\n\n${seriesLoop}\n` : ""}${claims ? `\n## Lo que hace la marca\n\n${claims}\n` : ""}
+${seriesLoop ? `\n## Loop de la serie\n\n${seriesLoop}\n` : ""}${claims ? `\n## Lo que hace la marca\n\n${claims}\n` : ""}${practices ? `\n## ¿Pasa así de verdad?\n\n${practices}\n` : ""}
 ## Verificar antes de publicar
 
 ${verify}

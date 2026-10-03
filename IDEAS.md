@@ -10,6 +10,14 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
 - **Tanda 3 (3 Oct 2026):** las 4 formas de voz por toma y por personaje (15): solo subtítulos, la dice Grok (prompt de video con la línea y su voz), voz generada (OpenAI, `OPENAI_API_KEY`) y grabada en la app o subida; aviso y ajuste de largo si la voz no entra; botón 🔊 para escuchar prompts y líneas (16); efecto de sonido por toma, música de la pieza que baja bajo la voz y cortes al ritmo (8). Pendiente: API para generar efectos de sonido.
 
+- **Historias reales (3 Oct 2026, idea 26):**
+  - **Problema primero:** cada tema del menú y cada historia llevan primero el problema que resuelven y abajo el gancho. Se ve en el menú, la historia, el storyboard, la producción, la lista de proyectos, `pieza.md` y los nombres de archivo.
+  - **"Cómo se trabaja hoy":** lista nueva en Editar serie. En IMAN arranca con lo que confirmaste: el pedido se arma mirando la góndola y el proveedor tiene horario de corte. Saqué de "El Malo" el cuaderno y el "stock que no coincide".
+  - **Check "¿Pasa así de verdad?":** marca en la historia y en el storyboard toda costumbre que no esté en la serie ni en el brief, y bloquea la aprobación.
+  - **Motor:** los objetos pueden hablar, pero la situación de fondo tiene que ser real; los ejemplos del playbook no se copian.
+  - **Kimi:** `KIMI_TEMPERATURE`, opcional; si el modelo no la acepta, la app la saca.
+  - Pendiente: cambiar el ejemplo de `PLAYBOOK.md` (con "ok") y sumar más costumbres reales a la serie.
+
 ## Decisiones tomadas (2 Oct 2026)
 1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma. **Personajes:** usar las voces de Grok (panel Audio: Ara, Eve, Leo, Rex, Sal…, más audios subidos o grabados); cada personaje tiene una voz asignada y el prompt de video la pide. Grok no deja descargar el audio solo, así que esa voz vive dentro del clip. **Narrador:** las 4 opciones, según la escena.
 2. **Escuchar en voz alta:** para escucharlos vos.
@@ -96,6 +104,45 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Confirmado:** se pueden subir imágenes propias como inicial, intermedia y final.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
+
+### 26. Historias que respeten cómo se trabaja de verdad
+- **Qué pasó:** la historia "El cuaderno dice 40. La góndola dice 3." parte de algo que nadie hace: nadie lleva en un cuaderno cuántos paquetes de yerba quedan. En un kiosco real, el dueño o el encargado **mira la góndola** y, según si hay 3, 4 o 20, arma el pedido o no. La historia en realidad era sobre **armar bien el pedido** antes del corte del proveedor, y el título no lo dice. Que los objetos hablen está bien; lo que falla es la **práctica inventada**.
+- **De dónde salió:**
+  - El título está copiado casi igual del ejemplo del playbook: "Your system says 40 in stock. The shelf says 3." (`PLAYBOOK.md` y `server/playbook.md`, movida "Contradiction"). El escritor tomó el ejemplo como si fuera un dato del negocio.
+  - La serie IMAN, en "El Malo", lista "el cuaderno de papel" y "el stock que no coincide con la góndola" (eso lo escribí yo, no vos).
+  - La app le pide al título que "plantee la tensión, no la respuesta", y por eso sale críptico.
+- **Arreglo propuesto:**
+  - **"Cómo se trabaja hoy" en la serie:** una sección nueva en "Editar serie", escrita por vos, con cómo se hace cada cosa hoy sin IMAN. Por ejemplo, "el pedido se arma mirando la góndola" o "el proveedor pasa a tal hora o se le escribe por WhatsApp". El escritor solo puede usar como dolor lo que esté ahí o lo que le cuentes en el brief; no puede inventar una costumbre.
+  - **Revisar "El Malo" de IMAN con vos:** sacar el cuaderno y el "stock que no coincide", y poner los dolores reales que vos confirmes.
+  - **Los ejemplos del playbook no son datos:** decirle al escritor que los ejemplos del playbook muestran la forma, no hechos del negocio, y que nunca copie sus números ni sus frases. Cambiar ese ejemplo en `PLAYBOOK.md` necesita tu "ok".
+  - **Check "¿Pasa así de verdad?":** el escritor marca toda costumbre, horario o herramienta que no esté en la serie o en el brief. Eso bloquea la aprobación, con "Arreglalo" o "No es un problema".
+  - **El título es el problema que resuelve (pedido tuyo):** cada tema del menú y cada historia llevan primero un **título del problema**, en palabras simples. Abajo va el gancho, que tiene que entenderse sin contexto. Por ejemplo:
+    - **Problema:** "Productos que vencen sin que nadie los vea" · gancho: "¿Por qué el yogur vence siempre un martes?"
+    - **Problema:** "Armar el pedido antes del corte del proveedor" · gancho: "Pedir a las 18:10, diez minutos tarde"
+    - **Problema:** "La caja que no cierra" · gancho: el que proponga el escritor.
+  - El problema se elige de la serie: para IMAN, un paso del loop (abrir, vender, llega el pedido, vence, pedir antes del corte, cerrar la caja, sincronizar, mirar los números). Así cada pieza dice qué parte del día arregla.
+  - Se ve en el menú, arriba de la historia (cada ronda), en el storyboard, en `pieza.md` y en el nombre del proyecto.
+  - **Kimi más quieto:** `temperature` baja, configurable, para que invente menos.
+- **Construido** (ver arriba). Falta que sumes más costumbres reales en "Cómo se trabaja hoy".
+
+### 25. Un storyboard más lindo de ver
+- **Qué pasó:** el storyboard funciona pero se ve poco estético: mucho texto de prompt, pocas imágenes.
+- **Ideas (a elegir):**
+  - **Viñetas de cómic / tira de película:** cada toma como un cuadro vertical 9:16 con color del momento, la claqueta grande y la línea; los prompts plegados ("ver prompts").
+  - **Imagen en la viñeta:** la imagen fija del personaje (del elenco) o un boceto, en vez de texto.
+  - **Vista línea de tiempo:** las tomas en fila horizontal, con su largo proporcional (6/10/15 s) y los temas marcados arriba.
+  - **Menos ruido:** setups como chips con foto, íconos para transformación / pantalla real / edición, tipografía más grande.
+- **Elegido (3 Oct 2026): que se vea como la pieza de contenido terminada**, más cerca del video que de una planilla:
+  - **Cada toma es una pantalla de celular 9:16**, como se va a ver en Reels/TikTok/Shorts: adentro, la imagen (la subida, la del elenco o un color del momento si todavía no hay), el headline y el subtítulo dibujados **con el estilo de texto de la serie** (tamaño, color, sombra/contorno/caja), igual que en el video final.
+  - **Debajo de cada pantalla, solo lo esencial:** número y título de la toma, quién habla, largo (6/10/15 s) y un ícono si es transformación, pantalla real o edición.
+  - **Los prompts y los setups, plegados** ("Ver detalles"); los checks siguen arriba, como ahora.
+  - **"Ver la pieza":** un botón que pasa las tomas una tras otra con su largo real y las líneas (un animatic), para sentir el ritmo antes de producir.
+  - **Fila de temas arriba:** una banda con los temas y los callbacks, para ver la estructura de la pieza de un vistazo.
+- **Pendiente:** el "go".
+
+### 24. Kimi: respuestas vacías
+- **Qué pasó:** "Kimi devolvió una respuesta vacía" al armar el storyboard; después funcionó. El "Gancho del momento" es opcional: dejarlo vacío no debería causar esto; lo más probable es que Kimi gastara su límite razonando o que NVIDIA cortara.
+- **Arreglo propuesto:** límite de respuesta explícito (`KIMI_MAX_TOKENS`), un reintento automático si viene vacía, leer respuestas que no vienen en streaming y otros campos, un error que diga el motivo, y `KIMI_REASONING_EFFORT` para que piense menos.
 
 ### 22. Check de loops: gancho → retención → recompensa, y el loop de la serie
 - **Idea (tuya):** un check que revise si la pieza tiene los **loops cerrados** y si cubre lo que promete el **loop** de la serie.
