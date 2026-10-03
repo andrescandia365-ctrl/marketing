@@ -2,7 +2,7 @@
 // the brand and preloaded images only. No timers, no state carried between frames; noise is seeded (mulberry32),
 // never Math.random. The studio's banned defaults are not here: no centred title on a gradient, no
 // everything-fades-in, no corner labels or frame borders, no glow, no particle bursts.
-import { revealTimes, timeScenes, type MotionScene, type MotionScript, type TimedScene } from "../../shared/motion.ts";
+import { elementTimes, timeScenes, type MotionScene, type MotionScript, type TimedScene } from "../../shared/motion.ts";
 import type { Brand } from "../../shared/series.ts";
 
 export type MotionAsset = { image: CanvasImageSource; width: number; height: number; name: string };
@@ -66,7 +66,20 @@ function hexA(hex: string, alpha: number): string {
     .padStart(2, "0")}`;
 }
 
-type Frame = { ctx: CanvasRenderingContext2D; w: number; h: number; unit: number; vertical: boolean; world: MotionWorld; t: number };
+export type Box = { x: number; y: number; w: number; h: number };
+// Where each visible element of the current scene ended up, for the editor's hit test. Drawing never reads it.
+export type Probe = (sceneId: string, key: string, box: Box) => void;
+
+type Frame = {
+  ctx: CanvasRenderingContext2D;
+  w: number;
+  h: number;
+  unit: number;
+  vertical: boolean;
+  world: MotionWorld;
+  t: number;
+  probe?: Probe;
+};
 
 const display = (f: Frame, size: number, weight = 700) => `${weight} ${size}px "${f.world.brand.displayFont}", "Inter", system-ui, sans-serif`;
 const ui = (f: Frame, size: number, weight = 500) => `${weight} ${size}px "${f.world.brand.uiFont}", "Inter", system-ui, sans-serif`;
@@ -91,6 +104,7 @@ function kineticTitle(f: Frame, text: string, x: number, y: number, size: number
   ctx.font = display(f, size);
   const lines = wrap(ctx, text, max);
   const lh = size * 1.02;
+  const width = Math.max(0, ...lines.map((l) => ctx.measureText(l).width));
   let k = 0;
   const total = text.split(/\s+/).filter(Boolean).length;
   lines.forEach((line, li) => {
@@ -110,21 +124,22 @@ function kineticTitle(f: Frame, text: string, x: number, y: number, size: number
       k++;
     }
   });
-  return lines.length * lh;
+  return { w: width, h: lines.length * lh };
 }
 
 // Supporting text slides in from the left (never a plain fade).
-function slideText(f: Frame, text: string, x: number, y: number, size: number, max: number, p: number) {
-  if (!text || p <= 0) return 0;
+function slideText(f: Frame, text: string, x: number, y: number, size: number, max: number, p: number): Box {
   const { ctx } = f;
   ctx.font = ui(f, size);
-  const lines = wrap(ctx, text, max);
+  const lines = text ? wrap(ctx, text, max) : [];
+  const box = { x, y: y - size, w: Math.max(0, ...lines.map((l) => ctx.measureText(l).width)), h: lines.length * size * 1.3 };
+  if (!text || p <= 0) return box;
   ctx.save();
   ctx.globalAlpha *= Math.min(1, p * 1.6);
   ctx.fillStyle = hexA(f.world.brand.text, 0.86);
   lines.forEach((l, i) => ctx.fillText(l, x - (1 - p) * f.unit * 0.08, y + i * size * 1.3));
   ctx.restore();
-  return lines.length * size * 1.3;
+  return box;
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -248,227 +263,304 @@ function footer(f: Frame) {
   ctx.restore();
 }
 
+// Draws one element with the person's hand adjustment: moved by (dx, dy) and scaled around its anchor (ax, ay).
+// `draw` returns the element's box in frame coordinates without the adjustment; the adjusted box goes to the probe
+// when the element is on screen, and back to the caller.
+function place(f: Frame, s: TimedScene, key: string, ax: number, ay: number, shown: boolean, draw: () => Box): Box {
+  const spot = f.vertical ? s.tweaks?.[key]?.v : s.tweaks?.[key]?.h;
+  const dx = (spot?.dx ?? 0) * f.unit;
+  const dy = (spot?.dy ?? 0) * f.unit;
+  const k = spot?.scale ?? 1;
+  const { ctx } = f;
+  ctx.save();
+  ctx.translate(ax + dx, ay + dy);
+  ctx.scale(k, k);
+  ctx.translate(-ax, -ay);
+  const box = draw();
+  ctx.restore();
+  const out = { x: ax + dx + (box.x - ax) * k, y: ay + dy + (box.y - ay) * k, w: box.w * k, h: box.h * k };
+  if (shown && f.probe && out.w > 0 && out.h > 0) f.probe(s.id, key, out);
+  return out;
+}
+
+const titleBox = (x: number, y: number, size: number, r: { w: number; h: number }): Box => ({ x, y: y - size * 0.95, w: r.w, h: r.h + size * 0.1 });
+
 // ── Templates ───────────────────────────────────────────────────────────────────
 function drawScene(f: Frame, s: TimedScene, lt: number) {
   const { ctx, w, h, unit, vertical, world } = f;
   const m = unit * 0.08;
-  const times = revealTimes(s);
+  const T = elementTimes(s);
+  const at = (key: string) => T[key] ?? 0;
+  const put = (key: string, ax: number, ay: number, draw: () => Box) => place(f, s, key, ax, ay, lt >= at(key), draw);
+  const offset = (key: string) => {
+    const spot = vertical ? s.tweaks?.[key]?.v : s.tweaks?.[key]?.h;
+    return { dx: (spot?.dx ?? 0) * unit, dy: (spot?.dy ?? 0) * unit };
+  };
   const asset = s.asset ? world.assets[s.asset] : undefined;
   const missing = s.asset ? `Falta la imagen: ${s.asset}` : "Sin imagen";
   const titleSize = unit * (vertical ? 0.1 : 0.085);
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
+  // A title that rises in word by word, with its box.
+  const title = (x: number, y: number, size: number, max: number, extra?: (r: { w: number; h: number }) => void) => {
+    let height = 0;
+    put("title", x, y, () => {
+      const r = kineticTitle(f, s.title, x, y, size, max, lt, at("title"));
+      height = r.h;
+      extra?.(r);
+      return titleBox(x, y, size, r);
+    });
+    return height;
+  };
+  const text = (x: number, y: number, size: number, max: number, p: number) => put("text", x, y, () => slideText(f, s.text, x, y, size, max, p));
+
   switch (s.template) {
     case "hook": {
-      const hTitle = kineticTitle(f, s.title, m, vertical ? h * 0.36 : h * 0.4, unit * (vertical ? 0.13 : 0.11), w - m * 2, lt, 0);
-      // The accent bar draws under the title.
-      const bar = outCubic(span(lt, 0.45, 0.5));
-      ctx.fillStyle = world.brand.accent;
-      ctx.fillRect(m, (vertical ? h * 0.36 : h * 0.4) + hTitle - unit * 0.05, (w - m * 2) * 0.35 * bar, unit * 0.014);
-      slideText(f, s.text, m, (vertical ? h * 0.36 : h * 0.4) + hTitle + unit * 0.04, unit * 0.045, w - m * 2, outCubic(span(lt, times[1], 0.5)));
+      const ty = vertical ? h * 0.36 : h * 0.4;
+      const hTitle = title(m, ty, unit * (vertical ? 0.13 : 0.11), w - m * 2, (r) => {
+        // The accent bar draws under the title.
+        const bar = outCubic(span(lt, at("title") + 0.45, 0.5));
+        ctx.fillStyle = world.brand.accent;
+        ctx.fillRect(m, ty + r.h - unit * 0.05, (w - m * 2) * 0.35 * bar, unit * 0.014);
+      });
+      text(m, ty + hTitle + unit * 0.04, unit * 0.045, w - m * 2, outCubic(span(lt, at("text"), 0.5)));
       if (asset) {
-        const p = outBack(span(lt, 0.3, 0.6));
-        ctx.save();
-        ctx.globalAlpha = clamp01(p);
-        drawImage(f, asset, vertical ? w / 2 : w * 0.75, vertical ? h * 0.72 + (1 - p) * unit * 0.2 : h / 2, vertical ? w * 0.6 : w * 0.35, vertical ? h * 0.3 : h * 0.6, missing);
-        ctx.restore();
+        const p = outBack(span(lt, at("media"), 0.6));
+        const cx = vertical ? w / 2 : w * 0.75;
+        const cy = vertical ? h * 0.72 : h / 2;
+        put("media", cx, cy, () => {
+          ctx.globalAlpha = clamp01(p);
+          return drawImage(f, asset, cx, cy + (vertical ? (1 - p) * unit * 0.2 : 0), vertical ? w * 0.6 : w * 0.35, vertical ? h * 0.3 : h * 0.6, missing);
+        });
       }
       break;
     }
     case "screen": {
-      const p = outBack(span(lt, 0, 0.6));
+      const p = outBack(span(lt, at("media"), 0.6));
+      const cx = vertical ? w / 2 : w * 0.66;
       const cy = vertical ? h * 0.58 : h * 0.44;
-      ctx.save();
-      ctx.translate(vertical ? w / 2 : w * 0.66, cy + (1 - p) * h * 0.6);
-      ctx.rotate((1 - outCubic(span(lt, 0, 0.8))) * 0.1);
-      device(f, asset, 0, 0, vertical ? h * 0.52 : h * 0.62, missing);
-      ctx.restore();
+      put("media", cx, cy, () => {
+        ctx.translate(cx, cy + (1 - p) * h * 0.6);
+        ctx.rotate((1 - outCubic(span(lt, at("media"), 0.8))) * 0.1);
+        const b = device(f, asset, 0, 0, vertical ? h * 0.52 : h * 0.62, missing);
+        return { x: cx + b.x, y: cy + b.y, w: b.w, h: b.h };
+      });
       const titleY = vertical ? h * 0.12 : h * 0.3;
-      const hTitle = kineticTitle(f, s.title, m, titleY, titleSize, vertical ? w - m * 2 : w * 0.38, lt, times[1]);
-      slideText(f, s.text, m, titleY + hTitle, unit * 0.04, vertical ? w - m * 2 : w * 0.36, outCubic(span(lt, times[2], 0.5)));
+      const hTitle = title(m, titleY, titleSize, vertical ? w - m * 2 : w * 0.38);
+      text(m, titleY + hTitle, unit * 0.04, vertical ? w - m * 2 : w * 0.36, outCubic(span(lt, at("text"), 0.5)));
       break;
     }
     case "zoom": {
-      const zoomP = inOutCubic(span(lt, times[1], 0.9));
+      const zoomP = inOutCubic(span(lt, at("zoom"), 0.9));
       const z = 1 + (s.zoom - 1) * zoomP;
       const dh = vertical ? h * 0.55 : h * 0.72;
+      const landscape = asset ? asset.width > asset.height : false;
       const ratio = asset ? asset.width / asset.height : 9 / 19.5;
-      const dw = (asset && asset.width > asset.height ? dh * 0.62 : dh) * ratio;
-      const devH = asset && asset.width > asset.height ? dh * 0.62 : dh;
+      const devH = landscape ? dh * 0.62 : dh;
+      const dw = devH * ratio;
       const cx = w / 2;
       const cy = vertical ? h * 0.58 : h * 0.55;
       const fx = (s.focusX - 0.5) * dw;
       const fy = (s.focusY - 0.5) * devH;
-      ctx.save();
-      ctx.translate(cx - fx * z * zoomP, cy - fy * z * zoomP);
-      ctx.scale(z, z);
-      device(f, asset, 0, 0, dh, missing);
-      // The ring draws itself around the feature, then a tap ripples.
-      const ring = outCubic(span(lt, times[2], 0.5));
-      ctx.strokeStyle = world.brand.accent;
-      ctx.lineWidth = (unit * 0.008) / z;
-      ctx.beginPath();
-      ctx.arc(fx, fy, (unit * 0.07) / z, -Math.PI / 2, -Math.PI / 2 + ring * Math.PI * 2);
-      ctx.stroke();
-      const tap = span(lt, times[2] + 0.5, 0.7);
-      if (tap > 0 && tap < 1) {
-        ctx.globalAlpha = 1 - tap;
+      put("media", cx, cy, () => {
+        ctx.translate(cx - fx * z * zoomP, cy - fy * z * zoomP);
+        ctx.scale(z, z);
+        device(f, asset, 0, 0, dh, missing);
+        // The ring draws itself around the feature, then a tap ripples.
+        const ring = outCubic(span(lt, at("ring"), 0.5));
+        ctx.strokeStyle = world.brand.accent;
+        ctx.lineWidth = (unit * 0.008) / z;
         ctx.beginPath();
-        ctx.arc(fx, fy, ((unit * 0.03) / z) * (1 + tap * 2), 0, Math.PI * 2);
+        ctx.arc(fx, fy, (unit * 0.07) / z, -Math.PI / 2, -Math.PI / 2 + ring * Math.PI * 2);
         ctx.stroke();
-      }
-      ctx.restore();
-      kineticTitle(f, s.title, m, vertical ? h * 0.15 : h * 0.16, titleSize * 0.9, w - m * 2, lt, 0.1);
+        const tap = span(lt, at("ring") + 0.5, 0.7);
+        if (tap > 0 && tap < 1) {
+          ctx.globalAlpha = 1 - tap;
+          ctx.beginPath();
+          ctx.arc(fx, fy, ((unit * 0.03) / z) * (1 + tap * 2), 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        return { x: cx - dw / 2, y: cy - devH / 2, w: dw, h: devH };
+      });
+      title(m, vertical ? h * 0.15 : h * 0.16, titleSize * 0.9, w - m * 2);
       break;
     }
     case "callouts": {
-      const p = outBack(span(lt, 0, 0.6));
+      const p = outBack(span(lt, at("media"), 0.6));
       const cx = vertical ? w / 2 : w * 0.42;
       const cy = vertical ? h * 0.5 : h * 0.55;
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.scale(0.85 + 0.15 * p, 0.85 + 0.15 * p);
-      const box = drawImage(f, asset, 0, 0, vertical ? w * 0.62 : w * 0.38, vertical ? h * 0.38 : h * 0.6, missing);
-      ctx.restore();
-      kineticTitle(f, s.title, m, vertical ? h * 0.14 : h * 0.15, titleSize * 0.85, w - m * 2, lt, 0.1);
+      const box = put("media", cx, cy, () => {
+        ctx.translate(cx, cy);
+        ctx.scale(0.85 + 0.15 * p, 0.85 + 0.15 * p);
+        const b = drawImage(f, asset, 0, 0, vertical ? w * 0.62 : w * 0.38, vertical ? h * 0.38 : h * 0.6, missing);
+        return { x: cx + b.x, y: cy + b.y, w: b.w, h: b.h };
+      });
+      title(m, vertical ? h * 0.14 : h * 0.15, titleSize * 0.85, w - m * 2);
       s.items.forEach((item, i) => {
-        const q = outCubic(span(lt, times[i + 1], 0.45));
+        const key = `item${i}`;
+        const q = outCubic(span(lt, at(key), 0.45));
         if (q <= 0) return;
         const rnd = mulberry32(world.seed + s.index * 31 + i);
-        const ax = cx + box.x + box.w * (0.25 + 0.5 * rnd());
-        const ay = cy + box.y + box.h * (0.2 + 0.6 * rnd());
+        const ax = box.x + box.w * (0.25 + 0.5 * rnd());
+        const ay = box.y + box.h * (0.2 + 0.6 * rnd());
         const right = vertical ? i % 2 === 1 : true;
         const lx = vertical ? (right ? w - m : m) : w * 0.68;
         const ly = vertical ? (i < 2 ? h * 0.27 + i * unit * 0.09 : h * 0.72 + (i - 2) * unit * 0.09) : h * 0.3 + i * unit * 0.12;
+        // The line runs from the dot on the image to wherever the label is.
+        const { dx, dy } = offset(key);
         ctx.strokeStyle = world.brand.accent;
         ctx.lineWidth = unit * 0.004;
         ctx.beginPath();
         ctx.moveTo(ax, ay);
-        ctx.lineTo(ax + (lx - ax) * q, ay + (ly - ay) * q);
+        ctx.lineTo(ax + (lx + dx - ax) * q, ay + (ly + dy - ay) * q);
         ctx.stroke();
         ctx.fillStyle = world.brand.accent;
         ctx.beginPath();
         ctx.arc(ax, ay, unit * 0.01, 0, Math.PI * 2);
         ctx.fill();
-        ctx.font = ui(f, unit * 0.036, 600);
-        const tw = ctx.measureText(item).width;
-        const pad = unit * 0.018;
-        const bx = right ? lx - tw - pad * 2 : lx;
-        ctx.save();
-        ctx.globalAlpha *= q;
-        ctx.fillStyle = world.brand.text;
-        roundRect(ctx, bx + (right ? 1 : -1) * (1 - q) * unit * 0.06, ly - unit * 0.035, tw + pad * 2, unit * 0.06, unit * 0.012);
-        ctx.fill();
-        ctx.fillStyle = world.brand.bg;
-        ctx.fillText(item, bx + pad + (right ? 1 : -1) * (1 - q) * unit * 0.06, ly + unit * 0.008);
-        ctx.restore();
+        put(key, lx, ly, () => {
+          ctx.font = ui(f, unit * 0.036, 600);
+          const tw = ctx.measureText(item).width;
+          const pad = unit * 0.018;
+          const bx = right ? lx - tw - pad * 2 : lx;
+          const slide = (right ? 1 : -1) * (1 - q) * unit * 0.06;
+          ctx.globalAlpha *= q;
+          ctx.fillStyle = world.brand.text;
+          roundRect(ctx, bx + slide, ly - unit * 0.035, tw + pad * 2, unit * 0.06, unit * 0.012);
+          ctx.fill();
+          ctx.fillStyle = world.brand.bg;
+          ctx.fillText(item, bx + pad + slide, ly + unit * 0.008);
+          return { x: bx, y: ly - unit * 0.035, w: tw + pad * 2, h: unit * 0.06 };
+        });
       });
       break;
     }
     case "steps": {
-      kineticTitle(f, s.title, m, vertical ? h * 0.16 : h * 0.18, titleSize * 0.9, w - m * 2, lt, 0);
+      title(m, vertical ? h * 0.16 : h * 0.18, titleSize * 0.9, w - m * 2);
       const top = vertical ? h * 0.3 : h * 0.34;
       const gap = unit * (vertical ? 0.13 : 0.12);
-      const current = s.items.reduce((n, _, i) => (lt >= times[i + 1] ? i : n), -1);
-      // The progress line grows down as steps arrive.
-      if (current >= 0) {
-        ctx.fillStyle = hexA(world.brand.accent, 0.5);
-        ctx.fillRect(m + unit * 0.035 - unit * 0.003, top, unit * 0.006, gap * current * outCubic(span(lt, times[current + 1], 0.4)));
+      const dotX = m + unit * 0.035;
+      const centre = (i: number) => {
+        const { dx, dy } = offset(`item${i}`);
+        return { x: dotX + dx, y: top + i * gap + dy };
+      };
+      const current = s.items.reduce((n, _, i) => (lt >= at(`item${i}`) ? i : n), -1);
+      // The progress line runs from step to step as they arrive.
+      ctx.strokeStyle = hexA(world.brand.accent, 0.5);
+      ctx.lineWidth = unit * 0.006;
+      for (let k = 0; k < current; k++) {
+        const a = centre(k);
+        const b = centre(k + 1);
+        const g = k === current - 1 ? outCubic(span(lt, at(`item${current}`), 0.4)) : 1;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(a.x + (b.x - a.x) * g, a.y + (b.y - a.y) * g);
+        ctx.stroke();
       }
       s.items.forEach((item, i) => {
-        const q = outBack(span(lt, times[i + 1], 0.5));
+        const q = outBack(span(lt, at(`item${i}`), 0.5));
         if (q <= 0) return;
         const y = top + i * gap;
-        ctx.save();
-        ctx.globalAlpha = i < current ? 0.6 : 1;
-        ctx.translate(-(1 - clamp01(q)) * unit * 0.1, 0);
-        ctx.fillStyle = world.brand.accent;
-        ctx.beginPath();
-        ctx.arc(m + unit * 0.035, y, unit * 0.035 * q, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = world.brand.bg;
-        ctx.font = display(f, unit * 0.04);
-        ctx.textAlign = "center";
-        ctx.fillText(String(i + 1), m + unit * 0.035, y + unit * 0.014);
-        ctx.textAlign = "left";
-        ctx.fillStyle = world.brand.text;
-        ctx.font = ui(f, unit * 0.045, 600);
-        ctx.fillText(item, m + unit * 0.1, y + unit * 0.016);
-        ctx.restore();
+        put(`item${i}`, dotX, y, () => {
+          ctx.globalAlpha = i < current ? 0.6 : 1;
+          ctx.translate(-(1 - clamp01(q)) * unit * 0.1, 0);
+          ctx.fillStyle = world.brand.accent;
+          ctx.beginPath();
+          ctx.arc(dotX, y, unit * 0.035 * q, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = world.brand.bg;
+          ctx.font = display(f, unit * 0.04);
+          ctx.textAlign = "center";
+          ctx.fillText(String(i + 1), dotX, y + unit * 0.014);
+          ctx.textAlign = "left";
+          ctx.fillStyle = world.brand.text;
+          ctx.font = ui(f, unit * 0.045, 600);
+          ctx.fillText(item, m + unit * 0.1, y + unit * 0.016);
+          return { x: m, y: y - unit * 0.04, w: unit * 0.1 + ctx.measureText(item).width, h: unit * 0.08 };
+        });
       });
       if (asset && !vertical) {
-        const p = outBack(span(lt, 0.2, 0.6));
-        device(f, asset, w * 0.76, h * 0.55 + (1 - p) * h * 0.5, h * 0.68, missing);
+        const p = outBack(span(lt, at("media"), 0.6));
+        put("media", w * 0.76, h * 0.55, () => device(f, asset, w * 0.76, h * 0.55 + (1 - p) * h * 0.5, h * 0.68, missing));
       }
       break;
     }
     case "beforeAfter": {
-      kineticTitle(f, s.title, m, vertical ? h * 0.14 : h * 0.15, titleSize * 0.85, w - m * 2, lt, 0);
+      title(m, vertical ? h * 0.14 : h * 0.15, titleSize * 0.85, w - m * 2);
       const area = { x: m, y: vertical ? h * 0.22 : h * 0.24, w: w - m * 2, h: vertical ? h * 0.55 : h * 0.6 };
-      const wipe = inOutCubic(span(lt, times[1], 1.2));
-      const before = s.asset ? world.assets[s.asset] : undefined;
-      const after = s.assetB ? world.assets[s.assetB] : undefined;
-      ctx.save();
-      roundRect(ctx, area.x, area.y, area.w, area.h, unit * 0.02);
-      ctx.clip();
-      ctx.fillStyle = hexA(world.brand.text, 0.06);
-      ctx.fillRect(area.x, area.y, area.w, area.h);
-      ctx.save();
-      ctx.filter = "grayscale(1) brightness(0.8)";
-      drawImage(f, before ?? after, area.x + area.w / 2, area.y + area.h / 2, area.w, area.h, s.asset ? `Falta la imagen: ${s.asset}` : "Antes");
-      ctx.restore();
-      const split = area.x + area.w * (1 - wipe);
-      ctx.beginPath();
-      ctx.rect(split, area.y, area.x + area.w - split, area.h);
-      ctx.clip();
-      drawImage(f, after, area.x + area.w / 2, area.y + area.h / 2, area.w, area.h, s.assetB ? `Falta la imagen: ${s.assetB}` : "Después");
-      ctx.restore();
-      ctx.fillStyle = world.brand.accent;
-      ctx.fillRect(split - unit * 0.004, area.y, unit * 0.008, area.h);
-      ctx.font = ui(f, unit * 0.036, 700);
-      ctx.fillStyle = world.brand.text;
-      ctx.fillText(s.items[0] || "Antes", area.x, area.y + area.h + unit * 0.06);
-      ctx.textAlign = "right";
-      ctx.fillStyle = world.brand.accent;
-      ctx.fillText(s.items[1] || "Después", area.x + area.w, area.y + area.h + unit * 0.06);
-      ctx.textAlign = "left";
+      put("media", area.x + area.w / 2, area.y + area.h / 2, () => {
+        const wipe = inOutCubic(span(lt, at("wipe"), 1.2));
+        const before = s.asset ? world.assets[s.asset] : undefined;
+        const after = s.assetB ? world.assets[s.assetB] : undefined;
+        ctx.save();
+        roundRect(ctx, area.x, area.y, area.w, area.h, unit * 0.02);
+        ctx.clip();
+        ctx.fillStyle = hexA(world.brand.text, 0.06);
+        ctx.fillRect(area.x, area.y, area.w, area.h);
+        ctx.save();
+        ctx.filter = "grayscale(1) brightness(0.8)";
+        drawImage(f, before ?? after, area.x + area.w / 2, area.y + area.h / 2, area.w, area.h, s.asset ? `Falta la imagen: ${s.asset}` : "Antes");
+        ctx.restore();
+        const split = area.x + area.w * (1 - wipe);
+        ctx.beginPath();
+        ctx.rect(split, area.y, area.x + area.w - split, area.h);
+        ctx.clip();
+        drawImage(f, after, area.x + area.w / 2, area.y + area.h / 2, area.w, area.h, s.assetB ? `Falta la imagen: ${s.assetB}` : "Después");
+        ctx.restore();
+        ctx.fillStyle = world.brand.accent;
+        ctx.fillRect(split - unit * 0.004, area.y, unit * 0.008, area.h);
+        ctx.font = ui(f, unit * 0.036, 700);
+        ctx.fillStyle = world.brand.text;
+        ctx.fillText(s.items[0] || "Antes", area.x, area.y + area.h + unit * 0.06);
+        ctx.textAlign = "right";
+        ctx.fillStyle = world.brand.accent;
+        ctx.fillText(s.items[1] || "Después", area.x + area.w, area.y + area.h + unit * 0.06);
+        ctx.textAlign = "left";
+        return { x: area.x, y: area.y, w: area.w, h: area.h + unit * 0.08 };
+      });
       break;
     }
     case "product": {
-      const p = outBack(span(lt, 0, 0.7));
+      const p = outBack(span(lt, at("media"), 0.7));
       const float = noise(world.seed + s.index, f.t * 0.5) * unit * 0.012;
-      ctx.save();
-      ctx.translate(w / 2, (vertical ? h * 0.52 : h * 0.55) + float);
-      ctx.rotate(noise(world.seed + 7, f.t * 0.3) * 0.04);
-      ctx.scale(0.6 + 0.4 * p, 0.6 + 0.4 * p);
-      drawImage(f, asset, 0, 0, vertical ? w * 0.75 : w * 0.45, vertical ? h * 0.45 : h * 0.6, missing);
-      ctx.restore();
-      kineticTitle(f, s.title, m, vertical ? h * 0.15 : h * 0.18, titleSize, w - m * 2, lt, 0.15);
+      const cx = w / 2;
+      const cy = vertical ? h * 0.52 : h * 0.55;
+      put("media", cx, cy, () => {
+        ctx.translate(cx, cy + float);
+        ctx.rotate(noise(world.seed + 7, f.t * 0.3) * 0.04);
+        ctx.scale(0.6 + 0.4 * p, 0.6 + 0.4 * p);
+        const b = drawImage(f, asset, 0, 0, vertical ? w * 0.75 : w * 0.45, vertical ? h * 0.45 : h * 0.6, missing);
+        return { x: cx + b.x, y: cy + b.y, w: b.w, h: b.h };
+      });
+      title(m, vertical ? h * 0.15 : h * 0.18, titleSize, w - m * 2);
       const tag = s.items[0];
       if (tag) {
-        const q = outBack(span(lt, times[1], 0.5));
-        ctx.font = display(f, unit * 0.06);
-        const tw = ctx.measureText(tag).width;
-        const pad = unit * 0.03;
-        ctx.save();
-        ctx.translate(vertical ? w / 2 : w * 0.78, vertical ? h * 0.78 : h * 0.72);
-        ctx.rotate(-0.05);
-        ctx.scale(Math.max(0, q), Math.max(0, q));
-        ctx.fillStyle = world.brand.accent;
-        roundRect(ctx, -tw / 2 - pad, -unit * 0.055, tw + pad * 2, unit * 0.09, unit * 0.045);
-        ctx.fill();
-        ctx.fillStyle = world.brand.bg;
-        ctx.textAlign = "center";
-        ctx.fillText(tag, 0, unit * 0.017);
-        ctx.restore();
+        const q = outBack(span(lt, at("tag"), 0.5));
+        const tx = vertical ? w / 2 : w * 0.78;
+        const ty = vertical ? h * 0.78 : h * 0.72;
+        put("tag", tx, ty, () => {
+          ctx.font = display(f, unit * 0.06);
+          const tw = ctx.measureText(tag).width;
+          const pad = unit * 0.03;
+          ctx.translate(tx, ty);
+          ctx.rotate(-0.05);
+          ctx.scale(Math.max(0, q), Math.max(0, q));
+          ctx.fillStyle = world.brand.accent;
+          roundRect(ctx, -tw / 2 - pad, -unit * 0.055, tw + pad * 2, unit * 0.09, unit * 0.045);
+          ctx.fill();
+          ctx.fillStyle = world.brand.bg;
+          ctx.textAlign = "center";
+          ctx.fillText(tag, 0, unit * 0.017);
+          return { x: tx - tw / 2 - pad, y: ty - unit * 0.055, w: tw + pad * 2, h: unit * 0.09 };
+        });
       }
       break;
     }
     case "stat": {
       const match = s.title.match(/^([\d.,]+)\s*(.*)$/);
       const value = match ? Number(match[1].replace(/\./g, "").replace(",", ".")) : NaN;
-      const count = outCubic(span(lt, 0, times[1]));
+      const count = outCubic(span(lt, at("title"), 1.2));
       const shown = Number.isFinite(value)
         ? `${(value * count).toFixed(Number.isInteger(value) ? 0 : 1)}${match![2] ? ` ${match![2]}` : ""}`
         : s.title;
@@ -477,55 +569,68 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       ctx.font = display(f, size);
       const full = ctx.measureText(s.title).width;
       if (full > w - m * 2) size *= (w - m * 2) / full;
-      ctx.font = display(f, size);
-      ctx.fillStyle = world.brand.accent;
-      ctx.fillText(shown, m, vertical ? h * 0.48 : h * 0.52);
-      slideText(f, s.text, m, (vertical ? h * 0.48 : h * 0.52) + unit * 0.09, unit * 0.05, w - m * 2, outCubic(span(lt, times[1] - 0.4, 0.5)));
+      const y = vertical ? h * 0.48 : h * 0.52;
+      put("title", m, y, () => {
+        ctx.font = display(f, size);
+        ctx.fillStyle = world.brand.accent;
+        ctx.fillText(shown, m, y);
+        return { x: m, y: y - size * 0.8, w: Math.min(full, w - m * 2), h: size };
+      });
+      text(m, y + unit * 0.09, unit * 0.05, w - m * 2, outCubic(span(lt, at("text"), 0.5)));
       break;
     }
     case "logo": {
-      const p = outBack(span(lt, 0, 0.6));
+      const p = outBack(span(lt, at("media"), 0.6));
       const cx = w / 2;
       const cy = vertical ? h * 0.42 : h * 0.36;
-      // An accent ring draws itself around the logo; the logo sits on the background, so it shows whatever its colour.
-      ctx.save();
-      ctx.strokeStyle = world.brand.accent;
-      ctx.lineWidth = unit * 0.012;
-      ctx.beginPath();
-      ctx.arc(cx, cy, unit * 0.2, -Math.PI / 2, -Math.PI / 2 + outCubic(span(lt, 0, 0.7)) * Math.PI * 2);
-      ctx.stroke();
-      ctx.translate(cx, cy);
-      ctx.scale(Math.max(0, p), Math.max(0, p));
-      if (world.logo) drawImage(f, world.logo, 0, 0, unit * 0.26, unit * 0.26, "");
-      else {
-        ctx.font = display(f, unit * 0.08);
-        ctx.fillStyle = world.brand.text;
-        ctx.textAlign = "center";
-        ctx.fillText(s.title, 0, unit * 0.03);
+      put("media", cx, cy, () => {
+        // An accent ring draws itself around the logo; the logo sits on the background, so it shows whatever its colour.
+        ctx.strokeStyle = world.brand.accent;
+        ctx.lineWidth = unit * 0.012;
+        ctx.beginPath();
+        ctx.arc(cx, cy, unit * 0.2, -Math.PI / 2, -Math.PI / 2 + outCubic(span(lt, at("media"), 0.7)) * Math.PI * 2);
+        ctx.stroke();
+        ctx.translate(cx, cy);
+        ctx.scale(Math.max(0, p), Math.max(0, p));
+        if (world.logo) drawImage(f, world.logo, 0, 0, unit * 0.26, unit * 0.26, "");
+        else {
+          ctx.font = display(f, unit * 0.08);
+          ctx.fillStyle = world.brand.text;
+          ctx.textAlign = "center";
+          ctx.fillText(s.title, 0, unit * 0.03);
+        }
+        return { x: cx - unit * 0.21, y: cy - unit * 0.21, w: unit * 0.42, h: unit * 0.42 };
+      });
+      if (s.text) {
+        const q = outCubic(span(lt, at("text"), 0.5));
+        const ty = cy + unit * (vertical ? 0.32 : 0.29);
+        put("text", cx, ty, () => {
+          ctx.globalAlpha = q;
+          ctx.font = ui(f, unit * 0.045, 600);
+          ctx.fillStyle = world.brand.text;
+          ctx.textAlign = "center";
+          ctx.fillText(s.text, cx, ty + (1 - q) * unit * 0.05);
+          const tw = ctx.measureText(s.text).width;
+          return { x: cx - tw / 2, y: ty - unit * 0.045, w: tw, h: unit * 0.06 };
+        });
       }
-      ctx.restore();
-      ctx.textAlign = "center";
-      const q = outCubic(span(lt, times[1], 0.5));
-      ctx.save();
-      ctx.globalAlpha = q;
-      ctx.font = ui(f, unit * 0.045, 600);
-      ctx.fillStyle = world.brand.text;
-      ctx.fillText(s.text, cx, cy + unit * (vertical ? 0.32 : 0.29) + (1 - q) * unit * 0.05);
-      ctx.restore();
       const cta = s.items[0];
       if (cta) {
-        const r = outBack(span(lt, times[2], 0.5));
-        ctx.font = ui(f, unit * 0.04, 700);
-        const tw = ctx.measureText(cta).width;
-        ctx.save();
-        ctx.translate(cx, cy + unit * (vertical ? 0.43 : 0.39));
-        ctx.scale(Math.max(0, r), Math.max(0, r));
-        ctx.fillStyle = world.brand.text;
-        roundRect(ctx, -tw / 2 - unit * 0.035, -unit * 0.045, tw + unit * 0.07, unit * 0.075, unit * 0.04);
-        ctx.fill();
-        ctx.fillStyle = world.brand.bg;
-        ctx.fillText(cta, 0, unit * 0.008);
-        ctx.restore();
+        const r = outBack(span(lt, at("tag"), 0.5));
+        const ty = cy + unit * (vertical ? 0.43 : 0.39);
+        put("tag", cx, ty, () => {
+          ctx.font = ui(f, unit * 0.04, 700);
+          const tw = ctx.measureText(cta).width;
+          ctx.translate(cx, ty);
+          ctx.scale(Math.max(0, r), Math.max(0, r));
+          ctx.fillStyle = world.brand.text;
+          roundRect(ctx, -tw / 2 - unit * 0.035, -unit * 0.045, tw + unit * 0.07, unit * 0.075, unit * 0.04);
+          ctx.fill();
+          ctx.fillStyle = world.brand.bg;
+          ctx.textAlign = "center";
+          ctx.fillText(cta, 0, unit * 0.008);
+          return { x: cx - tw / 2 - unit * 0.035, y: ty - unit * 0.045, w: tw + unit * 0.07, h: unit * 0.075 };
+        });
       }
       ctx.textAlign = "left";
       break;
@@ -541,7 +646,16 @@ export function sceneAt(scenes: TimedScene[], t: number): number {
 }
 
 // Frame t of the explainer. Scenes change with a push: the old one slides out, the new one in, behind an accent bar.
-export function drawMotionFrame(ctx: CanvasRenderingContext2D, w: number, h: number, t: number, script: MotionScript, world: MotionWorld) {
+// `probe` (the editor only) hears where each visible element of the current scene is; not during a push.
+export function drawMotionFrame(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  t: number,
+  script: MotionScript,
+  world: MotionWorld,
+  probe?: Probe,
+) {
   const scenes = timeScenes(script.scenes);
   const f: Frame = { ctx, w, h, unit: Math.min(w, h), vertical: h > w, world, t };
   backdrop(f);
@@ -562,7 +676,7 @@ export function drawMotionFrame(ctx: CanvasRenderingContext2D, w: number, h: num
     ctx.restore();
     ctx.fillStyle = world.brand.accent;
     ctx.fillRect(w * (1 - p) - f.unit * 0.02, 0, f.unit * 0.02, h);
-  } else drawScene(f, s, lt);
+  } else drawScene({ ...f, probe }, s, lt);
   subtitle(f, s.voice);
   footer(f);
 }

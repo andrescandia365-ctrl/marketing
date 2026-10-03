@@ -52,7 +52,18 @@ export const MotionScriptSchema = z.object({
   note: z.string().describe("In Spanish: anything to check (a screen that is missing, a claim to verify). Empty if nothing."),
 });
 
-export type MotionScene = Omit<z.infer<typeof SceneWire>, "template"> & { id: string; template: MotionTemplate };
+// A hand adjustment from the timeline: when the element enters (seconds from the scene's start, both formats), and
+// per format (v: 9:16, h: 16:9, since their layouts differ) how far it moves (dx, dy, in units of the frame's short
+// side) and its size (1 = as the template draws it).
+export type Spot = { dx?: number; dy?: number; scale?: number };
+export type Tweak = { at?: number; v?: Spot; h?: Spot };
+
+export type MotionScene = Omit<z.infer<typeof SceneWire>, "template"> & {
+  id: string;
+  template: MotionTemplate;
+  // By element key (see sceneElements). Empty or missing: the template's own timing and layout.
+  tweaks?: Record<string, Tweak>;
+};
 export type MotionScript = Omit<z.infer<typeof MotionScriptSchema>, "scenes" | "music"> & {
   scenes: MotionScene[];
   music: { mood: MotionMood; bpm: number };
@@ -115,31 +126,134 @@ export function snapScenes(scenes: MotionScene[], beats: number[]): MotionScene[
   return out;
 }
 
-// When each element of a scene appears, from the scene's start. The renderer and the 2-to-4-seconds check both use it.
-export function revealTimes(scene: MotionScene): number[] {
+// The timeline's lanes, in order.
+export const LANES = ["title", "text", "media", "items", "tag", "moves", "voice"] as const;
+export type Lane = (typeof LANES)[number];
+export const LANE_LABEL: Record<Lane, string> = {
+  title: "Título",
+  text: "Texto",
+  media: "Imagen",
+  items: "Rótulos y pasos",
+  tag: "Precio o llamado",
+  moves: "Movimientos",
+  voice: "Voz",
+};
+
+// One thing in a scene the person can move on the timeline. `move` is false for timing-only elements (the zoom, the
+// ring, the wipe and the voice), which have no place of their own on screen.
+export type SceneElement = { key: string; label: string; lane: Lane; at: number; move: boolean };
+
+const MEDIA_LABEL: Record<MotionTemplate, string> = {
+  hook: "Imagen",
+  screen: "Pantalla",
+  zoom: "Pantalla",
+  callouts: "Imagen",
+  steps: "Pantalla",
+  beforeAfter: "Antes / después",
+  product: "Producto",
+  stat: "Imagen",
+  logo: "Logo",
+};
+
+// Every element of a scene with the second it enters (the template's timing, or the person's), only the ones that
+// show something: an empty title or text is not an element.
+export function sceneElements(scene: MotionScene): SceneElement[] {
   const d = scene.seconds;
+  const list: Omit<SceneElement, "at">[] = [];
+  const defaults: Record<string, number> = {};
+  const add = (key: string, label: string, lane: Lane, at: number, move = true) => {
+    list.push({ key, label, lane, move });
+    defaults[key] = at;
+  };
+  const title = scene.title.trim();
+  const text = scene.text.trim();
+  const media = MEDIA_LABEL[scene.template];
   switch (scene.template) {
     case "hook":
-      return [0, 0.8];
+      if (title) add("title", "Título", "title", 0);
+      if (scene.asset) add("media", media, "media", 0.3);
+      if (text) add("text", "Texto", "text", 0.8);
+      break;
     case "screen":
-      return [0, 0.45, 0.9];
+      add("media", media, "media", 0);
+      if (title) add("title", "Título", "title", 0.45);
+      if (text) add("text", "Texto", "text", 0.9);
+      break;
     case "zoom":
-      return [0, 0.6, Math.min(1.5, d * 0.45)];
+      add("media", media, "media", 0);
+      if (title) add("title", "Título", "title", 0.1);
+      add("zoom", "Zoom", "moves", 0.6, false);
+      add("ring", "Círculo", "moves", Math.min(1.5, d * 0.45), false);
+      break;
     case "callouts":
     case "steps": {
+      if (scene.template === "callouts") add("media", media, "media", 0);
+      if (title) add("title", "Título", "title", scene.template === "callouts" ? 0.1 : 0);
+      if (scene.template === "steps" && scene.asset) add("media", media, "media", 0.2);
       const n = Math.max(1, scene.items.length);
       const gap = Math.min(1.1, Math.max(0.35, (d - 1.2) / n));
-      return [0, ...scene.items.map((_, i) => 0.6 + i * gap)];
+      scene.items.forEach((item, i) =>
+        add(`item${i}`, `${scene.template === "steps" ? "Paso" : "Rótulo"} ${i + 1}${item ? `: ${item}` : ""}`, "items", 0.6 + i * gap),
+      );
+      break;
     }
     case "beforeAfter":
-      return [0, Math.min(d * 0.4, 1.6)];
+      if (title) add("title", "Título", "title", 0);
+      add("media", media, "media", 0);
+      add("wipe", "Cortina", "moves", Math.min(d * 0.4, 1.6), false);
+      break;
     case "product":
-      return [0, 0.9];
+      add("media", media, "media", 0);
+      if (title) add("title", "Título", "title", 0.15);
+      if (scene.items[0]) add("tag", "Precio", "tag", 0.9);
+      break;
     case "stat":
-      return [0, 1.2];
+      if (title) add("title", "Número", "title", 0);
+      if (text) add("text", "Texto", "text", 0.8);
+      break;
     case "logo":
-      return [0, 0.6, 1.0];
+      add("media", media, "media", 0);
+      if (text) add("text", "Texto", "text", 0.6);
+      if (scene.items[0]) add("tag", "Llamado", "tag", 1.0);
+      break;
   }
+  if (scene.voice.trim()) add("voice", "Voz", "voice", 0.25, false);
+  const latest = Math.max(0, d - 0.3);
+  return list.map((e) => ({ ...e, at: Math.min(latest, Math.max(0, scene.tweaks?.[e.key]?.at ?? defaults[e.key])) }));
+}
+
+// When each element enters, by key. Keys a scene does not have read as 0.
+export function elementTimes(scene: MotionScene): Record<string, number> {
+  return Object.fromEntries(sceneElements(scene).map((e) => [e.key, e.at]));
+}
+
+// When something new appears on screen, from the scene's start: the cut itself, then each element. The renderer, the
+// pops of the sound and the 2-to-4-seconds check all read it.
+export function revealTimes(scene: MotionScene): number[] {
+  const times = sceneElements(scene)
+    .filter((e) => e.lane !== "voice")
+    .map((e) => e.at);
+  return [...new Set([0, ...times])].sort((a, b) => a - b);
+}
+
+// Applies a hand adjustment (v and h merge with what is there); undefined values clear, and empty ones are dropped.
+export function tweakScene(scene: MotionScene, key: string, patch: Tweak): MotionScene {
+  const old = scene.tweaks?.[key] ?? {};
+  const clean = <T extends object>(o: T): T => {
+    for (const k of Object.keys(o) as (keyof T)[]) if (o[k] === undefined) delete o[k];
+    return o;
+  };
+  const next: Tweak = clean({ ...old, ...patch });
+  for (const f of ["v", "h"] as const) {
+    if (!(f in patch)) continue;
+    const spot = patch[f] === undefined ? {} : clean({ ...old[f], ...patch[f] });
+    if (Object.keys(spot).length) next[f] = spot;
+    else delete next[f];
+  }
+  const tweaks = { ...scene.tweaks };
+  if (Object.keys(next).length) tweaks[key] = next;
+  else delete tweaks[key];
+  return { ...scene, tweaks };
 }
 
 export function motionEvents(scenes: MotionScene[]): number[] {
@@ -175,6 +289,8 @@ export type MotionPiece = {
   // Each scene's voice file sits in project media slot 100 + n; layers in 200 + n.
   voiceSlots: Record<string, number>;
   layers: number;
+  // Scene changes snap onto the beat grid (on by default); off, the timeline keeps the exact seconds.
+  snap: boolean;
 };
 
 export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {
@@ -190,6 +306,7 @@ export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {
     dismissed: [],
     voiceSlots: {},
     layers: 0,
+    snap: true,
   };
 }
 

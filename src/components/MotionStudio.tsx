@@ -2,7 +2,7 @@
 // edits them, adds voice and music, previews with sound and renders. Follows the studio's rules: frames are a pure
 // function of time, something new every 2 to 4 seconds (a check that blocks rendering), hits on the beat grid,
 // -14 LUFS.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   DURATIONS,
   MOTION_MOODS,
@@ -10,11 +10,14 @@ import {
   MOTION_TEMPLATES,
   MOTION_TEMPLATE_LABEL,
   blankScene,
+  elementTimes,
   newMotionPiece,
   quietGaps,
   revealTimes,
+  sceneElements,
   snapScenes,
   timeScenes,
+  tweakScene,
   type MotionPiece,
   type MotionScene,
   type MotionScript,
@@ -24,10 +27,11 @@ import { api, libraryFileUrl, projectFileUrl, type MediaFileRecord, type MediaRe
 import { encodeFrames } from "../lib/encode.ts";
 import { ensureFont } from "../lib/fonts.ts";
 import { download, slug } from "../lib/markdown.ts";
-import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
+import { beatGrid, drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
 import { buildSound, onGrid, toWav, TARGET_LUFS, type SoundPlan } from "../lib/motionAudio.ts";
 import { findBeats, type RenderResult } from "../lib/render.ts";
 import { Recorder, audioDuration, type AudioFile } from "./Audio.tsx";
+import { Inspector, MotionTimeline, type Selection } from "./MotionTimeline.tsx";
 import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
 
 export type MotionOpen = { piece: MotionPiece; media: Record<string, MediaRecord>; music: MediaFileRecord | null };
@@ -98,10 +102,67 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const audioRef = useRef<HTMLAudioElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const urls = useRef<string[]>([]);
+  // The preview's time when the sound is not playing (the player loses its place every time the sound is rebuilt).
+  const timeRef = useRef(0);
+  const playheadRef = useRef<HTMLDivElement>(null);
+  const clockRef = useRef<HTMLSpanElement>(null);
+  // Where each element of the scene on screen was drawn in the last preview frame, by "sceneId:key".
+  const boxes = useRef(new Map<string, Box>());
+  const canvasDrag = useRef<{ sceneId: string; key: string; x0: number; y0: number; dx0: number; dy0: number } | null>(null);
+  const [selected, setSelected] = useState<Selection | null>(null);
+  const [outside, setOutside] = useState(false);
+  const outsideRef = useRef(false);
+  // Undo: earlier scripts, newest last.
+  const past = useRef<MotionScript[]>([]);
+  const lastMark = useRef({ tag: "", at: 0 });
+  const [undoCount, setUndoCount] = useState(0);
   const brand = series.brand;
   const script = piece.script;
+  const scriptRef = useRef(script);
+  scriptRef.current = script;
   const set = (patch: Partial<MotionPiece>) => setPiece((p) => ({ ...p, ...patch }));
   const setScript = (next: MotionScript) => set({ script: next });
+
+  // Keeps the script as it was before an edit. Edits with the same tag close together (typing in one field, one
+  // drag) undo in one step.
+  const remember = useCallback((tag: string) => {
+    const now = Date.now();
+    const same = lastMark.current.tag === tag && now - lastMark.current.at < 1500;
+    lastMark.current = { tag, at: now };
+    if (same || !scriptRef.current) return;
+    past.current = [...past.current.slice(-49), scriptRef.current];
+    setUndoCount(past.current.length);
+  }, []);
+  const gestures = useRef(0);
+  const begin = () => remember(`gesture-${++gestures.current}`);
+
+  function undo() {
+    const previous = past.current.pop();
+    setUndoCount(past.current.length);
+    lastMark.current = { tag: "", at: 0 };
+    if (previous) setPiece((p) => ({ ...p, script: previous }));
+  }
+
+  // Changes the scenes from the newest state (drags call it many times a second).
+  const editScenes = (fn: (scenes: MotionScene[]) => MotionScene[]) =>
+    setPiece((p) => (p.script ? { ...p, script: { ...p.script, scenes: fn(p.script.scenes) } } : p));
+  const tweak = (sceneId: string, key: string, patch: Parameters<typeof tweakScene>[2]) =>
+    editScenes((list) => list.map((x) => (x.id === sceneId ? tweakScene(x, key, patch) : x)));
+  const clearTweak = (sceneId: string, key: string) => {
+    remember(`clear-${Date.now()}`);
+    tweak(sceneId, key, { at: undefined, v: undefined, h: undefined });
+  };
+  const clearScene = (sceneId: string) => {
+    remember(`clear-${Date.now()}`);
+    editScenes((list) => list.map((x) => (x.id === sceneId ? { ...x, tweaks: {} } : x)));
+  };
+  const setSeconds = (sceneId: string, seconds: number) => editScenes((list) => list.map((x) => (x.id === sceneId ? { ...x, seconds } : x)));
+
+  function seek(t: number) {
+    timeRef.current = Math.max(0, t);
+    const audio = audioRef.current;
+    if (audio && audio.currentSrc) audio.currentTime = timeRef.current;
+  }
 
   useEffect(() => () => urls.current.forEach((u) => URL.revokeObjectURL(u)), []);
   const objectUrl = (blob: Blob) => {
@@ -167,7 +228,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     if (piece.music === "none") return [];
     return beatGrid(duration + 2, script.music.bpm);
   }, [script, piece.music, track, duration]);
-  const scenes = useMemo(() => (script ? snapScenes(script.scenes, beats) : []), [script, beats]);
+  const snap = piece.snap !== false;
+  const scenes = useMemo(() => (script ? (snap ? snapScenes(script.scenes, beats) : script.scenes) : []), [script, beats, snap]);
   const snapped: MotionScript | null = script ? { ...script, scenes } : null;
   const total = scenes.reduce((n, s) => n + s.seconds, 0);
 
@@ -203,21 +265,127 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, piece]);
 
-  // The sound is rebuilt when anything it depends on changes.
-  useEffect(() => setSoundUrl(null), [scenes, voices, piece.music, piece.voice, track]);
+  // The sound is rebuilt when anything it depends on changes: the timing, not where things sit on screen.
+  const soundKey = JSON.stringify(
+    timeScenes(scenes).map((s) => [s.start, s.template, revealTimes(s), elementTimes(s).voice ?? null]),
+  );
+  useEffect(() => setSoundUrl(null), [soundKey, voices, piece.music, piece.voice, track]);
 
-  // Live preview: frame t follows the player.
+  // Live preview: frame t follows the player while it plays, else the timeline's time. The selected element gets a
+  // dashed outline (the editor's, never in the video).
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   useEffect(() => {
     let frame = 0;
     const tick = () => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
-      if (canvas && ctx && snapped) drawMotionFrame(ctx, canvas.width, canvas.height, audioRef.current?.currentTime ?? 0, snapped, world);
+      const audio = audioRef.current;
+      if (audio && !audio.paused) timeRef.current = audio.currentTime;
+      const t = timeRef.current;
+      if (canvas && ctx && snapped) {
+        const found = new Map<string, Box>();
+        drawMotionFrame(ctx, canvas.width, canvas.height, t, snapped, world, (sceneId, key, box) => found.set(`${sceneId}:${key}`, box));
+        boxes.current = found;
+        const sel = selectedRef.current;
+        const box = sel?.key ? found.get(`${sel.sceneId}:${sel.key}`) : undefined;
+        const out = Boolean(box && (box.x < -1 || box.y < -1 || box.x + box.w > canvas.width + 1 || box.y + box.h > canvas.height + 1));
+        if (out !== outsideRef.current) {
+          outsideRef.current = out;
+          setOutside(out);
+        }
+        if (box) {
+          ctx.save();
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([5, 4]);
+          ctx.strokeStyle = "#ffffff";
+          ctx.strokeRect(box.x - 3, box.y - 3, box.w + 6, box.h + 6);
+          ctx.lineDashOffset = 5;
+          ctx.strokeStyle = "#5b49c9";
+          ctx.strokeRect(box.x - 3, box.y - 3, box.w + 6, box.h + 6);
+          ctx.restore();
+        }
+      }
+      const total = snapped ? scriptDuration(snapped) : 0;
+      if (playheadRef.current) playheadRef.current.style.left = `${total ? Math.min(100, (t / total) * 100) : 0}%`;
+      if (clockRef.current) clockRef.current.textContent = `${t.toFixed(1)} s`;
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [snapped, world]);
+
+  // Ctrl/Cmd+Z undoes the last edit, outside text fields.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        undo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // On the preview: touch an element to select it and drag it where it goes. The move is a share of the frame's
+  // short side, so it lands in the same place at 1080 px.
+  function canvasPoint(e: { clientX: number; clientY: number }) {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    return { x: ((e.clientX - rect.left) / rect.width) * canvas.width, y: ((e.clientY - rect.top) / rect.height) * canvas.height };
+  }
+
+  // Where things sit is kept per format (their layouts differ); when they enter is shared.
+  const fmt = piece.format === "vertical" ? "v" : "h";
+
+  function canvasDown(e: ReactPointerEvent<HTMLCanvasElement>) {
+    audioRef.current?.pause();
+    const point = canvasPoint(e);
+    const hits = [...boxes.current.entries()].filter(([, b]) => point.x >= b.x && point.x <= b.x + b.w && point.y >= b.y && point.y <= b.y + b.h);
+    // The last drawn is on top; the smallest wins among overlapping ones.
+    const hit = hits.reverse().sort((a, b) => a[1].w * a[1].h - b[1].w * b[1].h)[0];
+    if (!hit) {
+      const timed = timeScenes(scenes);
+      const s = timed[sceneAt(timed, timeRef.current)];
+      if (s) setSelected({ sceneId: s.id, key: null });
+      return;
+    }
+    const [id, key] = hit[0].split(":");
+    setSelected({ sceneId: id, key });
+    const scene = scenes.find((x) => x.id === id);
+    const el = scene && sceneElements(scene).find((x) => x.key === key);
+    if (!el?.move) return;
+    begin();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const spot = scene!.tweaks?.[key]?.[fmt];
+    canvasDrag.current = { sceneId: id, key, x0: point.x, y0: point.y, dx0: spot?.dx ?? 0, dy0: spot?.dy ?? 0 };
+  }
+
+  function canvasMove(e: ReactPointerEvent<HTMLCanvasElement>) {
+    const d = canvasDrag.current;
+    const canvas = canvasRef.current;
+    if (!d || !canvas) return;
+    const point = canvasPoint(e);
+    const unit = Math.min(canvas.width, canvas.height);
+    const round = (x: number) => Math.round(x * 1000) / 1000;
+    tweak(d.sceneId, d.key, { [fmt]: { dx: round(d.dx0 + (point.x - d.x0) / unit), dy: round(d.dy0 + (point.y - d.y0) / unit) } });
+  }
+
+  function canvasKey(e: React.KeyboardEvent<HTMLCanvasElement>) {
+    const arrows: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    const dir = arrows[e.key];
+    if (!dir || !selected?.key) return;
+    const scene = scenes.find((x) => x.id === selected.sceneId);
+    if (!scene || !sceneElements(scene).find((x) => x.key === selected.key)?.move) return;
+    e.preventDefault();
+    remember(`nudge-${selected.sceneId}-${selected.key}`);
+    const step = e.shiftKey ? 0.025 : 0.005;
+    const spot = scene.tweaks?.[selected.key]?.[fmt];
+    const round = (x: number) => Math.round(x * 1000) / 1000;
+    tweak(selected.sceneId, selected.key, { [fmt]: { dx: round((spot?.dx ?? 0) + dir[0] * step), dy: round((spot?.dy ?? 0) + dir[1] * step) } });
+  }
 
   async function work<T>(kind: NonNullable<typeof busy>, fn: () => Promise<T>): Promise<T | null> {
     setError("");
@@ -235,6 +403,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   async function writeScript() {
     const result = await work("write", () => api.motion(brief, piece.durationMode === "manual" ? piece.target : null, layers.length));
     if (!result) return;
+    remember(`write-${Date.now()}`);
+    setSelected(null);
     set({ script: result.script, dismissed: [] });
     setNote([result.script.durationNote, result.script.note].filter(Boolean).join(" "));
   }
@@ -242,11 +412,13 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   function fitToTarget() {
     if (!script) return;
     const k = piece.target / scriptDuration(script);
+    remember(`fit-${Date.now()}`);
     setScript({ ...script, scenes: script.scenes.map((s) => ({ ...s, seconds: Math.max(2, Math.round(s.seconds * k * 2) / 2) })) });
   }
 
   function updateScene(id: string, patch: Partial<MotionScene>) {
     if (!script) return;
+    remember(`scene-${id}-${Object.keys(patch).join(",")}`);
     setScript({ ...script, scenes: script.scenes.map((s) => (s.id === id ? { ...s, ...patch } : s)) });
   }
 
@@ -257,6 +429,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     const j = i + by;
     if (j < 0 || j >= list.length) return;
     [list[i], list[j]] = [list[j], list[i]];
+    remember(`order-${Date.now()}`);
     setScript({ ...script, scenes: list });
   }
 
@@ -311,12 +484,13 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     for (const s of timed) {
       if (s.index > 0) hits.push({ at: s.start, kind: "whoosh" });
       revealTimes(s)
-        .slice(1)
-        .filter((r) => r < s.seconds && ["callouts", "steps", "product", "logo"].includes(s.template))
+        .filter((r) => r > 0.05 && r < s.seconds && ["callouts", "steps", "product", "logo"].includes(s.template))
         .forEach((r) => hits.push({ at: onGrid(s.start + r, beats), kind: "pop" }));
     }
     const voiceBlobs =
-      piece.voice === "none" ? [] : timed.flatMap((s) => (voices[s.id] ? [{ at: s.start + 0.25, blob: voices[s.id].blob }] : []));
+      piece.voice === "none"
+        ? []
+        : timed.flatMap((s) => (voices[s.id] ? [{ at: s.start + (elementTimes(s).voice ?? 0.25), blob: voices[s.id].blob }] : []));
     return {
       plan: {
         duration: total,
@@ -345,10 +519,18 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       if (!buffer) return;
       const url = objectUrl(toWav(buffer));
       setSoundUrl(url);
-      setTimeout(() => audioRef.current?.play().catch(() => undefined), 50);
+      setTimeout(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        audio.currentTime = timeRef.current < total - 0.1 ? timeRef.current : 0;
+        audio.play().catch(() => undefined);
+      }, 50);
       return;
     }
-    audioRef.current?.play().catch(() => undefined);
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (Math.abs(audio.currentTime - timeRef.current) > 0.05) audio.currentTime = timeRef.current < total - 0.1 ? timeRef.current : 0;
+    audio.play().catch(() => undefined);
   }
 
   async function render(formats: ("vertical" | "horizontal")[]) {
@@ -447,17 +629,75 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                 ref={canvasRef}
                 width={vertical ? 360 : 640}
                 height={vertical ? 640 : 360}
-                aria-label="Vista previa del explicativo"
-                className={vertical ? "h-[640px] max-h-[70vh] w-auto" : "w-full"}
+                tabIndex={0}
+                aria-label="Vista previa del explicativo: tocá un elemento y arrastralo para moverlo"
+                className={`touch-none cursor-crosshair outline-none focus-visible:ring-2 focus-visible:ring-touch ${vertical ? "h-[640px] max-h-[70vh] w-auto" : "w-full"}`}
+                onPointerDown={canvasDown}
+                onPointerMove={canvasMove}
+                onPointerUp={() => (canvasDrag.current = null)}
+                onPointerCancel={() => (canvasDrag.current = null)}
+                onKeyDown={canvasKey}
               />
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="secondary" onClick={play} disabled={busy !== null}>
                 {busy === "sound" ? <Spinner /> : "▶"} Reproducir con sonido
               </Button>
-              <audio ref={audioRef} src={soundUrl ?? undefined} controls className="h-9 min-w-0 flex-1" />
+              <audio
+                ref={audioRef}
+                src={soundUrl ?? undefined}
+                controls
+                className="h-9 min-w-0 flex-1"
+                onSeeked={(e) => {
+                  if (e.currentTarget.currentSrc) timeRef.current = e.currentTarget.currentTime;
+                }}
+              />
+              <span ref={clockRef} className="w-14 text-right font-mono text-xs text-muted">
+                0.0 s
+              </span>
             </div>
             {soundInfo && <p className="text-xs text-muted">{soundInfo}</p>}
+
+            <MotionTimeline
+              scenes={timeScenes(scenes)}
+              total={total}
+              beats={beats}
+              gaps={openGaps}
+              rawSeconds={Object.fromEntries(script.scenes.map((x) => [x.id, x.seconds]))}
+              voiceLengths={Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.duration]))}
+              selected={selected}
+              playheadRef={playheadRef}
+              onSeek={seek}
+              onSelect={setSelected}
+              onBegin={begin}
+              onSceneSeconds={setSeconds}
+              onElementAt={(sceneId, key, at) => tweak(sceneId, key, { at })}
+            />
+            <div className="flex flex-wrap items-start gap-4 rounded-xl border border-line bg-white p-3">
+              <div className="min-w-0 flex-1">
+                <Inspector
+                  scene={timeScenes(scenes).find((x) => x.id === selected?.sceneId)}
+                  selected={selected}
+                  rawSeconds={script.scenes.find((x) => x.id === selected?.sceneId)?.seconds ?? 0}
+                  outside={outside}
+                  format={fmt}
+                  onBegin={remember}
+                  onTweak={(key, patch) => selected && tweak(selected.sceneId, key, patch)}
+                  onClearTweak={(key) => selected && clearTweak(selected.sceneId, key)}
+                  onClearScene={() => selected && clearScene(selected.sceneId)}
+                  onSeconds={(seconds) => selected && setSeconds(selected.sceneId, seconds)}
+                />
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-2 text-xs">
+                <Button variant="secondary" className="px-2 py-1 text-xs" disabled={undoCount === 0} onClick={undo} title="Ctrl+Z">
+                  ↶ Deshacer
+                </Button>
+                <label className="flex items-center gap-1.5" title="Los cortes de escena caen en los beats de la música">
+                  <input type="checkbox" checked={snap} onChange={(e) => set({ snap: e.target.checked })} />
+                  Cortes en los beats
+                </label>
+              </div>
+            </div>
 
             <div className={`rounded-xl border p-3 text-sm ${openGaps.length ? "border-neg/40 bg-neg-soft" : "border-good/30 bg-good-soft"}`}>
               {openGaps.length ? (
@@ -622,7 +862,14 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-bold">Escenas</h3>
-            <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => setScript({ ...script, scenes: [...script.scenes, blankScene()] })}>
+            <Button
+              variant="secondary"
+              className="px-3 py-1 text-xs"
+              onClick={() => {
+                remember(`add-${Date.now()}`);
+                setScript({ ...script, scenes: [...script.scenes, blankScene()] });
+              }}
+            >
               + Escena
             </Button>
           </div>
@@ -631,14 +878,15 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               const raw = script.scenes.find((x) => x.id === s.id)!;
               const voice = voices[s.id];
               return (
-                <li key={s.id} className="rounded-xl border border-line bg-white p-3">
+                <li key={s.id} className={`rounded-xl border bg-white p-3 ${selected?.sceneId === s.id ? "border-touch" : "border-line"}`}>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       className="font-mono text-xs text-muted hover:text-ink"
                       title="Ver esta escena en la vista previa"
                       onClick={() => {
-                        if (audioRef.current) audioRef.current.currentTime = s.start + 0.6;
+                        seek(s.start + 0.6);
+                        setSelected({ sceneId: s.id, key: null });
                       }}
                     >
                       {s.index + 1} · {s.start.toFixed(1)}–{s.end.toFixed(1)} s
@@ -670,7 +918,14 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                       <Button variant="ghost" className="px-2 py-0.5 text-xs" onClick={() => moveScene(s.id, 1)} aria-label="Bajar">
                         ↓
                       </Button>
-                      <Button variant="ghost" className="px-2 py-0.5 text-xs text-neg" onClick={() => setScript({ ...script, scenes: script.scenes.filter((x) => x.id !== s.id) })}>
+                      <Button
+                        variant="ghost"
+                        className="px-2 py-0.5 text-xs text-neg"
+                        onClick={() => {
+                          remember(`remove-${Date.now()}`);
+                          setScript({ ...script, scenes: script.scenes.filter((x) => x.id !== s.id) });
+                        }}
+                      >
                         Sacar
                       </Button>
                     </span>

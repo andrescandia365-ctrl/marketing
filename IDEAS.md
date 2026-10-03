@@ -57,8 +57,16 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Check "algo nuevo cada 2–4 s"**, que bloquea el render.
   - **Videos de letra:** capas de Grok con parallax; la entrada por defecto pasa de "fundido" a "sube".
   - **Pendiente:**
-    - B: la línea de tiempo.
     - C: el loop de calidad con la IA y el render con ffmpeg (H.264 yuv420p, CRF 16).
+
+- **Motion graphics, parte B (3 Oct 2026, idea 31): línea de tiempo.**
+  - **Escenas en fila:** el largo se cambia arrastrando el borde.
+  - **Un carril por tipo de elemento:** cada marca es cuándo entra; se arrastra, se pega a los beats y con Alt queda libre.
+  - **La voz en su carril:** muestra cuánto dura y se pone en rojo si no entra.
+  - **Mover en la vista previa:** arrastrar o usar las flechas; tamaño y números exactos abajo; aviso si algo se sale del cuadro.
+  - **El lugar se guarda por formato** (9:16 y 16:9); el momento en que entra es el mismo en los dos.
+  - **Deshacer** (Ctrl+Z), "Volver a como estaba" por elemento o por escena, y "Cortes en los beats" que se puede apagar.
+  - **El check de 2–4 s y los golpes de sonido** siguen los tiempos movidos a mano.
 
 ## Decisiones tomadas (2 Oct 2026)
 1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma. **Personajes:** usar las voces de Grok (panel Audio: Ara, Eve, Leo, Rex, Sal…, más audios subidos o grabados); cada personaje tiene una voz asignada y el prompt de video la pide. Grok no deja descargar el audio solo, así que esa voz vive dentro del clip. **Narrador:** las 4 opciones, según la escena.
@@ -196,7 +204,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Kit de marca por serie** (Editar serie): logo (archivo), paleta (fondo, texto, acento), fuente de títulos y fuente de interfaz.
 - **Cómo lo dividiría (cada parte con su "go"):**
   - **A:** kit de marca, motor de motion, plantillas, el formato "Explicativo" en el brief (duración a mano o automática), voz, música sintetizada, −14 LUFS y el check de "algo nuevo cada 2–4 s". Videos de letra con el mismo motor y las capas de Grok.
-  - **B:** línea de tiempo para mover cada elemento a mano.
+  - **B:** línea de tiempo para mover cada elemento a mano. **Construido.**
   - **C:** loop de calidad (hoja de contactos y notas de la IA) y render final con ffmpeg (H.264, CRF 16).
 - **Preguntas que quedan:**
   - ¿Tenés ffmpeg en la compu, o lo instalo desde `iniciar.sh`?

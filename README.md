@@ -48,6 +48,13 @@ En el brief, **Pieza → Explicativo (motion graphics)** y **Empezar un explicat
   - Cada cuadro es una función pura del tiempo, con ruido con semilla.
   - Sin los clichés (título centrado sobre degradé, todo con fundido, rótulos en las esquinas, brillos, partículas).
   - **Algo nuevo cada 2 a 4 s:** si hay un tramo quieto, la app no deja generar hasta arreglarlo o marcarlo.
+- **Línea de tiempo** (debajo de la vista previa):
+  - Las escenas en fila: arrastrás el borde de una para alargarla o acortarla (2 a 8 s).
+  - Un carril por tipo de elemento (título, texto, imagen, rótulos y pasos, precio o llamado, movimientos, voz). Cada marca es el momento en que entra: la arrastrás o la movés con las flechas. Se pega a los beats; con Alt, queda libre.
+  - La voz muestra cuánto dura y se pone en rojo si no entra en su escena.
+  - En la vista previa tocás un elemento y lo arrastrás a donde va, o lo movés con las flechas (con Mayús, más rápido). Abajo ajustás el tamaño y los números exactos, y la app avisa si algo se sale del cuadro.
+  - El lugar se guarda por formato (el 9:16 y el 16:9 tienen el suyo). El momento en que entra es el mismo en los dos.
+  - **Deshacer** (o Ctrl+Z) vuelve atrás, y **Volver a como estaba** devuelve un elemento o toda la escena a la plantilla. **Cortes en los beats** se puede apagar para usar los segundos exactos.
 - **Video:** vista previa con sonido, 9:16, 16:9 o los dos. Sale en H.264 si el navegador lo tiene.
 
 ### Series de música: videos de letra
