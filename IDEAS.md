@@ -136,14 +136,31 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
-### 31. Motion graphics con los elementos de Grok (en exploración)
-- **Idea (tuya):** Grok genera una imagen y la separa en elementos (Segmentos → "Descargar todo"). Con esas capas sueltas se pueden hacer motion graphics.
-- **Posible camino:**
-  - Subir las capas a una toma o a un video de letra.
-  - La app las anima por separado: parallax 2.5D (el fondo se mueve menos que el frente), entradas y salidas, escala, rebote, al ritmo de la música.
-  - Todo se arma en el navegador, como el render de hoy.
-- **Regla:** las capas nunca se usan para sacar ni tapar la marca de agua.
-- **Pendiente:** que me cuentes qué descubriste y qué querés lograr.
+### 31. Motion graphics: videos de letra y videos explicativos
+- **Idea (tuya):** videos con motion graphics para dos cosas:
+  1. **Videos de letra.**
+  2. **Videos que explican**, en series de software (SaaS) o de e-commerce (un producto).
+- **La materia prima:**
+  - las capas que separa Grok (Segmentos → "Descargar todo");
+  - las pantallas reales de la app (IMAN);
+  - el producto recortado (Masogar);
+  - íconos y texto.
+- **Videos de letra:** las capas de Grok como fondo, con parallax 2.5D (el fondo se mueve menos que el frente) y elementos que entran, laten o se mueven al ritmo.
+- **Videos explicativos (formato nuevo en el brief, además de la historia):**
+  - **La IA escribe un guion por escenas.** Cada escena tiene el texto en pantalla, qué elementos aparecen y cómo se mueven, y la línea de la voz.
+  - **Software (SaaS):** la pantalla real dentro de un celular o una compu, que entra deslizando. Zoom a la función, un círculo o flecha que la marca, un dedo que toca, paso a paso ("cómo se hace X"), siguiendo el loop de la serie.
+  - **E-commerce:** el producto recortado al centro, con rótulos que salen de cada detalle (medidas, material, para qué sirve), un antes/después y el precio u oferta si lo cargás.
+  - **El check de siempre:** solo se muestra como real lo que está en "Lo que existe hoy"; el resto va como Concepto.
+- **Cómo se armaría:**
+  - Un motor de animación en la app, el mismo para los dos usos: capas con movimientos (posición, escala, opacidad, giro), curvas suaves, texto animado y cortes al ritmo.
+  - Plantillas de escenas: entrada de pantalla, zoom a detalle, rótulos, paso a paso, antes/después, cierre con logo.
+  - Se renderiza en el navegador, como hoy.
+- **Regla:** las capas nunca se usan para sacar o tapar la marca de agua. El aviso de IA queda si hay imágenes hechas con IA.
+- **Preguntas:**
+  - ¿La IA arma todo con plantillas y vos ajustás, o querés una línea de tiempo para mover cada elemento a mano?
+  - ¿Voz (generada o grabada) y música?
+  - ¿Cuánto dura un explicativo (15, 30, 60 s)?
+  - ¿Cada serie lleva logo y colores de marca? Habría que cargarlos en Editar serie.
 
 ### 30. Varias claves de IA y un selector de modelo
 - **Idea (tuya):** sumar más claves de IA (también la de Anthropic) y una sección en la app para elegir el modelo.
