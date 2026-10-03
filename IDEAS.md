@@ -104,7 +104,13 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Imagen en la viñeta:** la imagen fija del personaje (del elenco) o un boceto, en vez de texto.
   - **Vista línea de tiempo:** las tomas en fila horizontal, con su largo proporcional (6/10/15 s) y los temas marcados arriba.
   - **Menos ruido:** setups como chips con foto, íconos para transformación / pantalla real / edición, tipografía más grande.
-- **Pregunta:** ¿cuál de estas te gusta más, o tenés una referencia (una app, una imagen)?
+- **Elegido (3 Oct 2026): que se vea como la pieza de contenido terminada**, más cerca del video que de una planilla:
+  - **Cada toma es una pantalla de celular 9:16**, como se va a ver en Reels/TikTok/Shorts: adentro, la imagen (la subida, la del elenco o un color del momento si todavía no hay), el headline y el subtítulo dibujados **con el estilo de texto de la serie** (tamaño, color, sombra/contorno/caja), igual que en el video final.
+  - **Debajo de cada pantalla, solo lo esencial:** número y título de la toma, quién habla, largo (6/10/15 s) y un ícono si es transformación, pantalla real o edición.
+  - **Los prompts y los setups, plegados** ("Ver detalles"); los checks siguen arriba, como ahora.
+  - **"Ver la pieza":** un botón que pasa las tomas una tras otra con su largo real y las líneas (un animatic), para sentir el ritmo antes de producir.
+  - **Fila de temas arriba:** una banda con los temas y los callbacks, para ver la estructura de la pieza de un vistazo.
+- **Pendiente:** el "go".
 
 ### 24. Kimi: respuestas vacías
 - **Qué pasó:** "Kimi devolvió una respuesta vacía" al armar el storyboard; después funcionó. El "Gancho del momento" es opcional: dejarlo vacío no debería causar esto; lo más probable es que Kimi gastara su límite razonando o que NVIDIA cortara.
