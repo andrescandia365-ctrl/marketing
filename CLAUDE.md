@@ -24,8 +24,13 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   song with word times (OpenAI, whisper-1) for lyric videos.
 - `src/` — React 19 + Tailwind v4 UI, all copy in Spanish (Rioplatense). `MenuPicker`, `StoryView`, `BoardView`
   and `ScriptView` are the steps. `lib/render.ts` plays each shot's uploaded clip (or still, or colour card), mixes
-  the clips' sound, draws the speaker and line on top and encodes with WebCodecs via mediabunny; `lib/markdown.ts`
+  the clips' sound, draws the speaker and line on top and encodes with WebCodecs via mediabunny; its `drawShot` also
+  draws the storyboard's phone frames and "Ver la pieza", so the board looks like the finished piece. `lib/markdown.ts`
   exports the story, storyboard, prompts and direction log.
+- Production extras: uploads are checked for format and reviewed by the writer (`/api/review`, pictures sent as JPEG
+  to Claude or Kimi); "Cambiar un solo objeto" writes a segment edit (`/api/shot/segment`, never on a watermark);
+  e-commerce series get "Producto recortado" (`ProductPanel`, the product joins the cast). `iniciar.sh --ia` picks the
+  writer (Claude, Kimi direct, NVIDIA or OpenRouter). Kimi retries an empty or dropped reply once.
 
 ## Rules
 - The playbook's hard rules are product requirements: roadmap features are shown only with a Concept/Simulation

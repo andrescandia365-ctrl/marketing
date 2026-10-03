@@ -84,7 +84,7 @@ export type LyricPiece = {
   // The romanization or translation as pasted, line by line with the lyrics.
   secondText: string;
   lines: LyricLine[];
-  synced: "none" | "auto" | "tap";
+  synced: "none" | "auto" | "tap" | "lrc";
   style: LyricStyle;
   format: "vertical" | "horizontal";
   // Seconds of the song that go into the video; `to` 0 means the end.
@@ -351,3 +351,50 @@ export function cleanIdeas(ideas: LyricIdeas, fallback: LyricStyle): Pick<LyricS
     mood: ideas.mood.toLowerCase().includes("live") ? "lively" : "calm",
   };
 }
+
+// An .lrc file: [mm:ss.xx]line, with [ti:]/[ar:] tags. A line can carry several times (a repeated chorus), and two
+// lines at the same time are the lyric and its second line (this app's own export). Word times <mm:ss.xx> are dropped.
+export function parseLrc(text: string): { title: string; artist: string; texts: string[]; seconds: string[]; starts: number[] } {
+  const tag = (name: string) => text.match(new RegExp(`^\\[${name}:([^\\]]*)\\]`, "im"))?.[1].trim() ?? "";
+  const entries: { t: number; text: string; order: number }[] = [];
+  text.split("\n").forEach((raw, order) => {
+    const times = [...raw.matchAll(/\[(\d+):(\d+(?:[.:]\d+)?)\]/g)];
+    if (!times.length) return;
+    const words = raw
+      .replace(/\[[^\]]*\]/g, "")
+      .replace(/<\d+:\d+(?:[.:]\d+)?>/g, "")
+      .trim();
+    if (!words) return;
+    for (const m of times) entries.push({ t: Number(m[1]) * 60 + Number(m[2].replace(":", ".")), text: words, order });
+  });
+  entries.sort((a, b) => a.t - b.t || a.order - b.order);
+  const texts: string[] = [];
+  const seconds: string[] = [];
+  const starts: number[] = [];
+  for (const e of entries) {
+    if (starts.length && Math.abs(starts[starts.length - 1] - e.t) < 0.005 && !seconds[seconds.length - 1]) {
+      seconds[seconds.length - 1] = e.text;
+      continue;
+    }
+    texts.push(e.text);
+    seconds.push("");
+    starts.push(e.t);
+  }
+  return { title: tag("ti"), artist: tag("ar"), texts, seconds, starts };
+}
+
+// Prompts for background clips the person makes in Grok and uploads: abstract, organic, loopable, no people or text.
+export const BackgroundPromptsSchema = z.object({
+  prompts: z
+    .array(
+      z.object({
+        title: z.string().describe("A few words in Spanish naming the clip and the part of the song it suits."),
+        image: z.string().describe("The first frame, in English, in the tool's format: one frozen moment."),
+        video: z.string().describe("The motion, in English: slow, continuous, loopable; no cuts."),
+        seconds: z.number().describe("6, 10 or 15."),
+      }),
+    )
+    .describe("Three background clips: one for the verses, one for the chorus, one for the bridge or the end."),
+  note: z.string().describe("One sentence in Spanish on how they fit the song."),
+});
+export type BackgroundPrompts = z.infer<typeof BackgroundPromptsSchema>;

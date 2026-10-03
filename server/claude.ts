@@ -4,7 +4,10 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import type { z } from "zod";
 import {
   BoardWireSchema,
+  ImageReviewSchema,
   MenuSchema,
+  ProductShotSchema,
+  SegmentEditSchema,
   ShotWireSchema,
   StoryWireSchema,
   normalizeBoard,
@@ -12,13 +15,16 @@ import {
   normalizeStory,
   type Board,
   type Brief,
+  type ImageReview,
   type Menu,
+  type ProductShot,
+  type SegmentEdit,
   type Shot,
   type Story,
   type TopicIdea,
 } from "../shared/schema.ts";
 import { EMPTY_BRIEF } from "../shared/example.ts";
-import { LyricIdeasSchema, SecondLinesSchema, type LyricIdeas } from "../shared/lyrics.ts";
+import { BackgroundPromptsSchema, LyricIdeasSchema, SecondLinesSchema, type BackgroundPrompts, type LyricIdeas } from "../shared/lyrics.ts";
 import { LENGTHS } from "../shared/template.ts";
 import { CAST, PRACTICES, WORKS_TODAY } from "../shared/series.ts";
 import { getSeries } from "./series.ts";
@@ -106,8 +112,11 @@ function describeBrief(brief: Brief): string {
   return lines.map((l) => `- ${l}`).join("\n");
 }
 
-async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z.ZodType<T>): Promise<T> {
-  if (currentWriter()?.id === "kimi") return askKimi([SYSTEM, ...contextBlocks(brief, withTool)], prompt, schema);
+// A picture sent along with a prompt (JPEG, base64), with a line saying what it is.
+export type Picture = { label: string; jpeg: string };
+
+async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z.ZodType<T>, pictures: Picture[] = []): Promise<T> {
+  if (currentWriter()?.id === "kimi") return askKimi([SYSTEM, ...contextBlocks(brief, withTool)], prompt, schema, pictures);
   const stream = getClient().beta.messages.stream({
     model: MODEL,
     max_tokens: 64000,
@@ -119,7 +128,20 @@ async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z
       ...contextBlocks(brief, withTool).map((text) => ({ type: "text" as const, text })),
     ],
     output_config: { effort: "high", format: betaZodOutputFormat(schema) },
-    messages: [{ role: "user", content: prompt }],
+    messages: [
+      {
+        role: "user",
+        content: pictures.length
+          ? [
+              ...pictures.flatMap((p) => [
+                { type: "text" as const, text: p.label },
+                { type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data: p.jpeg } },
+              ]),
+              { type: "text" as const, text: prompt },
+            ]
+          : prompt,
+      },
+    ],
   });
 
   let message;
@@ -356,4 +378,80 @@ export async function secondLines(series: string, lines: string[], mode: "romani
       : "Translate each line into Spanish (Rioplatense), singable and plain, keeping the feeling. A line already in Spanish is copied as is.";
   const result = await ask(lyricBrief(series), false, `Song lyrics, numbered from 0:\n${numbered(lines)}\n\n${task}`, SecondLinesSchema);
   return { lines: lines.map((_, i) => result.lines[i] ?? ""), note: result.note };
+}
+
+// Background clips for a lyric video, written for the image/video tool the person uses (its profile goes along).
+export function backgroundPrompts(
+  series: string,
+  tool: string,
+  title: string,
+  lines: string[],
+  style: { palette: string[]; mood: string },
+  format: "vertical" | "horizontal",
+): Promise<BackgroundPrompts> {
+  return ask(
+    { ...lyricBrief(series), tool, format },
+    true,
+    `This is a lyric video: the song's lines are drawn on top of a moving background. Write prompts for background clips the person will make with the tool and loop under the song.
+
+Song: "${title || "sin título"}". Lyrics, numbered from 0:
+${numbered(lines)}
+
+The background's colours: ${style.palette.join(", ")} (describe them in words). Pace: ${style.mood === "lively" ? "lively, with energy" : "calm and slow"}. Picture format: ${format === "vertical" ? "vertical 9:16" : "horizontal 16:9"}.
+
+Rules: abstract and organic (light, fabric, water, smoke, paint, plants, sky), soft and out of focus enough for words to read on top; no people, faces, hands, text, letters, logos or brands; slow continuous motion with no cuts that loops well; no music or sound needed.`,
+    BackgroundPromptsSchema,
+  );
+}
+
+// Looks at an uploaded image (or a frame of a clip) against its shot: the moment, the cast, no text or logos.
+export function reviewPicture(
+  brief: Brief,
+  shot: { title: string; action: string; prompt: string; what: "image" | "clip" },
+  setups: { name: string; identity: string }[],
+  picture: string,
+  refs: Picture[],
+): Promise<ImageReview> {
+  return ask(
+    brief,
+    true,
+    `Review the ${shot.what === "clip" ? "middle frame of the clip" : "image"} the person made for this shot, like a strict continuity supervisor.
+
+Shot: "${shot.title}". What happens: ${shot.action}
+The prompt it was made from: ${shot.prompt}
+In frame (identity lines): ${setups.map((s) => `${s.name}: ${s.identity}`).join(" | ") || "none listed"}
+${refs.length ? "The approved reference images of the series' cast come first; the last picture is the one to review." : "The picture to review is the one above."}`,
+    ImageReviewSchema,
+    [...refs, { label: `The ${shot.what === "clip" ? "clip frame" : "image"} to review:`, jpeg: picture }],
+  );
+}
+
+// E-commerce: a clean picture of the episode's product, made to cut out with the tool's background removal and
+// keep in the series' cast as its reference.
+export function productShot(brief: Brief): Promise<ProductShot> {
+  return ask(
+    brief,
+    true,
+    `This episode's product: ${brief.product || "(see the series)"}
+
+Write the prompt for one clean product picture the person will make with the tool, cut out with its background removal and keep as the product's reference image for every scene of the series.`,
+    ProductShotSchema,
+  );
+}
+
+// One object changed in a shot's image with the tool's segments ("cambiá solo el yogur"). Never to cover or remove
+// a watermark: the route refuses that before it gets here.
+export function segmentEdit(brief: Brief, shot: Shot, note: string): Promise<SegmentEdit> {
+  return ask(
+    brief,
+    true,
+    `A shot's image already exists. The person wants to change only one thing in it, using the tool's segments (select one object or area, then describe the change).
+
+The shot: "${shot.title}". ${shot.action}
+Its image prompt: ${shot.visualPrompt}
+The change: "${note}"
+
+Say what to select and write the edit prompt for that selection only. Keep characters' identity lines word for word if they appear. Never select or alter a watermark, a logo of the tool or any provenance mark.`,
+    SegmentEditSchema,
+  );
 }

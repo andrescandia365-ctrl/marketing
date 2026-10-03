@@ -36,3 +36,41 @@ export function blobToDataUrl(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob);
   });
 }
+
+// A picture as a small JPEG (base64, no prefix) for the AI to look at, with the source's own size.
+// `source` is an image URL, or a video file whose middle frame is used.
+export async function pictureForReview(source: string | Blob, max = 1024): Promise<{ jpeg: string; width: number; height: number }> {
+  let drawable: CanvasImageSource;
+  let width: number;
+  let height: number;
+  let cleanup = () => {};
+  if (typeof source === "string") {
+    const img = new Image();
+    img.src = source;
+    await img.decode();
+    [drawable, width, height] = [img, img.naturalWidth, img.naturalHeight];
+  } else {
+    const url = URL.createObjectURL(source);
+    cleanup = () => URL.revokeObjectURL(url);
+    const video = document.createElement("video");
+    video.muted = true;
+    video.preload = "auto";
+    video.src = url;
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error("No se pudo leer el clip."));
+    });
+    await new Promise<void>((resolve) => {
+      video.onseeked = () => resolve();
+      video.currentTime = Math.max(0, video.duration / 2);
+    });
+    [drawable, width, height] = [video, video.videoWidth, video.videoHeight];
+  }
+  const scale = Math.min(1, max / Math.max(width, height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(width * scale);
+  canvas.height = Math.round(height * scale);
+  canvas.getContext("2d")!.drawImage(drawable, 0, 0, canvas.width, canvas.height);
+  cleanup();
+  return { jpeg: canvas.toDataURL("image/jpeg", 0.85).split(",")[1], width, height };
+}

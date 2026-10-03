@@ -149,6 +149,40 @@ export type Story = Omit<z.infer<typeof StoryWireSchema>, "characters" | "topics
   topics: Topic[];
 };
 
+// ── Review of an uploaded image or clip frame ───────────────────────────────────
+export const ImageReviewSchema = z.object({
+  checks: z
+    .array(z.object({ item: z.string(), pass: z.boolean(), note: z.string() }))
+    .describe(
+      "Each check, named in Spanish: Momento de la toma (it shows the shot's moment), Personajes y lugares (they look like their setup lines and reference images), Sin texto ni logos, Sin personas reales (no real person's likeness), Pantallas (screens face away or are out of focus; skip if none), Estilo. A pass you cannot see in the picture is a fail. Notes in Spanish.",
+    ),
+  fixPrompt: z
+    .string()
+    .describe("If anything failed: an edit prompt in English for the tool that fixes only that and keeps everything else. Empty if all pass."),
+});
+export type ImageReview = z.infer<typeof ImageReviewSchema>;
+
+// ── E-commerce: the episode's product, clean, to cut out in the tool and reuse ──
+export const ProductShotSchema = z.object({
+  name: z.string().describe("The product's short name in Spanish, as the cast will call it."),
+  identity: z.string().describe("The product's identity line in English: shape, material, colour, size cues. Repeated word for word in every prompt."),
+  prompt: z
+    .string()
+    .describe(
+      "An image prompt in English in the tool's format: the product alone, whole and centred, front three-quarter view, on a plain light-grey seamless background, soft even studio light, sharp edges, nothing else in frame, no text, no logo, no brand name. Made to cut out with the tool's background removal.",
+    ),
+  note: z.string().describe("One line in Spanish: anything to check (a detail of the product the prompt guesses)."),
+});
+export type ProductShot = z.infer<typeof ProductShotSchema>;
+
+// ── Change one object in a shot's image with the tool's segments ──
+export const SegmentEditSchema = z.object({
+  select: z.string().describe("In Spanish: exactly what to select with the tool's segment tool (one object or area)."),
+  prompt: z.string().describe("The edit prompt in English for that selection only; everything else stays as it is."),
+  note: z.string().describe("In Spanish: what to check after the edit, or why it cannot be done this way. Empty if nothing."),
+});
+export type SegmentEdit = z.infer<typeof SegmentEditSchema>;
+
 // ── Step 3: the storyboard ──────────────────────────────────────────────────────
 // Grok makes clips of exactly these lengths, so every shot is one of them.
 export const SHOT_LENGTHS = [6, 10, 15] as const;

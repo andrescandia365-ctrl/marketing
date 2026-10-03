@@ -7,8 +7,16 @@ Hace contenido con historia, no publicidad: un ida y vuelta entre **el Bueno** (
 1. **Brief.** La serie (IMAN, Masogar o las que agregues; cada una es de Software o de E-commerce), las pantallas reales que puede mostrar, el largo (corto de 60–90 s con un tema, o episodio de 5–8 min con 3–4 temas), el producto del episodio (obligatorio en las series de un producto por episodio, como Masogar), un gancho del momento, notas, tono, idioma, formato y la herramienta de imagen y video.
 2. **Menú.** La IA propone temas, cada uno con **el problema que resuelve** como título y abajo el gancho: el dolor, quién hace de Malo, cómo gana el Bueno y con qué arranca. Elegís uno (corto) o hasta cuatro en orden (episodio), o agregás uno propio.
 3. **Historia.** La IA escribe la historia con personajes, diálogo marcado Negativo / Emotivo / Bueno, puentes y callbacks. Vos le dejás **notas de director** y la reescribe en otra ronda. Un **check** revisa el gancho, la retención y la recompensa (que cada loop abierto se cierre), el loop de la serie, que la marca solo haga lo que existe hoy y **¿Pasa así de verdad?**: que la gente trabaje como dice "Cómo se trabaja hoy" en la serie (o las notas del brief), sin costumbres inventadas. Si algo falla, no se puede aprobar hasta arreglarlo (**Arreglalo** se lo pasa a la IA) o marcarlo como "no es un problema".
-4. **Storyboard.** La historia en tomas de 6, 10 o 15 s (los largos de Grok). Cada toma tiene su **claqueta**: título y qué pasa. Notas por toma y para todo el storyboard, rondas, y el mismo check (continuidad, lo que existe hoy, imágenes con más de un momento).
+4. **Storyboard.** La historia en tomas de 6, 10 o 15 s (los largos de Grok), vista **como la pieza terminada**:
+   - Cada toma es una pantalla de celular con su imagen (o la imagen aprobada del elenco, o el color del momento), el headline y la línea, igual que en el video final.
+   - Abajo, el título de la toma, quién habla, el largo y un ícono si es transformación, pantalla real o edición. Los prompts quedan en **Ver detalles**.
+   - Arriba, una banda con los temas y los callbacks.
+   - **▶ Ver la pieza** pasa las tomas con su largo real y lee las líneas con la voz del navegador.
+   - Notas por toma y para todo el storyboard, rondas, y el mismo check (continuidad, lo que existe hoy, imágenes con más de un momento).
 5. **Producción.** Cada toma trae un prompt de imagen (un solo momento; si aparece una acción, la app avisa en amarillo) y uno de video, con botón **Copiar**. Soltás la imagen y el clip en su toma; un clic los muestra en grande, con **Cambiar** y **Quitar**. El navegador arma el video con tus clips, el sonido si querés, el **headline** arriba (se puede apagar) y quién habla con su línea abajo. Tamaño y color del texto, y sombra, borde o caja para que se lea, se guardan como estilo de la serie. Con **Cuadro completo** la marca de agua de Grok queda visible.
+   - Al subir una imagen o un clip, la app avisa si no tiene el formato del video, y la IA lo **revisa** contra la toma: el momento, los personajes como en su referencia, que no tenga texto ni logos, ni personas reales. Si algo falla, te da un prompt de edición para corregirlo.
+   - **Cambiar un solo objeto:** escribís qué cambiar ("solo el yogur vencido") y la IA te dice qué seleccionar con los segmentos de Grok y el prompt de edición. Nunca para tapar la marca de agua.
+   - En las series de **e-commerce**, **Producto recortado:** la IA escribe el prompt del producto limpio; lo hacés en Grok, usás **Eliminar fondo** y soltás el PNG, que queda en el elenco de la serie como producto (`@`).
 
 **Los mismos personajes en todas las tomas.** Cada serie tiene un **elenco fijo**: personajes, lugares y productos con su imagen aprobada y su referencia `@` para Grok, y, en las series de software, las **pantallas reales** de la app (capturas de celular y PC). Se cargan en Editar serie o desde Producción ("Fijar con la imagen de la toma…"). Cada toma muestra quién está en cuadro con su `@`, puede ser una **transformación** (imagen inicial, intermedia y final en un mismo clip, del Malo al Bueno) o una **pantalla real** (la captura tal cual), y cuando repite el lugar de una toma anterior trae un **prompt de edición** para partir de esa imagen. Las imágenes fijas se guardan en `biblioteca/<serie>/`.
 
@@ -31,10 +39,11 @@ Una serie de tipo **Música** no escribe historias, sino videos de letra. Elegí
 2. **Sincronizar.** Hay dos formas, y después podés ajustar cada línea:
    - **Automático:** OpenAI escucha la canción y le pone tiempo a cada palabra. Usa la misma `OPENAI_API_KEY`. El guaraní no lo conoce, así que escucha sin idioma.
    - **Tocando:** apretás **Ahora** o la barra espaciadora cuando empieza cada línea.
+   - **Importar .lrc:** si ya la tenés sincronizada; si el archivo no coincide con tu letra, trae también la letra.
 3. **Estilo y video.**
-   - Fondo orgánico que se mueve y late con el ritmo, o tu foto o video. Si los hizo una IA, va el aviso al pie, y con **Cuadro completo** no se recortan.
+   - Fondo orgánico que se mueve y late con el ritmo, o tu foto, o hasta 4 videos que se pasan uno tras otro en loop. **Prompts para Grok** escribe los clips de fondo según la letra y los colores. Si el fondo lo hizo una IA, va el aviso al pie, y con **Cuadro completo** no se recorta.
    - Tipografía, tamaño, colores, karaoke, cómo entra cada línea y palabras clave más grandes. Tocás una palabra para marcarla, o le pedís ideas a la IA.
-   - Vista previa en vivo, vertical u horizontal, desde y hasta qué segundo, y el crédito de la canción.
+   - Vista previa en vivo, vertical u horizontal (o **los dos formatos de una vez**), desde y hasta qué segundo, y el crédito de la canción.
    - El estilo se puede guardar en la serie.
 
 Cada serie se guarda como un archivo en `server/series/` (`iman.md`, `masogar.md`), que es lo que la IA lee con cada pedido.
@@ -76,5 +85,4 @@ Claude lee el archivo elegido antes de escribir los prompts. Para actualizarlo, 
 
 ## Todavía no está
 
-- Que Claude revise las imágenes subidas (paso 5 del plan).
 - Generar efectos de sonido con una API (por ahora se suben).

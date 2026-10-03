@@ -285,7 +285,7 @@ function cutSong(buffer: AudioBuffer, from: number, to: number): AudioBuffer {
 
 export async function renderLyricVideo(
   song: Blob,
-  background: { image?: HTMLImageElement; clip?: Blob },
+  background: { image?: HTMLImageElement; clips?: Blob[] },
   piece: LyricPiece,
   onProgress: (fraction: number) => void,
 ): Promise<RenderResult> {
@@ -333,21 +333,31 @@ export async function renderLyricVideo(
     still = { source: background.image, width: background.image.naturalWidth, height: background.image.naturalHeight };
   }
   const frames = Math.round((to - from) * FPS);
-  // The own video loops under the whole song.
-  let input: Input | null = null;
-  let clipFrames: AsyncGenerator<{ canvas: HTMLCanvasElement | OffscreenCanvas } | null, void, unknown> | null = null;
-  if (useMedia && background.clip) {
-    input = new Input({ source: new BlobSource(background.clip), formats: ALL_FORMATS });
+  // The own clips play one after the other, in a loop, under the whole song.
+  const inputs: Input[] = [];
+  const tracks: { sink: CanvasSink; duration: number }[] = [];
+  for (const clip of useMedia ? (background.clips ?? []) : []) {
+    const input = new Input({ source: new BlobSource(clip), formats: ALL_FORMATS });
+    inputs.push(input);
     const track = await input.getPrimaryVideoTrack();
     if (track && (await track.canDecode())) {
       const duration = Math.max(await track.computeDuration(), 1 / FPS);
-      const sink = new CanvasSink(track, { width: w, height: h, fit: piece.fullFrame ? "contain" : "cover" });
-      const times: number[] = [];
-      for (let f = 0; f < frames; f++) times.push(Math.min((f / FPS) % duration, duration - 1 / FPS));
-      clipFrames = sink.canvasesAtTimestamps(times);
-    } else notes.push("Este navegador no puede leer el video de fondo; se usó el fondo orgánico.");
+      tracks.push({ sink: new CanvasSink(track, { width: w, height: h, fit: piece.fullFrame ? "contain" : "cover" }), duration });
+    } else notes.push("Este navegador no puede leer uno de los videos de fondo; se saltó.");
   }
-  if (useMedia && !still && !clipFrames) notes.push("No hay foto ni video de fondo; se usó el fondo orgánico.");
+  // Which clip each frame shows, and each clip's own times in the order they are needed.
+  const order: number[] = [];
+  const clipFrames = tracks.map(() => [] as number[]);
+  const loop = tracks.reduce((a, t) => a + t.duration, 0);
+  for (let f = 0; f < frames && loop > 0; f++) {
+    let g = (f / FPS) % loop;
+    let k = 0;
+    while (g >= tracks[k].duration && k < tracks.length - 1) g -= tracks[k++].duration;
+    order.push(k);
+    clipFrames[k].push(Math.min(g, tracks[k].duration - 1 / FPS));
+  }
+  const readers = tracks.map((t, k) => t.sink.canvasesAtTimestamps(clipFrames[k]));
+  if (useMedia && !still && !readers.length) notes.push("No hay foto ni video de fondo; se usó el fondo orgánico.");
 
   await output.start();
   if (audio) await audio.add(sound);
@@ -355,8 +365,8 @@ export async function renderLyricVideo(
     for (let f = 0; f < frames; f++) {
       const t = from + f / FPS;
       let bg = still;
-      if (clipFrames) {
-        const next = await clipFrames.next();
+      if (readers.length) {
+        const next = await readers[order[f]].next();
         if (!next.done && next.value) bg = { source: next.value.canvas, width: w, height: h };
       }
       drawLyricFrame(ctx, w, h, t, piece, bg, beats);
@@ -365,8 +375,8 @@ export async function renderLyricVideo(
     }
     await output.finalize();
   } finally {
-    await clipFrames?.return(undefined);
-    input?.dispose();
+    for (const reader of readers) await reader.return(undefined);
+    for (const input of inputs) input.dispose();
   }
   onProgress(1);
   const mimeType = mp4 ? "video/mp4" : "video/webm";

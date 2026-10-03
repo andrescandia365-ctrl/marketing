@@ -1,5 +1,17 @@
-import type { Board, Brief, Menu, SeriesInfo, Shot, Status, Story, TopicIdea } from "../../shared/schema.ts";
-import type { LyricLanguage, LyricLine, LyricStyle } from "../../shared/lyrics.ts";
+import type {
+  Board,
+  Brief,
+  ImageReview,
+  Menu,
+  ProductShot,
+  SegmentEdit,
+  SeriesInfo,
+  Shot,
+  Status,
+  Story,
+  TopicIdea,
+} from "../../shared/schema.ts";
+import type { BackgroundPrompts, LyricLanguage, LyricLine, LyricStyle } from "../../shared/lyrics.ts";
 import type { CastMember, SeriesFields, TextStyle } from "../../shared/series.ts";
 
 export type ProjectSummary = {
@@ -131,5 +143,32 @@ export const api = {
     ),
   secondLines: (series: string, lines: string[], mode: "romanize" | "translate") =>
     call<{ lines: string[]; note: string } & Demo>("/api/lyrics/second", { series, lines, mode }),
-  saveVideo: (id: string, video: Blob) => upload<{ file: string }>(`/api/projects/${enc(id)}/video`, video, video.type),
+  lyricBackgrounds: (
+    series: string,
+    tool: string,
+    title: string,
+    lines: string[],
+    style: { palette: string[]; mood: string },
+    format: "vertical" | "horizontal",
+  ) =>
+    call<BackgroundPrompts & Demo>("/api/lyrics/backgrounds", {
+      series,
+      tool,
+      title,
+      lines,
+      palette: style.palette,
+      mood: style.mood,
+      format,
+    }),
+  productShot: (brief: Brief) => call<ProductShot & Demo>("/api/product-shot", { brief }),
+  segmentEdit: (brief: Brief, shot: Shot, note: string) => call<SegmentEdit & Demo>("/api/shot/segment", { brief, shot, note }),
+  review: (
+    brief: Brief,
+    shot: { title: string; action: string; prompt: string; what: "image" | "clip" },
+    setups: { name: string; identity: string }[],
+    picture: string,
+    refs: { label: string; jpeg: string }[],
+  ) => call<ImageReview & Demo>("/api/review", { brief, shot, setups, picture, refs }),
+  saveVideo: (id: string, video: Blob, variant?: "vertical" | "horizontal") =>
+    upload<{ file: string }>(`/api/projects/${enc(id)}/video${variant ? `?variant=${variant}` : ""}`, video, video.type),
 };

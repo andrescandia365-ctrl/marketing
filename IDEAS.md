@@ -25,7 +25,17 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Fondo** orgánico que late con el ritmo, o foto o video propio.
   - **Letra animada:** karaoke, entrada (aparece, sube o salta) y palabras clave grandes; ideas de la IA para los colores y las palabras.
   - **Video:** vista previa en vivo, vertical u horizontal, recorte desde/hasta, crédito y confirmación de derechos.
-  - Pendiente: clips de Grok en loop como fondo (3b), importar `.lrc` (2c).
+  - Pendiente: clips de Grok en loop como fondo (3b), importar `.lrc` (2c). **Hecho después**, ver abajo.
+
+- **Tanda 4 (3 Oct 2026):**
+  - **Los dos formatos de una vez** en los videos de letra.
+  - **Storyboard como la pieza terminada (25):** pantallas de celular con imagen, headline y línea; banda de temas y callbacks; **▶ Ver la pieza**.
+  - **Kimi más robusto (24):** reintenta una vez si viene vacía o se corta; lee respuestas sin streaming; `KIMI_MAX_TOKENS` (lo saca si el proveedor no lo acepta); dice el motivo real.
+  - **Videos de letra:** hasta 4 clips de fondo en loop, con prompts para Grok (3b); importar `.lrc` (2c).
+  - **Revisión de imágenes por la IA (7):** al subir una imagen o un clip, el formato y la revisión de la IA, con un prompt de edición para corregir.
+  - **Producto recortado (3):** para e-commerce; queda en el elenco.
+  - **Segmentos (4):** "Cambiar un solo objeto"; se niega si es para la marca de agua.
+  - **`iniciar.sh` pregunta la IA (9):** Claude, Kimi directo, NVIDIA u OpenRouter (`bash iniciar.sh --ia` para cambiar).
 
 ## Decisiones tomadas (2 Oct 2026)
 1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma. **Personajes:** usar las voces de Grok (panel Audio: Ara, Eve, Leo, Rex, Sal…, más audios subidos o grabados); cada personaje tiene una voz asignada y el prompt de video la pide. Grok no deja descargar el audio solo, así que esa voz vive dentro del clip. **Narrador:** las 4 opciones, según la escena.

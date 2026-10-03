@@ -261,6 +261,22 @@ function drawOverlay(
   ctx.shadowBlur = 0;
 }
 
+// One shot at a moment, drawn exactly as the video draws it (picture, headline, speaker and line). The storyboard
+// and its "Ver la pieza" playback use it, so the board looks like the finished piece.
+export function drawShot(
+  ctx: CanvasRenderingContext2D,
+  shot: TimedShot,
+  img: HTMLImageElement | null,
+  speaker: Speaker | undefined,
+  t: number,
+  options: Pick<RenderOptions, "disclosure" | "fullFrame" | "headlines" | "style">,
+) {
+  paintStill(ctx, img, shot, t, options.fullFrame);
+  drawOverlay(ctx, shot, speaker, t, options);
+}
+
+export { loadImage };
+
 // A still of one shot with its type on top, for the style preview. Uses the shot's image, or its colour card.
 export async function renderPreview(
   canvas: HTMLCanvasElement,

@@ -8,12 +8,14 @@ import {
   LYRIC_LANGUAGES,
   markKeywords,
   newLyricPiece,
+  parseLrc,
   retimeLine,
   splitLyrics,
   tapLines,
   toLrc,
   type LyricLine,
   type LyricPiece,
+  type BackgroundPrompts,
   type LyricStyle,
 } from "../../shared/lyrics.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
@@ -21,11 +23,15 @@ import { api, projectFileUrl, type MediaFileRecord, type MediaRecord } from "../
 import { blobToDataUrl } from "../lib/files.ts";
 import { decodeSong, drawLyricFrame, loadLyricFonts, renderLyricVideo, songBeats, type Backdrop } from "../lib/lyricRender.ts";
 import { download, slug } from "../lib/markdown.ts";
+import { CopyButton } from "./ScriptView.tsx";
 import type { RenderResult } from "../lib/render.ts";
 import { audioDuration, type AudioFile } from "./Audio.tsx";
 import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
 
-export type LyricOpen = { piece: LyricPiece; music: MediaFileRecord | null; media: MediaRecord | undefined };
+export type LyricOpen = { piece: LyricPiece; music: MediaFileRecord | null; media: Record<string, MediaRecord> };
+// Background clips (Grok's or the person's own) play one after the other; each sits in a media slot of the project.
+type BgClip = { slot: number; url: string; blob: Blob; name: string };
+const MAX_CLIPS = 4;
 
 type Props = {
   projectId: string | null;
@@ -65,8 +71,8 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
   const [song, setSong] = useState<AudioFile | null>(null);
   const [buffer, setBuffer] = useState<AudioBuffer | null>(null);
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
-  const [bgClip, setBgClip] = useState<{ url: string; blob: Blob } | null>(null);
-  const [busy, setBusy] = useState<null | "sync" | "ideas" | "second" | "render" | "upload" | "style">(null);
+  const [bgClips, setBgClips] = useState<BgClip[]>([]);
+  const [busy, setBusy] = useState<null | "sync" | "ideas" | "second" | "render" | "upload" | "style" | "prompts" | "lrc">(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -96,16 +102,20 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
         .then((blob) => setSong({ url: objectUrl(blob), blob, name: music.name, duration: music.duration }))
         .catch(() => setError("No se pudo leer la canción guardada."));
     }
-    if (media?.image) {
+    if (media["0"]?.image) {
       const img = new Image();
       img.onload = () => setBgImage(img);
-      img.src = projectFileUrl(projectId, media.image);
+      img.src = projectFileUrl(projectId, media["0"].image);
     }
-    if (media?.clip) {
-      fetch(projectFileUrl(projectId, media.clip.file))
+    for (let slot = 0; slot < MAX_CLIPS; slot++) {
+      const clip = media[slot]?.clip;
+      if (!clip) continue;
+      fetch(projectFileUrl(projectId, clip.file))
         .then((r) => r.blob())
-        .then((blob) => setBgClip({ url: objectUrl(blob), blob }))
-        .catch(() => setError("No se pudo leer el video de fondo guardado."));
+        .then((blob) =>
+          setBgClips((c) => [...c, { slot, url: objectUrl(blob), blob, name: clip.name }].sort((a, b) => a.slot - b.slot)),
+        )
+        .catch(() => setError("No se pudo leer un video de fondo guardado."));
     }
     // Only when the piece is opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -158,38 +168,53 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
     });
   }
 
-  async function addBackground(file: File) {
+  // A photo replaces everything; videos add up (up to four) and play in order.
+  async function addBackground(files: File[]) {
     await work("upload", async () => {
-      if (file.type.startsWith("image/")) {
+      const image = files.find((f) => f.type.startsWith("image/"));
+      const videos = files.filter((f) => f.type.startsWith("video/"));
+      if (!image && !videos.length) throw new Error("Subí una foto o un video.");
+      if (image) {
         const img = new Image();
-        img.src = await blobToDataUrl(file);
+        img.src = await blobToDataUrl(image);
         await img.decode();
+        await clearClips();
         setBgImage(img);
-        setBgClip(null);
-        if (projectId) {
-          await api.uploadMedia(projectId, 0, "image", file);
-          await api.removeMedia(projectId, 0, "clip").catch(() => undefined);
+        if (projectId) await api.uploadMedia(projectId, 0, "image", image);
+      } else {
+        let clips = bgClips;
+        for (const file of videos) {
+          const slot = [...Array(MAX_CLIPS).keys()].find((n) => !clips.some((c) => c.slot === n));
+          if (slot === undefined) throw new Error(`Entran hasta ${MAX_CLIPS} videos de fondo.`);
+          clips = [...clips, { slot, url: objectUrl(file), blob: file, name: file.name }].sort((a, b) => a.slot - b.slot);
+          setBgClips(clips);
+          if (projectId) await api.uploadMedia(projectId, slot, "clip", file, { name: file.name, duration: 0 });
         }
-      } else if (file.type.startsWith("video/")) {
-        setBgClip({ url: objectUrl(file), blob: file });
-        setBgImage(null);
-        if (projectId) {
-          await api.uploadMedia(projectId, 0, "clip", file, { name: file.name, duration: 0 });
-          await api.removeMedia(projectId, 0, "image").catch(() => undefined);
+        if (bgImage) {
+          setBgImage(null);
+          if (projectId) await api.removeMedia(projectId, 0, "image").catch(() => undefined);
         }
-      } else throw new Error("Subí una foto o un video.");
+      }
       setStyle({ background: "media" });
     });
   }
 
+  async function removeClip(slot: number) {
+    setBgClips((c) => c.filter((x) => x.slot !== slot));
+    if (projectId) await api.removeMedia(projectId, slot, "clip").catch(() => undefined);
+  }
+
+  async function clearClips() {
+    const slots = bgClips.map((c) => c.slot);
+    setBgClips([]);
+    if (projectId) for (const slot of slots) await api.removeMedia(projectId, slot, "clip").catch(() => undefined);
+  }
+
   async function removeBackground() {
     setBgImage(null);
-    setBgClip(null);
+    await clearClips();
     setStyle({ background: "organic" });
-    if (projectId) {
-      await api.removeMedia(projectId, 0, "image").catch(() => undefined);
-      await api.removeMedia(projectId, 0, "clip").catch(() => undefined);
-    }
+    if (projectId) await api.removeMedia(projectId, 0, "image").catch(() => undefined);
   }
 
   async function autoSyncNow() {
@@ -198,6 +223,34 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
     if (!result) return;
     set({ lines: result.lines, synced: "auto" });
     setNote(`Sincronizado: la transcripción escuchó ${result.heard} palabras. Revisá los tiempos abajo.`);
+  }
+
+  // An .lrc brings its own times; if its lines match the pasted lyrics they keep the pasted text, else it brings the text too.
+  async function importLrc(file: File) {
+    const lrc = parseLrc(await file.text());
+    if (!lrc.texts.length) {
+      setError("Ese archivo no tiene líneas con tiempo ([mm:ss.xx]).");
+      return;
+    }
+    const same = texts.length === lrc.texts.length;
+    const lineTexts = same ? texts : lrc.texts;
+    const hasSeconds = lrc.seconds.some(Boolean);
+    const lineSeconds = hasSeconds ? lrc.seconds : seconds;
+    const end = song?.duration || lrc.starts[lrc.starts.length - 1] + 8;
+    setPiece((p) => ({
+      ...p,
+      title: p.title || lrc.title,
+      artist: p.artist || lrc.artist,
+      text: same ? p.text : lrc.texts.join("\n"),
+      secondText: hasSeconds ? lrc.seconds.join("\n") : p.secondText,
+      lines: tapLines(lineTexts, lineSeconds, lrc.starts, end),
+      synced: "lrc",
+    }));
+    setNote(
+      same
+        ? `Importado: los tiempos de ${file.name} sobre tu letra.`
+        : `Importado: la letra y los tiempos salen de ${file.name} (${lrc.texts.length} líneas).`,
+    );
   }
 
   // Keeps the second lines (romanization or translation) in step with the lyric lines.
@@ -362,7 +415,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
             </div>
           </Field>
           <div className="md:col-span-2">
-            <Button onClick={() => setTab("sync")} disabled={!song || !texts.length}>
+            <Button onClick={() => setTab("sync")} disabled={!song}>
               Seguir → sincronizar
             </Button>
             <span className="ml-3 text-sm text-muted">{texts.length} líneas</span>
@@ -372,11 +425,11 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
 
       {tab === "sync" && (
         <div className="space-y-4">
-          {!song || !texts.length ? (
-            <Notice tone="warn">Primero subí la canción y pegá la letra.</Notice>
+          {!song ? (
+            <Notice tone="warn">Primero subí la canción (y pegá la letra, salvo que importes un .lrc).</Notice>
           ) : (
             <>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-3">
                 <div className="space-y-2 rounded-xl border border-line bg-white p-4">
                   <p className="text-sm font-semibold">Automático</p>
                   <p className="text-xs text-muted">
@@ -384,7 +437,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
                     {piece.language === "gn" && " No conoce el guaraní: escucha sin idioma. Si sale mal, sincronizá tocando."}
                     {!autoSync && " Necesita OPENAI_API_KEY en .env."}
                   </p>
-                  <Button onClick={autoSyncNow} disabled={!autoSync || busy !== null}>
+                  <Button onClick={autoSyncNow} disabled={!autoSync || busy !== null || !texts.length}>
                     {busy === "sync" ? (
                       <>
                         <Spinner /> Escuchando la canción…
@@ -402,6 +455,24 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
                     setNote("Sincronizado tocando. Ajustá cualquier línea abajo.");
                   }}
                 />
+                <div className="space-y-2 rounded-xl border border-line bg-white p-4">
+                  <p className="text-sm font-semibold">Importar .lrc</p>
+                  <p className="text-xs text-muted">
+                    Si ya tenés la letra sincronizada en un archivo .lrc. Si sus líneas coinciden con tu letra, usa tus líneas con sus
+                    tiempos; si no, trae también la letra.
+                  </p>
+                  <input
+                    type="file"
+                    accept=".lrc,.txt,text/plain"
+                    aria-label="Importar .lrc"
+                    className="text-sm"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) importLrc(file);
+                      e.target.value = "";
+                    }}
+                  />
+                </div>
               </div>
               {stale && <Notice tone="warn">La letra cambió después de sincronizar: volvé a sincronizar.</Notice>}
               {piece.lines.length > 0 && (
@@ -422,7 +493,14 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
           beats={beats}
           audio={audioRef}
           bgImage={bgImage}
-          bgClip={bgClip}
+          bgClips={bgClips}
+          onRemoveClip={removeClip}
+          onPrompts={() =>
+            work("prompts", async () => {
+              const result = await api.lyricBackgrounds(series.id, brief.tool, piece.title, texts, piece.style, piece.format);
+              return result;
+            })
+          }
           busy={busy}
           projectId={projectId}
           projectsDir={projectsDir}
@@ -482,6 +560,14 @@ function TapSync({
   });
 
   if (!starts) {
+    if (!texts.length) {
+      return (
+        <div className="space-y-2 rounded-xl border border-line bg-white p-4">
+          <p className="text-sm font-semibold">Tocando</p>
+          <p className="text-xs text-muted">Primero pegá la letra en "Canción y letra".</p>
+        </div>
+      );
+    }
     return (
       <div className="space-y-2 rounded-xl border border-line bg-white p-4">
         <p className="text-sm font-semibold">Tocando</p>
@@ -592,13 +678,15 @@ type VideoTabProps = {
   beats: number[];
   audio: React.RefObject<HTMLAudioElement | null>;
   bgImage: HTMLImageElement | null;
-  bgClip: { url: string; blob: Blob } | null;
+  bgClips: BgClip[];
+  onRemoveClip: (slot: number) => void;
+  onPrompts: () => Promise<BackgroundPrompts | null>;
   busy: string | null;
   projectId: string | null;
   projectsDir: string;
   set: (patch: Partial<LyricPiece>) => void;
   setStyle: (patch: Partial<LyricStyle>) => void;
-  onBackground: (file: File) => void;
+  onBackground: (files: File[]) => void;
   onRemoveBackground: () => void;
   onIdeas: () => void;
   onSaveStyle: () => void;
@@ -607,15 +695,18 @@ type VideoTabProps = {
 };
 
 function VideoTab(props: VideoTabProps) {
-  const { piece, song, beats, audio, bgImage, bgClip, busy, set, setStyle } = props;
+  const { piece, song, beats, audio, bgImage, bgClips, busy, set, setStyle } = props;
   const style = piece.style;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pieceRef = useRef(piece);
   pieceRef.current = piece;
   const [progress, setProgress] = useState<number | null>(null);
-  const [result, setResult] = useState<(RenderResult & { url: string }) | null>(null);
-  const [saved, setSaved] = useState("");
+  const [results, setResults] = useState<(RenderResult & { url: string; format: LyricPiece["format"]; saved: string })[]>([]);
+  const [prompts, setPrompts] = useState<BackgroundPrompts | null>(null);
+  // The preview plays the background clips one after the other.
+  const [clipIndex, setClipIndex] = useState(0);
+  const clip = bgClips.length ? bgClips[clipIndex % bgClips.length] : null;
   const vertical = piece.format === "vertical";
   const [pw, ph] = vertical ? [360, 640] : [640, 360];
 
@@ -645,18 +736,27 @@ function VideoTab(props: VideoTabProps) {
     return () => cancelAnimationFrame(frame);
   }, [audio, bgImage, beats]);
 
-  async function render() {
+  // One format, or both one after the other; each is saved in the project as video-vertical / video-horizontal.
+  async function render(formats: LyricPiece["format"][]) {
     if (!song) return;
     props.setError("");
     props.setBusy("render");
     setProgress(0);
-    setSaved("");
+    setResults([]);
     try {
-      const out = await renderLyricVideo(song.blob, { image: bgImage ?? undefined, clip: bgClip?.blob }, piece, setProgress);
-      setResult({ ...out, url: URL.createObjectURL(out.blob) });
-      if (props.projectId) {
-        const { file } = await api.saveVideo(props.projectId, out.blob);
-        setSaved(`${props.projectsDir}/${props.projectId}/${file}`);
+      for (const [n, format] of formats.entries()) {
+        const out = await renderLyricVideo(
+          song.blob,
+          { image: bgImage ?? undefined, clips: bgClips.map((c) => c.blob) },
+          { ...piece, format },
+          (f) => setProgress((n + f) / formats.length),
+        );
+        let saved = "";
+        if (props.projectId) {
+          const { file } = await api.saveVideo(props.projectId, out.blob, format);
+          saved = `${props.projectsDir}/${props.projectId}/${file}`;
+        }
+        setResults((r) => [...r, { ...out, url: URL.createObjectURL(out.blob), format, saved }]);
       }
     } catch (e) {
       props.setError(message(e));
@@ -686,7 +786,19 @@ function VideoTab(props: VideoTabProps) {
             aria-label="Vista previa"
           />
         </div>
-        {bgClip && <video ref={videoRef} src={bgClip.url} muted loop autoPlay playsInline className="hidden" />}
+        {clip && (
+          <video
+            ref={videoRef}
+            key={clip.url}
+            src={clip.url}
+            muted
+            loop={bgClips.length === 1}
+            autoPlay
+            playsInline
+            onEnded={() => setClipIndex((i) => i + 1)}
+            className="hidden"
+          />
+        )}
         <p className="text-center text-xs text-muted">La vista previa sigue al reproductor de arriba: dale play.</p>
       </div>
 
@@ -729,12 +841,68 @@ function VideoTab(props: VideoTabProps) {
           </div>
         ) : (
           <div className="space-y-2">
-            <input type="file" accept="image/*,video/*" className="text-sm" onChange={(e) => e.target.files?.[0] && props.onBackground(e.target.files[0])} />
-            {(bgImage || bgClip) && (
+            <p className="text-xs text-muted">
+              Una foto, o hasta {MAX_CLIPS} videos que se pasan uno tras otro en loop (por ejemplo, clips de Grok).
+            </p>
+            <input
+              type="file"
+              accept="image/*,video/*"
+              multiple
+              aria-label="Subir fondo"
+              className="text-sm"
+              onChange={(e) => {
+                if (e.target.files?.length) props.onBackground([...e.target.files]);
+                e.target.value = "";
+              }}
+            />
+            {bgClips.length > 0 && (
+              <ol className="space-y-1 text-sm">
+                {bgClips.map((c, i) => (
+                  <li key={c.slot} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-white px-2 py-1">
+                    <span className="min-w-0 truncate">
+                      {i + 1}. {c.name}
+                    </span>
+                    <Button variant="ghost" className="px-2 py-0.5 text-xs" onClick={() => props.onRemoveClip(c.slot)}>
+                      Quitar
+                    </Button>
+                  </li>
+                ))}
+              </ol>
+            )}
+            {(bgImage || bgClips.length > 0) && (
               <Button variant="ghost" className="px-2 py-1 text-xs" onClick={props.onRemoveBackground}>
-                Quitar fondo
+                Quitar todo el fondo
               </Button>
             )}
+            <div className="rounded-lg border border-line bg-white p-3">
+              <Button
+                variant="secondary"
+                className="px-3 py-1 text-xs"
+                disabled={busy !== null || !piece.lines.length}
+                onClick={async () => setPrompts(await props.onPrompts())}
+              >
+                {busy === "prompts" ? <Spinner /> : null} Prompts para Grok (fondo en loop)
+              </Button>
+              {prompts && (
+                <div className="mt-2 space-y-3">
+                  {prompts.note && <p className="text-xs text-muted">{prompts.note}</p>}
+                  {prompts.prompts.map((p, i) => (
+                    <div key={i} className="space-y-1 border-t border-line pt-2 text-xs">
+                      <p className="font-semibold">
+                        {i + 1}. {p.title} · {p.seconds} s
+                      </p>
+                      <p className="text-muted">Imagen: {p.image}</p>
+                      <p className="text-muted">Video: {p.video}</p>
+                      <div className="flex gap-2">
+                        <CopyButton text={p.image} idle="Copiar imagen" variant="secondary" />
+                        <CopyButton text={p.video} idle="Copiar video" variant="secondary" />
+                      </div>
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted">Generalos en Grok, descargalos y subilos arriba: se pasan en orden.</p>
+                </div>
+              )}
+            </div>
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" className="mt-1" checked={piece.fullFrame} onChange={(e) => set({ fullFrame: e.target.checked })} />
               <span>
@@ -850,39 +1018,57 @@ function VideoTab(props: VideoTabProps) {
           </div>
         </Field>
 
-        <Button className="w-full" onClick={render} disabled={busy !== null || missing.length > 0}>
-          {busy === "render" ? (
-            <>
-              <Spinner /> Generando…
-            </>
-          ) : (
-            "Generar video"
-          )}
-        </Button>
+        <div className="flex gap-2">
+          <Button className="flex-1" onClick={() => render([piece.format])} disabled={busy !== null || missing.length > 0}>
+            {busy === "render" ? (
+              <>
+                <Spinner /> Generando…
+              </>
+            ) : (
+              `Generar ${vertical ? "9:16" : "16:9"}`
+            )}
+          </Button>
+          <Button
+            variant="secondary"
+            className="flex-1"
+            onClick={() => render(["vertical", "horizontal"])}
+            disabled={busy !== null || missing.length > 0}
+          >
+            Generar los dos formatos
+          </Button>
+        </div>
         {missing.length > 0 && <p className="text-xs text-muted">Falta: {missing.join(", ")}.</p>}
         {progress !== null && (
           <div className="h-1.5 overflow-hidden rounded-full bg-paper">
             <div className="h-full bg-good transition-all" style={{ width: `${progress * 100}%` }} />
           </div>
         )}
-        {result && (
-          <div className="space-y-2">
-            <video src={result.url} controls playsInline className={`mx-auto w-full rounded-lg bg-black ${vertical ? "max-h-[70vh] w-auto" : ""}`} />
+        {results.map((result) => (
+          <div key={result.format} className="space-y-2">
+            <p className="text-xs font-semibold">{result.format === "vertical" ? "Vertical 9:16" : "Horizontal 16:9"}</p>
+            <video
+              src={result.url}
+              controls
+              playsInline
+              className={`mx-auto w-full rounded-lg bg-black ${result.format === "vertical" ? "max-h-[70vh] w-auto" : ""}`}
+            />
             <Button
               variant="secondary"
               className="w-full"
-              onClick={() => download(result.blob, `${slug(piece.title) || "video-de-letra"}.${result.extension}`)}
+              onClick={() =>
+                download(result.blob, `${slug(piece.title) || "video-de-letra"}-${result.format === "vertical" ? "9x16" : "16x9"}.${result.extension}`)
+              }
             >
-              Descargar .{result.extension}
+              Descargar {result.format === "vertical" ? "9:16" : "16:9"} .{result.extension}
             </Button>
-            {saved && <p className="text-xs text-good">Guardado en el proyecto: {saved}</p>}
+            {result.saved && <p className="text-xs text-good">Guardado en el proyecto: {result.saved}</p>}
             {result.notes.map((n) => (
               <p key={n} className="text-xs text-muted">
                 {n}
               </p>
             ))}
           </div>
-        )}
+        ))}
       </div>
     </div>
   );

@@ -5,17 +5,23 @@ import { z } from "zod";
 import {
   BoardWireSchema,
   BriefSchema,
+  ShotWireSchema,
   StoryWireSchema,
   TopicIdeaSchema,
   normalizeBoard,
+  normalizeShot,
   normalizeStory,
   type Status,
 } from "../shared/schema.ts";
 import {
   WriterError,
+  backgroundPrompts,
   currentWriter,
   lyricIdeas,
   proposeMenu,
+  productShot,
+  reviewPicture,
+  segmentEdit,
   reviseBoard,
   reviseStory,
   rewriteShot,
@@ -226,6 +232,59 @@ app.post("/api/voice", async (c) => {
   return c.body(new Uint8Array(audio), 200, { "Content-Type": "audio/mpeg" });
 });
 
+// E-commerce: the prompt for the episode's product, clean, to cut out in the tool.
+app.post("/api/product-shot", async (c) => {
+  const { brief } = z.object({ brief: BriefSchema }).parse(await c.req.json());
+  if (demo()) {
+    const name = brief.product.split(/[,.:]/)[0].trim() || "Producto";
+    return c.json({
+      name,
+      identity: `${name.toLowerCase()}, clean and new`,
+      prompt: `${name}, the product alone, whole and centred, front three-quarter view, on a plain light-grey seamless background, soft even studio light, sharp edges, nothing else in frame, no text, no logo`,
+      note: "Prompt de muestra: sin clave de IA.",
+      demo: true,
+    });
+  }
+  return c.json({ ...(await productShot(brief)), demo: false });
+});
+
+// One object changed in a shot's image with the tool's segments. Watermarks are never a target.
+const WATERMARK = /marca de agua|watermark|logo de grok|firma de la ia|metadat/i;
+app.post("/api/shot/segment", async (c) => {
+  const { brief, shot, note } = z
+    .object({ brief: BriefSchema, shot: ShotWireSchema.transform(normalizeShot), note: z.string().trim().min(1).max(500) })
+    .parse(await c.req.json());
+  if (WATERMARK.test(note)) {
+    throw new WriterError("Eso no: los segmentos no se usan para tapar ni borrar la marca de agua o la identificación de la IA.");
+  }
+  if (demo()) {
+    return c.json({ select: `Lo que dice la nota: ${note}`, prompt: `Change only the selected area: ${note}. Keep everything else exactly as it is.`, note: "Ejemplo: sin clave de IA.", demo: true });
+  }
+  return c.json({ ...(await segmentEdit(brief, shot, note)), demo: false });
+});
+
+// The writer looks at an uploaded image (or a frame of a clip) against its shot. JPEGs come as base64.
+const Jpeg = z.string().max(3_000_000);
+app.post("/api/review", async (c) => {
+  const { brief, shot, setups, picture, refs } = z
+    .object({
+      brief: BriefSchema,
+      shot: z.object({ title: z.string(), action: z.string(), prompt: z.string(), what: z.enum(["image", "clip"]) }),
+      setups: z.array(z.object({ name: z.string(), identity: z.string() })).max(14),
+      picture: Jpeg,
+      refs: z.array(z.object({ label: z.string().max(200), jpeg: Jpeg })).max(3),
+    })
+    .parse(await c.req.json());
+  if (demo()) {
+    return c.json({
+      checks: [{ item: "Modo de muestra", pass: true, note: "Sin clave de IA, la revisión es un ejemplo: no miró la imagen." }],
+      fixPrompt: "",
+      demo: true,
+    });
+  }
+  return c.json({ ...(await reviewPicture(brief, shot, setups, picture, refs)), demo: false });
+});
+
 // Lyric videos. Automatic sync: the song (multipart "audio") is transcribed with word times and matched to the
 // lyric lines ("lines" and "seconds", JSON arrays).
 app.post("/api/lyrics/sync", async (c) => {
@@ -260,9 +319,32 @@ app.post("/api/lyrics/second", async (c) => {
   return c.json({ ...(await secondLines(series, lines, mode)), demo: false });
 });
 
+app.post("/api/lyrics/backgrounds", async (c) => {
+  const { series, title, lines, tool, palette, mood, format } = LyricRequest.extend({
+    tool: z.string(),
+    palette: z.array(z.string()),
+    mood: z.string(),
+    format: z.enum(["vertical", "horizontal"]),
+  }).parse(await c.req.json());
+  if (demo()) {
+    const look = `soft out-of-focus ${mood === "lively" ? "swirling" : "drifting"} light in the colours ${palette.join(", ")}, no people, no text`;
+    return c.json({
+      prompts: [
+        { title: "Estrofas: humo de color", image: `Colored smoke hanging in the dark, ${look}.`, video: "The smoke drifts slowly and folds into itself, seamless loop, static camera.", seconds: 10 },
+        { title: "Estribillo: luz en el agua", image: `Light rippling on water seen from above, ${look}.`, video: "Ripples spread and glow brighter, slow continuous motion, seamless loop.", seconds: 10 },
+        { title: "Final: tela al viento", image: `Thin fabric floating in warm light, ${look}.`, video: "The fabric billows gently in slow motion, seamless loop, no cuts.", seconds: 10 },
+      ],
+      note: "Prompts de muestra: sin clave de IA.",
+      demo: true,
+    });
+  }
+  return c.json({ ...(await backgroundPrompts(series, tool, title, lines, { palette, mood }, format)), demo: false });
+});
+
 app.put("/api/projects/:id/video", async (c) => {
   const data = Buffer.from(await c.req.arrayBuffer());
-  const file = await saveVideo(c.req.param("id"), data, c.req.header("content-type") ?? "");
+  const variant = z.enum(["vertical", "horizontal"]).optional().parse(c.req.query("variant") || undefined);
+  const file = await saveVideo(c.req.param("id"), data, c.req.header("content-type") ?? "", variant);
   return c.json({ file });
 });
 

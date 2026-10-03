@@ -26,6 +26,8 @@ export type ProjectFile = {
   // Shot index → files in the folder.
   media: Record<string, MediaRecord>;
   video?: string;
+  // Lyric videos keep one video per format: video-vertical.webm, video-horizontal.webm.
+  videos?: Record<string, string>;
   // One music track for the whole piece.
   music?: MediaFile;
 };
@@ -168,7 +170,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
         step: state.step ?? "brief",
         updatedAt: p.updatedAt,
         shots: state.board?.shots?.length ?? 0,
-        hasVideo: Boolean(p.video),
+        hasVideo: Boolean(p.video || Object.keys(p.videos ?? {}).length),
       });
     } catch {
       // A folder without a readable project.json is not a project; leave it alone.
@@ -243,13 +245,15 @@ export function clearMedia(id: string) {
   });
 }
 
-export function saveVideo(id: string, data: Buffer, type: string) {
-  const file = `video.${extension(type, "video")}`;
+export function saveVideo(id: string, data: Buffer, type: string, variant?: "vertical" | "horizontal") {
+  const file = `${variant ? `video-${variant}` : "video"}.${extension(type, "video")}`;
   return locked(id, async () => {
     const project = await read(id);
-    if (project.video && project.video !== file) await rm(join(folder(id), project.video), { force: true });
+    const old = variant ? project.videos?.[variant] : project.video;
+    if (old && old !== file) await rm(join(folder(id), old), { force: true });
     await writeFile(join(folder(id), file), data);
-    project.video = file;
+    if (variant) project.videos = { ...project.videos, [variant]: file };
+    else project.video = file;
     project.updatedAt = new Date().toISOString();
     await write(project);
     return file;

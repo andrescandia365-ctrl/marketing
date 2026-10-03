@@ -11,6 +11,7 @@ import { BoardView } from "./components/BoardView.tsx";
 import { BriefForm } from "./components/BriefForm.tsx";
 import { MenuPicker } from "./components/MenuPicker.tsx";
 import { LyricStudio, type LyricOpen } from "./components/LyricStudio.tsx";
+import { ProductPanel } from "./components/ProductPanel.tsx";
 import { ProjectsPanel } from "./components/ProjectsPanel.tsx";
 import { SeriesEditor } from "./components/SeriesEditor.tsx";
 import {
@@ -28,7 +29,7 @@ import { StoryView } from "./components/StoryView.tsx";
 import { VideoPanel } from "./components/VideoPanel.tsx";
 import { Button, Notice, PieceTitle, Spinner } from "./components/ui.tsx";
 import { api, libraryFileUrl, projectFileUrl, type ProjectSummary } from "./lib/api.ts";
-import { blobToDataUrl, readImageFile } from "./lib/files.ts";
+import { blobToDataUrl, pictureForReview, readImageFile } from "./lib/files.ts";
 import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from "./lib/markdown.ts";
 
 // "lyrics": a lyric video (series of type music), with its own steps inside.
@@ -286,7 +287,7 @@ export function App() {
     setPieceBrief(pb);
     if (st.kind === "lyrics" && st.lyrics) {
       setProjectId(id);
-      setLyric({ key: id, initial: { piece: st.lyrics, music: project.music, media: project.media["0"] } });
+      setLyric({ key: id, initial: { piece: st.lyrics, music: project.music, media: project.media } });
       setStep("lyrics");
       return;
     }
@@ -479,11 +480,51 @@ export function App() {
     await Promise.all([worker(), worker(), worker()]);
   }
 
+  // Checks an uploaded picture: its format here, and, when a writer is set, the AI's look against the shot.
+  async function reviewMedia(index: number, what: "image" | "clip", source: string | Blob) {
+    if (!board) return;
+    const shot = board.shots[index];
+    setShotMedia(index, { review: { what, loading: true } });
+    try {
+      const picture = await pictureForReview(source);
+      const expected = pieceBrief.format === "vertical" ? 9 / 16 : 16 / 9;
+      const format =
+        Math.abs(picture.width / picture.height - expected) / expected > 0.04
+          ? `${what === "clip" ? "El clip" : "La imagen"} mide ${picture.width}×${picture.height} y el video es ${pieceBrief.format === "vertical" ? "9:16" : "16:9"}: se va a ver con bandas o recortado.`
+          : undefined;
+      if (!status?.writer) {
+        setShotMedia(index, { review: { what, loading: false, format } });
+        return;
+      }
+      const inFrame = shot.setups.map((id) => board.setups.find((x) => x.id === id)).filter((x) => x !== undefined);
+      const refs = await Promise.all(
+        inFrame
+          .map((x) => (x.castId ? library[x.castId] : undefined))
+          .filter((e) => e?.url)
+          .slice(0, 3)
+          .map(async (e) => ({ label: `Approved reference image of ${e!.name} (${e!.identity}):`, jpeg: (await pictureForReview(e!.url!, 512)).jpeg })),
+      );
+      const result = await api.review(
+        pieceBrief,
+        { title: shot.title, action: shot.action, prompt: what === "clip" ? shot.videoPrompt : shot.visualPrompt, what },
+        inFrame.map((x) => ({ name: x.name, identity: x.identity })),
+        picture.jpeg,
+        refs,
+      );
+      setShotMedia(index, { review: { what, loading: false, format, result } });
+      const failed = result.checks.filter((c) => !c.pass).length;
+      if (!result.demo) addLog({ shot: index, text: `Revisión de la IA (${what === "clip" ? "clip" : "imagen"})`, outcome: failed ? `${failed} problema(s)` : "sin problemas" });
+    } catch (e) {
+      setShotMedia(index, { review: { what, loading: false, error: message(e) } });
+    }
+  }
+
   async function uploadImage(index: number, file: File) {
     try {
       const image = await readImageFile(file);
       setShotMedia(index, { image, error: undefined });
       addLog({ shot: index, text: `Imagen subida: ${file.name}` });
+      reviewMedia(index, "image", image);
       await keep(index, (id) => api.uploadMedia(id, index, "image", file));
     } catch (e) {
       setShotMedia(index, { error: message(e) });
@@ -502,6 +543,7 @@ export function App() {
       const clip: ClipFile = { url, blob: file, name: file.name, duration };
       setShotMedia(index, { clip, error: undefined });
       addLog({ shot: index, text: `Clip subido: ${file.name}, ${duration.toFixed(1)} s` });
+      reviewMedia(index, "clip", file);
       await keep(index, (id) => api.uploadMedia(id, index, "clip", file, { name: file.name, duration }));
     } catch (e) {
       URL.revokeObjectURL(url);
@@ -513,6 +555,7 @@ export function App() {
     setMedia((prev) => {
       const next = { ...prev[index] };
       delete next[kind];
+      if (kind === "image" || kind === "clip") delete next.review;
       return { ...prev, [index]: next };
     });
     const what = { image: "Imagen quitada", clip: "Clip quitado", voice: "Voz quitada", sfx: "Efecto quitado" }[kind];
@@ -676,6 +719,16 @@ export function App() {
         sfx: media[i]?.sfx?.blob,
       },
     ]),
+  );
+  // What each storyboard frame shows: its picture so far, else the real screen or the main setup's approved image.
+  const shotImages = Object.fromEntries(
+    (board?.shots ?? []).map((shot, i) => {
+      const castId = board?.setups.find((x) => x.id === shot.setups[0])?.castId;
+      return [
+        i,
+        renderMedia[i]?.image ?? (castId ? library[castId]?.url : undefined),
+      ];
+    }),
   );
   const spoken = modes.map((m, i) => (m === "grok" ? true : m !== "subtitles" && Boolean(renderMedia[i]?.voice)));
   const generating = Object.values(media).some((m) => m.loading);
@@ -902,6 +955,7 @@ export function App() {
             busy={busy === "reviseBoard" ? "revise" : busy === "fixBoard" ? "fix" : null}
             problems={boardIssues.filter(open)}
             dismissed={boardIssues.length - boardIssues.filter(open).length}
+            look={{ format: pieceBrief.format, style: pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE, images: shotImages }}
             onRevise={(note, shotNotes) => reviseBoard(note, shotNotes)}
             onFix={() => reviseBoard(fixNote(boardIssues.filter(open)), [], "fixBoard")}
             onDismiss={dismiss}
@@ -918,6 +972,26 @@ export function App() {
                 <p className="text-sm text-muted">{story.logline}</p>
               </div>
               <Timeline board={board} />
+              {pieceSeries?.type === "ecommerce" && (
+                <ProductPanel
+                  toolName={toolName}
+                  setups={board.setups}
+                  products={Object.values(library).filter((m) => m.kind === "product")}
+                  onWrite={async () => {
+                    setError("");
+                    try {
+                      return await api.productShot(pieceBrief);
+                    } catch (e) {
+                      setError(message(e));
+                      return null;
+                    }
+                  }}
+                  onSave={async (setup, image) => {
+                    await fixSetup(setup, "product", image);
+                    addLog({ text: `Producto recortado: ${setup.name}` });
+                  }}
+                />
+              )}
 
               <div className="space-y-3 rounded-xl border border-line bg-white p-3">
                 <div className="flex flex-wrap items-center gap-2">
@@ -984,6 +1058,20 @@ export function App() {
                 onUploadClip={uploadClip}
                 onRemoveMedia={removeMedia}
                 onRewrite={rewriteShot}
+                onSegment={async (index, note) => {
+                  const result = await api.segmentEdit(pieceBrief, board.shots[index], note);
+                  addLog({ shot: index, text: `Segmento: “${note}”`, outcome: result.select });
+                  return result;
+                }}
+                onReview={
+                  status?.writer
+                    ? (index) => {
+                        const m = media[index];
+                        const source = m?.clip?.blob ?? m?.image;
+                        if (source) reviewMedia(index, m?.clip ? "clip" : "image", source);
+                      }
+                    : null
+                }
                 library={library}
                 voice={{
                   language: pieceBrief.language,
