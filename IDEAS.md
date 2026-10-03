@@ -105,6 +105,36 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 27. Tercer tipo de serie: Video de letra (lyric video)
+- **Idea (tuya):** además de Software y E-commerce, un tipo **Música**: videos de letra para canciones, con fondo orgánico en movimiento y la letra animada con motion graphics, bien mostrada.
+- **Es otro flujo:** no hay Bueno contra Malo ni historia. Los pasos serían:
+  1. **Canción:** subir el audio y pegar la letra.
+  2. **Sincronizar:** cada línea (o cada palabra) con su tiempo.
+  3. **Estilo:** fondo, tipografía, animación y colores. Se guardan con la serie, como el estilo de texto.
+  4. **Video:** se renderiza en la app, como hoy.
+- **Sincronizar la letra (a elegir):**
+  - **Automático:** transcripción con tiempos por palabra (OpenAI, la misma `OPENAI_API_KEY`), alineada con la letra pegada.
+  - **A mano tocando:** suena la canción y apretás una tecla al empezar cada línea.
+  - **Importar un `.lrc`**, si ya tenés la letra sincronizada.
+  - En los tres casos, después se puede corregir a mano.
+- **Fondo orgánico (a elegir):**
+  - **Generado en la app:** gradientes que respiran, manchas de color, ruido suave, partículas. Sin IA, gratis, sin marca de agua; puede latir con la música (`findBeats` ya existe).
+  - **Clips de Grok en loop**, con prompts que arme la IA según la letra; se descargan y se suben.
+  - **Una foto o un video propio.**
+- **Motion graphics de la letra (a elegir):**
+  - **Karaoke:** la palabra que suena se ilumina.
+  - **Palabra por palabra:** entran una a una, con escala o rebote.
+  - **Línea que aparece y se va:** fundido o deslizado.
+  - **Palabras clave grandes:** la IA marca las palabras fuertes y salen más grandes.
+- **La IA puede proponer:** la paleta y el clima del fondo según la letra, qué palabras destacar y los prompts de Grok.
+- **Derechos:** solo canciones propias o con licencia. La app pide confirmarlo antes de exportar, y en el aviso al pie va el crédito de la canción.
+- **Preguntas:**
+  - ¿De quién son las canciones?
+  - ¿Cómo querés sincronizar?
+  - ¿Qué fondo?
+  - ¿Qué animación?
+  - ¿Formato vertical, horizontal o los dos?
+
 ### 26. Historias que respeten cómo se trabaja de verdad
 - **Qué pasó:** la historia "El cuaderno dice 40. La góndola dice 3." parte de algo que nadie hace: nadie lleva en un cuaderno cuántos paquetes de yerba quedan. En un kiosco real, el dueño o el encargado **mira la góndola** y, según si hay 3, 4 o 20, arma el pedido o no. La historia en realidad era sobre **armar bien el pedido** antes del corte del proveedor, y el título no lo dice. Que los objetos hablen está bien; lo que falla es la **práctica inventada**.
 - **De dónde salió:**
