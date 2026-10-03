@@ -156,11 +156,41 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - Plantillas de escenas: entrada de pantalla, zoom a detalle, rótulos, paso a paso, antes/después, cierre con logo.
   - Se renderiza en el navegador, como hoy.
 - **Regla:** las capas nunca se usan para sacar o tapar la marca de agua. El aviso de IA queda si hay imágenes hechas con IA.
-- **Preguntas:**
-  - ¿La IA arma todo con plantillas y vos ajustás, o querés una línea de tiempo para mover cada elemento a mano?
-  - ¿Voz (generada o grabada) y música?
-  - ¿Cuánto dura un explicativo (15, 30, 60 s)?
-  - ¿Cada serie lleva logo y colores de marca? Habría que cargarlos en Editar serie.
+- **Respuestas (3 Oct 2026):**
+  1. **Plantillas**, y además una **línea de tiempo** para mover cada elemento a mano.
+  2. **Voz y música, sí.**
+  3. **Duración:** se elige a mano o la decide la IA según el tema.
+  4. **Logo y paleta de colores de marca**, por serie.
+- **Reglas del estudio de motion (tuyas), y cómo entran en la app:**
+  - **Contrato de render:**
+    - Cada video es una función pura del tiempo: `seek(t)` pinta el cuadro t. Sin transiciones CSS, sin timers, sin estado entre cuadros.
+    - Ruido con semilla (mulberry32), nunca `Math.random`.
+    - En la app: el motor dibuja cada cuadro solo con t, como hoy los videos de letra.
+    - Final en H.264 yuv420p, CRF 16. El navegador codifica H.264 pero no por CRF exacto, así que habría un render final por `node render.mjs` + ffmpeg en tu compu, y el del navegador queda como vista previa.
+  - **Look:**
+    - **Prohibido:** título centrado sobre degradé, todo apareciendo con fundido, rótulos en las esquinas y marcos, brillo en la interfaz, explosiones de partículas genéricas.
+    - Una fuente de títulos y una de interfaz por serie.
+    - Un solo color de acento (de la paleta de marca), salvo que el brief diga otra cosa.
+    - Cada 2 a 4 s pasa algo nuevo: es un check que bloquea, como los demás.
+    - (Ojo: hoy el video de letra entra con fundido por defecto. Cambiaría ese default.)
+  - **Sonido:**
+    - Música y efectos sintetizados en código si no subís un tema.
+    - Los golpes caen en la grilla de beats medida (`beats.json`, sale de `findBeats`).
+    - Volumen final a −14 LUFS.
+  - **Loop de calidad antes de mostrar:**
+    1. La app arma una hoja de contactos con un cuadro por beat.
+    2. La IA la mira y pone notas del 1 al 10 en seis cosas: gancho en los primeros 2 s, lectura en tamaño celular, calidad del movimiento, variedad, fidelidad a la marca y sincronía con el sonido.
+    3. Arregla los 3 peores problemas y repite hasta que todo esté en 8 o más (con un tope de rondas para no gastar de más).
+    4. Recién ahí, el render completo.
+- **Kit de marca por serie** (Editar serie): logo (archivo), paleta (fondo, texto, acento), fuente de títulos y fuente de interfaz.
+- **Cómo lo dividiría (cada parte con su "go"):**
+  - **A:** kit de marca, motor de motion, plantillas, el formato "Explicativo" en el brief (duración a mano o automática), voz, música sintetizada, −14 LUFS y el check de "algo nuevo cada 2–4 s". Videos de letra con el mismo motor y las capas de Grok.
+  - **B:** línea de tiempo para mover cada elemento a mano.
+  - **C:** loop de calidad (hoja de contactos y notas de la IA) y render final con ffmpeg (H.264, CRF 16).
+- **Preguntas que quedan:**
+  - ¿Tenés ffmpeg en la compu, o lo instalo desde `iniciar.sh`?
+  - ¿Cuántas rondas como máximo en el loop de calidad (sugiero 3)?
+  - ¿Fuentes de marca: elegís de Google Fonts o tenés archivos propios?
 
 ### 30. Varias claves de IA y un selector de modelo
 - **Idea (tuya):** sumar más claves de IA (también la de Anthropic) y una sección en la app para elegir el modelo.
