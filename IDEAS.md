@@ -124,6 +124,41 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 29. Realismo: hero still, hojas y prompt de director con tiempos
+- **Idea (tuya, de un método que viste):** para que el video parezca real, pedir **defectos** y no "cinematic". El prompt para Seedance sirve igual para **Grok**. El método:
+  1. **Hero still:** una imagen que fija el look, con cámara, defectos y luz exactos. Es el cuadro 0 del video.
+  2. **Hojas de personaje** antes de cualquier movimiento: frente, tres cuartos, perfil, espalda, expresiones y detalles de tela y joyas. Es lo que evita que las caras cambien (idea 28).
+  3. **Hoja de lugar:** seis paneles sin gente (exterior, ángulo principal, contraplano, detalles, la vista), para que el lugar coincida desde cualquier ángulo.
+  4. **Prompt de director:** un mapa de referencias (qué imagen es cada personaje y cuál es el lugar) y una **toma continua con tiempos** (0,0–0,3 s cuadro fijo; 0,3–3,2 s gancho…), con emoción en cada línea, errores de cámara y reglas duras.
+  5. **Generar sin limpiar:** los errores son lo que lo hace real.
+- **Las 3 reglas:**
+  1. Pedir defectos: poros, grano, pulso que tiembla, foco que se pierde.
+  2. La luz nunca cambia; solo cambia la exposición automática de la cámara.
+  3. Cada línea con una emoción, no solo las palabras.
+- **Cómo entraría en la app:**
+  - **Look de la serie (con defectos):**
+    - Cámara (ej. compacta digital de los 2000, celular), flash, grano, foco y de dónde viene la luz.
+    - Reemplaza el "35mm, cinematic" de hoy y va en todos los prompts.
+    - Aviso amarillo si un prompt dice "cinematic" o "vintage".
+  - **Hero still por pieza** (o por escena): la IA escribe el prompt, y esa imagen es la imagen inicial del clip en Grok.
+  - **Hojas:** de personaje (idea 28) y de lugar (6 paneles, sin gente), guardadas en el elenco fijo como referencia `@`.
+  - **Toma continua:** un tipo de toma de 15 s que junta varias líneas en un solo plano, con tiempos y errores de cámara: autofoco que busca, paneo tarde, la exposición que se ajusta.
+  - **Mapa de referencias:** al principio del prompt, qué `@` es cada personaje y cuál el lugar, y la regla de que esas imágenes mandan.
+  - **Reglas duras en el prompt de video:**
+    - Piel nunca lisa.
+    - Grano todo el tiempo.
+    - Sin estabilizar, sin color grading, sin música, sin texto, sin zoom digital, sin cámara lenta.
+    - El diálogo se dice una sola vez, tal cual.
+    - El acento (rioplatense).
+    - Audio de micrófono de celular.
+  - **Emoción por línea:** cada línea de la historia trae su emoción, que pasa al prompt de video (y a la voz de Grok).
+- **Lo que sigue igual:** el aviso de IA prendido. Cuanto más real se ve, más importa. Nunca se tapa la marca de agua.
+- **Para el perfil de Grok (con "ok"):** que acepta un prompt de director con tiempos y referencias `@`, marcado [NOT SURE] hasta probarlo.
+- **Preguntas:**
+  - ¿El look con defectos va para todas las series o se elige por serie?
+  - ¿La toma continua reemplaza las tomas de una línea, o se elige por pieza?
+  - ¿Un hero still por pieza o uno por escena?
+
 ### 28. Construcción de personajes: hoja de personaje (chicas y chicos)
 - **Idea (tuya):** un lugar en la app para construir personajes con una **hoja de personaje**, como la de referencia: cuerpo entero de frente, tres cuartos, perfil y espalda, primeros planos de la cara con distintas expresiones, y detalles (collar, manos, tela), todo sobre fondo gris liso. Hay dos plantillas, **chicas** y **chicos**, porque el personaje es parte del gancho que agarra la atención del público.
 - **Cómo funcionaría:**
