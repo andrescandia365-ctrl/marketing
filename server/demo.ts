@@ -5,14 +5,16 @@ import type { Board, Menu, Story } from "../shared/schema.ts";
 export const DEMO_MENU: Menu = {
   ideas: [
     {
+      problem: "Quedarse sin mercadería a la tarde",
       title: "¿Por qué el pan siempre se termina a las seis?",
-      pain: "El sistema dice 40 en stock, la góndola dice 3, y el dueño se entera a las 18:02.",
+      pain: "A las 18:02 el estante del pan está vacío y el dueño se entera cuando un cliente lo pide.",
       bad: "El Desorden se presenta: “Hoy vine a esconderte el pan”.",
       good: "El loop: Llegó marca el pedido con el celu y el stock queda al día.",
       peg: "El reloj de la pared marcando las 18:02 sobre un estante vacío.",
-      why: "Todo kiosquero vivió esa diferencia exacta entre la pantalla y la góndola.",
+      why: "El estante vacío a la tarde es venta perdida delante del cliente.",
     },
     {
+      problem: "Productos que vencen sin que nadie los vea",
       title: "El yogur que venció el martes sigue adelante",
       pain: "Lo vencido aparece cuando lo ve el cliente, no cuando lo ve el dueño.",
       bad: "El Desorden acomoda lo vencido adelante “para que se vea”.",
@@ -21,22 +23,25 @@ export const DEMO_MENU: Menu = {
       why: "Es plata tirada y vergüenza delante del cliente.",
     },
     {
+      problem: "Armar el pedido antes del corte del proveedor",
       title: "El proveedor cerró hace diez minutos",
-      pain: "El pedido se arma de memoria y se manda tarde.",
+      pain: "El pedido se arma mirando la góndola a las apuradas y sale después del corte.",
       bad: "El Desorden adelanta el reloj del proveedor.",
       good: "Pedidos arma la lista con lo que falta, antes del cierre.",
       peg: "El celular con la hora: 10:10. El cierre era a las 10:00.",
       why: "Perder un día de mercadería es perder un día de ventas.",
     },
     {
+      problem: "La caja que no cierra",
       title: "La caja que nunca cierra",
       pain: "A la noche faltan 3.000 pesos y nadie sabe dónde quedaron.",
-      bad: "El Desorden esconde un billete en el cuaderno.",
+      bad: "El Desorden esconde un billete abajo de la bandeja de la caja.",
       good: "El cierre de caja cuadra el efectivo con la planilla del mes.",
-      peg: "Un cuaderno de tapa dura lleno de tachaduras a las 23 hs.",
+      peg: "La caja abierta sobre el mostrador a las 23 hs.",
       why: "La duda de la caja se lleva a casa todas las noches.",
     },
     {
+      problem: "Vender cuando se corta internet",
       title: "Se cortó internet y el kiosco sigue",
       pain: "Sin señal, el miedo es no poder vender.",
       bad: "El Desorden desenchufa el router y se ríe.",
@@ -45,6 +50,7 @@ export const DEMO_MENU: Menu = {
       why: "En los barrios la señal se corta seguido.",
     },
     {
+      problem: "No poder tomarse un domingo",
       title: "Un domingo libre",
       pain: "El dueño no puede faltar porque solo él sabe cómo está el local.",
       bad: "El Desorden solo aparece cuando el dueño no está.",
@@ -60,6 +66,7 @@ export const DEMO_MENU: Menu = {
 };
 
 export const DEMO_STORY: Story = {
+  problem: "Quedarse sin mercadería a la tarde",
   title: "¿Por qué el pan siempre se termina a las seis?",
   logline: "El Desorden le esconde el pan a Marta todas las tardes, hasta que el loop de IMAN lo deja sin trabajo.",
   characters: [
@@ -147,6 +154,14 @@ export const DEMO_STORY: Story = {
     { claim: "Marcar el pedido con el celular al llegar (Llegó)", real: true, concept: false, note: "Está en la lista." },
     { claim: "Ver lo que vence esta semana (Vence)", real: true, concept: false, note: "Está en la lista." },
     { claim: "La caja cuadra con la planilla mensual", real: true, concept: false, note: "Está en la lista." },
+  ],
+  practices: [
+    { practice: "Marta se entera de que falta pan cuando ve el estante vacío.", known: true, note: "Se arma el pedido mirando la góndola." },
+    {
+      practice: "Un sistema le dice a Marta que tiene cuarenta yogures.",
+      known: false,
+      note: "Sale del ejemplo del playbook.",
+    },
   ],
   verify: ["[VERIFY] Marta es ilustrativa: reemplazala por una dueña real que dé su consentimiento, o etiquetalo como dramatización."],
 };

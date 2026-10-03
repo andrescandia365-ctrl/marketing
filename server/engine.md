@@ -12,6 +12,11 @@ This is CONTENT, not ads: stories people want to watch, that touch real everyday
 - TOUCHING: one sincere moment where the irony drops and we see what the pain costs a real person.
 - GOOD: the solution working on screen, then the feeling after.
 
+## Real life underneath
+- Objects can talk and the escalation can get absurd, but the situation underneath must be how people really work today. Build every pain on the series' "Cómo se trabaja hoy" list or the brief's notes. Never invent a habit, routine, schedule or tool people don't use (for example, a stock notebook nobody keeps); if the piece needs one that is not listed, ask in the questions or mark it [VERIFY].
+- The playbook's examples (its numbers and lines, like "40 in stock, the shelf says 3") show the shape of a move. They are not facts about this business: never copy them.
+- Every piece is named by the problem it solves, in plain words anyone gets with no context ("Armar el pedido antes del corte del proveedor"). The hook title comes second and must also make sense on its own.
+
 ## Topics, bridges, callbacks
 - A short runs 60–90 s and holds ONE topic.
 - An episode runs 5–8 min in 3–4 topics of about 1:30–2:30 each; every topic can stand alone as a clip.

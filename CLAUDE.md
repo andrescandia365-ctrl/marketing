@@ -32,7 +32,9 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   no politics.
 - Claude returns `beat`/`role`/`disclosure` as plain strings; `normalizeStory()`/`normalizeBoard()` map them to
   strict values. Shots last exactly 6, 10 or 15 s (Grok's clip lengths; `snapSeconds`).
-- The writer grades its own story (checklist, open loops, series loop, claims vs "Lo que existe hoy") and board
+- Every menu idea and story has a `problem` (the problem it solves, plain words) shown before its hook `title`.
+- The writer grades its own story (checklist, open loops, series loop, claims vs "Lo que existe hoy", practices vs
+  "Cómo se trabaja hoy": pains follow how people really work, never an invented habit) and board
   (issues); `shared/checks.ts` turns that into problems that block approval until fixed ("Arreglalo") or dismissed.
 - Every shot has a slate (`title`, `action`); its image prompt is one frozen moment, actions go in the video prompt.
 - A shot lists every setup in frame (`setups`, main first); a setup linked to the series cast has `castId` and is

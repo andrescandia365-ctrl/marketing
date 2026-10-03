@@ -3,7 +3,7 @@ import { DEFAULT_AUDIO, voiceModeOf, type AudioSettings, type CharacterVoice, ty
 import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/checks.ts";
 import { buildCopyPrompt } from "../shared/prompt.ts";
 import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
-import { migrateBoard, type Board, type Brief, type Menu, type Setup, type Shot, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
+import { migrateBoard, migrateStory, type Board, type Brief, type Menu, type Setup, type Shot, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
 import { DEFAULT_TEXT_STYLE, castRef, seriesId, type CastMember, type TextStyle } from "../shared/series.ts";
 import { BEAT_INFO, formatTime, timeShots } from "../shared/template.ts";
 import { VoicesPanel, audioDuration, type AudioFile } from "./components/Audio.tsx";
@@ -25,7 +25,7 @@ import {
 } from "./components/ScriptView.tsx";
 import { StoryView } from "./components/StoryView.tsx";
 import { VideoPanel } from "./components/VideoPanel.tsx";
-import { Button, Notice, Spinner } from "./components/ui.tsx";
+import { Button, Notice, PieceTitle, Spinner } from "./components/ui.tsx";
 import { api, libraryFileUrl, projectFileUrl, type ProjectSummary } from "./lib/api.ts";
 import { blobToDataUrl, readImageFile } from "./lib/files.ts";
 import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from "./lib/markdown.ts";
@@ -280,7 +280,7 @@ export function App() {
     setPieceBrief(pb);
     setMenu(st.menu ?? null);
     setDemo(st.demo ?? false);
-    setStory(st.story ?? null);
+    setStory(st.story ? migrateStory(st.story) : null);
     setStoryRound(st.storyRound ?? 1);
     setBoard(st.board ? migrateBoard(st.board) : null);
     setBoardRound(st.boardRound ?? 1);
@@ -824,7 +824,7 @@ export function App() {
               <Button
                 variant="secondary"
                 className="w-full"
-                onClick={() => download(new Blob([storyToMarkdown(story)], { type: "text/markdown" }), `${slug(story.title)}-historia.md`)}
+                onClick={() => download(new Blob([storyToMarkdown(story)], { type: "text/markdown" }), `${slug(story.problem || story.title)}-historia.md`)}
               >
                 Descargar historia .md
               </Button>
@@ -854,7 +854,7 @@ export function App() {
             <div className="min-w-0 space-y-4">
               <div>
                 <p className="font-mono text-xs text-muted">{pieceSeries?.name ?? ""}</p>
-                <h2 className="text-xl font-bold tracking-tight">{story.title}</h2>
+                <PieceTitle problem={story.problem} title={story.title} />
                 <p className="text-sm text-muted">{story.logline}</p>
               </div>
               <Timeline board={board} />
@@ -898,7 +898,7 @@ export function App() {
                     onClick={() =>
                       download(
                         new Blob([pieceToMarkdown(pieceBrief, story, board, toolName, log)], { type: "text/markdown" }),
-                        `${slug(story.title)}.md`,
+                        `${slug(story.problem || story.title)}.md`,
                       )
                     }
                   >

@@ -16,6 +16,10 @@ Una app de caja y gestión para kioscos y almacenes de Argentina. Se vende como 
 - Un celular que acompaña y revisa el local: Vender, Stock, Llegó (llegó el pedido), Vence (lo que está por vencer), Dueño. El celular nunca le cobra a los clientes.
 - Varios locales en una misma cuenta.
 
+## Cómo se trabaja hoy (sin la marca; la historia no inventa otras costumbres)
+- El pedido se arma mirando la góndola: según cuántas unidades quedan (3, 4 o 20), el dueño o el encargado decide si pide o no.
+- Cada proveedor tiene un horario de corte: después de esa hora no levanta pedidos.
+
 ## El loop de la serie (un paso por línea)
 - Abrir el local
 - Vender en el mostrador (escanear, ticket)
@@ -32,7 +36,7 @@ abrir el local → vender en el mostrador → llega el pedido ("Llegó") → rev
 Cada paso arregla un dolor.
 
 ## El Malo
-El caos del local, personificado: el stock que no coincide con la góndola, el cuaderno de papel, el yogur que venció el martes, el corte del proveedor que se pasó por diez minutos, la caja que nunca cierra, el dueño que no puede tomarse un domingo.
+El caos del local, personificado: el yogur que venció el martes, el corte del proveedor que se pasó por diez minutos, la caja que nunca cierra, el dueño que no puede tomarse un domingo.
 
 ## El Bueno
 El loop mismo: tranquilo, confiable, la voz cuerda en el local caótico. No es un robot: es una rutina que funciona.

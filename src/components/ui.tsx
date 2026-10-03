@@ -95,3 +95,17 @@ export function Notice({ tone = "info", children }: { tone?: "info" | "error" | 
   }[tone];
   return <div className={`rounded-lg border px-4 py-3 text-sm ${styles}`}>{children}</div>;
 }
+
+// Every piece is named by the problem it solves; the hook title comes second. Older pieces have no problem.
+export function PieceTitle({ problem, title }: { problem: string; title: string }) {
+  if (!problem) return <h2 className="text-xl font-bold tracking-tight">{title}</h2>;
+  return (
+    <>
+      <h2 className="text-xl font-bold tracking-tight">{problem}</h2>
+      <p className="text-sm font-semibold">
+        <span className="font-normal text-muted">Gancho: </span>
+        {title}
+      </p>
+    </>
+  );
+}

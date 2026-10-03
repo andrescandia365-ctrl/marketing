@@ -10,6 +10,14 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
 - **Tanda 3 (3 Oct 2026):** las 4 formas de voz por toma y por personaje (15): solo subtítulos, la dice Grok (prompt de video con la línea y su voz), voz generada (OpenAI, `OPENAI_API_KEY`) y grabada en la app o subida; aviso y ajuste de largo si la voz no entra; botón 🔊 para escuchar prompts y líneas (16); efecto de sonido por toma, música de la pieza que baja bajo la voz y cortes al ritmo (8). Pendiente: API para generar efectos de sonido.
 
+- **Historias reales (3 Oct 2026, idea 26):**
+  - **Problema primero:** cada tema del menú y cada historia llevan primero el problema que resuelven y abajo el gancho. Se ve en el menú, la historia, el storyboard, la producción, la lista de proyectos, `pieza.md` y los nombres de archivo.
+  - **"Cómo se trabaja hoy":** lista nueva en Editar serie. En IMAN arranca con lo que confirmaste: el pedido se arma mirando la góndola y el proveedor tiene horario de corte. Saqué de "El Malo" el cuaderno y el "stock que no coincide".
+  - **Check "¿Pasa así de verdad?":** marca en la historia y en el storyboard toda costumbre que no esté en la serie ni en el brief, y bloquea la aprobación.
+  - **Motor:** los objetos pueden hablar, pero la situación de fondo tiene que ser real; los ejemplos del playbook no se copian.
+  - **Kimi:** `KIMI_TEMPERATURE`, opcional; si el modelo no la acepta, la app la saca.
+  - Pendiente: cambiar el ejemplo de `PLAYBOOK.md` (con "ok") y sumar más costumbres reales a la serie.
+
 ## Decisiones tomadas (2 Oct 2026)
 1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma. **Personajes:** usar las voces de Grok (panel Audio: Ara, Eve, Leo, Rex, Sal…, más audios subidos o grabados); cada personaje tiene una voz asignada y el prompt de video la pide. Grok no deja descargar el audio solo, así que esa voz vive dentro del clip. **Narrador:** las 4 opciones, según la escena.
 2. **Escuchar en voz alta:** para escucharlos vos.
@@ -115,7 +123,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - El problema se elige de la serie: para IMAN, un paso del loop (abrir, vender, llega el pedido, vence, pedir antes del corte, cerrar la caja, sincronizar, mirar los números). Así cada pieza dice qué parte del día arregla.
   - Se ve en el menú, arriba de la historia (cada ronda), en el storyboard, en `pieza.md` y en el nombre del proyecto.
   - **Kimi más quieto:** `temperature` baja, configurable, para que invente menos.
-- **Pendiente:** el "go", y que vos escribas o dictes "Cómo se trabaja hoy" (puedo arrancar con un borrador para que corrijas).
+- **Construido** (ver arriba). Falta que sumes más costumbres reales en "Cómo se trabaja hoy".
 
 ### 25. Un storyboard más lindo de ver
 - **Qué pasó:** el storyboard funciona pero se ve poco estético: mucho texto de prompt, pocas imágenes.

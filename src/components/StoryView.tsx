@@ -3,7 +3,7 @@ import type { Problem } from "../../shared/checks.ts";
 import type { Story } from "../../shared/schema.ts";
 import { LENGTHS, ROLE_LABEL, formatTime, spokenSeconds } from "../../shared/template.ts";
 import { ChecksPanel, LoopsMap } from "./Checks.tsx";
-import { BeatChip, Button, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
+import { BeatChip, Button, PieceTitle, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
 
 type Props = {
   story: Story;
@@ -35,7 +35,7 @@ export function StoryView({ story, round, length, busy, problems, dismissed, onR
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-mono text-xs text-muted">Ronda {round}</p>
-          <h2 className="text-xl font-bold tracking-tight">{story.title}</h2>
+          <PieceTitle problem={story.problem} title={story.title} />
           <p className="text-sm text-muted">{story.logline}</p>
         </div>
         <span

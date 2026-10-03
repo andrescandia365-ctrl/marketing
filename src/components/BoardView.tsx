@@ -3,7 +3,7 @@ import { actionWords, type Problem } from "../../shared/checks.ts";
 import type { Board, Story } from "../../shared/schema.ts";
 import { formatTime, timeShots, totalSeconds } from "../../shared/template.ts";
 import { ChecksPanel } from "./Checks.tsx";
-import { BeatChip, Button, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
+import { BeatChip, Button, PieceTitle, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
 
 type Props = {
   story: Story;
@@ -57,7 +57,7 @@ export function BoardView({ story, board, round, busy, problems, dismissed, onRe
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="font-mono text-xs text-muted">Storyboard · ronda {round}</p>
-          <h2 className="text-xl font-bold tracking-tight">{story.title}</h2>
+          <PieceTitle problem={story.problem} title={story.title} />
           <p className="text-sm text-muted">
             {board.shots.length} tomas · {formatTime(totalSeconds(board.shots))} · estilo: {board.style}
           </p>

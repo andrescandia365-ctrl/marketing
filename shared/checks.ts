@@ -1,6 +1,7 @@
 // The checks that gate each approval. The writer grades its own story and board; these turn that grading
 // into a list of problems. A problem blocks approval until it is fixed ("Arreglalo") or the person dismisses it.
 import type { Board, Story } from "./schema.ts";
+import { PRACTICES } from "./series.ts";
 
 export type Problem = {
   id: string;
@@ -40,12 +41,21 @@ export function storyProblems(story: Story): Problem[] {
         detail: `${c.claim}. No está en "Lo que existe hoy" y la historia lo muestra como real. ${c.note}`,
       });
   });
+  (story.practices ?? []).forEach((p, i) => {
+    if (!p.known)
+      problems.push({
+        id: `practica:${i}:${p.practice}`,
+        label: "¿Pasa así de verdad?",
+        detail: `${p.practice.replace(/\.+$/, "")}. No está en "${PRACTICES}" de la serie ni en las notas del brief. ${p.note}`,
+      });
+  });
   return problems;
 }
 
 const KIND_LABEL: Record<string, string> = {
   continuity: "Continuidad",
   reality: "No existe hoy",
+  practice: "¿Pasa así de verdad?",
   image: "Imagen con más de un momento",
   loop: "Loop abierto",
 };

@@ -10,7 +10,7 @@ type Props = {
   onWrite: (topics: TopicIdea[]) => void;
 };
 
-const BLANK: TopicIdea = { title: "", pain: "", bad: "", good: "", peg: "", why: "Tema propio." };
+const BLANK: TopicIdea = { problem: "", title: "", pain: "", bad: "", good: "", peg: "", why: "Tema propio." };
 
 // Step 1: the menu. Pick the topic (a short) or up to four in order (an episode); add your own if none fits.
 export function MenuPicker({ ideas, questions, max, busy, onWrite }: Props) {
@@ -26,7 +26,7 @@ export function MenuPicker({ ideas, questions, max, busy, onWrite }: Props) {
   }
 
   function addOwn() {
-    if (!draft.title.trim() || !draft.pain.trim()) return;
+    if (!draft.problem.trim() || !draft.pain.trim()) return;
     const idea = { ...draft };
     setOwn((o) => [...o, idea]);
     toggle(idea);
@@ -46,14 +46,25 @@ export function MenuPicker({ ideas, questions, max, busy, onWrite }: Props) {
           const selected = order >= 0;
           return (
             <button
-              key={idea.title + idea.pain}
+              key={idea.problem + idea.title + idea.pain}
               type="button"
               onClick={() => toggle(idea)}
               aria-pressed={selected}
               className={`rounded-xl border bg-white p-4 text-left transition ${selected ? "border-ink ring-2 ring-ink/15" : "border-line hover:border-ink"}`}
             >
               <div className="flex items-start justify-between gap-3">
-                <p className="text-base leading-snug font-bold">{idea.title}</p>
+                <div>
+                  {idea.problem && (
+                    <p className="text-xs font-semibold tracking-wide text-muted uppercase">Problema que resuelve</p>
+                  )}
+                  <p className="text-base leading-snug font-bold">{idea.problem || idea.title}</p>
+                  {idea.problem && idea.title && (
+                    <p className="mt-0.5 text-sm leading-snug">
+                      <span className="text-muted">Gancho: </span>
+                      {idea.title}
+                    </p>
+                  )}
+                </div>
                 <span
                   className={`grid size-6 shrink-0 place-items-center rounded-full text-xs font-bold ${selected ? "bg-ink text-white" : "border border-line text-muted"}`}
                 >
@@ -87,7 +98,15 @@ export function MenuPicker({ ideas, questions, max, busy, onWrite }: Props) {
       <details className="rounded-xl border border-line bg-white p-4">
         <summary className="cursor-pointer text-sm font-semibold">Agregar un tema propio</summary>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <Field label="Título (la tensión, no la respuesta)">
+          <Field label="El problema que resuelve">
+            <input
+              className={inputClass}
+              value={draft.problem}
+              placeholder="Ej.: Armar el pedido antes del corte del proveedor"
+              onChange={(e) => setDraft({ ...draft, problem: e.target.value })}
+            />
+          </Field>
+          <Field label="Gancho (opcional; si no, lo escribe la IA)">
             <input className={inputClass} value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
           </Field>
           <Field label="El dolor">
@@ -100,7 +119,7 @@ export function MenuPicker({ ideas, questions, max, busy, onWrite }: Props) {
             <input className={inputClass} value={draft.good} onChange={(e) => setDraft({ ...draft, good: e.target.value })} />
           </Field>
           <div className="md:col-span-2">
-            <Button variant="secondary" onClick={addOwn} disabled={!draft.title.trim() || !draft.pain.trim()}>
+            <Button variant="secondary" onClick={addOwn} disabled={!draft.problem.trim() || !draft.pain.trim()}>
               Agregar y elegir
             </Button>
           </div>
