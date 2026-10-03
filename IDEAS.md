@@ -97,20 +97,20 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
-### 26. Historias con los pies en la tierra (no tripeadas)
-- **Qué pasó:** la historia salió con un cuaderno que habla, y una góndola y un mostrador que "le llevan la contra". Se siente alucinada.
-- **Por qué pasa:** el motor (`server/engine.md`) pide eso: "el Malo es el dolor personificado: tiene voz, opiniones y excusas". Y la serie IMAN dice "el caos del local, personificado". Nada le pide que la escena pueda pasar de verdad.
+### 26. Historias que respeten cómo se trabaja de verdad
+- **Qué pasó:** la historia "El cuaderno dice 40. La góndola dice 3." parte de algo que nadie hace: nadie lleva en un cuaderno cuántos paquetes de yerba quedan. En un kiosco real, el dueño o el encargado **mira la góndola** y, según si hay 3, 4 o 20, arma el pedido o no. La historia en realidad era sobre **armar bien el pedido** antes del corte del proveedor, y el título no lo dice. Que los objetos hablen está bien; lo que falla es la **práctica inventada**.
+- **De dónde salió:**
+  - El título está copiado casi igual del ejemplo del playbook: "Your system says 40 in stock. The shelf says 3." (`PLAYBOOK.md` y `server/playbook.md`, movida "Contradiction"). El escritor tomó el ejemplo como si fuera un dato del negocio.
+  - La serie IMAN, en "El Malo", lista "el cuaderno de papel" y "el stock que no coincide con la góndola" (eso lo escribí yo, no vos).
+  - La app le pide al título que "plantee la tensión, no la respuesta", y por eso sale críptico.
 - **Arreglo propuesto:**
-  - **Nivel de realidad**, por serie y cambiable en el brief:
-    - **Realista:** solo personas y cosas que pasan de verdad; los objetos no hablan.
-    - **Con un toque:** como mucho un recurso de humor (un objeto que habla o un corresponsal) y la escena vuelve enseguida a lo real.
-    - **Absurdo:** como hoy.
-  - Para IMAN, Realista por defecto.
-  - **Cambiar el motor:** el Malo es el dolor que se ve en personas y cosas reales (el cuaderno tachado, la góndola vacía, el proveedor que ya cortó), no un personaje que habla, salvo que el nivel lo permita.
-  - **"Situaciones reales" en la serie:** una lista de cosas que pasan de verdad en un kiosco, contadas por vos. El menú de temas sale de ahí, y el escritor tiene que partir de una.
-  - **Check de realidad:** por cada toma, "¿esto puede pasar mañana en un kiosco real?". Lo que no pasa bloquea la aprobación, con "Arreglalo" o "No es un problema".
-  - **Kimi más quieto:** mandar `temperature` baja (configurable) para que invente menos.
-- **Pendiente:** el "go".
+  - **"Cómo se trabaja hoy" en la serie:** una sección nueva en "Editar serie", escrita por vos, con cómo se hace cada cosa hoy sin IMAN. Por ejemplo, "el pedido se arma mirando la góndola" o "el proveedor pasa a tal hora o se le escribe por WhatsApp". El escritor solo puede usar como dolor lo que esté ahí o lo que le cuentes en el brief; no puede inventar una costumbre.
+  - **Revisar "El Malo" de IMAN con vos:** sacar el cuaderno y el "stock que no coincide", y poner los dolores reales que vos confirmes.
+  - **Los ejemplos del playbook no son datos:** decirle al escritor que los ejemplos del playbook muestran la forma, no hechos del negocio, y que nunca copie sus números ni sus frases. Cambiar ese ejemplo en `PLAYBOOK.md` necesita tu "ok".
+  - **Check "¿Pasa así de verdad?":** el escritor marca toda costumbre, horario o herramienta que no esté en la serie o en el brief. Eso bloquea la aprobación, con "Arreglalo" o "No es un problema".
+  - **Que se vea de qué trata:** arriba de cada ronda, primero **de qué trata en palabras simples** ("Armar bien el pedido antes de que corte el proveedor"), con el tema elegido en el menú, y después el título-gancho. El título-gancho tiene que entenderse sin contexto.
+  - **Kimi más quieto:** `temperature` baja, configurable, para que invente menos.
+- **Pendiente:** el "go", y que vos escribas o dictes "Cómo se trabaja hoy" (puedo arrancar con un borrador para que corrijas).
 
 ### 25. Un storyboard más lindo de ver
 - **Qué pasó:** el storyboard funciona pero se ve poco estético: mucho texto de prompt, pocas imágenes.
