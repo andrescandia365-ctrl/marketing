@@ -419,4 +419,6 @@ export type Status = {
   voice: { available: boolean; defaultVoice: string };
   // Lyric videos: automatic sync needs the transcription API (same OpenAI key).
   lyrics: { autoSync: boolean };
+  // The final render of explainers (render.mjs) needs ffmpeg on this computer.
+  render: { ffmpeg: boolean };
 };

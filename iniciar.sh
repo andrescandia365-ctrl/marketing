@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Arranca Playbook Studio: revisa Node, crea .env, pregunta qué IA escribe (y su clave) si falta, instala y abre la app.
+# Arranca Playbook Studio: revisa Node, crea .env, pregunta qué IA escribe (y su clave) si falta, instala, ofrece
+# instalar ffmpeg (render final de los explicativos) y abre la app.
 # Uso: bash iniciar.sh            (bash iniciar.sh --ia para cambiar de IA)
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -102,7 +103,21 @@ if [ ! -d node_modules ] || [ package.json -nt node_modules ] || { [ -f package-
   touch node_modules
 fi
 
-# 5. Arrancar.
+# 5. ffmpeg, para el render final de los explicativos (H.264, CRF 16). Sin él, todo lo demás anda igual.
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  echo
+  echo "No encontré ffmpeg. Hace falta solo para el render final de los explicativos."
+  if command -v brew >/dev/null 2>&1; then
+    read -rp "¿Lo instalo con Homebrew? [s/N]: " yes
+    if [ "$yes" = "s" ] || [ "$yes" = "S" ]; then
+      brew install ffmpeg
+    fi
+  else
+    echo "Instalalo con: brew install ffmpeg (Mac) o sudo apt install ffmpeg (Linux)."
+  fi
+fi
+
+# 6. Arrancar.
 echo
 echo "Abrí http://localhost:5173 en Chrome. Para cortar: Ctrl+C."
 echo

@@ -2,6 +2,7 @@
 // pure function of time; this file holds the shapes, the normalizer and the timing both sides share, including the
 // rule that something new happens on screen every 2 to 4 seconds.
 import { z } from "zod";
+import type { QualityState } from "./motionQuality.ts";
 
 export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "callouts", "steps", "beforeAfter", "product", "stat", "logo"] as const;
 export type MotionTemplate = (typeof MOTION_TEMPLATES)[number];
@@ -291,6 +292,8 @@ export type MotionPiece = {
   layers: number;
   // Scene changes snap onto the beat grid (on by default); off, the timeline keeps the exact seconds.
   snap: boolean;
+  // The last quality loop (the AI's scores before any full render), or none yet.
+  quality?: QualityState;
 };
 
 export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {

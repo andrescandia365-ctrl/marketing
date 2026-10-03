@@ -22,6 +22,7 @@ import {
   motionScript,
   proposeMenu,
   productShot,
+  reviewMotion,
   referenceSheet,
   reviewPicture,
   segmentEdit,
@@ -35,7 +36,8 @@ import {
 import { KimiError } from "./kimi.ts";
 import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
 import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, LyricStyleSchema, alignLyrics, cleanIdeas } from "../shared/lyrics.ts";
-import { DEMO_BOARD, DEMO_MENU, DEMO_STORY, demoMotion } from "./demo.ts";
+import { DEMO_BOARD, DEMO_MENU, DEMO_STORY, demoMotion, demoMotionReview } from "./demo.ts";
+import { RenderError, ffmpegAvailable, getFinal, startFinal } from "./finalRender.ts";
 import { getProvider, listProviders } from "./images/index.ts";
 import { CastMemberSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
 import {
@@ -75,7 +77,7 @@ const app = new Hono();
 
 app.onError((error, c) => {
   if (error instanceof WriterError || error instanceof KimiError) return c.json({ error: error.message }, 502);
-  if (error instanceof SeriesError || error instanceof ProjectError) return c.json({ error: error.message }, 400);
+  if (error instanceof SeriesError || error instanceof ProjectError || error instanceof RenderError) return c.json({ error: error.message }, 400);
   if (error instanceof VoiceError || error instanceof LyricsError) return c.json({ error: error.message }, 502);
   if (error instanceof z.ZodError) return c.json({ error: "Al pedido le faltaban datos." }, 400);
   console.error(error);
@@ -116,6 +118,7 @@ app.get("/api/status", (c) => {
     projectsDir: PROJECTS_DIR,
     voice: { available: voiceAvailable(), defaultVoice: DEFAULT_VOICE },
     lyrics: { autoSync: autoSyncAvailable() },
+    render: { ffmpeg: ffmpegAvailable() },
   });
 });
 
@@ -343,6 +346,37 @@ app.post("/api/review", async (c) => {
     });
   }
   return c.json({ ...(await reviewPicture(brief, shot, setups, picture, refs)), demo: false });
+});
+
+// The motion quality loop: the reviewer scores the contact sheet(s) against the app's measurements.
+app.post("/api/motion/review", async (c) => {
+  const { brief, scenes, facts, sheets, round, earlier } = z
+    .object({
+      brief: BriefSchema,
+      scenes: z.string().max(40_000),
+      facts: z.string().max(10_000),
+      sheets: z.array(z.object({ format: z.enum(["vertical", "horizontal"]), jpeg: Jpeg })).min(1).max(2),
+      round: z.number().int().min(1).max(10),
+      earlier: z.string().max(10_000).default(""),
+    })
+    .parse(await c.req.json());
+  if (demo()) return c.json({ review: demoMotionReview(round), demo: true });
+  return c.json({ review: await reviewMotion(brief, scenes, facts, sheets, round, earlier), demo: false });
+});
+
+// The final render with ffmpeg (render.mjs), and its progress.
+app.post("/api/projects/:id/final", async (c) => {
+  const id = c.req.param("id");
+  const { formats, origin } = z
+    .object({ formats: z.array(z.enum(["vertical", "horizontal"])).min(1).max(2), origin: z.string().max(100) })
+    .parse(await c.req.json());
+  await getProject(id);
+  return c.json({ job: startFinal(id, [...new Set(formats)], origin) });
+});
+
+app.get("/api/final/:job", (c) => {
+  const job = getFinal(c.req.param("job"));
+  return job ? c.json({ job }) : c.json({ error: "Ese render ya no existe." }, 404);
 });
 
 // Lyric videos. Automatic sync: the song (multipart "audio") is transcribed with word times and matched to the

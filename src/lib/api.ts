@@ -14,6 +14,7 @@ import type {
   TopicIdea,
 } from "../../shared/schema.ts";
 import type { MotionScript } from "../../shared/motion.ts";
+import type { MotionReview } from "../../shared/motionQuality.ts";
 import type { BackgroundPrompts, LyricLanguage, LyricLine, LyricStyle } from "../../shared/lyrics.ts";
 import type { CastMember, SeriesFields, TextStyle } from "../../shared/series.ts";
 
@@ -26,6 +27,8 @@ export type ProjectSummary = {
   shots: number;
   hasVideo: boolean;
 };
+// The final render (render.mjs + ffmpeg) as the server reports it.
+export type FinalJob = { id: string; project: string; formats: string[]; current: string; progress: number; done: boolean; error: string; files: string[] };
 export type MediaFileRecord = { file: string; name: string; duration: number };
 export type MediaRecord = { image?: string; clip?: MediaFileRecord; voice?: MediaFileRecord; sfx?: MediaFileRecord };
 export type MediaKind = "image" | "clip" | "voice" | "sfx";
@@ -125,6 +128,17 @@ export const api = {
     }
     return res.blob();
   },
+  motionReview: (
+    brief: Brief,
+    scenes: string,
+    facts: string,
+    sheets: { format: "vertical" | "horizontal"; jpeg: string }[],
+    round: number,
+    earlier: string,
+  ) => call<{ review: MotionReview } & Demo>("/api/motion/review", { brief, scenes, facts, sheets, round, earlier }),
+  startFinal: (id: string, formats: ("vertical" | "horizontal")[], origin: string) =>
+    call<{ job: FinalJob }>(`/api/projects/${enc(id)}/final`, { formats, origin }),
+  finalJob: (job: string) => call<{ job: FinalJob }>(`/api/final/${enc(job)}`),
   uploadLogo: (seriesId: string, image: Blob) =>
     upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/logo`, image, image.type),
   saveLyricStyle: (id: string, lyricStyle: LyricStyle) =>

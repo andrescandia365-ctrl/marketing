@@ -56,8 +56,6 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Sonido:** voz, música sintetizada o propia, golpes en los beats y −14 LUFS (verificado con ffmpeg).
   - **Check "algo nuevo cada 2–4 s"**, que bloquea el render.
   - **Videos de letra:** capas de Grok con parallax; la entrada por defecto pasa de "fundido" a "sube".
-  - **Pendiente:**
-    - C: el loop de calidad con la IA y el render con ffmpeg (H.264 yuv420p, CRF 16).
 
 - **Motion graphics, parte B (3 Oct 2026, idea 31): línea de tiempo.**
   - **Escenas en fila:** el largo se cambia arrastrando el borde.
@@ -67,6 +65,15 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **El lugar se guarda por formato** (9:16 y 16:9); el momento en que entra es el mismo en los dos.
   - **Deshacer** (Ctrl+Z), "Volver a como estaba" por elemento o por escena, y "Cortes en los beats" que se puede apagar.
   - **El check de 2–4 s y los golpes de sonido** siguen los tiempos movidos a mano.
+
+- **Motion graphics, parte C (3 Oct 2026, idea 31): control de calidad y render final.**
+  - **Hoja de contactos:** un cuadro por beat (hasta 28), más los primeros 2 s cada medio segundo, con el segundo y la escena.
+  - **La app mide sola:** cortes y entradas sobre los beats, tramos quietos, cuándo se lee el gancho, voces que no entran y elementos fuera del cuadro.
+  - **La IA puntúa del 1 al 10** gancho, lectura en el celular, movimiento, variedad, marca y sincronía.
+  - **Arregla los 3 peores** como cambios en el guion, sin tocar la voz, y repite hasta 8 o más: 3 rondas como máximo, o antes si no queda nada para cambiar.
+  - **Corre solo antes de generar.** Si queda algo bajo 8: arreglarlo o "Generar igual". Los arreglos se deshacen.
+  - **Render final con `node render.mjs`:** Chrome sin ventana, `window.seek(t)` por cuadro, PNG sin pérdida a ffmpeg (H.264 yuv420p, CRF 16, bt709, AAC). Desde la app o a mano.
+  - **Elegido por defecto** (no hubo respuesta a las preguntas): 3 rondas, Google Fonts, y `iniciar.sh` busca ffmpeg y ofrece instalarlo con Homebrew.
 
 ## Decisiones tomadas (2 Oct 2026)
 1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma. **Personajes:** usar las voces de Grok (panel Audio: Ara, Eve, Leo, Rex, Sal…, más audios subidos o grabados); cada personaje tiene una voz asignada y el prompt de video la pide. Grok no deja descargar el audio solo, así que esa voz vive dentro del clip. **Narrador:** las 4 opciones, según la escena.
@@ -205,11 +212,11 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cómo lo dividiría (cada parte con su "go"):**
   - **A:** kit de marca, motor de motion, plantillas, el formato "Explicativo" en el brief (duración a mano o automática), voz, música sintetizada, −14 LUFS y el check de "algo nuevo cada 2–4 s". Videos de letra con el mismo motor y las capas de Grok.
   - **B:** línea de tiempo para mover cada elemento a mano. **Construido.**
-  - **C:** loop de calidad (hoja de contactos y notas de la IA) y render final con ffmpeg (H.264, CRF 16).
-- **Preguntas que quedan:**
-  - ¿Tenés ffmpeg en la compu, o lo instalo desde `iniciar.sh`?
-  - ¿Cuántas rondas como máximo en el loop de calidad (sugiero 3)?
-  - ¿Fuentes de marca: elegís de Google Fonts o tenés archivos propios?
+  - **C:** loop de calidad (hoja de contactos y notas de la IA) y render final con ffmpeg (H.264, CRF 16). **Construido.**
+- **Preguntas que quedaban** (sin respuesta; se construyó con lo sugerido, se puede cambiar):
+  - ffmpeg: `iniciar.sh` lo busca y ofrece instalarlo con Homebrew.
+  - Rondas del loop de calidad: 3 como máximo.
+  - Fuentes de marca: Google Fonts. Si tenés archivos propios, se pueden sumar.
 
 ### 30. Varias claves de IA y un selector de modelo
 - **Idea (tuya):** sumar más claves de IA (también la de Anthropic) y una sección en la app para elegir el modelo.

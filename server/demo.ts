@@ -1,5 +1,6 @@
 // Sample answers used when no Claude key is set, so every step can be tried. They are written for one
 // IMAN short and do not change with what the person types; revisions in sample mode return them unchanged.
+import type { MotionReview } from "../shared/motionQuality.ts";
 import { normalizeMotion, type MotionScript } from "../shared/motion.ts";
 import type { Board, Brief, Menu, Story } from "../shared/schema.ts";
 import { getSeries } from "./series.ts";
@@ -307,4 +308,43 @@ export function demoMotion(brief: Brief, target: number | null): MotionScript {
     music: { mood: "drive", bpm: 112 },
     note: "Guion de muestra. Los datos marcados [VERIFY] hay que confirmarlos.",
   });
+}
+
+// Sample review: the first round finds the hook title small and makes it bigger; later rounds pass. It never looks
+// at the frames.
+export function demoMotionReview(round: number): MotionReview {
+  const note = "Revisión de muestra: sin clave de IA, no miró los cuadros.";
+  const score = (n: number) => ({ score: n, note });
+  return {
+    scores: {
+      hook: score(round === 1 ? 7 : 8),
+      readability: score(8),
+      motion: score(8),
+      variety: score(9),
+      brand: score(9),
+      sync: score(8),
+    },
+    fixes:
+      round === 1
+        ? [
+            {
+              criterion: "hook",
+              problem: "El título del gancho se lee chico en el primer segundo.",
+              scene: 1,
+              title: "",
+              text: "",
+              items: [],
+              seconds: 0,
+              template: "",
+              element: "title",
+              at: -1,
+              scale: 1.12,
+              dx: 0,
+              dy: 0,
+              format: "both",
+            },
+          ]
+        : [],
+    summary: note,
+  };
 }

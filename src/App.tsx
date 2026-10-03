@@ -933,6 +933,7 @@ export function App() {
             voiceAvailable={status?.voice.available ?? false}
             defaultVoice={status?.voice.defaultVoice ?? ""}
             projectsDir={status?.projectsDir ?? "proyectos"}
+            ffmpeg={status?.render?.ffmpeg ?? false}
             onSaveStatus={setSaveStatus}
           />
         )}

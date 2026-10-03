@@ -198,7 +198,10 @@ export function saveState(id: string, state: Record<string, unknown>, markdown: 
 }
 
 const SLOT_NAME: Record<MediaKind, string> = { image: "imagen", clip: "clip", voice: "voz", sfx: "efecto" };
-const slot = (index: number, kind: MediaKind) => `toma-${String(index + 1).padStart(2, "0")}-${SLOT_NAME[kind]}`;
+// Explainers keep their last contact sheets (quality loop) in slots 300 (9:16) and 301 (16:9).
+const SHEETS: Record<number, string> = { 300: "hoja-de-contactos-9x16", 301: "hoja-de-contactos-16x9" };
+const slot = (index: number, kind: MediaKind) =>
+  (kind === "image" && SHEETS[index]) || `toma-${String(index + 1).padStart(2, "0")}-${SLOT_NAME[kind]}`;
 
 export function saveMedia(
   id: string,

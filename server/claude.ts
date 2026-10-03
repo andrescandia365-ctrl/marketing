@@ -28,6 +28,7 @@ import {
 } from "../shared/schema.ts";
 import { EMPTY_BRIEF } from "../shared/example.ts";
 import { MotionScriptSchema, normalizeMotion, type MotionScript } from "../shared/motion.ts";
+import { MotionReviewSchema, normalizeReview, type MotionReview } from "../shared/motionQuality.ts";
 import { BackgroundPromptsSchema, LyricIdeasSchema, SecondLinesSchema, type BackgroundPrompts, type LyricIdeas } from "../shared/lyrics.ts";
 import { LENGTHS } from "../shared/template.ts";
 import { CAST, PRACTICES, WORKS_TODAY } from "../shared/series.ts";
@@ -524,6 +525,46 @@ The studio's rules:
 - The last scene is the logo with a soft call to action.
 - music: a mood (calm, drive or bright) and a tempo for the synthesized score.`,
       MotionScriptSchema,
+    ),
+  );
+}
+
+// The quality loop: the reviewer looks at the contact sheet(s) and the app's measurements, scores six things from 1
+// to 10 and turns the three worst problems into edits of the script.
+export async function reviewMotion(
+  brief: Brief,
+  scenes: string,
+  facts: string,
+  sheets: { format: "vertical" | "horizontal"; jpeg: string }[],
+  round: number,
+  earlier: string,
+): Promise<MotionReview> {
+  const series = getSeries(brief.series);
+  return normalizeReview(
+    await ask(
+      brief,
+      false,
+      `You are the motion studio's strict reviewer. ${sheets.length > 1 ? "The contact sheets above show" : "The contact sheet above shows"} one frame per beat of a motion-graphics explainer (the second and scene under each frame), at phone-thumbnail size. This is review round ${round}.
+
+The script as it plays:
+${scenes}
+
+What the app measured (trust these over your eyes for timing and sound):
+${facts}
+${earlier ? `\nEarlier rounds, already applied:\n${earlier}\n` : ""}
+The brand ("Marca" line of the series): ${JSON.stringify(series?.brand ?? {})}. Templates: hook, screen, zoom, callouts, steps, beforeAfter, product, stat, logo.
+
+Score each from 1 to 10, strictly (8 = ready to publish):
+- hook: within the first 2 seconds the problem is named and something moves; no slow start.
+- readability: every word reads at phone size (big enough, enough contrast, nothing cut off, not too many words at once).
+- motion: purposeful, eased movement; no stock defaults (centred title on a gradient, everything fading in, corner labels or frame borders, glow on UI chrome, particle bursts).
+- variety: the scenes do not repeat the same layout and move; something new every 2 to 4 seconds.
+- brand: the brand's colours with one accent, its fonts, its logo at the end; nothing off-brand.
+- sync: cuts and entrances land on the beats; voices fit their scenes.
+
+Then fix the three worst problems (only scores under 8), worst first, each as one edit of one scene with the fields given. Fix with the script: shorter words, a bigger element (scale), an earlier or on-beat entrance (at), a scene shorter or longer, another template for variety, a move away from the edge. Never invent a feature, a number or a price; only what the series lists as working today may be shown as real. Never change what the voice says. Leave fixes empty when every score is 8 or more.`,
+      MotionReviewSchema,
+      sheets.map((s) => ({ label: `Contact sheet, ${s.format === "vertical" ? "9:16" : "16:9"}:`, jpeg: s.jpeg })),
     ),
   );
 }

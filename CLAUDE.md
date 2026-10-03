@@ -68,6 +68,12 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   The timeline (`MotionTimeline`) edits each scene's `tweaks` by element key (`sceneElements`): `at` (when it enters,
   both formats) and `v`/`h` (dx, dy in units of the short side, scale) per format; `revealTimes`, the gap check and
   the sound all read the tweaked times. The preview's hit test uses the boxes `drawMotionFrame` reports to its probe.
+  Quality loop (`shared/motionQuality.ts`, `src/lib/motionQuality.ts`, `/api/motion/review`): before any render, a
+  contact sheet (one frame per beat) plus measured facts go to the writer, which scores six criteria 1-10 and returns
+  up to 3 fixes as script edits (`applyFixes`; never the voice text); repeats to 8+ or 3 rounds. The final render is
+  `render.mjs`: headless Chrome opens `/?render=<project>&format=` (`RenderPage`, `window.seek(t)`), PNG frames go to
+  ffmpeg (H.264 yuv420p CRF 16, bt709, AAC); the server runs it for the app (`server/finalRender.ts`, localhost only).
+  `src/lib/motionProject.ts` holds what the studio and the render page share, so both draw and mix the same.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
   a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Voices
   and sound effects are per-shot project media; one music track per piece ducks under speech and can pull the

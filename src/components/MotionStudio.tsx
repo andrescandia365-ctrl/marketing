@@ -15,7 +15,6 @@ import {
   quietGaps,
   revealTimes,
   sceneElements,
-  snapScenes,
   timeScenes,
   tweakScene,
   type MotionPiece,
@@ -23,15 +22,33 @@ import {
   type MotionScript,
 } from "../../shared/motion.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
-import { api, libraryFileUrl, projectFileUrl, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
+import { applyFixes, describeScenes, MAX_ROUNDS, passes, qualityKey, type QualityRound, type QualityState } from "../../shared/motionQuality.ts";
+import { api, projectFileUrl, type FinalJob, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
 import { encodeFrames } from "../lib/encode.ts";
 import { ensureFont } from "../lib/fonts.ts";
 import { download, slug } from "../lib/markdown.ts";
-import { beatGrid, drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
-import { buildSound, onGrid, toWav, TARGET_LUFS, type SoundPlan } from "../lib/motionAudio.ts";
-import { findBeats, type RenderResult } from "../lib/render.ts";
+import { drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
+import { toWav, TARGET_LUFS } from "../lib/motionAudio.ts";
+import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
+import {
+  LAYER_BASE,
+  SHEET_BASE,
+  VOICE_BASE,
+  arrangeScenes,
+  decodeAudio,
+  layerAssets,
+  loadImage,
+  loadPieceMedia,
+  loadSeriesImages,
+  makeWorld,
+  motionBeats,
+  motionSound,
+  usesAiImages,
+} from "../lib/motionProject.ts";
+import type { RenderResult } from "../lib/render.ts";
 import { Recorder, audioDuration, type AudioFile } from "./Audio.tsx";
 import { Inspector, MotionTimeline, type Selection } from "./MotionTimeline.tsx";
+import { QualityPanel } from "./QualityPanel.tsx";
 import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
 
 export type MotionOpen = { piece: MotionPiece; media: Record<string, MediaRecord>; music: MediaFileRecord | null };
@@ -44,28 +61,13 @@ type Props = {
   voiceAvailable: boolean;
   defaultVoice: string;
   projectsDir: string;
+  // The final render (render.mjs) needs ffmpeg on this computer.
+  ffmpeg: boolean;
   onSaveStatus: (status: "saving" | "saved" | "error") => void;
 };
 
-const VOICE_BASE = 100;
-const LAYER_BASE = 200;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const smallInput = inputClass.replace("w-full", "");
-
-function loadImage(src: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
-}
-
-const asAsset = (img: HTMLImageElement, name: string): MotionAsset => ({ image: img, width: img.naturalWidth, height: img.naturalHeight, name });
-
-function decode(blob: Blob): Promise<AudioBuffer> {
-  return blob.arrayBuffer().then((b) => new OfflineAudioContext(2, 1, 48000).decodeAudioData(b));
-}
 
 function pieceMarkdown(piece: MotionPiece, scenes: MotionScene[]): string {
   const s = piece.script;
@@ -83,7 +85,7 @@ ${timeScenes(scenes)
 `;
 }
 
-export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, onSaveStatus }: Props) {
+export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, onSaveStatus }: Props) {
   const [piece, setPiece] = useState<MotionPiece>(() =>
     initial ? { ...newMotionPiece(brief.format), ...initial.piece } : newMotionPiece(brief.format),
   );
@@ -92,7 +94,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [track, setTrack] = useState<{ file: AudioFile; buffer: AudioBuffer } | null>(null);
   const [castImages, setCastImages] = useState<Record<string, MotionAsset>>({});
   const [logo, setLogo] = useState<MotionAsset | null>(null);
-  const [busy, setBusy] = useState<null | "write" | "sound" | "render" | "voice" | "upload">(null);
+  const [busy, setBusy] = useState<null | "write" | "sound" | "render" | "voice" | "upload" | "review" | "final">(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [soundUrl, setSoundUrl] = useState<string | null>(null);
@@ -116,6 +118,9 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const past = useRef<MotionScript[]>([]);
   const lastMark = useRef({ tag: "", at: 0 });
   const [undoCount, setUndoCount] = useState(0);
+  const [reviewing, setReviewing] = useState("");
+  const [sheets, setSheets] = useState<{ format: string; url: string }[]>([]);
+  const [finalJob, setFinalJob] = useState<FinalJob | null>(null);
   const brand = series.brand;
   const script = piece.script;
   const scriptRef = useRef(script);
@@ -178,68 +183,47 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   }, [brand.displayFont, brand.uiFont]);
   useEffect(() => {
     let alive = true;
-    Promise.all(
-      series.cast
-        .filter((m) => m.image)
-        .map(async (m) => [m.id, await loadImage(libraryFileUrl(series.id, m.image))] as const),
-    ).then((list) => {
+    loadSeriesImages(series).then(({ cast, logo }) => {
       if (!alive) return;
-      setCastImages(Object.fromEntries(list.filter(([, img]) => img).map(([id, img]) => [id, asAsset(img!, id)])));
+      setCastImages(cast);
+      setLogo(logo);
     });
-    if (brand.logo) loadImage(libraryFileUrl(series.id, brand.logo)).then((img) => alive && setLogo(img ? asAsset(img, "logo") : null));
     return () => {
       alive = false;
     };
-  }, [series, brand.logo]);
+  }, [series]);
 
   // A saved piece brings back its voices, layers and track.
   useEffect(() => {
     if (!projectId || !initial) return;
-    for (const [sceneId, slot] of Object.entries(initial.piece.voiceSlots ?? {})) {
-      const rec = initial.media[VOICE_BASE + slot]?.voice;
-      if (!rec) continue;
-      fetch(projectFileUrl(projectId, rec.file))
-        .then((r) => r.blob())
-        .then((blob) => setVoices((v) => ({ ...v, [sceneId]: { url: objectUrl(blob), blob, name: rec.name, duration: rec.duration } })))
-        .catch(() => undefined);
-    }
-    Promise.all(
-      Array.from({ length: initial.piece.layers ?? 0 }, (_, k) => {
-        const file = initial.media[LAYER_BASE + k]?.image;
-        return file ? loadImage(projectFileUrl(projectId, file)) : Promise.resolve(null);
-      }),
-    ).then((imgs) => setLayers(imgs.filter((x): x is HTMLImageElement => Boolean(x))));
-    if (initial.music) {
-      const m = initial.music;
-      fetch(projectFileUrl(projectId, m.file))
-        .then((r) => r.blob())
-        .then(async (blob) => setTrack({ file: { url: objectUrl(blob), blob, name: m.name, duration: m.duration }, buffer: await decode(blob) }))
-        .catch(() => undefined);
-    }
+    loadPieceMedia(projectId, { ...newMotionPiece(brief.format), ...initial.piece }, initial.media, initial.music)
+      .then((loaded) => {
+        setVoices(Object.fromEntries(Object.entries(loaded.voices).map(([id, v]) => [id, { ...v, url: objectUrl(v.blob) }])));
+        setLayers(loaded.layers);
+        if (loaded.track) setTrack({ file: { url: objectUrl(loaded.track.blob), blob: loaded.track.blob, name: loaded.track.name, duration: loaded.track.duration }, buffer: loaded.track.buffer });
+      })
+      .catch(() => undefined);
     // Only when the piece is opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // The beat grid: the synthesized score's, or the track's measured beats. Scene changes snap onto it.
   const duration = scriptDuration(script);
-  const beats = useMemo(() => {
-    if (!script) return [];
-    if (piece.music === "track" && track) return findBeats(track.buffer);
-    if (piece.music === "none") return [];
-    return beatGrid(duration + 2, script.music.bpm);
-  }, [script, piece.music, track, duration]);
+  const beats = useMemo(
+    () => motionBeats(script, piece.music, track?.buffer ?? null),
+    // The grid changes with the length and the tempo, not with every edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [script?.music.bpm, piece.music, track, duration, Boolean(script)],
+  );
   const snap = piece.snap !== false;
-  const scenes = useMemo(() => (script ? (snap ? snapScenes(script.scenes, beats) : script.scenes) : []), [script, beats, snap]);
+  const scenes = useMemo(() => arrangeScenes(script, beats, snap), [script, beats, snap]);
   const snapped: MotionScript | null = script ? { ...script, scenes } : null;
   const total = scenes.reduce((n, s) => n + s.seconds, 0);
 
-  const assets: Record<string, MotionAsset> = useMemo(
-    () => ({ ...castImages, ...Object.fromEntries(layers.map((img, k) => [`layer:${k}`, asAsset(img, `layer:${k}`)])) }),
-    [castImages, layers],
-  );
-  const usesAi = scenes.some((s) => [s.asset, s.assetB].some((a) => a.startsWith("layer:") || series.cast.find((m) => m.id === a && m.kind !== "screen")));
+  const assets: Record<string, MotionAsset> = useMemo(() => ({ ...castImages, ...layerAssets(layers) }), [castImages, layers]);
+  const usesAi = usesAiImages(scenes, series);
   const world: MotionWorld = useMemo(
-    () => ({ brand, assets, logo, beats, seed: 20261003, disclosure: piece.disclosure && usesAi ? "Algunas imágenes están hechas con IA" : "" }),
+    () => makeWorld(brand, assets, logo, beats, piece.disclosure && usesAi),
     [brand, assets, logo, beats, piece.disclosure, usesAi],
   );
 
@@ -247,13 +231,15 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const key = (g: { from: number; to: number }) => `${g.from.toFixed(1)}-${g.to.toFixed(1)}`;
   const openGaps = gaps.filter((g) => !piece.dismissed.includes(key(g)));
 
+  const savedState = (p: MotionPiece) => ({ version: 1, kind: "motion", step: "motion", pieceBrief: brief, motion: p });
+
   // Autosave.
   useEffect(() => {
     if (!projectId) return;
     onSaveStatus("saving");
     const timer = setTimeout(() => {
       api
-        .saveProject(projectId, { version: 1, kind: "motion", step: "motion", pieceBrief: brief, motion: piece }, pieceMarkdown(piece, scenes))
+        .saveProject(projectId, savedState(piece), pieceMarkdown(piece, scenes))
         .then(() => onSaveStatus("saved"))
         .catch((e) => {
           onSaveStatus("error");
@@ -468,7 +454,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
 
   async function addTrack(file: File) {
     await work("upload", async () => {
-      const buffer = await decode(file);
+      const buffer = await decodeAudio(file);
       const duration = buffer.duration;
       setTrack({ file: { url: objectUrl(file), blob: file, name: file.name, duration }, buffer });
       set({ music: "track" });
@@ -476,40 +462,10 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     });
   }
 
-  // The plan of the sound: voices at their scenes, whooshes on the cuts and pops on new elements, on the grid.
-  function soundPlan(): { plan: Omit<SoundPlan, "voices">; voiceBlobs: { at: number; blob: Blob }[] } | null {
-    if (!snapped) return null;
-    const timed = timeScenes(snapped.scenes);
-    const hits: SoundPlan["hits"] = [];
-    for (const s of timed) {
-      if (s.index > 0) hits.push({ at: s.start, kind: "whoosh" });
-      revealTimes(s)
-        .filter((r) => r > 0.05 && r < s.seconds && ["callouts", "steps", "product", "logo"].includes(s.template))
-        .forEach((r) => hits.push({ at: onGrid(s.start + r, beats), kind: "pop" }));
-    }
-    const voiceBlobs =
-      piece.voice === "none"
-        ? []
-        : timed.flatMap((s) => (voices[s.id] ? [{ at: s.start + (elementTimes(s).voice ?? 0.25), blob: voices[s.id].blob }] : []));
-    return {
-      plan: {
-        duration: total,
-        music: piece.music === "track" && !track ? "none" : piece.music,
-        mood: snapped.music.mood,
-        bpm: snapped.music.bpm,
-        track: track?.buffer ?? null,
-        hits,
-      },
-      voiceBlobs,
-    };
-  }
-
-  async function makeSound(): Promise<AudioBuffer | null> {
-    const made = soundPlan();
-    if (!made) return null;
-    const voicesDecoded = await Promise.all(made.voiceBlobs.map(async (v) => ({ at: v.at, buffer: await decode(v.blob) })));
-    const { buffer, lufs } = await buildSound({ ...made.plan, voices: voicesDecoded });
-    setSoundInfo(`Sonido: ${Number.isFinite(lufs) ? `${lufs.toFixed(1)} LUFS (objetivo ${TARGET_LUFS})` : "sin sonido"} · ${beats.length ? `${beats.length} beats en la grilla` : "sin grilla"}.`);
+  async function makeSound(played = snapped, grid = beats): Promise<AudioBuffer | null> {
+    if (!played) return null;
+    const { buffer, lufs } = await motionSound(played, piece, grid, voices, track?.buffer ?? null);
+    setSoundInfo(`Sonido: ${Number.isFinite(lufs) ? `${lufs.toFixed(1)} LUFS (objetivo ${TARGET_LUFS})` : "sin sonido"} · ${grid.length ? `${grid.length} beats en la grilla` : "sin grilla"}.`);
     return buffer;
   }
 
@@ -533,23 +489,151 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     audio.play().catch(() => undefined);
   }
 
+  // ── Quality loop (the studio's rule: no full render before it) ──────────────────────────────────────────────
+  const qualityExtra = JSON.stringify([brand, piece.disclosure, piece.music, track?.file.name ?? "", Object.keys(voices).sort()]);
+  const keyNow = script ? qualityKey(scenes, script, qualityExtra) : "";
+  const quality = piece.quality ?? null;
+  const reviewed = (formats: SheetFormat[]) => Boolean(quality && quality.key === keyNow && formats.every((f) => quality.formats.includes(f)));
+  const reviewOk = (formats: SheetFormat[]) => reviewed(formats) && Boolean(quality!.passed || quality!.accepted);
+
+  // Runs the rounds; returns the script as it ended (with the fixes) and the result, or null on an error.
+  async function runQuality(formats: SheetFormat[]): Promise<{ script: MotionScript; quality: QualityState } | null> {
+    if (!script) return null;
+    setError("");
+    const rounds: QualityRound[] = [];
+    let working = script;
+    let passed = false;
+    const earlier: string[] = [];
+    let lastSheets: { format: SheetFormat; blob: Blob | null }[] = [];
+    const voiceLengths = Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.duration]));
+    const music = piece.music === "synth" ? `synthesized, ${script.music.mood}, ${script.music.bpm} bpm` : piece.music === "track" && track ? "the person's own track" : "none";
+    try {
+      await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
+      for (let round = 1; round <= MAX_ROUNDS; round++) {
+        setReviewing(`Ronda ${round} de ${MAX_ROUNDS}: armando la hoja de contactos…`);
+        const roundBeats = motionBeats(working, piece.music, track?.buffer ?? null);
+        const roundScenes = arrangeScenes(working, roundBeats, snap);
+        const played = { ...working, scenes: roundScenes };
+        const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series));
+        const made = formats.map((format) => ({ format, ...contactSheet(played, roundWorld, format) }));
+        const blobs = await Promise.all(made.map((m) => new Promise<Blob | null>((done) => m.canvas.toBlob(done, "image/jpeg", 0.85))));
+        setSheets(made.map((m, k) => ({ format: m.format, url: blobs[k] ? objectUrl(blobs[k]!) : "" })));
+        lastSheets = made.map((m, k) => ({ format: m.format, blob: blobs[k] }));
+        const facts = measureFacts(played, roundBeats, music, voiceLengths, made.flatMap((m) => m.outside));
+        setReviewing(`Ronda ${round} de ${MAX_ROUNDS}: la IA mira los cuadros…`);
+        const { review, demo } = await api.motionReview(
+          brief,
+          describeScenes(roundScenes),
+          facts,
+          made.map((m) => ({ format: m.format, jpeg: sheetJpeg(m.canvas) })),
+          round,
+          earlier.join("\n"),
+        );
+        passed = passes(review.scores);
+        let applied: string[] = [];
+        if (!passed && round < MAX_ROUNDS) {
+          const fixed = applyFixes(working, review.fixes, formats);
+          applied = fixed.applied;
+          if (applied.length) {
+            remember(`quality-${Date.now()}`);
+            working = fixed.script;
+            const next = working;
+            setPiece((p) => ({ ...p, script: next }));
+          }
+        }
+        const pending = !passed && !applied.length ? review.fixes.map((f) => `Escena ${Math.round(f.scene)}: ${f.problem}`) : [];
+        rounds.push({ round, scores: review.scores, summary: review.summary, applied, pending, demo });
+        earlier.push(...applied);
+        // Nothing left to change: another round would see the same thing.
+        if (passed || !applied.length) break;
+      }
+      // The last contact sheets stay in the project's folder.
+      if (projectId) {
+        for (const { format, blob } of lastSheets) {
+          if (blob) await api.uploadMedia(projectId, SHEET_BASE + (format === "vertical" ? 0 : 1), "image", blob).catch(() => undefined);
+        }
+      }
+    } catch (e) {
+      setError(message(e));
+      setReviewing("");
+      return null;
+    }
+    const finalBeats = motionBeats(working, piece.music, track?.buffer ?? null);
+    const state: QualityState = {
+      key: qualityKey(arrangeScenes(working, finalBeats, snap), working, qualityExtra),
+      formats,
+      passed,
+      accepted: false,
+      rounds,
+    };
+    setPiece((p) => ({ ...p, quality: state }));
+    setReviewing("");
+    return { script: working, quality: state };
+  }
+
+  // Before any full render: the loop, unless this exact piece already passed it (or the person chose to go ahead).
+  // Returns the script to render (the loop may have fixed it), or null when it should not render.
+  async function ensureReviewed(formats: SheetFormat[]): Promise<{ script: MotionScript; quality: QualityState | null } | null> {
+    if (!script) return null;
+    if (reviewOk(formats)) return { script, quality };
+    if (reviewed(formats)) {
+      // Already reviewed as it is, with scores left under 8: the panel says what; no new round until it changes.
+      setError("La revisión de calidad dejó notas por debajo de 8. Arreglalo (o tocá Otra vuelta), o elegí Generar igual.");
+      return null;
+    }
+    const result = await runQuality(formats);
+    return result && result.quality.passed ? result : null;
+  }
+
+  // The scenes, beats and world for a script that may be newer than this render's state.
+  function playable(next: MotionScript) {
+    const b = motionBeats(next, piece.music, track?.buffer ?? null);
+    const sc = arrangeScenes(next, b, snap);
+    return { played: { ...next, scenes: sc }, beats: b, world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series)) };
+  }
+
+  async function finalRender(formats: SheetFormat[]) {
+    if (!projectId) return;
+    const ok = await ensureReviewed(formats);
+    if (!ok) return;
+    setError("");
+    try {
+      // The render reads the saved project: save it as it is now first.
+      const saving = { ...piece, script: ok.script, quality: ok.quality ?? piece.quality };
+      await api.saveProject(projectId, savedState(saving), pieceMarkdown(saving, playable(ok.script).played.scenes));
+      const { job } = await api.startFinal(projectId, formats, location.origin);
+      setFinalJob(job);
+      let current = job;
+      while (!current.done) {
+        await new Promise((r) => setTimeout(r, 1000));
+        current = (await api.finalJob(job.id)).job;
+        setFinalJob(current);
+      }
+      if (current.error) setError(`El render final falló: ${current.error}`);
+    } catch (e) {
+      setError(message(e));
+    }
+  }
+
   async function render(formats: ("vertical" | "horizontal")[]) {
-    if (!snapped) return;
+    const ok = await ensureReviewed(formats);
+    if (!ok) return;
+    const { played, beats: playedBeats, world: playedWorld } = playable(ok.script);
     setError("");
     setBusy("render");
     setResults([]);
     setProgress(0);
     try {
       await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
-      const sound = await makeSound();
+      const sound = await makeSound(played, playedBeats);
       for (const [n, format] of formats.entries()) {
         const [w, h] = format === "vertical" ? [1080, 1920] : [1920, 1080];
         const out = await encodeFrames({
           width: w,
           height: h,
-          duration: total,
+          duration: scriptDuration(played),
           audio: sound,
-          draw: (ctx, t) => drawMotionFrame(ctx, w, h, t, snapped, world),
+          draw: (ctx, t) => drawMotionFrame(ctx, w, h, t, played, playedWorld),
           onProgress: (f) => setProgress((n + f) / formats.length),
         });
         let saved = "";
@@ -821,8 +905,21 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                 ]}
               />
             </Field>
+            <QualityPanel
+              quality={quality}
+              current={Boolean(quality && quality.key === keyNow)}
+              running={reviewing}
+              sheets={sheets}
+              disabled={busy !== null || Boolean(reviewing)}
+              onRun={async () => {
+                setBusy("review");
+                await runQuality(quality?.key === keyNow && quality.formats.length > 1 ? quality.formats : [piece.format]);
+                setBusy(null);
+              }}
+              onAccept={() => quality && set({ quality: { ...quality, accepted: true } })}
+            />
             <div className="flex gap-2">
-              <Button className="flex-1" onClick={() => render([piece.format])} disabled={busy !== null || openGaps.length > 0}>
+              <Button className="flex-1" onClick={() => render([piece.format])} disabled={busy !== null || Boolean(reviewing) || openGaps.length > 0}>
                 {busy === "render" ? (
                   <>
                     <Spinner /> Generando…
@@ -831,10 +928,74 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                   `Generar ${vertical ? "9:16" : "16:9"}`
                 )}
               </Button>
-              <Button variant="secondary" className="flex-1" onClick={() => render(["vertical", "horizontal"])} disabled={busy !== null || openGaps.length > 0}>
+              <Button variant="secondary" className="flex-1" onClick={() => render(["vertical", "horizontal"])} disabled={busy !== null || Boolean(reviewing) || openGaps.length > 0}>
                 Los dos formatos
               </Button>
             </div>
+            <p className="text-xs text-muted">Generar arma el video en el navegador. El render final lo hace ffmpeg en tu compu: H.264, CRF 16, la mejor calidad.</p>
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                className="flex-1"
+                onClick={async () => {
+                  setBusy("final");
+                  await finalRender([piece.format]);
+                  setBusy(null);
+                }}
+                disabled={!ffmpeg || !projectId || busy !== null || Boolean(reviewing) || openGaps.length > 0}
+              >
+                {busy === "final" ? (
+                  <>
+                    <Spinner /> Render final…
+                  </>
+                ) : (
+                  `Render final ${vertical ? "9:16" : "16:9"}`
+                )}
+              </Button>
+              <Button
+                variant="secondary"
+                className="flex-1"
+                onClick={async () => {
+                  setBusy("final");
+                  await finalRender(["vertical", "horizontal"]);
+                  setBusy(null);
+                }}
+                disabled={!ffmpeg || !projectId || busy !== null || Boolean(reviewing) || openGaps.length > 0}
+              >
+                Render final de los dos
+              </Button>
+            </div>
+            {!ffmpeg && <p className="text-xs text-neg">Para el render final hace falta ffmpeg. En la Mac: <code>brew install ffmpeg</code>, o volvé a correr <code>bash iniciar.sh</code>.</p>}
+            {finalJob && (
+              <div className="space-y-2 rounded-xl border border-line bg-white p-3 text-xs">
+                {!finalJob.done ? (
+                  <>
+                    <p>
+                      Render final ({finalJob.current === "vertical" ? "9:16" : "16:9"}): {Math.round(finalJob.progress * 100)}%. Cada cuadro sale de <code>seek(t)</code> y va sin pérdida a ffmpeg.
+                    </p>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-paper">
+                      <div className="h-full bg-good transition-all" style={{ width: `${finalJob.progress * 100}%` }} />
+                    </div>
+                  </>
+                ) : finalJob.error ? (
+                  <p className="text-neg">El render final no terminó.</p>
+                ) : (
+                  finalJob.files.map((file) => (
+                    <div key={file} className="space-y-1">
+                      <video
+                        src={`${projectFileUrl(finalJob.project, file)}?v=${finalJob.id}`}
+                        controls
+                        playsInline
+                        className={`mx-auto w-full rounded-lg bg-black ${file.includes("vertical") ? "max-h-[70vh] w-auto" : ""}`}
+                      />
+                      <p className="text-good">
+                        Render final (H.264, CRF 16): {projectsDir}/{finalJob.project}/{file}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
             {progress !== null && (
               <div className="h-1.5 overflow-hidden rounded-full bg-paper">
                 <div className="h-full bg-good transition-all" style={{ width: `${progress * 100}%` }} />

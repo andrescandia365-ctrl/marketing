@@ -55,7 +55,18 @@ En el brief, **Pieza → Explicativo (motion graphics)** y **Empezar un explicat
   - En la vista previa tocás un elemento y lo arrastrás a donde va, o lo movés con las flechas (con Mayús, más rápido). Abajo ajustás el tamaño y los números exactos, y la app avisa si algo se sale del cuadro.
   - El lugar se guarda por formato (el 9:16 y el 16:9 tienen el suyo). El momento en que entra es el mismo en los dos.
   - **Deshacer** (o Ctrl+Z) vuelve atrás, y **Volver a como estaba** devuelve un elemento o toda la escena a la plantilla. **Cortes en los beats** se puede apagar para usar los segundos exactos.
-- **Video:** vista previa con sonido, 9:16, 16:9 o los dos. Sale en H.264 si el navegador lo tiene.
+- **Control de calidad (IA)** antes de cualquier video:
+  - La app arma una **hoja de contactos** con un cuadro por beat, más los primeros 2 s cada medio segundo, con el segundo y la escena abajo.
+  - También mide sola los cortes y entradas sobre los beats, los tramos quietos, cuándo se lee el gancho, las voces que no entran y lo que se sale del cuadro.
+  - La IA pone notas del 1 al 10 a seis cosas: gancho en los primeros 2 s, lectura en el celular, calidad del movimiento, variedad, fidelidad a la marca y sincronía con el sonido.
+  - Arregla los 3 peores problemas como cambios en el guion (palabras, tamaño, cuándo entra algo, largo o plantilla), sin tocar lo que dice la voz. Repite hasta que todo esté en 8 o más, con 3 rondas como máximo.
+  - Corre solo al tocar Generar, o a mano con **Revisar ahora**. Los arreglos se deshacen con Deshacer. Si cambiás la pieza, se revisa de nuevo.
+  - Si después de 3 rondas queda algo bajo 8, la app lo dice y podés arreglarlo o elegir **Generar igual**. La última hoja de contactos queda en la carpeta del proyecto.
+- **Video:**
+  - Vista previa con sonido. **Generar** arma el video en el navegador (H.264 si el navegador lo tiene), en 9:16, 16:9 o los dos.
+  - **Render final:** `node render.mjs` abre la pieza en Chrome sin ventana, pinta cada cuadro con `seek(t)` y se los pasa sin pérdida a ffmpeg: H.264, yuv420p, CRF 16, sonido AAC a −14 LUFS.
+  - Sale como `video-final-vertical.mp4` / `video-final-horizontal.mp4` en la carpeta del proyecto. Se hace desde la app (**Render final**) o a mano, con la app andando: `node render.mjs <proyecto> [vertical|horizontal|ambos]`.
+  - Necesita ffmpeg (`bash iniciar.sh` ofrece instalarlo con Homebrew) y Google Chrome (otro navegador: `CHROME_PATH` en `.env`).
 
 ### Series de música: videos de letra
 
