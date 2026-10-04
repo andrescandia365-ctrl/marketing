@@ -17,8 +17,9 @@ import type {
 } from "../../shared/schema.ts";
 import type { MotionScript } from "../../shared/motion.ts";
 import type { MotionReview } from "../../shared/motionQuality.ts";
-import type { BackgroundPrompts, LyricLanguage, LyricLine, LyricStyle } from "../../shared/lyrics.ts";
-import type { CastMember, SeriesFields, TextStyle } from "../../shared/series.ts";
+import type { BackgroundPrompts, LyricElement, LyricLanguage, LyricLine, LyricStyle, SecondLanguage } from "../../shared/lyrics.ts";
+import type { SyncDoc } from "../../shared/clock.ts";
+import type { Brand, CastMember, SeriesFields, TextStyle } from "../../shared/series.ts";
 
 export type ProjectSummary = {
   id: string;
@@ -92,12 +93,14 @@ export const api = {
 
   upsertCast: (seriesId: string, member: CastMember) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(member.id)}`, member, "PUT"),
-  uploadPuppetLayer: (seriesId: string, castId: string, index: number, image: Blob, role: string) =>
+  uploadPuppetLayer: (seriesId: string, castId: string, index: number, image: Blob, role: string, name = "") =>
     upload<{ member: CastMember; series: SeriesInfo[] }>(
-      `/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}?role=${enc(role)}`,
+      `/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}?role=${enc(role)}&name=${enc(name)}`,
       image,
       image.type,
     ),
+  replacePuppet: (seriesId: string, castId: string, layers: { role: string; name: string; png: string }[]) =>
+    call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PUT"),
   removePuppetLayer: (seriesId: string, castId: string, index: number) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}`, undefined, "DELETE"),
   uploadCastImage: (seriesId: string, castId: string, image: Blob) =>
@@ -163,6 +166,38 @@ export const api = {
   saveLyricStyle: (id: string, lyricStyle: LyricStyle) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${enc(id)}/lyric-style`, { lyricStyle }, "PUT"),
   // Automatic sync: the song is transcribed with word times and matched to the lines.
+  readClock: async (id: string) => {
+    const res = await fetch(`/api/projects/${enc(id)}/sync`);
+    if (res.status === 404) return null;
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    return data as { sync: SyncDoc; qa: string };
+  },
+  buildClock: async (
+    id: string,
+    input: { lyrics: string; moves: string; language: LyricLanguage; master: Blob | null; drums: Blob | null; vocals: Blob | null },
+  ) => {
+    const form = new FormData();
+    form.append("lyrics", input.lyrics);
+    form.append("moves", input.moves);
+    form.append("language", input.language);
+    form.append("fps", "24");
+    if (input.master) form.append("master", input.master, "master.wav");
+    if (input.drums) form.append("drums", input.drums, "drums.wav");
+    if (input.vocals) form.append("vocals", input.vocals, "vocals.wav");
+    const res = await fetch(`/api/projects/${enc(id)}/sync`, { method: "POST", body: form });
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    return data as { sync: SyncDoc; qa: string };
+  },
+  critiqueClock: (id: string, brand: Brand) =>
+    call<{
+      score: number;
+      passed: boolean;
+      worst: { t: number; problem: string; fix: string }[];
+      applied: SyncDoc;
+      qa: string;
+    }>(`/api/projects/${enc(id)}/sync/critique`, { brand }),
   syncLyrics: async (song: Blob, name: string, lines: string[], seconds: string[], language: LyricLanguage) => {
     const form = new FormData();
     form.append("audio", song, name);
@@ -179,8 +214,15 @@ export const api = {
       "/api/lyrics/ideas",
       { series, title, artist, lines },
     ),
-  secondLines: (series: string, lines: string[], mode: "romanize" | "translate", target = "Español") =>
-    call<{ lines: string[]; note: string } & Demo>("/api/lyrics/second", { series, lines, mode, target }),
+  secondLines: (series: string, lines: string[], mode: "romanize" | "translate", language: SecondLanguage = "es", other = "") =>
+    call<{ lines: string[]; note: string } & Demo>("/api/lyrics/second", { series, lines, mode, language, other }),
+  lyricElements: (series: string, title: string, artist: string, lines: string[]) =>
+    call<{ elements: Omit<LyricElement, "id" | "slot">[]; note: string } & Demo>("/api/lyrics/elements", {
+      series,
+      title,
+      artist,
+      lines,
+    }),
   lyricBackgrounds: (
     series: string,
     tool: string,

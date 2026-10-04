@@ -26,7 +26,8 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   the browser autosaves into it. Each series has a type (software / e-commerce) and a fixed cast (characters,
   places, products, real screens) stored as JSON in its Markdown; approved images live in `biblioteca/<series>/`.
   `voice.ts` makes "Voz generada" with OpenAI's speech API (same `OPENAI_API_KEY`). `lyrics.ts` transcribes a
-  song with word times (OpenAI, whisper-1) for lyric videos.
+  song with word times (OpenAI, whisper-1) for lyric videos. `sync.ts` (with `shared/clock.ts`) writes the lyric
+  clock into `proyectos/<id>/sync/`: kick grid from the drums stem, word times from the vocal stem.
 - `src/` — React 19 + Tailwind v4 UI, all copy in Spanish (Rioplatense). `MenuPicker`, `StoryView`, `BoardView`
   and `ScriptView` are the steps. `lib/render.ts` plays each shot's uploaded clip (or still, or colour card), mixes
   the clips' sound, draws the speaker and line on top and encodes with WebCodecs via mediabunny; its `drawShot` also
@@ -53,11 +54,26 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   from the cast, never drawn by AI). `editFrom`/`editPrompt` reuse an earlier shot's image. Old saved boards go
   through `migrateBoard()`.
 - Series of type music make lyric videos instead of stories (`LyricStudio`): song + lyrics in any language
-  (Spanish, Guaraní, Japanese, Korean, romanized) with an optional second line (romanization or translation),
-  translated by the writer into any language the person picks (`TRANSLATE_TARGETS` or typed; section headers like
-  "Chorus (X):" are skipped by `splitLyrics`), synced automatically (`alignLyrics` matches the transcription letter by letter) or by tapping, drawn by
-  `lib/lyricRender.ts` on an organic background or the piece's own photo/video. The person confirms the song's
+  (Spanish, Guaraní, Japanese, Korean, romanized) with an optional second line (romanization, or a translation
+  into Spanish, Guaraní, English, Portuguese, Japanese, Korean, French, Italian or a language the person types;
+  `piece.secondLanguage`/`secondOther`; section headers like "Chorus (X):" are skipped by `splitLyrics`), synced
+  automatically (`alignLyrics` matches the transcription letter by letter) or by tapping, drawn by `lib/lyricRender.ts`
+  on an organic background or the piece's own photo/video. After sync, the Elementos tab times up to six graphics to a
+  line (an app-drawn motif, or a pasted PNG, JPG or SVG rasterized with scripts removed, drawn whole). The person confirms the song's
   rights before rendering; the credit and the "Fondo hecho con IA" notice are on by default.
+  The Reloj tab is the timing contract on top of that renderer (`ClockPanel`, `POST /api/projects/:id/sync`).
+- Lyric and motion timing has two clocks and no third (`shared/clock.ts`, `shared/syncDraw.ts`). Cuts, clicks and
+  body accents sit on the kick, measured on the drums stem only (low-pass ~150 Hz, hat onsets dropped). If Demucs
+  and a drums stem are both missing, the clock stops: it never reads peaks off the master. Lyrics sit on the word,
+  aligned on the vocal stem (WhisperX, stable-ts, or whisper-1 on that stem), and are never snapped to the beat.
+  A missing vocal time stays missing. Dance is written onto the kick, not extracted from audio or a pose detector.
+  Every frame of the mute preview is a pure function of t (`drawSyncFrame`: no timers, no Math.random, no state
+  between frames). Colour and type come from the series brand. Banned default: centred text, a gradient, a fade-in,
+  an end logo. A big cut lands on a downbeat. An accent lands on a kick. Before a shot is accepted, critique
+  (`POST .../sync/critique`, or `npx tsx server/clock-cli.ts critique --project ID`) renders a contact sheet
+  (start, middle, end, and 12 frames on the hit), names the worst problems and applies one pass. A failed pass
+  is not "nothing to fix". It is not done while the lyric gate is short of N/N or a hit sits outside one frame.
+  `findBeats` on the master stays the story-cut helper only.
 - Realism: a series can have a `look` (camera, flash, grain, focus, light, flaws) that goes into every prompt; prompts
   ask for flaws, never "cinematic" (`polishWords` warns). Cast members can carry a reference `sheet` (character girl/boy,
   always invented adults, or a six-panel place) written by `/api/sheet`. With `brief.takes = "continuous"` each shot is
@@ -103,5 +119,7 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
 ## Commands
 - `npm run dev` — API on 8787 + Vite on 5173 (proxied `/api`).
 - `npm run typecheck`, `npm run build`, `npm start`.
+- `npx tsx server/clock-check.ts` — lyric clock harness (kick grid, lyric gate, frames 100 and 400).
+- `npx tsx server/clock-cli.ts sync|critique --project ID` — write or critique `proyectos/<id>/sync/`.
 
 @PLAYBOOK.md

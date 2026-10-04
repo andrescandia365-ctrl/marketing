@@ -16,7 +16,7 @@ import {
   getFirstEncodableAudioCodec,
   getFirstEncodableVideoCodec,
 } from "mediabunny";
-import { LYRIC_FONT_FAMILY, type LyricPiece } from "../../shared/lyrics.ts";
+import { LYRIC_FONT_FAMILY, elementWindow, type LyricElement, type LyricMotif, type LyricPiece } from "../../shared/lyrics.ts";
 import { drawLayers, type MotionAsset } from "./motion.ts";
 import { findBeats, type RenderResult } from "./render.ts";
 
@@ -26,6 +26,8 @@ const ENTER = 0.35;
 const EXIT = 0.3;
 
 export type Backdrop = { source: CanvasImageSource; width: number; height: number } | null;
+// A pasted picture for one element slot. Drawn whole (contain), so a watermark stays in frame.
+export type ElementGlyph = { source: CanvasImageSource; width: number; height: number };
 
 export function videoSize(format: LyricPiece["format"]): [number, number] {
   return format === "vertical" ? [1080, 1920] : [1920, 1080];
@@ -132,6 +134,141 @@ function wrap(
   return rows;
 }
 
+// How a graphic moves across its own window. Pure function of t.
+function elementPose(motion: LyricElement["motion"], t: number, start: number, end: number): { alpha: number; scale: number; dy: number } {
+  const dur = Math.max(0.4, end - start);
+  const u = clamp((t - start) / dur);
+  const edge = Math.min(clamp(u / 0.18), clamp((1 - u) / 0.18));
+  if (motion === "enter") {
+    const p = easeOut(clamp(u / 0.3));
+    return { alpha: edge, scale: 0.62 + 0.38 * p, dy: (1 - p) * 0.35 };
+  }
+  if (motion === "pulse") return { alpha: edge, scale: 1 + 0.07 * Math.sin(t * 6.2), dy: 0 };
+  if (motion === "leave") {
+    const p = easeOut(clamp((u - 0.5) / 0.5));
+    return { alpha: edge, scale: 1, dy: -p * 0.45 };
+  }
+  return { alpha: edge, scale: 1, dy: 0 };
+}
+
+function traceMotif(ctx: CanvasRenderingContext2D, motif: LyricMotif, s: number) {
+  ctx.beginPath();
+  if (motif === "circle") {
+    ctx.arc(0, 0, s * 0.34, 0, Math.PI * 2);
+    return;
+  }
+  if (motif === "ring") {
+    ctx.arc(0, 0, s * 0.34, 0, Math.PI * 2);
+    return;
+  }
+  if (motif === "star") {
+    for (let i = 0; i < 10; i++) {
+      const rad = i % 2 === 0 ? s * 0.4 : s * 0.17;
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      const x = Math.cos(a) * rad;
+      const y = Math.sin(a) * rad;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    return;
+  }
+  if (motif === "heart") {
+    ctx.moveTo(0, s * 0.28);
+    ctx.bezierCurveTo(-s * 0.46, -s * 0.22, -s * 0.22, -s * 0.42, 0, -s * 0.12);
+    ctx.bezierCurveTo(s * 0.22, -s * 0.42, s * 0.46, -s * 0.22, 0, s * 0.28);
+    return;
+  }
+  if (motif === "note") {
+    ctx.ellipse(-s * 0.08, s * 0.14, s * 0.2, s * 0.15, -0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.rect(s * 0.08, -s * 0.36, s * 0.07, s * 0.52);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(s * 0.15, -s * 0.36);
+    ctx.quadraticCurveTo(s * 0.46, -s * 0.22, s * 0.34, 0);
+    ctx.lineTo(s * 0.15, -s * 0.08);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+function drawOneElement(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  t: number,
+  piece: LyricPiece,
+  element: LyricElement,
+  stack: number,
+  glyph: ElementGlyph | undefined,
+) {
+  const win = elementWindow(element, piece.lines);
+  if (!win || t < win.start || t >= win.end) return;
+  const pose = elementPose(element.motion, t, win.start, win.end);
+  if (pose.alpha <= 0.01) return;
+  const unit = Math.min(w, h);
+  const box = unit * (element.motif === "word" ? 0.22 : 0.2);
+  const anchor = {
+    top: [w * 0.5, h * 0.16],
+    left: [w * 0.2, h * 0.3],
+    right: [w * 0.8, h * 0.3],
+  }[element.place];
+  const x = anchor[0];
+  const y = anchor[1] + stack * box * 1.15 + pose.dy * box;
+  const family = LYRIC_FONT_FAMILY[piece.style.font];
+  const label = element.label.replace(/\s+/g, " ").trim().slice(0, 22);
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(pose.scale, pose.scale);
+  ctx.globalAlpha = pose.alpha;
+  ctx.shadowColor = "rgba(0,0,0,0.45)";
+  ctx.shadowBlur = unit * 0.012;
+  ctx.fillStyle = piece.style.highlightColor;
+  ctx.strokeStyle = piece.style.highlightColor;
+  ctx.lineWidth = Math.max(2, unit * 0.006);
+  if (glyph && glyph.width > 0 && glyph.height > 0) {
+    const fit = Math.min(box / glyph.width, box / glyph.height);
+    const dw = glyph.width * fit;
+    const dh = glyph.height * fit;
+    ctx.shadowBlur = 0;
+    ctx.drawImage(glyph.source, -dw / 2, -dh / 2, dw, dh);
+  } else if (element.motif !== "word") {
+    traceMotif(ctx, element.motif, box);
+    if (element.motif === "ring") ctx.stroke();
+    else if (element.motif !== "note") ctx.fill();
+  }
+  if (label && (element.motif === "word" || !glyph)) {
+    const size = unit * (element.motif === "word" ? 0.055 : 0.03);
+    ctx.font = `600 ${size}px ${family}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = element.motif === "word" ? piece.style.highlightColor : piece.style.textColor;
+    ctx.fillText(label, 0, element.motif === "word" ? 0 : box * 0.52);
+  }
+  ctx.restore();
+}
+
+function drawElements(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  t: number,
+  piece: LyricPiece,
+  glyphs: Record<number, ElementGlyph>,
+) {
+  const stacks: Record<string, number> = {};
+  for (const element of piece.elements ?? []) {
+    const win = elementWindow(element, piece.lines);
+    if (!win || t < win.start || t >= win.end) continue;
+    const n = stacks[element.place] ?? 0;
+    stacks[element.place] = n + 1;
+    drawOneElement(ctx, w, h, t, piece, element, n, element.slot ? glyphs[element.slot] : undefined);
+  }
+}
+
 export function drawLyricFrame(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -141,6 +278,7 @@ export function drawLyricFrame(
   bg: Backdrop,
   beats: number[],
   layers: MotionAsset[] = [],
+  glyphs: Record<number, ElementGlyph> = {},
 ) {
   const style = piece.style;
   if (style.background === "layers" && layers.length) {
@@ -151,6 +289,8 @@ export function drawLyricFrame(
     ctx.fillRect(0, 0, w, h);
   } else if (style.background === "media" && bg) drawBackdrop(ctx, w, h, bg, piece.fullFrame);
   else drawOrganic(ctx, w, h, t, piece, beats);
+
+  drawElements(ctx, w, h, t, piece, glyphs);
 
   const unit = Math.min(w, h);
   const family = LYRIC_FONT_FAMILY[style.font];
@@ -253,7 +393,7 @@ export function drawLyricFrame(
 // Loads the piece's fonts, with the glyphs its lyrics need (Japanese and Korean fonts come in slices).
 export async function loadLyricFonts(piece: LyricPiece) {
   const sample = piece.lines.map((l) => `${l.text} ${l.second}`).join(" ").slice(0, 4000) || "Aa";
-  const families = ["IBM Plex Sans", "Fraunces", "Bebas Neue", "Noto Sans JP", "Noto Sans KR"];
+  const families = ["IBM Plex Sans", "Fraunces", "Bebas Neue", "Noto Sans", "Noto Sans JP", "Noto Sans KR"];
   await Promise.all(
     families.flatMap((f) => ["400", "600"].map((weight) => document.fonts?.load(`${weight} 48px "${f}"`, sample).catch(() => []))),
   );
@@ -293,7 +433,7 @@ function cutSong(buffer: AudioBuffer, from: number, to: number): AudioBuffer {
 
 export async function renderLyricVideo(
   song: Blob,
-  background: { image?: HTMLImageElement; clips?: Blob[]; layers?: HTMLImageElement[] },
+  background: { image?: HTMLImageElement; clips?: Blob[]; layers?: HTMLImageElement[]; elements?: Record<number, HTMLImageElement> },
   piece: LyricPiece,
   onProgress: (fraction: number) => void,
 ): Promise<RenderResult> {
@@ -337,6 +477,10 @@ export async function renderLyricVideo(
 
   const useMedia = piece.style.background === "media";
   const layerAssets: MotionAsset[] = (background.layers ?? []).map((img, k) => ({ image: img, width: img.naturalWidth, height: img.naturalHeight, name: `layer:${k}` }));
+  const glyphs: Record<number, ElementGlyph> = {};
+  for (const [slot, img] of Object.entries(background.elements ?? {})) {
+    if (img.naturalWidth) glyphs[Number(slot)] = { source: img, width: img.naturalWidth, height: img.naturalHeight };
+  }
   let still: Backdrop = null;
   if (useMedia && background.image) {
     still = { source: background.image, width: background.image.naturalWidth, height: background.image.naturalHeight };
@@ -378,7 +522,7 @@ export async function renderLyricVideo(
         const next = await readers[order[f]].next();
         if (!next.done && next.value) bg = { source: next.value.canvas, width: w, height: h };
       }
-      drawLyricFrame(ctx, w, h, t, piece, bg, beats, layerAssets);
+      drawLyricFrame(ctx, w, h, t, piece, bg, beats, layerAssets, glyphs);
       await video.add(f / FPS, 1 / FPS);
       if (f % 15 === 0) onProgress(0.03 + 0.97 * (f / frames));
     }

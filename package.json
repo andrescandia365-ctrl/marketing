@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
-    "dev:api": "tsx watch --env-file-if-exists=.env server/index.ts",
+    "dev:api": "tsx watch --exclude \"**/biblioteca/**\" --exclude \"**/proyectos/**\" --exclude \"**/server/series/**\" --env-file-if-exists=.env server/index.ts",
     "dev:web": "vite",
     "build": "tsc -p tsconfig.json && vite build",
     "start": "NODE_ENV=production tsx --env-file-if-exists=.env server/index.ts",

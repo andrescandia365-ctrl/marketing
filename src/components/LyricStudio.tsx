@@ -2,29 +2,37 @@
 // live preview and the final video. Autosaves into the project folder like a story piece.
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  LYRIC_ELEMENT_SLOT,
+  LYRIC_ELEMENT_SLOTS,
   LYRIC_FONT_LABEL,
   LYRIC_FONTS,
   LYRIC_LANGUAGE_LABEL,
   LYRIC_LANGUAGES,
+  SECOND_LANGUAGES,
+  SECOND_LANGUAGE_LABEL,
   markKeywords,
   newLyricPiece,
   parseLrc,
   retimeLine,
-  TRANSLATE_TARGETS,
   sectionHeaders,
   splitLyrics,
   tapLines,
   toLrc,
+  type LyricElement,
   type LyricLine,
   type LyricPiece,
   type BackgroundPrompts,
   type LyricStyle,
+  type SecondLanguage,
 } from "../../shared/lyrics.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { api, projectFileUrl, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
 import { blobToDataUrl } from "../lib/files.ts";
 import type { MotionAsset } from "../lib/motion.ts";
-import { decodeSong, drawLyricFrame, loadLyricFonts, renderLyricVideo, songBeats, type Backdrop } from "../lib/lyricRender.ts";
+import { decodeSong, drawLyricFrame, loadLyricFonts, renderLyricVideo, songBeats, type Backdrop, type ElementGlyph } from "../lib/lyricRender.ts";
+import { rasterSvg } from "../lib/svgSanitize.ts";
+import { ClockPanel } from "./ClockPanel.tsx";
+import { LyricElements } from "./LyricElements.tsx";
 import { download, slug } from "../lib/markdown.ts";
 import { CopyButton } from "./ScriptView.tsx";
 import type { RenderResult } from "../lib/render.ts";
@@ -48,7 +56,7 @@ type Props = {
   onSeries: (series: SeriesInfo[]) => void;
 };
 
-type Tab = "song" | "sync" | "video";
+type Tab = "song" | "sync" | "clock" | "elements" | "video";
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 // inputClass without its full width, for the small time fields.
 const smallInput = inputClass.replace("w-full", "");
@@ -59,7 +67,7 @@ function pieceMarkdown(piece: LyricPiece): string {
 
 Video de letra · ${LYRIC_LANGUAGE_LABEL[piece.language]} · ${piece.format === "vertical" ? "vertical 9:16" : "horizontal 16:9"}
 
-## Letra sincronizada (.lrc)
+${piece.elements.length ? `## Elementos\n\n${piece.elements.map((e) => `- verso ${e.line + 1} · ${e.label} · ${e.seconds}s`).join("\n")}\n\n` : ""}## Letra sincronizada (.lrc)
 
 \`\`\`
 ${toLrc(piece)}
@@ -68,22 +76,22 @@ ${toLrc(piece)}
 }
 
 export function LyricStudio({ projectId, brief, series, initial, autoSync, projectsDir, onSaveStatus, onSeries }: Props) {
-  const [piece, setPiece] = useState<LyricPiece>(() =>
-    initial ? { ...newLyricPiece(series.lyricStyle, brief.format), ...initial.piece } : newLyricPiece(series.lyricStyle, brief.format),
-  );
+  const [piece, setPiece] = useState<LyricPiece>(() => {
+    const base = initial ? { ...newLyricPiece(series.lyricStyle, brief.format), ...initial.piece } : newLyricPiece(series.lyricStyle, brief.format);
+    const secondLanguage: SecondLanguage = (SECOND_LANGUAGES as readonly string[]).includes(base.secondLanguage) ? base.secondLanguage : "es";
+    return { ...base, elements: base.elements ?? [], secondLanguage, secondOther: base.secondOther ?? "" };
+  });
   const [tab, setTab] = useState<Tab>(initial?.piece.lines.length ? "video" : "song");
   const [song, setSong] = useState<AudioFile | null>(null);
   const [buffer, setBuffer] = useState<AudioBuffer | null>(null);
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
   // Grok's separated layers, back to front (project media slots 200 + n).
   const [layers, setLayers] = useState<HTMLImageElement[]>([]);
+  const [elementImages, setElementImages] = useState<Record<number, HTMLImageElement>>({});
   const [bgClips, setBgClips] = useState<BgClip[]>([]);
-  const [busy, setBusy] = useState<null | "sync" | "ideas" | "second" | "render" | "upload" | "style" | "prompts" | "lrc">(null);
+  const [busy, setBusy] = useState<null | "sync" | "ideas" | "second" | "elements" | "render" | "upload" | "style" | "prompts" | "lrc">(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
-  // The language "Traducir con IA" writes into; "otro" opens a field to type one.
-  const [target, setTarget] = useState<string>("Español");
-  const [otherTarget, setOtherTarget] = useState("");
   const audioRef = useRef<HTMLAudioElement>(null);
   const urls = useRef<string[]>([]);
 
@@ -92,7 +100,8 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
   const texts = useMemo(() => splitLyrics(piece.text), [piece.text]);
   const seconds = useMemo(() => splitLyrics(piece.secondText), [piece.secondText]);
   const headers = useMemo(() => sectionHeaders(piece.text), [piece.text]);
-  const toLanguage = target === "otro" ? otherTarget.trim() : target;
+  // The language "Traducir con IA" writes into; "otro" is the one typed next to it.
+  const toLanguage = piece.secondLanguage === "otro" ? piece.secondOther.trim() : SECOND_LANGUAGE_LABEL[piece.secondLanguage];
   // What "Seguir → sincronizar" still needs, said next to it.
   const missingSong = [!song && "subir la canción", !texts.length && "escribir la letra"].filter(Boolean);
   const stale = piece.lines.length > 0 && piece.lines.map((l) => l.text).join("\n") !== texts.join("\n");
@@ -129,6 +138,21 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
         return img.decode().then(() => img, () => null);
       }),
     ).then((imgs) => setLayers(imgs.filter((x): x is HTMLImageElement => Boolean(x))));
+    Promise.all(
+      (initial.piece.elements ?? [])
+        .filter((e) => e.slot >= LYRIC_ELEMENT_SLOT)
+        .map(async (e) => {
+          const file = media[String(e.slot)]?.image;
+          if (!file) return null;
+          const img = new Image();
+          img.src = projectFileUrl(projectId, file);
+          return img.decode().then(() => [e.slot, img] as const, () => null);
+        }),
+    ).then((pairs) => {
+      const next: Record<number, HTMLImageElement> = {};
+      for (const pair of pairs) if (pair) next[pair[0]] = pair[1];
+      setElementImages(next);
+    });
     for (let slot = 0; slot < MAX_CLIPS; slot++) {
       const clip = media[slot]?.clip;
       if (!clip) continue;
@@ -306,16 +330,101 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
   }
 
   async function aiSecond(mode: "romanize" | "translate") {
-    const result = await work("second", () => api.secondLines(series.id, texts, mode, toLanguage || "Español"));
+    const result = await work("second", () => api.secondLines(series.id, texts, mode, piece.secondLanguage, piece.secondOther));
     if (!result) return;
     setSecondText(result.lines.join("\n"));
     const check =
       mode === "romanize"
         ? "Revisá la romanización: la IA se puede equivocar con las lecturas."
-        : /guaran/i.test(toLanguage)
+        : piece.secondLanguage === "gn"
           ? "Las IAs traducen peor al guaraní: que la revise alguien que lo hable antes de publicar."
-          : `Revisá la traducción al ${toLanguage.toLowerCase() || "español"}.`;
+          : `Revisá la traducción al ${toLanguage.toLowerCase()}.`;
     setNote([check, result.note].filter(Boolean).join(" "));
+  }
+
+  function newElementId() {
+    return `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  }
+
+  function freeElementSlot(elements: LyricElement[]): number {
+    const used = new Set(elements.map((e) => e.slot));
+    for (let i = 0; i < LYRIC_ELEMENT_SLOTS; i++) {
+      const slot = LYRIC_ELEMENT_SLOT + i;
+      if (!used.has(slot)) return slot;
+    }
+    throw new Error("Ya hay demasiadas imágenes en este video.");
+  }
+
+  async function forgetElementImage(slot: number) {
+    if (slot < LYRIC_ELEMENT_SLOT) return;
+    setElementImages((m) => {
+      if (!m[slot]) return m;
+      const next = { ...m };
+      delete next[slot];
+      return next;
+    });
+    if (projectId) await api.removeMedia(projectId, slot, "image").catch(() => undefined);
+  }
+
+  async function aiElements() {
+    if (!piece.lines.length) return;
+    if (piece.elements.length && !confirm("Esto reemplaza los elementos que ya cargaste.")) return;
+    const result = await work("elements", () => api.lyricElements(series.id, piece.title, piece.artist, piece.lines.map((l) => l.text)));
+    if (!result) return;
+    const old = piece.elements.map((e) => e.slot);
+    set({
+      elements: result.elements.map((e) => ({ ...e, id: newElementId(), slot: 0 })),
+    });
+    for (const slot of old) await forgetElementImage(slot);
+    setNote([result.note, "Revisá el verso y el texto de cada uno."].filter(Boolean).join(" "));
+  }
+
+  function addElement() {
+    const line = 0;
+    const words = piece.lines[line]?.text.split(/\s+/).slice(0, 2).join(" ") || "texto";
+    setPiece((p) => ({
+      ...p,
+      elements: [
+        ...p.elements,
+        { id: newElementId(), label: words.slice(0, 40), motif: "heart", motion: "enter", place: "top", line, seconds: 3, slot: 0 },
+      ],
+    }));
+  }
+
+  function patchElement(id: string, patch: Partial<LyricElement>) {
+    setPiece((p) => ({ ...p, elements: p.elements.map((e) => (e.id === id ? { ...e, ...patch } : e)) }));
+  }
+
+  async function removeElement(id: string) {
+    const el = piece.elements.find((e) => e.id === id);
+    setPiece((p) => ({ ...p, elements: p.elements.filter((e) => e.id !== id) }));
+    if (el) await forgetElementImage(el.slot);
+  }
+
+  async function clearElementImage(id: string) {
+    const el = piece.elements.find((e) => e.id === id);
+    if (!el) return;
+    patchElement(id, { slot: 0 });
+    await forgetElementImage(el.slot);
+  }
+
+  async function elementImage(id: string, file: File) {
+    await work("upload", async () => {
+      const el = piece.elements.find((e) => e.id === id);
+      if (!el) return;
+      const svg = file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg");
+      let blob: Blob = file;
+      if (svg) blob = await rasterSvg(await file.text());
+      else if (!/^image\/(png|jpeg|webp)$/.test(file.type)) throw new Error("Subí un PNG, un JPG o un SVG.");
+      if (blob.size > 8_000_000) throw new Error("Esa imagen pesa más de 8 MB.");
+      const img = new Image();
+      img.src = await blobToDataUrl(blob);
+      await img.decode();
+      const slot = el.slot >= LYRIC_ELEMENT_SLOT ? el.slot : freeElementSlot(piece.elements);
+      setElementImages((m) => ({ ...m, [slot]: img }));
+      setPiece((p) => ({ ...p, elements: p.elements.map((e) => (e.id === id ? { ...e, slot } : e)) }));
+      if (projectId) await api.uploadMedia(projectId, slot, "image", blob);
+    });
   }
 
   async function aiIdeas() {
@@ -365,6 +474,8 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
   const tabs: { id: Tab; label: string }[] = [
     { id: "song", label: "Canción y letra" },
     { id: "sync", label: "Sincronizar" },
+    { id: "clock", label: "Reloj" },
+    { id: "elements", label: "Elementos" },
     { id: "video", label: "Estilo y video" },
   ];
 
@@ -377,7 +488,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-lg border border-line bg-white p-0.5">
+        <div className="flex max-w-full flex-wrap rounded-lg border border-line bg-white p-0.5">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -448,7 +559,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
           </Field>
           <Field
             label="Segunda línea (opcional)"
-            hint="Va más chica debajo de cada línea: la romanización o la traducción. Una por renglón, en el mismo orden que la letra."
+            hint="Va más chica debajo de cada línea: la romanización o la traducción al idioma de abajo. Una por renglón, en el mismo orden que la letra. Revisala."
           >
             <textarea
               className={`${inputClass} font-mono`}
@@ -456,7 +567,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
               value={piece.secondText}
               onChange={(e) => setSecondText(e.target.value)}
             />
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <Button variant="secondary" className="px-3 py-1 text-xs" disabled={!texts.length || busy !== null} onClick={() => aiSecond("romanize")}>
                 {busy === "second" ? <Spinner /> : null} Romanizar con IA
               </Button>
@@ -464,24 +575,23 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
                 <select
                   className={`${inputClass} w-auto! py-1 text-xs`}
                   aria-label="Idioma de la traducción"
-                  value={target}
-                  onChange={(e) => setTarget(e.target.value)}
+                  value={piece.secondLanguage}
+                  onChange={(e) => set({ secondLanguage: e.target.value as SecondLanguage })}
                 >
-                  {TRANSLATE_TARGETS.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
+                  {SECOND_LANGUAGES.map((l) => (
+                    <option key={l} value={l}>
+                      {SECOND_LANGUAGE_LABEL[l]}
                     </option>
                   ))}
-                  <option value="otro">Otro…</option>
                 </select>
-                {target === "otro" && (
+                {piece.secondLanguage === "otro" && (
                   <input
                     className={`${inputClass} w-36! py-1 text-xs`}
                     aria-label="Otro idioma"
                     placeholder="Ej.: alemán, quechua"
                     maxLength={40}
-                    value={otherTarget}
-                    onChange={(e) => setOtherTarget(e.target.value)}
+                    value={piece.secondOther}
+                    onChange={(e) => set({ secondOther: e.target.value })}
                   />
                 )}
                 <Button
@@ -564,11 +674,37 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
                 <LineEditor lines={piece.lines} onStart={setLineStart} onKey={toggleKey} onPlay={playFrom} />
               )}
               {piece.lines.length > 0 && (
-                <Button onClick={() => setTab("video")}>Seguir → estilo y video</Button>
+                <Button onClick={() => setTab("elements")}>Seguir → elementos</Button>
               )}
             </>
           )}
         </div>
+      )}
+
+      {tab === "clock" && (
+        <ClockPanel
+          projectId={projectId}
+          lyrics={piece.text}
+          language={piece.language}
+          song={song}
+          brand={series.brand}
+        />
+      )}
+
+      {tab === "elements" && (
+        <LyricElements
+          piece={piece}
+          busy={busy !== null}
+          suggesting={busy === "elements"}
+          images={elementImages}
+          onSuggest={() => void aiElements()}
+          onAdd={addElement}
+          onChange={patchElement}
+          onRemove={(id) => void removeElement(id)}
+          onImage={(id, file) => void elementImage(id, file)}
+          onClearImage={(id) => void clearElementImage(id)}
+          onNext={() => setTab("video")}
+        />
       )}
 
       {tab === "video" && (
@@ -580,6 +716,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
           bgImage={bgImage}
           bgClips={bgClips}
           layers={layers}
+          elementImages={elementImages}
           onLayers={addLayers}
           onClearLayers={clearLayers}
           onRemoveClip={removeClip}
@@ -768,6 +905,7 @@ type VideoTabProps = {
   bgImage: HTMLImageElement | null;
   bgClips: BgClip[];
   layers: HTMLImageElement[];
+  elementImages: Record<number, HTMLImageElement>;
   onLayers: (files: File[]) => void;
   onClearLayers: () => void;
   onRemoveClip: (slot: number) => void;
@@ -786,11 +924,18 @@ type VideoTabProps = {
 };
 
 function VideoTab(props: VideoTabProps) {
-  const { piece, song, beats, audio, bgImage, bgClips, layers, busy, set, setStyle } = props;
+  const { piece, song, beats, audio, bgImage, bgClips, layers, elementImages, busy, set, setStyle } = props;
   const layerAssets: MotionAsset[] = useMemo(
     () => layers.map((img, k) => ({ image: img, width: img.naturalWidth, height: img.naturalHeight, name: `layer:${k}` })),
     [layers],
   );
+  const glyphs: Record<number, ElementGlyph> = useMemo(() => {
+    const out: Record<number, ElementGlyph> = {};
+    for (const [slot, img] of Object.entries(elementImages)) {
+      if (img.naturalWidth) out[Number(slot)] = { source: img, width: img.naturalWidth, height: img.naturalHeight };
+    }
+    return out;
+  }, [elementImages]);
   const style = piece.style;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -823,13 +968,13 @@ function VideoTab(props: VideoTabProps) {
         let bg: Backdrop = null;
         if (video && video.readyState >= 2) bg = { source: video, width: video.videoWidth, height: video.videoHeight };
         else if (bgImage) bg = { source: bgImage, width: bgImage.naturalWidth, height: bgImage.naturalHeight };
-        drawLyricFrame(ctx, canvas.width, canvas.height, t, pieceRef.current, bg, beats, layerAssets);
+        drawLyricFrame(ctx, canvas.width, canvas.height, t, pieceRef.current, bg, beats, layerAssets, glyphs);
       }
       frame = requestAnimationFrame(draw);
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
-  }, [audio, bgImage, beats, layerAssets]);
+  }, [audio, bgImage, beats, layerAssets, glyphs]);
 
   // One format, or both one after the other; each is saved in the project as video-vertical / video-horizontal.
   async function render(formats: LyricPiece["format"][]) {
@@ -842,7 +987,7 @@ function VideoTab(props: VideoTabProps) {
       for (const [n, format] of formats.entries()) {
         const out = await renderLyricVideo(
           song.blob,
-          { image: bgImage ?? undefined, clips: bgClips.map((c) => c.blob), layers },
+          { image: bgImage ?? undefined, clips: bgClips.map((c) => c.blob), layers, elements: elementImages },
           { ...piece, format },
           (f) => setProgress((n + f) / formats.length),
         );
