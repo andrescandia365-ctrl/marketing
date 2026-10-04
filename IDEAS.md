@@ -162,7 +162,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
-### 35. Videos de letra: traducir a cualquier idioma y avisar qué falta para sincronizar (4 Oct 2026)
+### 35. Videos de letra: traducir a cualquier idioma y avisar qué falta para sincronizar (4 Oct 2026) — **Construido (4 Oct 2026, "go 35")**
 - **Idea (tuya):** "Traducir al español con IA" tiene que poder traducir también al guaraní y a los demás idiomas.
   - Un selector de idioma destino al lado del botón: español, guaraní, inglés, portugués, japonés, coreano, u otro escrito a mano.
   - La IA traduce línea por línea, en el mismo orden, para que cada traducción quede debajo de su línea.
@@ -171,7 +171,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Arreglo:** al lado del botón, la lista de lo que falta ("Falta: la canción").
 - **Rótulos de sección:** los renglones como "Refrain (Grimes):", "Bridge (Hatsune Miku):" o "Chorus (Hatsune Miku):" hoy se muestran como letra. Solo se saltean los renglones entre [corchetes] o (paréntesis).
   - **Arreglo:** saltear también un renglón corto que termina en ":" y empieza con una palabra de sección (Chorus, Verse, Bridge, Refrain, Interlude, Intro, Outro, Estribillo, Verso, Puente…), con un aviso de cuántos se saltearon.
-- Se construye con "go".
+- **Construido:** selector de idioma con "Otro…" para escribir uno, aviso de revisión para el guaraní, "Falta subir la canción" al lado del botón, y los rótulos de sección salteados con su cuenta ("salteé 3 rótulos de sección").
 
 ### 34. Anuncios estáticos: analizar una referencia y conceptos de imagen fija (4 Oct 2026)
 - **De dónde sale:** dos textos que pasaste:

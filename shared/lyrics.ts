@@ -122,13 +122,31 @@ export function newLyricPiece(style: LyricStyle, format: "vertical" | "horizonta
   };
 }
 
-// Lyric lines without blanks or section labels like [Estribillo].
+// A section header as lyric sites write it: "Chorus (Hatsune Miku):", "Verse 2", "Estribillo:". Only the label, a
+// number and who sings it, so a sung line that starts with one of these words ("Bridge over the river") stays.
+const SECTION =
+  /^(?:pre-?|post-?)?(?:chorus|verse|bridge|refrain|interlude|intro|outro|hook|break|breakdown|drop|coda|instrumental|ad-?libs?|estribillo|coro|precoro|verso|estrofa|puente|interludio|introducci[oó]n|final|parte)(?:\s*\d+)?(?:\s*[-–]\s*[^:()]{1,30})?(?:\s*\([^)]*\))?\s*:?$/i;
+
+// Not sung: a blank line, a label like [Estribillo] or (repeated four times), or a section header like "Chorus:".
+function skipped(line: string): boolean {
+  return !line || /^\[[^\]]*\]$/.test(line) || /^\([^)]*\)$/.test(line) || SECTION.test(line);
+}
+
+// Lyric lines without blanks, labels or section headers.
 export function splitLyrics(text: string): string[] {
   return text
     .split("\n")
     .map((l) => l.trim())
-    .filter((l) => l && !/^\[[^\]]*\]$/.test(l) && !/^\([^)]*\)$/.test(l));
+    .filter((l) => !skipped(l));
 }
+
+// How many section headers ("Chorus (…):", "Verse 1") the lyrics have, so the studio can say it left them out.
+export function sectionHeaders(text: string): number {
+  return text.split("\n").filter((l) => SECTION.test(l.trim())).length;
+}
+
+// Languages the second line can be translated into; "otro" lets the person type one.
+export const TRANSLATE_TARGETS = ["Español", "Guaraní", "Inglés", "Portugués", "Japonés", "Coreano", "Francés", "Italiano"] as const;
 
 const NO_SPACES = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
 

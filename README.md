@@ -84,7 +84,8 @@ Una serie de tipo **Música** no escribe historias, sino videos de letra. Elegí
 
 1. **Canción y letra.**
    - Subís la canción y pegás la letra, en cualquier idioma: español, guaraní, japonés, coreano o romanizada.
-   - Si querés, cargás una **segunda línea** más chica con la romanización o la traducción. La podés escribir vos o pedírsela a la IA (**Romanizar con IA** o **Traducir al español con IA**); revisala, porque se puede equivocar.
+   - Si querés, cargás una **segunda línea** más chica con la romanización o la traducción. La podés escribir vos o pedírsela a la IA (**Romanizar con IA**, o **Traducir con IA** al idioma que elijas: español, guaraní, inglés, portugués, japonés, coreano, francés, italiano u otro que escribas); revisala, porque se puede equivocar, sobre todo en guaraní.
+   - Los rótulos que traen las páginas de letras («Chorus (Miku):», «Verse 2», «Estribillo:») se saltean solos; la pantalla dice cuántos. **Seguir → sincronizar** dice qué falta (la canción o la letra).
    - Confirmás que la canción es tuya o tenés licencia.
 2. **Sincronizar.** Hay dos formas, y después podés ajustar cada línea:
    - **Automático:** OpenAI escucha la canción y le pone tiempo a cada palabra. Usa la misma `OPENAI_API_KEY`. El guaraní no lo conoce, así que escucha sin idioma.

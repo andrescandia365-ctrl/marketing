@@ -479,12 +479,30 @@ Suggest the background's three colours and pace from the song's feeling, and the
   );
 }
 
-// The smaller line under each lyric line: its romanization or a Spanish translation.
-export async function secondLines(series: string, lines: string[], mode: "romanize" | "translate"): Promise<{ lines: string[]; note: string }> {
+// How each translation target is named to the writer (anything else goes as the person typed it).
+const TARGET_NAME: Record<string, string> = {
+  español: "Spanish (Rioplatense)",
+  guaraní: "Paraguayan Guaraní (avañe'ẽ), as it is written today; where people really say a Spanish word in jopara, it may stay",
+  inglés: "English",
+  portugués: "Portuguese (Brazilian)",
+  japonés: "Japanese",
+  coreano: "Korean",
+  francés: "French",
+  italiano: "Italian",
+};
+
+// The smaller line under each lyric line: its romanization or a translation into the language the person picks.
+export async function secondLines(
+  series: string,
+  lines: string[],
+  mode: "romanize" | "translate",
+  target = "Español",
+): Promise<{ lines: string[]; note: string }> {
+  const language = TARGET_NAME[target.trim().toLowerCase()] ?? target.trim();
   const task =
     mode === "romanize"
       ? "Romanize each line: Japanese in Hepburn romaji (spaces between words), Korean in Revised Romanization, anything already in Latin letters (Spanish, Guaraní…) copied as is. Keep the meaning out; only the sound."
-      : "Translate each line into Spanish (Rioplatense), singable and plain, keeping the feeling. A line already in Spanish is copied as is.";
+      : `Translate each line into ${language}: plain and singable, keeping the feeling, one translated line per lyric line in the same order. A line already in that language is copied as is. In the note, in Spanish, name the lines you are least sure of.`;
   const result = await ask(lyricBrief(series), false, `Song lyrics, numbered from 0:\n${numbered(lines)}\n\n${task}`, SecondLinesSchema);
   return { lines: lines.map((_, i) => result.lines[i] ?? ""), note: result.note };
 }

@@ -557,9 +557,12 @@ app.post("/api/lyrics/ideas", async (c) => {
 });
 
 app.post("/api/lyrics/second", async (c) => {
-  const { series, lines, mode } = LyricRequest.extend({ mode: z.enum(["romanize", "translate"]) }).parse(await c.req.json());
+  const { series, lines, mode, target } = LyricRequest.extend({
+    mode: z.enum(["romanize", "translate"]),
+    target: z.string().trim().min(1).max(40).default("Español"),
+  }).parse(await c.req.json());
   if (demo()) return c.json({ lines, note: "Modo de muestra: sin clave de IA, copié la letra tal cual.", demo: true });
-  return c.json({ ...(await secondLines(series, lines, mode)), demo: false });
+  return c.json({ ...(await secondLines(series, lines, mode, target)), demo: false });
 });
 
 app.post("/api/lyrics/backgrounds", async (c) => {

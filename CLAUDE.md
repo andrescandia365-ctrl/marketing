@@ -54,7 +54,8 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   through `migrateBoard()`.
 - Series of type music make lyric videos instead of stories (`LyricStudio`): song + lyrics in any language
   (Spanish, Guaraní, Japanese, Korean, romanized) with an optional second line (romanization or translation),
-  synced automatically (`alignLyrics` matches the transcription letter by letter) or by tapping, drawn by
+  translated by the writer into any language the person picks (`TRANSLATE_TARGETS` or typed; section headers like
+  "Chorus (X):" are skipped by `splitLyrics`), synced automatically (`alignLyrics` matches the transcription letter by letter) or by tapping, drawn by
   `lib/lyricRender.ts` on an organic background or the piece's own photo/video. The person confirms the song's
   rights before rendering; the credit and the "Fondo hecho con IA" notice are on by default.
 - Realism: a series can have a `look` (camera, flash, grain, focus, light, flaws) that goes into every prompt; prompts

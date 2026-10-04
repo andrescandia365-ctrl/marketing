@@ -179,8 +179,8 @@ export const api = {
       "/api/lyrics/ideas",
       { series, title, artist, lines },
     ),
-  secondLines: (series: string, lines: string[], mode: "romanize" | "translate") =>
-    call<{ lines: string[]; note: string } & Demo>("/api/lyrics/second", { series, lines, mode }),
+  secondLines: (series: string, lines: string[], mode: "romanize" | "translate", target = "Español") =>
+    call<{ lines: string[]; note: string } & Demo>("/api/lyrics/second", { series, lines, mode, target }),
   lyricBackgrounds: (
     series: string,
     tool: string,

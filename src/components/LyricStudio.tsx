@@ -10,6 +10,8 @@ import {
   newLyricPiece,
   parseLrc,
   retimeLine,
+  TRANSLATE_TARGETS,
+  sectionHeaders,
   splitLyrics,
   tapLines,
   toLrc,
@@ -79,6 +81,9 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
   const [busy, setBusy] = useState<null | "sync" | "ideas" | "second" | "render" | "upload" | "style" | "prompts" | "lrc">(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  // The language "Traducir con IA" writes into; "otro" opens a field to type one.
+  const [target, setTarget] = useState<string>("Español");
+  const [otherTarget, setOtherTarget] = useState("");
   const audioRef = useRef<HTMLAudioElement>(null);
   const urls = useRef<string[]>([]);
 
@@ -86,6 +91,10 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
   const setStyle = (patch: Partial<LyricStyle>) => setPiece((p) => ({ ...p, style: { ...p.style, ...patch } }));
   const texts = useMemo(() => splitLyrics(piece.text), [piece.text]);
   const seconds = useMemo(() => splitLyrics(piece.secondText), [piece.secondText]);
+  const headers = useMemo(() => sectionHeaders(piece.text), [piece.text]);
+  const toLanguage = target === "otro" ? otherTarget.trim() : target;
+  // What "Seguir → sincronizar" still needs, said next to it.
+  const missingSong = [!song && "subir la canción", !texts.length && "escribir la letra"].filter(Boolean);
   const stale = piece.lines.length > 0 && piece.lines.map((l) => l.text).join("\n") !== texts.join("\n");
   const beats = useMemo(() => (buffer ? songBeats(buffer) : []), [buffer]);
 
@@ -297,14 +306,16 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
   }
 
   async function aiSecond(mode: "romanize" | "translate") {
-    const result = await work("second", () => api.secondLines(series.id, texts, mode));
+    const result = await work("second", () => api.secondLines(series.id, texts, mode, toLanguage || "Español"));
     if (!result) return;
     setSecondText(result.lines.join("\n"));
-    setNote(
-      [mode === "romanize" ? "Revisá la romanización: la IA se puede equivocar con las lecturas." : "Revisá la traducción.", result.note]
-        .filter(Boolean)
-        .join(" "),
-    );
+    const check =
+      mode === "romanize"
+        ? "Revisá la romanización: la IA se puede equivocar con las lecturas."
+        : /guaran/i.test(toLanguage)
+          ? "Las IAs traducen peor al guaraní: que la revise alguien que lo hable antes de publicar."
+          : `Revisá la traducción al ${toLanguage.toLowerCase() || "español"}.`;
+    setNote([check, result.note].filter(Boolean).join(" "));
   }
 
   async function aiIdeas() {
@@ -424,7 +435,10 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
               <span className="block text-xs text-muted">Sin esto no se genera el video.</span>
             </span>
           </label>
-          <Field label="Letra" hint="Una línea por renglón, como se canta. Los renglones vacíos y las marcas como [Estribillo] no se muestran.">
+          <Field
+            label="Letra"
+            hint="Una línea por renglón, como se canta. Los renglones vacíos, las marcas como [Estribillo] o (x4) y los rótulos como «Chorus (Miku):» no se muestran."
+          >
             <textarea
               className={`${inputClass} font-mono`}
               rows={14}
@@ -446,16 +460,50 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
               <Button variant="secondary" className="px-3 py-1 text-xs" disabled={!texts.length || busy !== null} onClick={() => aiSecond("romanize")}>
                 {busy === "second" ? <Spinner /> : null} Romanizar con IA
               </Button>
-              <Button variant="secondary" className="px-3 py-1 text-xs" disabled={!texts.length || busy !== null} onClick={() => aiSecond("translate")}>
-                Traducir al español con IA
-              </Button>
+              <span className="flex flex-wrap items-center gap-1">
+                <select
+                  className={`${inputClass} w-auto! py-1 text-xs`}
+                  aria-label="Idioma de la traducción"
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value)}
+                >
+                  {TRANSLATE_TARGETS.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                  <option value="otro">Otro…</option>
+                </select>
+                {target === "otro" && (
+                  <input
+                    className={`${inputClass} w-36! py-1 text-xs`}
+                    aria-label="Otro idioma"
+                    placeholder="Ej.: alemán, quechua"
+                    maxLength={40}
+                    value={otherTarget}
+                    onChange={(e) => setOtherTarget(e.target.value)}
+                  />
+                )}
+                <Button
+                  variant="secondary"
+                  className="px-3 py-1 text-xs"
+                  disabled={!texts.length || !toLanguage || busy !== null}
+                  onClick={() => aiSecond("translate")}
+                >
+                  Traducir con IA
+                </Button>
+              </span>
             </div>
           </Field>
           <div className="md:col-span-2">
-            <Button onClick={() => setTab("sync")} disabled={!song}>
+            <Button onClick={() => setTab("sync")} disabled={missingSong.length > 0}>
               Seguir → sincronizar
             </Button>
-            <span className="ml-3 text-sm text-muted">{texts.length} líneas</span>
+            <span className="ml-3 text-sm text-muted">
+              {texts.length} líneas
+              {headers > 0 && ` · ${headers === 1 ? "salteé 1 rótulo" : `salteé ${headers} rótulos`} de sección`}
+            </span>
+            {missingSong.length > 0 && <span className="ml-3 text-sm font-medium text-amber-700">Falta {missingSong.join(" y ")}.</span>}
           </div>
         </div>
       )}
