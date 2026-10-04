@@ -1,7 +1,9 @@
 // OpenAI-compatible Chat Completions: Kimi (Moonshot), NVIDIA, OpenRouter or another gateway, whichever the
 // "Modelos" section picks (server/settings.ts).
 // Streams so a long reasoning pass never trips a response-header timeout; only `content` is parsed,
-// never `reasoning_content`. An empty reply is retried once, and the error says why it was empty.
+// never `reasoning_content` (nor a <think> block inside the content). An empty reply is retried once, and the error
+// says why it was empty. The schema always goes into the prompt too: some providers (NVIDIA's catalog among them)
+// accept response_format json_schema and ignore it, and the model would never see the field names.
 import { z } from "zod";
 
 // Where a request goes: the provider's name for messages, its base URL, key and model.
@@ -50,6 +52,7 @@ export async function askKimi<T>(
 ): Promise<T> {
   const jsonSchema = z.toJSONSchema(schema);
   delete (jsonSchema as { $schema?: string }).$schema;
+  const asked = `${prompt}\n\nReply with only one JSON object that follows this JSON schema exactly (these field names, nothing around it):\n${JSON.stringify(jsonSchema)}`;
   const messages: Message[] = [
     ...system.map((content) => ({ role: "system" as const, content })),
     {
@@ -60,9 +63,9 @@ export async function askKimi<T>(
               { type: "text", text: p.label },
               { type: "image_url", image_url: { url: `data:image/jpeg;base64,${p.jpeg}` } },
             ]),
-            { type: "text", text: prompt },
+            { type: "text", text: asked },
           ]
-        : prompt,
+        : asked,
     },
   ];
 
@@ -78,6 +81,9 @@ export async function askKimi<T>(
 
   const first = parse(text, schema);
   if (first.ok) return first.value;
+  console.warn(`${target.label} (${target.model}) respondió con otra forma: ${first.error}. Empieza: ${preview(text)}`);
+  // A strict schema that still came back wrong was not enforced: from now on, JSON mode and the schema in the prompt.
+  if (l.format === "json_schema") l.format = "json_object";
 
   // One retry with the validation error, then give up.
   const retry = await complete(
@@ -94,16 +100,20 @@ export async function askKimi<T>(
   );
   const second = parse(retry, schema);
   if (second.ok) return second.value;
-  throw new KimiError(`${target.label} devolvió una respuesta con otra forma. Probá de nuevo o elegí otro modelo en Modelos.`);
+  console.warn(`${target.label} (${target.model}) volvió a responder con otra forma: ${second.error}. Empieza: ${preview(retry)}`);
+  throw new KimiError(
+    `${target.label} (${target.model}) devolvió una respuesta con otra forma dos veces (${second.error.slice(0, 160)}). Probá de nuevo o elegí otro modelo en Modelos.`,
+  );
+}
+
+// The start of a reply for the server's log (no keys are ever in it).
+function preview(text: string): string {
+  return JSON.stringify(stripThinking(text).slice(0, 300));
 }
 
 class FormatRejected extends Error {}
 
 class ConnectionLost extends KimiError {}
-
-function appendText(content: string | Part[], text: string): string | Part[] {
-  return typeof content === "string" ? content + text : [...content, { type: "text", text }];
-}
 
 type Reply = { content: string; finish: string | null; reasoning: number; ended: boolean };
 
@@ -148,24 +158,9 @@ async function request(target: ChatTarget, messages: Message[], jsonSchema: obje
   const l = learntFor(target);
   const { format, temperature, maxTokens } = l;
 
-  // JSON mode has no schema slot, so the schema goes into the prompt.
-  const sent =
-    format === "json_object"
-      ? [
-          ...messages.slice(0, -1),
-          {
-            ...messages[messages.length - 1],
-            content: appendText(
-              messages[messages.length - 1].content,
-              `\n\nReply with one JSON object that follows this JSON schema exactly:\n${JSON.stringify(jsonSchema)}`,
-            ),
-          },
-        ]
-      : messages;
-
   const body: Record<string, unknown> = {
     model: target.model,
-    messages: sent,
+    messages,
     stream: true,
     response_format:
       format === "json_schema"
@@ -301,26 +296,74 @@ async function readStream(response: Response, name: string): Promise<Reply> {
   return { content, finish, reasoning, ended: ended || finish !== null };
 }
 
-function parse<T>(text: string, schema: z.ZodType<T>): { ok: true; value: T } | { ok: false; error: string } {
-  // Tolerate a code fence or a sentence around the object.
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) return { ok: false, error: "no JSON object found" };
-  let data: unknown;
-  try {
-    data = JSON.parse(text.slice(start, end + 1));
-  } catch (error) {
-    return { ok: false, error: `invalid JSON (${(error as Error).message})` };
+// Reasoning models may write their thinking into the content: <think>…</think>, or only the closing tag.
+function stripThinking(text: string): string {
+  const t = text.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, "");
+  const close = t.search(/<\/think(?:ing)?>/i);
+  return close >= 0 ? t.slice(t.indexOf(">", close) + 1) : t;
+}
+
+// Every top-level JSON object in the text, in order (a code fence, a sentence or a second object around it is fine).
+function jsonObjects(text: string): unknown[] {
+  const found: unknown[] = [];
+  let i = text.indexOf("{");
+  while (i >= 0) {
+    let depth = 0;
+    let inString = false;
+    let end = -1;
+    for (let j = i; j < text.length; j++) {
+      const c = text[j];
+      if (inString) {
+        if (c === "\\") j++;
+        else if (c === '"') inString = false;
+      } else if (c === '"') inString = true;
+      else if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) {
+        end = j;
+        break;
+      }
+    }
+    if (end < 0) break;
+    try {
+      found.push(JSON.parse(text.slice(i, end + 1)));
+      i = text.indexOf("{", end + 1);
+    } catch {
+      i = text.indexOf("{", i + 1);
+    }
   }
-  const result = schema.safeParse(data);
-  if (result.success) return { ok: true, value: result.data };
-  return {
-    ok: false,
-    error: result.error.issues
-      .slice(0, 8)
-      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
-      .join("; "),
-  };
+  return found;
+}
+
+// What a model may have wrapped the answer in: {"reply": {...}}, {"json": {...}} or a one-item array.
+function candidates(value: unknown): unknown[] {
+  const out = [value];
+  if (Array.isArray(value) && value.length === 1) out.push(value[0]);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const entries = Object.values(value);
+    if (entries.length === 1 && entries[0] && typeof entries[0] === "object") out.push(entries[0]);
+  }
+  return out;
+}
+
+function issues(error: z.ZodError): string {
+  return error.issues
+    .slice(0, 8)
+    .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+    .join("; ");
+}
+
+function parse<T>(text: string, schema: z.ZodType<T>): { ok: true; value: T } | { ok: false; error: string } {
+  const objects = jsonObjects(stripThinking(text));
+  if (!objects.length) return { ok: false, error: "no JSON object found" };
+  let firstError = "";
+  for (const object of objects) {
+    for (const candidate of candidates(object)) {
+      const result = schema.safeParse(candidate);
+      if (result.success) return { ok: true, value: result.data };
+      firstError ||= issues(result.error);
+    }
+  }
+  return { ok: false, error: firstError };
 }
 
 // The provider's model list (GET /models). OpenRouter also says which models see pictures and which take a JSON

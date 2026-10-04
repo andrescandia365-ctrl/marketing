@@ -16,7 +16,8 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   Markdown to form fields and back); `tools/` holds one Markdown profile per image/video tool, read at startup; `images/` holds one file
   per image generator API; `demo.ts` is the sample output used when no model key is set. The writer is Claude
   (Anthropic SDK) or Kimi (`kimi.ts`, OpenAI-compatible Chat Completions, streamed, strict `json_schema` with a
-  JSON-mode fallback and one retry on a schema mismatch). The "Modelos" panel (`ModelsPanel`, `server/settings.ts`,
+  JSON-mode fallback and one retry on a schema mismatch; the schema also goes in the prompt, since some providers
+  ignore `json_schema`, and `<think>` blocks or a wrapper around the object are tolerated). The "Modelos" panel (`ModelsPanel`, `server/settings.ts`,
   `/api/settings/*`, localhost-only) picks the writer (Claude, Moonshot, NVIDIA, OpenRouter, or a legacy KIMI_BASE_URL
   gateway), an optional vision model for picture requests, Claude's effort, and saves keys to `.env` (mode 600;
   only the last 4 characters are ever sent back). Claude options follow the Models API capabilities (adaptive
