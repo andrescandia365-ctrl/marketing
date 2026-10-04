@@ -167,8 +167,9 @@ export const ImageReviewSchema = z.object({
 });
 export type ImageReview = z.infer<typeof ImageReviewSchema>;
 
-// ── A reference sheet for the series' cast: a character (girl or boy template) or a place ──
-export const SHEET_TEMPLATES = ["girl", "boy", "place"] as const;
+// ── A reference sheet for the series' cast: a character (girl or boy template), a 3D-look puppet character (a
+// person, a mascot or a talking object, for motion graphics) or a place ──
+export const SHEET_TEMPLATES = ["girl", "boy", "puppet", "place"] as const;
 export type SheetTemplate = (typeof SHEET_TEMPLATES)[number];
 export const SheetSchema = z.object({
   name: z.string().describe("The name as the cast will call it, in Spanish."),

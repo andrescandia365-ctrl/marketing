@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import {
   CAST_KIND_LABEL,
+  PUPPET_ROLES,
+  PUPPET_ROLE_LABEL,
+  guessRole,
+  type PuppetRole,
   DISPLAY_FONTS,
   EMPTY_LOOK,
   UI_FONTS,
@@ -16,6 +20,7 @@ import {
   type SeriesLook,
 } from "../../shared/series.ts";
 import { ensureFont } from "../lib/fonts.ts";
+import { PuppetPreview } from "./PuppetPreview.tsx";
 import { SheetBuilder } from "./SheetBuilder.tsx";
 import { CopyButton } from "./ScriptView.tsx";
 import { api, libraryFileUrl } from "../lib/api.ts";
@@ -29,6 +34,8 @@ function CastCard({
   onChange,
   onRemove,
   onImage,
+  onPuppetFiles,
+  onPuppetRemove,
 }: {
   member: CastMember;
   seriesId: string | null;
@@ -36,6 +43,8 @@ function CastCard({
   onChange: (member: CastMember) => void;
   onRemove: () => void;
   onImage: (file: File) => Promise<void>;
+  onPuppetFiles: (files: File[]) => Promise<void>;
+  onPuppetRemove: (index: number) => Promise<void>;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -127,6 +136,90 @@ function CastCard({
           aria-label="Cuándo usarlo"
           onChange={(e) => set("note", e.target.value)}
         />
+        {member.kind === "character" && (
+          <details className="text-xs" open={member.puppet.layers.length > 0 || undefined}>
+            <summary className="cursor-pointer font-semibold text-muted">
+              Títere 3D para los explicativos {member.puppet.layers.length ? `(${member.puppet.layers.length} partes)` : ""}
+            </summary>
+            <div className="mt-1.5 space-y-2">
+              <p className="text-muted">
+                Hacé la vista «Para el títere» (de frente, brazos separados, boca cerrada; la escribe «+ Personaje con hoja» → Personaje 3D). En Grok:
+                Segmentos → cabeza, cuerpo, cada brazo, boca y ojos → Descargar todo. Subí esas capas acá (PNG con fondo transparente, todas del mismo
+                cuadro, así encajan solas). Sin partes, el personaje usa su imagen entera.
+              </p>
+              <div className="flex flex-wrap items-start gap-3">
+                {seriesId && <PuppetPreview seriesId={seriesId} puppet={member.puppet} />}
+                <ul className="min-w-0 flex-1 space-y-1">
+                  {member.puppet.layers.map((l, i) => (
+                    <li key={l.file} className="flex items-center gap-2">
+                      {seriesId && <img src={libraryFileUrl(seriesId, l.file)} alt="" className="size-9 rounded border border-line bg-paper object-contain" />}
+                      <select
+                        className={`${inputClass} w-auto py-0.5 text-xs`}
+                        value={l.role}
+                        aria-label={`Parte ${i + 1}`}
+                        onChange={(e) =>
+                          set("puppet", { layers: member.puppet.layers.map((x, k) => (k === i ? { ...x, role: e.target.value as PuppetRole, pivot: null } : x)) })
+                        }
+                      >
+                        {PUPPET_ROLES.map((r) => (
+                          <option key={r} value={r}>
+                            {PUPPET_ROLE_LABEL[r]}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-muted hover:text-neg"
+                        disabled={busy}
+                        onClick={async () => {
+                          setBusy(true);
+                          setError("");
+                          try {
+                            await onPuppetRemove(i);
+                          } catch (e) {
+                            setError(e instanceof Error ? e.message : String(e));
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                      >
+                        Quitar
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <label className={`inline-flex items-center gap-2 ${seriesId ? "" : "opacity-50"}`}>
+                <span className="rounded-lg border border-line bg-white px-2.5 py-1 font-semibold hover:border-ink">{busy ? "Subiendo…" : "Subir capas"}</span>
+                <input
+                  type="file"
+                  accept="image/png,image/webp"
+                  multiple
+                  disabled={!seriesId || busy}
+                  className="hidden"
+                  aria-label={`Subir capas del títere de ${member.name}`}
+                  onChange={async (e) => {
+                    const files = [...(e.target.files ?? [])];
+                    e.target.value = "";
+                    if (!files.length) return;
+                    setBusy(true);
+                    setError("");
+                    try {
+                      await onPuppetFiles(files);
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : String(err));
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                />
+              </label>
+              {member.puppet.layers.length > 0 && !member.puppet.layers.some((l) => l.role === "head") && (
+                <p className="text-neg">Falta la cabeza: marcá qué capa es (sin cabeza no gira ni habla).</p>
+              )}
+            </div>
+          </details>
+        )}
         {member.sheet && (
           <details className="text-xs">
             <summary className="cursor-pointer font-semibold text-muted">Hoja de referencia</summary>
@@ -361,7 +454,26 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
     const base = { character: "personaje", place: "lugar", product: "producto", screen: "pantalla" }[kind];
     while (fields.cast.some((m) => m.id === `${base}-${n}`)) n++;
     const name = `${CAST_KIND_LABEL[kind]} ${n}`;
-    set("cast", [...fields.cast, { id: `${base}-${n}`, name, ref: castRef(name), kind, identity: "", note: "", image: "", sheet: "" }]);
+    set("cast", [...fields.cast, { id: `${base}-${n}`, name, ref: castRef(name), kind, identity: "", note: "", image: "", sheet: "", puppet: { layers: [] } }]);
+  }
+
+  // Puppet parts go straight to the series library, in order; each answer brings the member as the server has it.
+  async function memberPuppetFiles(member: CastMember, files: File[]) {
+    if (!id || !fields) return;
+    await api.upsertCast(id, member);
+    let current = member;
+    for (const file of files) {
+      const { member: next } = await api.uploadPuppetLayer(id, member.id, current.puppet.layers.length, file, guessRole(file.name));
+      current = { ...current, puppet: next.puppet };
+      const updated = current;
+      setFields((f) => (f ? { ...f, cast: f.cast.map((m) => (m.id === member.id ? updated : m)) } : f));
+    }
+  }
+
+  async function memberPuppetRemove(member: CastMember, index: number) {
+    if (!id) return;
+    const { member: next } = await api.removePuppetLayer(id, member.id, index);
+    setFields((f) => (f ? { ...f, cast: f.cast.map((m) => (m.id === member.id ? { ...m, puppet: next.puppet } : m)) } : f));
   }
 
   // The image goes straight to the series library; the member is saved first so the server knows it.
@@ -496,6 +608,8 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
                       onChange={(next) => set("cast", fields.cast.map((x) => (x.id === m.id ? next : x)))}
                       onRemove={() => set("cast", fields.cast.filter((x) => x.id !== m.id))}
                       onImage={(file) => memberImage(m, file)}
+                      onPuppetFiles={(files) => memberPuppetFiles(m, files)}
+                      onPuppetRemove={(index) => memberPuppetRemove(m, index)}
                     />
                   ))}
               </ul>
@@ -550,6 +664,8 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
                     onChange={(next) => set("cast", fields.cast.map((x) => (x.id === m.id ? next : x)))}
                     onRemove={() => set("cast", fields.cast.filter((x) => x.id !== m.id))}
                     onImage={(file) => memberImage(m, file)}
+                    onPuppetFiles={(files) => memberPuppetFiles(m, files)}
+                    onPuppetRemove={(index) => memberPuppetRemove(m, index)}
                   />
                 ))}
             </ul>

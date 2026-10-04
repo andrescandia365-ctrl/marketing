@@ -9,6 +9,7 @@ import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx"
 
 const PERSON_FIELDS = ["nombre", "pelo", "piel y cara", "contextura", "ropa", "accesorios", "actitud", "papel en la serie"];
 const PLACE_FIELDS = ["nombre", "qué es", "detalles fijos", "luz"];
+const PUPPET_FIELDS = ["nombre", "qué es (persona, mascota u objeto)", "forma y colores", "cara", "ropa o detalles", "actitud", "papel en la serie"];
 
 type Props = {
   seriesId: string;
@@ -25,7 +26,7 @@ export function SheetBuilder({ seriesId, place, cast, onAdd, onClose }: Props) {
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const fields = place ? PLACE_FIELDS : PERSON_FIELDS;
+  const fields = place ? PLACE_FIELDS : template === "puppet" ? PUPPET_FIELDS : PERSON_FIELDS;
 
   async function write() {
     setBusy(true);
@@ -56,6 +57,7 @@ export function SheetBuilder({ seriesId, place, cast, onAdd, onClose }: Props) {
       note: (details["papel en la serie"] ?? "").slice(0, 600),
       image: "",
       sheet: sheet.sheetPrompt.slice(0, 6000),
+      puppet: { layers: [] },
     });
     onClose();
   }
@@ -77,10 +79,11 @@ export function SheetBuilder({ seriesId, place, cast, onAdd, onClose }: Props) {
               options={[
                 { value: "girl", label: "Chica" },
                 { value: "boy", label: "Chico" },
+                { value: "puppet", label: "Personaje 3D" },
               ]}
             />
           </Field>
-          <Field label="Edad (adulto)">
+          <Field label={template === "puppet" ? "Edad (si es persona, adulto)" : "Edad (adulto)"}>
             <input
               type="number"
               min={18}
@@ -107,7 +110,9 @@ export function SheetBuilder({ seriesId, place, cast, onAdd, onClose }: Props) {
       <p className="text-xs text-muted">
         {place
           ? "Seis paneles del mismo lugar, sin gente: exterior, el ángulo principal, el contraplano, dos detalles y la vista."
-          : "Frente, tres cuartos, perfil y espalda; la cara de cerca con expresiones; detalles de joyas, manos y tela. Siempre un adulto inventado, sin parecido a nadie real, sin poses ni ropa sexualizada."}
+          : template === "puppet"
+            ? "Look 3D estilizado, para animar como títere en los explicativos: una persona (adulta), una mascota o un objeto que habla. Primero la vista «Para el títere» (de frente, brazos separados, boca cerrada); después la cortás en partes con Segmentos de Grok y subís las capas en su tarjeta. Nunca un personaje conocido ni el estilo de un estudio."
+            : "Frente, tres cuartos, perfil y espalda; la cara de cerca con expresiones; detalles de joyas, manos y tela. Siempre un adulto inventado, sin parecido a nadie real, sin poses ni ropa sexualizada."}
       </p>
       <Button variant="secondary" onClick={write} disabled={busy}>
         {busy ? <Spinner /> : null} {sheet ? "Escribir otra" : "Escribir la hoja"}

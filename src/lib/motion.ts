@@ -2,10 +2,12 @@
 // the brand and preloaded images only. No timers, no state carried between frames; noise is seeded (mulberry32),
 // never Math.random. The studio's banned defaults are not here: no centred title on a gradient, no
 // everything-fades-in, no corner labels or frame borders, no glow, no particle bursts.
+import { drawPuppet, puppetPose, type PuppetAsset } from "./puppet.ts";
 import { CUT_PUSH, TYPE_CPS, elementTimes, timeScenes, typingSeconds, type MotionScene, type MotionScript, type TimedScene } from "../../shared/motion.ts";
 import type { Brand } from "../../shared/series.ts";
 
-export type MotionAsset = { image: CanvasImageSource; width: number; height: number; name: string };
+// screen: a real screenshot of the app (shown inside a phone or laptop).
+export type MotionAsset = { image: CanvasImageSource; width: number; height: number; name: string; screen?: boolean };
 export type MotionWorld = {
   brand: Brand;
   // By cast id, or "layer:N".
@@ -14,7 +16,28 @@ export type MotionWorld = {
   beats: number[];
   seed: number;
   disclosure: string;
+  // Characters' 3D-look puppets, by cast id (a character with an image but no parts is a puppet of one piece).
+  puppets?: Record<string, PuppetAsset>;
+  // How loud the voices are, `rate` values a second over the whole piece (0..1), and the scenes that have a voice
+  // file; other scenes with a line move the mouth to the rhythm of the words.
+  speech?: { rate: number; data: Float32Array; scenes: string[] };
 };
+
+// How open a character's mouth is at piece time t in scene s (scene time lt).
+function talkLevel(world: MotionWorld, s: TimedScene, t: number, lt: number): number {
+  const line = s.voice.trim();
+  if (!line) return 0;
+  if (world.speech && world.speech.scenes.includes(s.id)) {
+    const i = Math.floor(t * world.speech.rate);
+    const v = world.speech.data[i] ?? 0;
+    return Math.min(1, Math.max(0, (v - 0.08) * 1.4));
+  }
+  const at = elementTimes(s).voice ?? 0.25;
+  const length = line.split(/\s+/).filter(Boolean).length / 2.5;
+  if (lt < at || lt > at + length) return 0;
+  const syllables = Math.max(0, Math.sin((lt - at) * Math.PI * 2 * 4.4 + noise(world.seed + 11, lt * 1.7) * 2));
+  return syllables * (0.6 + 0.4 * noise(world.seed + 13, lt * 3));
+}
 
 // ── Seeded noise ────────────────────────────────────────────────────────────────
 export function mulberry32(seed: number): () => number {
@@ -384,6 +407,44 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         return { x: cx - dw / 2, y: cy - devH / 2, w: dw, h: devH };
       });
       title(m, vertical ? h * 0.15 : h * 0.16, titleSize * 0.9, w - m * 2);
+      break;
+    }
+    case "character": {
+      // A 3D-look puppet says the line (its mouth follows the voice) and makes its gesture; it can point at or
+      // present a real screen or the product (assetB).
+      const puppet = s.asset ? world.puppets?.[s.asset] : undefined;
+      const prop = s.assetB ? world.assets[s.assetB] : undefined;
+      const hasProp = Boolean(s.assetB);
+      const cx = vertical ? (hasProp ? w * 0.3 : w / 2) : hasProp ? w * 0.8 : w * 0.72;
+      const bottom = vertical ? h * 0.87 : h * 0.97;
+      const height = vertical ? h * (hasProp ? 0.46 : 0.52) : h * 0.8;
+      const toward = hasProp ? (vertical ? 1 : -1) : 1;
+      if (hasProp) {
+        const p = outBack(span(lt, at("prop"), 0.55));
+        const px = vertical ? w * 0.7 : w * 0.47;
+        const py = vertical ? h * 0.5 : h * 0.47;
+        const size = vertical ? h * 0.3 : h * 0.5;
+        put("prop", px, py, () => {
+          ctx.translate(px, py + (1 - clamp01(p)) * unit * 0.2);
+          ctx.rotate((1 - clamp01(p)) * -0.12);
+          ctx.globalAlpha *= clamp01(p * 1.5);
+          const b = prop?.screen
+            ? device(f, prop, 0, 0, size, `Falta la imagen: ${s.assetB}`)
+            : drawImage(f, prop, 0, 0, size, size, `Falta la imagen: ${s.assetB}`);
+          return { x: px + b.x, y: py + b.y, w: b.w, h: b.h };
+        });
+      }
+      put("media", cx, bottom, () => {
+        if (!puppet) {
+          placeholder(f, cx - height * 0.3, bottom - height, height * 0.6, height, s.asset ? `Falta el personaje: ${s.asset}` : "Elegí un personaje");
+          return { x: cx - height * 0.3, y: bottom - height, w: height * 0.6, h: height };
+        }
+        const pose = puppetPose(f.t, lt, at("media"), s.gesture ?? "present", at("gesture"), talkLevel(world, s, f.t, lt), toward, world.seed + s.index * 7);
+        return drawPuppet(ctx, puppet, cx, bottom, height, pose);
+      });
+      const titleY = vertical ? h * 0.13 : h * 0.2;
+      const hTitle = title(m, titleY, titleSize, vertical ? w - m * 2 : w * 0.4);
+      text(m, titleY + hTitle + unit * 0.02, unit * 0.042, vertical ? w - m * 2 : w * 0.38, outCubic(span(lt, at("text"), 0.5)));
       break;
     }
     case "type": {

@@ -576,8 +576,18 @@ export function referenceSheet(
   const given = Object.entries(details)
     .map(([k, v]) => `- ${k}: ${v.trim() || "(empty: choose it)"}`)
     .join("\n");
-  const person = template !== "place";
-  const task = person
+  const person = template === "girl" || template === "boy";
+  const task = template === "puppet"
+    ? `Build a reference sheet of one invented 3D-look character for this series' fixed cast, to be animated as a cut-out puppet in motion graphics: a person (always an adult, ${age} years old or as the details say, never a real person or a lookalike of anyone famous), a mascot or a talking object, as the details say.
+
+Details (in Spanish; choose any that are empty so the character fits the series and its audience, and list your choices in filled):
+${given}
+
+The look: a stylized 3D render, soft rounded shapes, matte materials with a little texture (clay, felt or soft plastic), gentle studio light from the upper left, readable at phone size, the brand's colours where they fit. Never the style of a named studio, film or game, and never a known character. Nothing revealing or sexualized.
+The sheet prompt: 16:9, plain flat mid-grey background, no text, no labels, no floor shadow. Top row: full body front, three-quarter, side profile, back. Bottom row: the face with four expressions (neutral, happy, surprised, worried) and four mouth shapes (closed, A, O, E). Identical shapes and colours in every panel. Put the full description inside the prompt.
+The views, as separate prompts with the same description; the FIRST view must be "Para el títere": full body, front, standing straight, arms held a little away from the body (a relaxed A-pose, hands not touching anything), mouth closed, eyes open looking at the camera, centred with space around it, plain flat mid-grey background, even light, no shadow, nothing in front of the body. That picture is cut into parts with the tool's Segments (head, body, each arm, mouth, eyes), so the parts must not overlap.
+In note (Spanish): remind to make "Para el títere" in the tool, then Segmentos → select head, body, each arm, mouth and eyes → Descargar todo, and upload the layers in the character's card ("Títere 3D").`
+    : person
     ? `Build a photorealistic character reference sheet of one invented adult ${template === "girl" ? "woman" : "man"}, ${age} years old, for this series' fixed cast. Never a real person or a lookalike of anyone famous. Everyday clothes, neutral relaxed poses, nothing revealing or sexualized.
 
 Details (in Spanish; choose any that are empty so the character fits the series and its audience, and list your choices in filled):
@@ -600,7 +610,7 @@ The views: each panel as a separate standalone prompt with the full description.
 export async function motionScript(brief: Brief, target: number | null, layers: number): Promise<MotionScript> {
   const series = getSeries(brief.series);
   const cast = (series?.cast ?? [])
-    .map((m) => `- ${m.id} (${m.kind}${m.image ? ", has image" : ", no image yet"}): ${m.name}. ${m.identity}`)
+    .map((m) => `- ${m.id} (${m.kind}${m.image ? ", has image" : ", no image yet"}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}): ${m.name}. ${m.identity}`)
     .join("\n");
   return normalizeMotion(
     await ask(
@@ -624,6 +634,7 @@ The studio's rules:
 - Show the product in use when you can (entry → key action → result): for software, a real screen, then the type template (search or write something, tap the button, see the result).
 - Only what the series lists as working today is shown as real; never invent a feature, a price or a number (leave items empty and note it).
 - Voice lines in Rioplatense Spanish, each with its emotion, fitting its scene at about 2.5 words per second.
+- A character from the cast (a 3D puppet, or one with an image) can host with the character template: it says its scene's voice line (its mouth moves), makes one gesture (presenta, saluda, señala, festeja, se sorprende) and can point at or present a real screen or the product (assetB). Use it once or twice, to guide, never to replace showing the product.
 - The last scene is the logo with a soft call to action.
 - music: a mood (calm, drive or bright) and a tempo for the synthesized score.`,
       MotionScriptSchema,
@@ -654,7 +665,7 @@ ${scenes}
 What the app measured (trust these over your eyes for timing and sound):
 ${facts}
 ${earlier ? `\nEarlier rounds, already applied:\n${earlier}\n` : ""}
-The brand ("Marca" line of the series): ${JSON.stringify(series?.brand ?? {})}. Templates: hook, screen, zoom, type, callouts, steps, beforeAfter, product, stat, logo.
+The brand ("Marca" line of the series): ${JSON.stringify(series?.brand ?? {})}. Templates: hook, screen, zoom, type, character, callouts, steps, beforeAfter, product, stat, logo.
 
 Score each from 1 to 10, strictly (8 = ready to publish):
 - hook: within the first 2 seconds the problem is named and something moves; no slow start.

@@ -61,7 +61,7 @@ import {
   type ProviderId,
 } from "./settings.ts";
 import { getProvider, listProviders } from "./images/index.ts";
-import { CastMemberSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
+import { CastMemberSchema, PUPPET_ROLES, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
 import {
   PROJECTS_DIR,
   ProjectError,
@@ -87,7 +87,9 @@ import {
   listSeries,
   readLibraryFile,
   saveLyricStyle,
-  saveSeries,
+  saveSeriesFromApp,
+  setPuppetLayer,
+  removePuppetLayer,
   setLogo,
   saveTextStyle,
   setCastImage,
@@ -156,7 +158,7 @@ async function seriesFields(c: { req: { json: () => Promise<unknown> } }) {
 app.get("/api/series/:id", (c) => c.json({ fields: getSeriesFields(c.req.param("id")) }));
 
 app.put("/api/series/:id", async (c) => {
-  saveSeries(c.req.param("id"), await seriesFields(c));
+  saveSeriesFromApp(c.req.param("id"), await seriesFields(c));
   return c.json({ series: listSeries() });
 });
 
@@ -195,6 +197,20 @@ app.put("/api/series/:id/cast/:castId/image", async (c) => {
   if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
   const file = setCastImage(c.req.param("id"), c.req.param("castId"), data, c.req.header("content-type") ?? "");
   return c.json({ file, series: listSeries() });
+});
+
+// The parts of a character's puppet (motion graphics): upload one (index = its place; one past the end adds), remove one.
+app.put("/api/series/:id/cast/:castId/puppet/:index", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
+  const role = z.enum(PUPPET_ROLES).parse(c.req.query("role") ?? "extra");
+  const member = setPuppetLayer(c.req.param("id"), c.req.param("castId"), Number(c.req.param("index")), data, c.req.header("content-type") ?? "", role);
+  return c.json({ member, series: listSeries() });
+});
+
+app.delete("/api/series/:id/cast/:castId/puppet/:index", (c) => {
+  const member = removePuppetLayer(c.req.param("id"), c.req.param("castId"), Number(c.req.param("index")));
+  return c.json({ member, series: listSeries() });
 });
 
 app.get("/api/series/:id/files/:name", (c) => {
@@ -304,15 +320,26 @@ app.post("/api/sheet", async (c) => {
     .parse(await c.req.json());
   if (template !== "place" && age < 18) throw new SeriesError("Los personajes son siempre adultos (18 o más).");
   if (demo()) {
-    const name = details.nombre?.trim() || (template === "place" ? "Lugar" : template === "girl" ? "Ella" : "Él");
-    const who = template === "place" ? `a small place: ${details["qué es"] || "a corner store"}` : `an invented ${template === "girl" ? "woman" : "man"}, ${age} years old`;
+    const name = details.nombre?.trim() || (template === "place" ? "Lugar" : template === "puppet" ? "Personaje 3D" : template === "girl" ? "Ella" : "Él");
+    const who =
+      template === "place"
+        ? `a small place: ${details["qué es"] || "a corner store"}`
+        : template === "puppet"
+          ? `a stylized 3D-look character: ${details["qué es"] || "a friendly talking yerba mate package"}, soft rounded shapes, matte materials`
+          : `an invented ${template === "girl" ? "woman" : "man"}, ${age} years old`;
     return c.json({
       name,
       identity: who,
-      sheetPrompt: `Photorealistic reference sheet of ${who}, 16:9, plain light-grey background, no text.`,
-      views: [{ title: "Frente", prompt: `Full body front of ${who}, plain light-grey background.` }],
+      sheetPrompt: `${template === "puppet" ? "Stylized 3D-look" : "Photorealistic"} reference sheet of ${who}, 16:9, plain ${template === "puppet" ? "flat mid-grey" : "light-grey"} background, no text.`,
+      views:
+        template === "puppet"
+          ? [{ title: "Para el títere", prompt: `Full body front of ${who}, arms a little away from the body, mouth closed, plain flat mid-grey background, even light, no shadow.` }]
+          : [{ title: "Frente", prompt: `Full body front of ${who}, plain light-grey background.` }],
       filled: [],
-      note: "Hoja de muestra: sin clave de IA.",
+      note:
+        template === "puppet"
+          ? "Hoja de muestra: sin clave de IA. Hacé «Para el títere» en Grok, después Segmentos → cabeza, cuerpo, brazos, boca y ojos → Descargar todo, y subí las capas en la tarjeta (Títere 3D)."
+          : "Hoja de muestra: sin clave de IA.",
       demo: true,
     });
   }

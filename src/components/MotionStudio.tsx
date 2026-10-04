@@ -5,6 +5,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   DURATIONS,
+  MOTION_GESTURES,
+  MOTION_GESTURE_LABEL,
   MOTION_MOODS,
   MOTION_MOOD_LABEL,
   MOTION_TEMPLATES,
@@ -20,6 +22,7 @@ import {
   sceneElements,
   timeScenes,
   tweakScene,
+  type MotionGesture,
   type MotionPiece,
   type MotionScene,
   type MotionScript,
@@ -30,6 +33,7 @@ import { api, projectFileUrl, type FinalJob, type MediaFileRecord, type MediaRec
 import { encodeFrames } from "../lib/encode.ts";
 import { ensureFont } from "../lib/fonts.ts";
 import { download, slug } from "../lib/markdown.ts";
+import type { PuppetAsset } from "../lib/puppet.ts";
 import { drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
 import { toWav, TARGET_LUFS } from "../lib/motionAudio.ts";
 import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
@@ -48,6 +52,7 @@ import {
   motionBeats,
   motionSound,
   posterJpeg,
+  speechLevels,
   usesAiImages,
 } from "../lib/motionProject.ts";
 import type { RenderResult } from "../lib/render.ts";
@@ -99,6 +104,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [track, setTrack] = useState<{ file: AudioFile; buffer: AudioBuffer } | null>(null);
   const [castImages, setCastImages] = useState<Record<string, MotionAsset>>({});
   const [logo, setLogo] = useState<MotionAsset | null>(null);
+  const [puppets, setPuppets] = useState<Record<string, PuppetAsset>>({});
+  const [speech, setSpeech] = useState<MotionWorld["speech"]>(undefined);
   const [busy, setBusy] = useState<null | "write" | "sound" | "render" | "voice" | "upload" | "review" | "final">(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
@@ -188,10 +195,11 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   }, [brand.displayFont, brand.uiFont]);
   useEffect(() => {
     let alive = true;
-    loadSeriesImages(series).then(({ cast, logo }) => {
+    loadSeriesImages(series).then(({ cast, logo, puppets }) => {
       if (!alive) return;
       setCastImages(cast);
       setLogo(logo);
+      setPuppets(puppets);
     });
     return () => {
       alive = false;
@@ -228,8 +236,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const assets: Record<string, MotionAsset> = useMemo(() => ({ ...castImages, ...layerAssets(layers) }), [castImages, layers]);
   const usesAi = usesAiImages(scenes, series);
   const world: MotionWorld = useMemo(
-    () => makeWorld(brand, assets, logo, beats, piece.disclosure && usesAi),
-    [brand, assets, logo, beats, piece.disclosure, usesAi],
+    () => makeWorld(brand, assets, logo, beats, piece.disclosure && usesAi, { puppets, speech }),
+    [brand, assets, logo, beats, piece.disclosure, usesAi, puppets, speech],
   );
 
   const gaps = quietGaps(scenes);
@@ -272,6 +280,20 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     timeScenes(scenes).map((s) => [s.start, s.template, revealTimes(s), elementTimes(s).voice ?? null]),
   );
   useEffect(() => setSoundUrl(null), [soundKey, voices, piece.music, piece.voice, piece.effects, track]);
+
+  // How loud each voice is over time, so the characters' mouths follow it.
+  useEffect(() => {
+    let alive = true;
+    if (!snapped) return;
+    speechLevels(snapped, piece, voices)
+      .then((levels) => alive && setSpeech(levels))
+      .catch(() => alive && setSpeech(undefined));
+    return () => {
+      alive = false;
+    };
+    // The timing (soundKey) and the voices decide it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [soundKey, voices, piece.voice]);
 
   // Live preview: frame t follows the player while it plays, else the timeline's time. The selected element gets a
   // dashed outline (the editor's, never in the video).
@@ -531,7 +553,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         const roundBeats = motionBeats(working, piece.music, track?.buffer ?? null);
         const roundScenes = arrangeScenes(working, roundBeats, snap);
         const played = { ...working, scenes: roundScenes };
-        const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series));
+        const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), { puppets, speech });
         const made = formats.map((format) => ({ format, ...contactSheet(played, roundWorld, format) }));
         const blobs = await Promise.all(made.map((m) => new Promise<Blob | null>((done) => m.canvas.toBlob(done, "image/jpeg", 0.85))));
         setSheets(made.map((m, k) => ({ format: m.format, url: blobs[k] ? objectUrl(blobs[k]!) : "" })));
@@ -614,7 +636,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   function playable(next: MotionScript) {
     const b = motionBeats(next, piece.music, track?.buffer ?? null);
     const sc = arrangeScenes(next, b, snap);
-    return { played: { ...next, scenes: sc }, beats: b, world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series)) };
+    return { played: { ...next, scenes: sc }, beats: b, world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series), { puppets, speech }) };
   }
 
   async function finalRender(formats: SheetFormat[]) {
@@ -682,8 +704,11 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const vertical = piece.format === "vertical";
   const assetOptions = [
     ...series.cast
-      .filter((m) => m.kind !== "character" || m.image)
-      .map((m) => ({ value: m.id, label: `${m.name} (${m.kind === "screen" ? "pantalla" : m.kind === "product" ? "producto" : m.kind === "place" ? "lugar" : "personaje"})${m.image ? "" : " · sin imagen"}` })),
+      .filter((m) => m.kind !== "character" || m.image || m.puppet?.layers.length)
+      .map((m) => ({
+        value: m.id,
+        label: `${m.name} (${m.kind === "screen" ? "pantalla" : m.kind === "product" ? "producto" : m.kind === "place" ? "lugar" : m.puppet?.layers.length ? "personaje · títere 3D" : "personaje"})${m.image || m.puppet?.layers.length ? "" : " · sin imagen"}`,
+      })),
     ...layers.map((_, k) => ({ value: `layer:${k}`, label: `Capa ${k + 1} (Grok)` })),
   ];
 
@@ -1226,6 +1251,35 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                             </option>
                           ))}
                         </select>
+                      )}
+                      {raw.template === "character" && (
+                        <>
+                          <select className={`${inputClass} py-1 text-xs`} value={raw.assetB} aria-label="Lo que muestra" onChange={(e) => updateScene(s.id, { assetB: e.target.value })}>
+                            <option value="">No muestra nada (el personaje solo)</option>
+                            {assetOptions
+                              .filter((o) => o.value !== raw.asset)
+                              .map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  Muestra: {o.label}
+                                </option>
+                              ))}
+                          </select>
+                          <select
+                            className={`${inputClass} py-1 text-xs`}
+                            value={raw.gesture ?? "present"}
+                            aria-label="Gesto"
+                            onChange={(e) => updateScene(s.id, { gesture: e.target.value as MotionGesture })}
+                          >
+                            {MOTION_GESTURES.map((g) => (
+                              <option key={g} value={g}>
+                                Gesto: {MOTION_GESTURE_LABEL[g]}
+                              </option>
+                            ))}
+                          </select>
+                          {raw.asset && !puppets[raw.asset] && (
+                            <p className="text-[11px] text-neg">Este personaje no tiene imagen ni títere: subilos en Editar serie.</p>
+                          )}
+                        </>
                       )}
                       {raw.template === "zoom" && (
                         <div className="grid grid-cols-3 gap-1 text-[11px] text-muted">

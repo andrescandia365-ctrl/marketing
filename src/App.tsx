@@ -667,6 +667,7 @@ export function App() {
         note: "",
         image: "",
         sheet: "",
+        puppet: { layers: [] },
       });
       setStatus((s) => (s ? { ...s, series } : s));
       const linked = castId;

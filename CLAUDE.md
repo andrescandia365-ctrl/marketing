@@ -82,6 +82,11 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   portada-*.jpg). `readingIssues` blocks rendering when a line stays on screen less than ~0.3 s per word. Effects
   come from `public/sfx` (CC0, credited in CREDITOS.md) or are synthesized; `soundHits` puts them at the start of
   each motion, first and last of a sequence only. The `type` template types the title into a field with key sounds.
+  3D-look characters are cut-out puppets (`src/lib/puppet.ts`): a cast character's `puppet.layers` (Grok Segments PNGs
+  of one picture, same canvas, roles body/head/armL/armR/mouth/eyes/extra; pivots found from the alpha box) or its
+  image as one piece. The `character` template poses it as a pure function of time (breath, seeded blink, gesture
+  present/wave/point/cheer/surprise, mouth from `speechLevels` of the voice file or the line's rhythm). The sheet
+  template "puppet" (`/api/sheet`) writes the 3D-look sheet and the "Para el títere" view; never a known character.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
   a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Voices
   and sound effects are per-shot project media; one music track per piece ducks under speech and can pull the

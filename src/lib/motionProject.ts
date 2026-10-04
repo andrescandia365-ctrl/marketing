@@ -5,6 +5,7 @@ import { TYPE_CPS, elementTimes, sceneElements, snapScenes, timeScenes, type Mot
 import type { SeriesInfo } from "../../shared/schema.ts";
 import type { Brand } from "../../shared/series.ts";
 import { libraryFileUrl, projectFileUrl, type MediaFileRecord, type MediaRecord } from "./api.ts";
+import { buildPuppet, singlePuppet, type PuppetAsset } from "./puppet.ts";
 import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "./motion.ts";
 import { buildSound, nearBeat, type HitKind, type SoundPlan } from "./motionAudio.ts";
 import { findBeats } from "./render.ts";
@@ -33,15 +34,62 @@ export function decodeAudio(blob: Blob): Promise<AudioBuffer> {
 }
 
 // The series' approved images by cast id, and its logo.
-export async function loadSeriesImages(series: SeriesInfo): Promise<{ cast: Record<string, MotionAsset>; logo: MotionAsset | null }> {
+// The series' approved images by cast id, its logo, and its characters as puppets (their parts, or their image as
+// one piece).
+export async function loadSeriesImages(
+  series: SeriesInfo,
+): Promise<{ cast: Record<string, MotionAsset>; logo: MotionAsset | null; puppets: Record<string, PuppetAsset> }> {
   const list = await Promise.all(
-    series.cast.filter((m) => m.image).map(async (m) => [m.id, await loadImage(libraryFileUrl(series.id, m.image))] as const),
+    series.cast.filter((m) => m.image).map(async (m) => [m, await loadImage(libraryFileUrl(series.id, m.image))] as const),
   );
   const logoImg = series.brand.logo ? await loadImage(libraryFileUrl(series.id, series.brand.logo)) : null;
-  return {
-    cast: Object.fromEntries(list.filter(([, img]) => img).map(([id, img]) => [id, asAsset(img!, id)])),
-    logo: logoImg ? asAsset(logoImg, "logo") : null,
-  };
+  const cast = Object.fromEntries(
+    list.filter(([, img]) => img).map(([m, img]) => [m.id, { ...asAsset(img!, m.id), screen: m.kind === "screen" }]),
+  );
+  const puppets: Record<string, PuppetAsset> = {};
+  for (const m of series.cast.filter((x) => x.kind === "character")) {
+    const layers = m.puppet?.layers ?? [];
+    if (layers.length) {
+      const imgs = await Promise.all(layers.map((l) => loadImage(libraryFileUrl(series.id, l.file))));
+      const built = buildPuppet(m.puppet, imgs);
+      if (built) puppets[m.id] = built;
+    } else {
+      const img = list.find(([x]) => x.id === m.id)?.[1];
+      if (img) puppets[m.id] = singlePuppet(img);
+    }
+  }
+  return { cast, logo: logoImg ? asAsset(logoImg, "logo") : null, puppets };
+}
+
+// How loud the voices are along the piece (60 values a second, 0..1), for the characters' mouths.
+export async function speechLevels(
+  snapped: MotionScript,
+  piece: MotionPiece,
+  voices: Record<string, { blob: Blob }>,
+): Promise<{ rate: number; data: Float32Array; scenes: string[] } | undefined> {
+  if (piece.voice === "none") return undefined;
+  const timed = timeScenes(snapped.scenes).filter((s) => voices[s.id]);
+  if (!timed.length) return undefined;
+  const rate = 60;
+  const data = new Float32Array(Math.ceil(scriptDuration(snapped) * rate) + 1);
+  for (const s of timed) {
+    const buffer = await decodeAudio(voices[s.id].blob).catch(() => null);
+    if (!buffer) continue;
+    const ch = buffer.getChannelData(0);
+    const step = buffer.sampleRate / rate;
+    const start = Math.floor((s.start + (elementTimes(s).voice ?? 0.25)) * rate);
+    for (let i = 0; start + i < data.length && i * step < ch.length; i++) {
+      let sum = 0;
+      const from = Math.floor(i * step);
+      const to = Math.min(ch.length, Math.floor((i + 1) * step));
+      for (let j = from; j < to; j++) sum += ch[j] * ch[j];
+      data[start + i] = Math.max(data[start + i], Math.sqrt(sum / Math.max(1, to - from)));
+    }
+  }
+  const sorted = [...data].filter((v) => v > 0.001).sort((a, b) => a - b);
+  const top = sorted[Math.floor(sorted.length * 0.95)] || 1;
+  for (let i = 0; i < data.length; i++) data[i] = Math.min(1, data[i] / top);
+  return { rate, data, scenes: timed.map((s) => s.id) };
 }
 
 export type LoadedVoice = { blob: Blob; name: string; duration: number };
@@ -102,8 +150,15 @@ export function usesAiImages(scenes: MotionScene[], series: SeriesInfo): boolean
   return scenes.some((s) => [s.asset, s.assetB].some((a) => a.startsWith("layer:") || series.cast.find((m) => m.id === a && m.kind !== "screen")));
 }
 
-export function makeWorld(brand: Brand, assets: Record<string, MotionAsset>, logo: MotionAsset | null, beats: number[], notice: boolean): MotionWorld {
-  return { brand, assets, logo, beats, seed: MOTION_SEED, disclosure: notice ? AI_NOTICE : "" };
+export function makeWorld(
+  brand: Brand,
+  assets: Record<string, MotionAsset>,
+  logo: MotionAsset | null,
+  beats: number[],
+  notice: boolean,
+  extra: Pick<MotionWorld, "puppets" | "speech"> = {},
+): MotionWorld {
+  return { brand, assets, logo, beats, seed: MOTION_SEED, disclosure: notice ? AI_NOTICE : "", ...extra };
 }
 
 // The bundled public-domain effects (public/sfx, CC0; see CREDITOS.md there), loaded once.
@@ -167,6 +222,12 @@ export function soundHits(snapped: MotionScript, beats: number[]): SoundPlan["hi
       case "stat":
         if (has("title") && within(T.title + 1.2)) hit(s.start + T.title + 1.2, "pop");
         break;
+      case "character": {
+        if (has("prop") && within(T.prop)) hit(s.start + T.prop, "reveal");
+        const g = s.gesture ?? "present";
+        if ((g === "cheer" || g === "surprise") && within(T.gesture)) hit(s.start + T.gesture, "pop");
+        break;
+      }
       case "type": {
         if (has("title")) {
           [...s.title].forEach((ch, i) => {

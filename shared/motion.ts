@@ -4,13 +4,14 @@
 import { z } from "zod";
 import type { QualityState } from "./motionQuality.ts";
 
-export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "callouts", "steps", "beforeAfter", "product", "stat", "logo"] as const;
+export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "product", "stat", "logo"] as const;
 export type MotionTemplate = (typeof MOTION_TEMPLATES)[number];
 export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   hook: "Gancho: palabras que entran",
   screen: "Pantalla en el celular o la compu",
   zoom: "Zoom a una función",
   type: "Texto que se tipea (buscar, escribir)",
+  character: "Personaje 3D (presenta, señala, saluda)",
   callouts: "Rótulos sobre la imagen",
   steps: "Paso a paso",
   beforeAfter: "Antes / después",
@@ -18,6 +19,26 @@ export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   stat: "Número grande",
   logo: "Cierre con logo",
 };
+
+// What a character does in its scene.
+export const MOTION_GESTURES = ["present", "wave", "point", "cheer", "surprise"] as const;
+export type MotionGesture = (typeof MOTION_GESTURES)[number];
+export const MOTION_GESTURE_LABEL: Record<MotionGesture, string> = {
+  present: "Presenta",
+  wave: "Saluda",
+  point: "Señala",
+  cheer: "Festeja",
+  surprise: "Se sorprende",
+};
+
+export function pickGesture(value: string | undefined): MotionGesture {
+  const v = (value ?? "").toLowerCase();
+  if (/salud|wave|hola/.test(v)) return "wave";
+  if (/señal|senal|apunt|point|muestr/.test(v)) return "point";
+  if (/fest|cheer|celebr|alegr/.test(v)) return "cheer";
+  if (/sorpr|surpris|asombr/.test(v)) return "surprise";
+  return "present";
+}
 
 export const MOTION_MOODS = ["calm", "drive", "bright"] as const;
 export type MotionMood = (typeof MOTION_MOODS)[number];
@@ -27,14 +48,15 @@ const SceneWire = z.object({
   template: z
     .string()
     .describe(
-      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), type (the product in use: a field where the title is typed letter by letter with key sounds, a button is tapped, then the text appears as the result), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene).",
+      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), type (the product in use: a field where the title is typed letter by letter with key sounds, a button is tapped, then the text appears as the result), character (a cast character marked as a 3D puppet talks the voice line with its mouth moving and makes a gesture; it can point at or present a real screen or the product given in assetB), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene).",
     ),
   seconds: z.number().describe("2 to 8 seconds; long enough for the voice line at about 2.5 words per second."),
   title: z.string().describe("Up to 6 words, readable on a phone. For stat: starts with the number (e.g. '3 minutos')."),
   text: z.string().describe("Up to 12 words of supporting text, or empty."),
   items: z.array(z.string()).describe("callouts and steps: up to 4 labels of up to 5 words. beforeAfter: [before label, after label]. product: [price or offer]. logo: [call to action]. type: [the field's placeholder, the button's label]. Else empty."),
   asset: z.string().describe("The id of a cast member to show (a real screen, the product, a character, a place), 'layer:N' for an uploaded layer, or empty."),
-  assetB: z.string().describe("beforeAfter only: the 'after' image id. Else empty."),
+  assetB: z.string().describe("beforeAfter: the 'after' image id. character: what it points at or presents (a real screen or the product id), or empty. Else empty."),
+  gesture: z.string().describe("character only: presenta, saluda, señala, festeja or se sorprende. Else empty."),
   focusX: z.number().describe("zoom only: the feature's position across the image, 0 to 1."),
   focusY: z.number().describe("zoom only: the feature's position down the image, 0 to 1."),
   zoom: z.number().describe("zoom only: how much to zoom in, 1.5 to 3."),
@@ -60,9 +82,11 @@ export const MotionScriptSchema = z.object({
 export type Spot = { dx?: number; dy?: number; scale?: number };
 export type Tweak = { at?: number; v?: Spot; h?: Spot };
 
-export type MotionScene = Omit<z.infer<typeof SceneWire>, "template"> & {
+export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture"> & {
   id: string;
   template: MotionTemplate;
+  // Character scenes only (older saved scenes have none: "present").
+  gesture?: MotionGesture;
   // By element key (see sceneElements). Empty or missing: the template's own timing and layout.
   tweaks?: Record<string, Tweak>;
 };
@@ -76,7 +100,7 @@ let nextId = 0;
 export const sceneId = () => `s${Date.now().toString(36)}${(nextId++).toString(36)}`;
 
 export function blankScene(template: MotionTemplate = "screen"): MotionScene {
-  return { id: sceneId(), template, seconds: 3, title: "", text: "", items: [], asset: "", assetB: "", focusX: 0.5, focusY: 0.5, zoom: 2, voice: "", emotion: "" };
+  return { id: sceneId(), template, seconds: 3, title: "", text: "", items: [], asset: "", assetB: "", gesture: "present", focusX: 0.5, focusY: 0.5, zoom: 2, voice: "", emotion: "" };
 }
 
 export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>): MotionScript {
@@ -90,6 +114,7 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>): Motio
       ...s,
       id: sceneId(),
       template: pick(s.template, MOTION_TEMPLATES, "screen"),
+      gesture: pickGesture(s.gesture),
       seconds: Math.round(clamp(s.seconds, 2, 8) * 2) / 2,
       items: s.items.map((i) => i.trim()).filter(Boolean).slice(0, 5),
       focusX: clamp(s.focusX, 0, 1),
@@ -150,6 +175,7 @@ const MEDIA_LABEL: Record<MotionTemplate, string> = {
   screen: "Pantalla",
   zoom: "Pantalla",
   type: "Campo",
+  character: "Personaje",
   callouts: "Imagen",
   steps: "Pantalla",
   beforeAfter: "Antes / después",
@@ -213,6 +239,13 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
       if (text) add("text", "Resultado", "text", typed + 0.6);
       break;
     }
+    case "character":
+      add("media", media, "media", 0);
+      if (title) add("title", "Título", "title", 0.3);
+      if (scene.assetB) add("prop", "Lo que muestra", "media", 0.45);
+      add("gesture", MOTION_GESTURE_LABEL[scene.gesture ?? "present"], "moves", 0.8, false);
+      if (text) add("text", "Texto", "text", 1.1);
+      break;
     case "product":
       add("media", media, "media", 0);
       if (title) add("title", "Título", "title", 0.15);

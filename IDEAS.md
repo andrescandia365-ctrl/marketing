@@ -162,7 +162,18 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
-### 33. Personajes 3D que funcionen con motion graphics (4 Oct 2026)
+### 33. Personajes 3D que funcionen con motion graphics (4 Oct 2026) — **A construido (4 Oct 2026, "decidí vos")**
+- **Decidido:**
+  - camino A, el look 3D como títere;
+  - personas adultas, mascotas y objetos que hablan;
+  - boca con la voz.
+  - B (3D de verdad) queda para cuando haya una herramienta elegida y probada.
+- **Construido:**
+  - **la hoja "Personaje 3D"** con la vista «Para el títere»;
+  - **"Títere 3D" en la tarjeta del personaje**: las capas de Segmentos, su parte y una vista previa animada;
+  - **la escena "Personaje 3D"** en los explicativos: respira, parpadea, habla con la boca siguiendo la voz (o el ritmo de la línea si no hay audio), presenta, saluda, señala, festeja o se sorprende, y puede mostrar una pantalla real o el producto;
+  - **la IA lo usa** si el elenco tiene un personaje con títere o imagen;
+  - **el ejemplo de muestra** lo pone después del gancho.
 - **Idea (tuya):** poder crear personajes 3D y usarlos en los explicativos (motion graphics).
 - **Dos caminos, de menos a más:**
   - **A. Look 3D, animado como recorte (2.5D):**

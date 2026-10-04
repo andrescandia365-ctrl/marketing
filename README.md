@@ -39,6 +39,13 @@ En el brief, **Pieza → Explicativo (motion graphics)** y **Empezar un explicat
 
 - **Marca de la serie** (Editar serie → Marca): logo, fondo, texto, un solo acento, fuente de títulos y fuente de interfaz (Google Fonts).
 - **Duración:** automática (la IA la elige según el tema) o a mano (15 a 90 s).
+- **Personajes 3D:** un personaje del elenco puede presentar el explicativo. Se arma así:
+  1. En Editar serie, **+ Personaje con hoja → Personaje 3D**: la IA escribe la hoja con look 3D estilizado (una persona adulta, una mascota o un objeto que habla) y la vista **«Para el títere»**: de frente, con los brazos separados y la boca cerrada.
+  2. Hacés esa vista en Grok y la cortás con **Segmentos**: cabeza, cuerpo, cada brazo, boca y ojos. Después **Descargar todo**.
+  3. En la tarjeta del personaje, **Títere 3D → Subir capas**. La app reconoce cada parte por el nombre del archivo (se puede cambiar) y encuentra sola el cuello y los hombros. Una vista previa lo muestra presentando, saludando, señalando, festejando y sorprendido.
+  - En la escena **Personaje 3D**, el personaje respira, parpadea, dice la línea de su escena con la boca siguiendo la voz y hace su gesto. Puede señalar o presentar una pantalla real o el producto.
+  - Sin partes, usa su imagen entera como una sola pieza.
+  - Siempre personajes inventados: nunca uno conocido ni "al estilo de" un estudio.
 - **Guion por escenas:** la IA arma el guion con plantillas: gancho, pantalla en el celular o la compu, zoom a una función, **texto que se tipea** (un buscador o un campo de la app: se escribe letra por letra con sonido de teclas, se toca el botón y aparece el resultado), rótulos, paso a paso, antes/después, producto con precio, número grande y cierre con logo. Usa las pantallas reales, el producto recortado, los personajes y las capas de Grok que subas. Cada escena se puede editar, mover o sacar.
 - **Sonido:**
   - Voz por escena: generada, grabada o subida.

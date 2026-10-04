@@ -8,7 +8,7 @@ import { api } from "./lib/api.ts";
 import { ensureFont } from "./lib/fonts.ts";
 import { drawMotionFrame, scriptDuration } from "./lib/motion.ts";
 import { toWav } from "./lib/motionAudio.ts";
-import { arrangeScenes, layerAssets, loadPieceMedia, loadSeriesImages, makeWorld, motionBeats, motionSound, usesAiImages } from "./lib/motionProject.ts";
+import { arrangeScenes, layerAssets, loadPieceMedia, loadSeriesImages, makeWorld, motionBeats, motionSound, speechLevels, usesAiImages } from "./lib/motionProject.ts";
 
 export type MotionRender = {
   width: number;
@@ -59,7 +59,8 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       const scenes = arrangeScenes(script, beats, piece.snap !== false);
       const snapped = { ...script, scenes };
       const notice = piece.disclosure && usesAiImages(scenes, series);
-      const world = makeWorld(series.brand, { ...images.cast, ...layerAssets(media.layers) }, images.logo, beats, notice);
+      const speech = await speechLevels(snapped, piece, media.voices);
+      const world = makeWorld(series.brand, { ...images.cast, ...layerAssets(media.layers) }, images.logo, beats, notice, { puppets: images.puppets, speech });
       const ctx = canvasRef.current!.getContext("2d")!;
       const seek = (t: number) => drawMotionFrame(ctx, w, h, t, snapped, world);
       seek(0);
