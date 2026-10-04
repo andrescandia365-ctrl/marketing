@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
-import type { z } from "zod";
+import { z } from "zod";
 import {
   BoardWireSchema,
   ImageReviewSchema,
@@ -33,10 +33,9 @@ import { BackgroundPromptsSchema, LyricIdeasSchema, SecondLinesSchema, type Back
 import { LENGTHS } from "../shared/template.ts";
 import { CAST, PRACTICES, WORKS_TODAY } from "../shared/series.ts";
 import { getSeries } from "./series.ts";
-import { KIMI_MODEL, askKimi, kimiKey } from "./kimi.ts";
+import { askKimi, listChatModels, type ChatTarget, type ListedModel } from "./kimi.ts";
+import { baseUrlOf, claudeEffort, keyOf, labelOf, visionChoice, writerChoice, EFFORTS, type Effort, type ProviderId } from "./settings.ts";
 import { getTool } from "./tools.ts";
-
-export const MODEL = process.env.CLAUDE_MODEL || "claude-opus-5-5";
 
 const ENGINE = readFileSync(new URL("./engine.md", import.meta.url), "utf8");
 const PLAYBOOK = readFileSync(new URL("./playbook.md", import.meta.url), "utf8");
@@ -55,26 +54,92 @@ ${PLAYBOOK}`;
 // Errors whose message is shown to the person as is.
 export class WriterError extends Error {}
 
-// Who writes: Claude or Kimi. LLM_PROVIDER picks one; without it, Claude if its key is set, else Kimi.
-// Neither key means sample mode.
-export type Writer = { id: "claude" | "kimi"; label: string; model: string };
+// Who writes: the provider and model chosen in "Modelos" (or .env). Null means sample mode.
+export type Writer = { provider: ProviderId; label: string; model: string };
 
 export function currentWriter(): Writer | null {
-  // The SDK also reads ANTHROPIC_AUTH_TOKEN and `ant auth login` profiles; an explicit key is the documented setup.
-  const claude = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-  const kimi = Boolean(kimiKey());
-  const pick = process.env.LLM_PROVIDER?.trim().toLowerCase();
-  const id = pick === "kimi" ? (kimi ? "kimi" : null) : pick === "claude" ? (claude ? "claude" : null) : claude ? "claude" : kimi ? "kimi" : null;
-  if (id === "claude") return { id, label: "Claude", model: MODEL };
-  if (id === "kimi") return { id, label: "Kimi", model: KIMI_MODEL };
-  return null;
+  const w = writerChoice();
+  return w && { provider: w.provider, label: labelOf(w.provider), model: w.model };
 }
 
-let client: Anthropic | null = null;
+export function currentVision(): Writer | null {
+  const v = visionChoice();
+  return v && { provider: v.provider, label: labelOf(v.provider), model: v.model };
+}
 
+// One client per key: a key changed in the app takes effect on the next request.
+let client: { key: string; sdk: Anthropic } | null = null;
 function getClient(): Anthropic {
-  client ??= new Anthropic();
-  return client;
+  const key = keyOf("claude") ?? "";
+  if (!client || client.key !== key) {
+    // Without ANTHROPIC_API_KEY the SDK reads ANTHROPIC_AUTH_TOKEN or an `ant auth login` profile.
+    client = { key, sdk: key ? new Anthropic({ apiKey: key }) : new Anthropic() };
+  }
+  return client.sdk;
+}
+
+// ── What each Claude model accepts ─────────────────────────────────────────────────
+// From the Models API when the list was fetched (capabilities); otherwise from the model's name.
+type Caps = { adaptive: boolean; efforts: Effort[]; structured: boolean; vision: boolean; maxTokens: number };
+const knownCaps = new Map<string, Caps>();
+
+function guessCaps(model: string): Caps {
+  const old = /claude-(haiku|sonnet|opus)-4-[0-5]\b|claude-3/.test(model);
+  const fourSix = /claude-(opus|sonnet)-4-6\b/.test(model);
+  return {
+    adaptive: !old,
+    efforts: old ? [] : fourSix ? ["low", "medium", "high", "max"] : [...EFFORTS],
+    // Structured outputs: every current model but Opus 4.7/4.6 and Sonnet 4.6.
+    structured: !/claude-(opus-4-[67]|sonnet-4-6)\b/.test(model),
+    vision: true,
+    maxTokens: /haiku/.test(model) ? 64000 : 128000,
+  };
+}
+
+const capsOf = (model: string) => knownCaps.get(model) ?? guessCaps(model);
+
+// The server-side refusal fallback ("default" routing) is documented for these models.
+const FALLBACK_MODELS = new Set(["claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"]);
+
+type Leaf = { supported?: boolean };
+function readCaps(model: { id: string; max_tokens?: number | null; capabilities?: unknown }): Caps {
+  const c = (model.capabilities ?? {}) as Record<string, Leaf & Record<string, Leaf & Record<string, Leaf>>>;
+  if (!model.capabilities) return guessCaps(model.id);
+  return {
+    adaptive: Boolean(c.thinking?.types?.adaptive?.supported),
+    efforts: c.effort?.supported ? EFFORTS.filter((e) => (c.effort?.[e] as Leaf | undefined)?.supported) : [],
+    structured: Boolean(c.structured_outputs?.supported),
+    vision: Boolean(c.image_input?.supported),
+    maxTokens: model.max_tokens ?? 64000,
+  };
+}
+
+// The models this key can use, with what each accepts.
+export async function listClaudeModels(): Promise<(ListedModel & { efforts: Effort[] })[]> {
+  const list: (ListedModel & { efforts: Effort[] })[] = [];
+  try {
+    for await (const m of getClient().models.list()) {
+      const caps = readCaps(m);
+      knownCaps.set(m.id, caps);
+      list.push({ id: m.id, name: m.display_name, vision: caps.vision, structured: caps.structured, efforts: caps.efforts });
+    }
+  } catch (error) {
+    throw claudeError(error);
+  }
+  return list;
+}
+
+export function claudeEfforts(model: string): Effort[] {
+  return capsOf(model).efforts;
+}
+
+function claudeError(error: unknown): Error {
+  if (error instanceof Anthropic.AuthenticationError) return new WriterError("La clave de Claude fue rechazada. Revisala en Modelos.");
+  if (error instanceof Anthropic.NotFoundError) return new WriterError("Claude no encontró ese modelo. Elegí otro en Modelos.");
+  if (error instanceof Anthropic.RateLimitError) return new WriterError("Claude está saturado de pedidos. Probá en un minuto.");
+  if (error instanceof Anthropic.APIError) return new WriterError(`Claude devolvió un error (${error.status ?? "red"}): ${error.message}`);
+  if (error instanceof Anthropic.AnthropicError) return new WriterError("La respuesta de Claude no vino con la forma esperada. Probá de nuevo.");
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 // The series bible and the tool profile come after the cached system block, so switching either never
@@ -121,19 +186,38 @@ function describeBrief(brief: Brief): string {
 // A picture sent along with a prompt (JPEG, base64), with a line saying what it is.
 export type Picture = { label: string; jpeg: string };
 
+function chatTarget(w: Writer): ChatTarget {
+  const provider = w.provider as Exclude<ProviderId, "claude">;
+  return { label: w.label, baseUrl: baseUrlOf(provider), key: keyOf(provider) ?? "", model: w.model };
+}
+
+// Requests with pictures go to the model chosen to look at them (the writer if none is set).
 async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z.ZodType<T>, pictures: Picture[] = []): Promise<T> {
-  if (currentWriter()?.id === "kimi") return askKimi([SYSTEM, ...contextBlocks(brief, withTool)], prompt, schema, pictures);
+  const who = (pictures.length ? currentVision() : currentWriter()) ?? currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  return askWith(who, [SYSTEM, ...contextBlocks(brief, withTool)], prompt, schema, pictures);
+}
+
+// The system blocks: the first (engine and playbook) is cached; the series and tool blocks come after it.
+export async function askWith<T>(who: Writer, system: string[], prompt: string, schema: z.ZodType<T>, pictures: Picture[] = []): Promise<T> {
+  if (who.provider !== "claude") return askKimi(chatTarget(who), system, prompt, schema, pictures);
+  const caps = capsOf(who.model);
+  if (!caps.structured) {
+    throw new WriterError(`${who.model} no devuelve respuestas con forma fija, y la app las necesita. Elegí otro modelo de Claude en Modelos.`);
+  }
+  const effort = claudeEffort();
+  const fallback = FALLBACK_MODELS.has(who.model);
   const stream = getClient().beta.messages.stream({
-    model: MODEL,
-    max_tokens: 64000,
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    thinking: { type: "adaptive" },
-    system: [
-      { type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } },
-      ...contextBlocks(brief, withTool).map((text) => ({ type: "text" as const, text })),
-    ],
-    output_config: { effort: "high", format: betaZodOutputFormat(schema) },
+    model: who.model,
+    max_tokens: Math.min(64000, caps.maxTokens),
+    ...(fallback && { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }),
+    // Adaptive thinking where the model has it; older ones (Haiku 4.5) answer without it.
+    ...(caps.adaptive && { thinking: { type: "adaptive" as const } }),
+    system: system.map((text, i) => ({ type: "text" as const, text, ...(i === 0 && { cache_control: { type: "ephemeral" as const } }) })),
+    output_config: {
+      ...(caps.efforts.length && { effort: caps.efforts.includes(effort) ? effort : caps.efforts.includes("high") ? "high" : caps.efforts.at(-1)! }),
+      format: betaZodOutputFormat(schema),
+    },
     messages: [
       {
         role: "user",
@@ -154,19 +238,7 @@ async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z
   try {
     message = await stream.finalMessage();
   } catch (error) {
-    if (!(error instanceof Anthropic.APIError) && error instanceof Anthropic.AnthropicError) {
-      throw new WriterError("La respuesta de Claude no vino con la forma esperada. Probá de nuevo.");
-    }
-    if (error instanceof Anthropic.AuthenticationError) {
-      throw new WriterError("La clave de Claude fue rechazada. Revisá ANTHROPIC_API_KEY.");
-    }
-    if (error instanceof Anthropic.RateLimitError) {
-      throw new WriterError("Claude está saturado de pedidos. Probá en un minuto.");
-    }
-    if (error instanceof Anthropic.APIError) {
-      throw new WriterError(`Claude devolvió un error (${error.status ?? "red"}): ${error.message}`);
-    }
-    throw error;
+    throw claudeError(error);
   }
 
   if (message.stop_reason === "refusal") {
@@ -177,6 +249,35 @@ async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z
   }
   if (!message.parsed_output) throw new WriterError("No se pudo leer la respuesta de Claude. Probá de nuevo.");
   return message.parsed_output as T;
+}
+
+// The models a provider offers (for the picker).
+export async function listModels(provider: ProviderId): Promise<(ListedModel & { efforts?: Effort[] })[]> {
+  if (provider === "claude") return listClaudeModels();
+  const p = provider as Exclude<ProviderId, "claude">;
+  return listChatModels({ label: labelOf(p), baseUrl: baseUrlOf(p), key: keyOf(p) ?? "" });
+}
+
+// A tiny real request through the same path the app uses (a JSON reply, and a picture when it is for looking).
+// A 64×64 red JPEG.
+const RED =
+  "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYwLjMxLjEwMgD/2wBDAAgICAkICQsLCwsLCw0MDQ0NDQ0NDQ0NDQ0ODg4REREODg4NDQ4OEBARERITEhERERETExQUFBgYFxccHB0iIin/xABNAAEBAAAAAAAAAAAAAAAAAAAABgEBAQEAAAAAAAAAAAAAAAAAAAYHEAEAAAAAAAAAAAAAAAAAAAAAEQEAAAAAAAAAAAAAAAAAAAAA/8AAEQgAQABAAwEiAAIRAAMRAP/aAAwDAQACEQMRAD8AiAE+2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB/9k=";
+
+const PongSchema = z.object({ ok: z.boolean(), word: z.string() });
+const SeenSchema = z.object({ colour: z.string().describe("The picture's colour, one word in Spanish.") });
+
+export async function testModel(who: Writer, vision: boolean): Promise<string> {
+  const schema = vision ? SeenSchema : PongSchema;
+  const started = Date.now();
+  const reply = await askWith(
+    who,
+    ["You check that a connection works. Reply with the JSON asked for, nothing else."],
+    vision ? "What colour is the picture? One word, in Spanish." : 'Reply with ok: true and the word "listo".',
+    schema as z.ZodType<{ ok?: boolean; word?: string; colour?: string }>,
+    vision ? [{ label: "The picture:", jpeg: RED }] : [],
+  );
+  const ms = Date.now() - started;
+  return vision ? `Vio la imagen: “${reply.colour ?? "?"}” (${(ms / 1000).toFixed(1)} s).` : `Respondió “${reply.word ?? "ok"}” (${(ms / 1000).toFixed(1)} s).`;
 }
 
 function ideasText(ideas: TopicIdea[]): string {
@@ -519,7 +620,8 @@ The studio's rules:
 - Something new appears on screen every 2 to 4 seconds: a scene change, a label, a step, a zoom. Never a still stretch longer than 4 seconds.
 - Never the stock defaults: a centred title on a gradient, everything fading in, corner labels, frame borders, glow on UI chrome, generic particle bursts.
 - The brand's colours with one accent, its display face for titles and its UI face for the rest (the "Marca" line).
-- Readable on a phone: titles up to 6 words, up to 4 labels of up to 5 words.
+- Readable on a phone: titles up to 6 words, up to 4 labels of up to 5 words. Every line stays fully on screen about 0.3 s per word (a 1-3 word label 0.8 s) after it is fully in: fast in, then hold. Too much text for a scene's length: fewer words or another scene, never faster.
+- Show the product in use when you can (entry → key action → result): for software, a real screen, then the type template (search or write something, tap the button, see the result).
 - Only what the series lists as working today is shown as real; never invent a feature, a price or a number (leave items empty and note it).
 - Voice lines in Rioplatense Spanish, each with its emotion, fitting its scene at about 2.5 words per second.
 - The last scene is the logo with a soft call to action.
@@ -552,17 +654,20 @@ ${scenes}
 What the app measured (trust these over your eyes for timing and sound):
 ${facts}
 ${earlier ? `\nEarlier rounds, already applied:\n${earlier}\n` : ""}
-The brand ("Marca" line of the series): ${JSON.stringify(series?.brand ?? {})}. Templates: hook, screen, zoom, callouts, steps, beforeAfter, product, stat, logo.
+The brand ("Marca" line of the series): ${JSON.stringify(series?.brand ?? {})}. Templates: hook, screen, zoom, type, callouts, steps, beforeAfter, product, stat, logo.
 
 Score each from 1 to 10, strictly (8 = ready to publish):
 - hook: within the first 2 seconds the problem is named and something moves; no slow start.
-- readability: every word reads at phone size (big enough, enough contrast, nothing cut off, not too many words at once).
+- readability: every word reads at phone size (big enough, enough contrast, nothing cut off, not too many words at once) and stays on screen long enough to read (about 0.3 s per word once fully in; the measured list above).
+- motion also covers the cuts: frames marked "corte" are the middle of a scene change; two busy layouts muddled together there is a problem.
 - motion: purposeful, eased movement; no stock defaults (centred title on a gradient, everything fading in, corner labels or frame borders, glow on UI chrome, particle bursts).
 - variety: the scenes do not repeat the same layout and move; something new every 2 to 4 seconds.
 - brand: the brand's colours with one accent, its fonts, its logo at the end; nothing off-brand.
 - sync: cuts and entrances land on the beats; voices fit their scenes.
 
-Then fix the three worst problems (only scores under 8), worst first, each as one edit of one scene with the fields given. Fix with the script: shorter words, a bigger element (scale), an earlier or on-beat entrance (at), a scene shorter or longer, another template for variety, a move away from the edge. Never invent a feature, a number or a price; only what the series lists as working today may be shown as real. Never change what the voice says. Leave fixes empty when every score is 8 or more.`,
+Then fix the three worst problems (only scores under 8), worst first, each as one edit of one scene with the fields given. Fix with the script: shorter words, a bigger element (scale), an earlier or on-beat entrance (at), a scene shorter or longer, another template for variety, a move away from the edge. Never invent a feature, a number or a price; only what the series lists as working today may be shown as real. Never change what the voice says. Leave fixes empty when every score is 8 or more.
+
+Also pick the thumbnail (poster): the second of the strongest settled frame, never a "corte" frame.`,
       MotionReviewSchema,
       sheets.map((s) => ({ label: `Contact sheet, ${s.format === "vertical" ? "9:16" : "16:9"}:`, jpeg: s.jpeg })),
     ),

@@ -15,9 +15,18 @@ export type SoundPlan = {
   track: AudioBuffer | null;
   // When each voice line starts.
   voices: { at: number; buffer: AudioBuffer }[];
-  // Scene changes (whoosh) and elements appearing (pop), already on the grid.
-  hits: { at: number; kind: "whoosh" | "pop" }[];
+  // Scene changes (whoosh), elements arriving (pop), a big reveal, the logo, a tap, a key press. n picks a variation.
+  hits: { at: number; kind: HitKind; n?: number }[];
+  // The bundled public-domain effects, synthesized ones, or none.
+  effects: "library" | "synth" | "none";
+  // The library's sounds by kind (loaded by motionProject.ts); a kind without one is synthesized.
+  samples?: Partial<Record<HitKind, AudioBuffer[]>>;
 };
+
+export type HitKind = "whoosh" | "pop" | "reveal" | "logo" | "tap" | "key";
+
+// How loud each kind sits in the effects bus: soft under the music, repeated little sounds lowest.
+const HIT_GAIN: Record<HitKind, number> = { whoosh: 0.55, pop: 0.6, reveal: 0.75, logo: 0.5, tap: 0.55, key: 0.28 };
 
 const midi = (n: number) => 440 * 2 ** ((n - 69) / 12);
 
@@ -116,9 +125,21 @@ function synthScore(ctx: OfflineAudioContext, out: AudioNode, duration: number, 
   }
 }
 
-function addHits(ctx: OfflineAudioContext, out: AudioNode, hits: SoundPlan["hits"]) {
+function addHits(ctx: OfflineAudioContext, out: AudioNode, plan: SoundPlan) {
+  if (plan.effects === "none") return;
   const noise = noiseBuffer(ctx, 1, 11);
-  for (const hit of hits) {
+  for (const hit of plan.hits) {
+    const samples = plan.effects === "library" ? plan.samples?.[hit.kind] : undefined;
+    if (samples?.length) {
+      const src = ctx.createBufferSource();
+      src.buffer = samples[(hit.n ?? 0) % samples.length];
+      const g = ctx.createGain();
+      g.gain.value = HIT_GAIN[hit.kind];
+      src.connect(g).connect(out);
+      // The slide runs across the cut; everything else starts with its motion.
+      src.start(Math.max(0, hit.at - (hit.kind === "whoosh" ? 0.12 : 0)));
+      continue;
+    }
     if (hit.kind === "whoosh") {
       // Peaks right on the cut.
       const start = Math.max(0, hit.at - 0.28);
@@ -135,30 +156,47 @@ function addHits(ctx: OfflineAudioContext, out: AudioNode, hits: SoundPlan["hits
       g.gain.exponentialRampToValueAtTime(0.001, hit.at + 0.18);
       src.connect(bp).connect(g).connect(out);
       src.start(start, 0, 0.5);
-    } else {
-      const o = ctx.createOscillator();
-      o.frequency.setValueAtTime(760, hit.at);
-      o.frequency.exponentialRampToValueAtTime(1250, hit.at + 0.03);
+    } else if (hit.kind === "key" || hit.kind === "tap") {
+      // A short filtered tick.
+      const src = ctx.createBufferSource();
+      src.buffer = noise;
+      const hp = ctx.createBiquadFilter();
+      hp.type = "bandpass";
+      hp.frequency.value = hit.kind === "key" ? 2400 + ((hit.n ?? 0) % 5) * 180 : 1500;
       const g = ctx.createGain();
-      g.gain.setValueAtTime(0.22, hit.at);
-      g.gain.exponentialRampToValueAtTime(0.001, hit.at + 0.09);
+      g.gain.setValueAtTime(hit.kind === "key" ? 0.18 : 0.3, hit.at);
+      g.gain.exponentialRampToValueAtTime(0.001, hit.at + (hit.kind === "key" ? 0.03 : 0.05));
+      src.connect(hp).connect(g).connect(out);
+      src.start(hit.at, ((hit.n ?? 0) % 7) * 0.1, 0.06);
+    } else {
+      // pop, and lower and longer for a reveal or the logo.
+      const big = hit.kind === "reveal" || hit.kind === "logo";
+      const o = ctx.createOscillator();
+      o.type = hit.kind === "logo" ? "triangle" : "sine";
+      o.frequency.setValueAtTime(big ? 330 : 760, hit.at);
+      o.frequency.exponentialRampToValueAtTime(big ? 220 : 1250, hit.at + 0.03);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(big ? 0.3 : 0.22, hit.at);
+      g.gain.exponentialRampToValueAtTime(0.001, hit.at + (hit.kind === "logo" ? 0.9 : big ? 0.25 : 0.09));
       o.connect(g).connect(out);
       o.start(hit.at);
-      o.stop(hit.at + 0.1);
+      o.stop(hit.at + 1);
     }
   }
 }
 
-// Snaps a time to the nearest half beat of the grid.
-export function onGrid(t: number, beats: number[]): number {
-  if (beats.length < 2) return t;
-  let best = beats[0];
-  for (let i = 0; i < beats.length; i++) {
-    for (const c of [beats[i], i + 1 < beats.length ? (beats[i] + beats[i + 1]) / 2 : beats[i]]) {
-      if (Math.abs(c - t) < Math.abs(best - t)) best = c;
+// A beat within `within` seconds of t, or t itself.
+export function nearBeat(t: number, beats: number[], within = 0.06): number {
+  let best = t;
+  let gap = within;
+  for (const b of beats) {
+    const d = Math.abs(b - t);
+    if (d <= gap) {
+      best = b;
+      gap = d;
     }
   }
-  return Math.abs(best - t) <= 0.2 ? best : t;
+  return best;
 }
 
 // ── Loudness (ITU-R BS.1770-4) ──────────────────────────────────────────────────
@@ -266,7 +304,7 @@ export async function buildSound(plan: SoundPlan): Promise<{ buffer: AudioBuffer
     music.gain.setValueAtTime(0.8, Math.max(0, plan.duration - 1.5));
     music.gain.linearRampToValueAtTime(0, plan.duration);
   }
-  addHits(ctx, sfx, plan.hits);
+  addHits(ctx, sfx, plan);
   // The music ducks under every voice line.
   for (const v of plan.voices) {
     const src = ctx.createBufferSource();

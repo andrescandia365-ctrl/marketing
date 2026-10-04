@@ -1,7 +1,7 @@
 // The quality loop's eyes: the contact sheet (one frame per beat, at phone-thumbnail size, with the second under
 // each frame) and the facts the app measures itself (cuts and entrances against the beats, still stretches, the
 // hook's timing, voices that run over, elements off the frame), so the reviewer never has to guess them.
-import { quietGaps, sceneElements, timeScenes, type MotionScript } from "../../shared/motion.ts";
+import { CUT_PUSH, quietGaps, readingIssues, sceneElements, timeScenes, type MotionScript } from "../../shared/motion.ts";
 import { drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionWorld } from "./motion.ts";
 
 export type SheetFormat = "vertical" | "horizontal";
@@ -11,13 +11,18 @@ const MAX_FRAMES = 28;
 const ON_BEAT = 0.06;
 
 // The seconds the sheet shows: every beat (evenly thinned when there are too many), plus the first two seconds at
-// half-second steps for the hook. Without music, one a second.
-export function sheetTimes(duration: number, beats: number[]): number[] {
+// half-second steps for the hook, and the middle of every cut (to see two scenes overlapping). Without music, one a
+// second.
+export function sheetTimes(script: MotionScript, beats: number[]): number[] {
+  const duration = scriptDuration(script);
   const end = Math.max(0, duration - 0.05);
+  const cuts = timeScenes(script.scenes)
+    .slice(1)
+    .map((s) => s.start + CUT_PUSH / 2);
   const grid = beats.length > 1 ? beats.filter((b) => b > 0 && b < end) : Array.from({ length: Math.floor(end) }, (_, i) => i + 1);
   const room = MAX_FRAMES - 4;
   const thinned = grid.length > room ? Array.from({ length: room }, (_, i) => grid[Math.round((i * (grid.length - 1)) / (room - 1))]) : grid;
-  const all = [0.5, 1, 1.5, 2, ...thinned.filter((t) => t > 2.1), end];
+  const all = [0.5, 1, 1.5, 2, ...thinned.filter((t) => t > 2.1), ...cuts, end];
   return [...new Set(all.map((t) => Math.round(Math.min(end, t) * 100) / 100))].sort((a, b) => a - b);
 }
 
@@ -26,7 +31,7 @@ export function contactSheet(script: MotionScript, world: MotionWorld, format: S
   const [cw, ch] = vertical ? [216, 384] : [384, 216];
   const cols = vertical ? 7 : 4;
   const label = 24;
-  const times = sheetTimes(scriptDuration(script), world.beats);
+  const times = sheetTimes(script, world.beats);
   const rows = Math.ceil(times.length / cols);
   const canvas = document.createElement("canvas");
   canvas.width = cols * cw;
@@ -56,7 +61,10 @@ export function contactSheet(script: MotionScript, world: MotionWorld, format: S
     ctx.fillStyle = "#15171c";
     ctx.font = "600 13px system-ui, sans-serif";
     ctx.textBaseline = "middle";
-    ctx.fillText(`${t.toFixed(2)} s · escena ${sceneAt(timed, t) + 1}`, x + 6, y + ch + label / 2);
+    const i = sceneAt(timed, t);
+    const cut = i > 0 && t - timed[i].start < CUT_PUSH;
+    ctx.fillStyle = cut ? "#b52f12" : "#15171c";
+    ctx.fillText(cut ? `${t.toFixed(2)} s · corte ${i}→${i + 1}` : `${t.toFixed(2)} s · escena ${i + 1}`, x + 6, y + ch + label / 2);
     ctx.strokeStyle = "#d9dbe0";
     ctx.strokeRect(x + 0.5, y + 0.5, cw - 1, ch + label - 1);
   });
@@ -112,6 +120,14 @@ export function measureFacts(
   const off = [...new Map(outside.map((o) => [`${o.scene}:${o.key}:${o.format}`, o])).values()];
   lines.push(
     `Elements running off the frame: ${off.length ? off.map((o) => `scene ${o.scene} ${o.key} (${o.format === "vertical" ? "9:16" : "16:9"}, at ${o.t.toFixed(2)} s)`).join("; ") : "none"}.`,
+  );
+  const reading = readingIssues(script.scenes);
+  lines.push(
+    `Lines on screen too briefly to read (need about 0.3 s per word once fully in, 0.8 s for a 1-3 word label): ${
+      reading.length
+        ? reading.map((r) => `scene ${r.index + 1} ${r.key} "${r.text}" has ${r.has.toFixed(1)} s, needs ${r.needs.toFixed(1)} s`).join("; ")
+        : "none"
+    }.`,
   );
   lines.push("Loudness: the app normalizes the mix to -14 LUFS with peaks under -1.5 dBFS.");
   return lines.join("\n");

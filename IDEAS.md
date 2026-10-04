@@ -116,7 +116,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Confirmado:** se pueden subir imágenes propias.
 - **Falta saber:** cuántas referencias se pueden usar a la vez.
 
-### 3. Masogar: el producto recortado
+### 3. Máshogar: el producto recortado
 - **Qué:** una toma tipo "producto" pensada para **Eliminar fondo** en Grok: el producto del episodio limpio, para ponerlo en distintas escenas de casa.
 
 ### 4. Segmentos: cambiar un solo objeto
@@ -174,12 +174,13 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   6. **Texto para publicar.** 1 a 3 frases listas para pegar en X, LinkedIn o Instagram, en el tono de la pieza. Para nosotros, con las reglas del playbook: nada sin verificar ([VERIFY]) y nada de "estamos felices de compartir".
   7. **Golpes fuertes de la música.** Además de los beats, medir cuáles pegan más fuerte (inicio de nota, volumen, graves) y poner ahí los 1 a 3 momentos grandes (el producto, el logo); lo chico, en beats comunes. Sirve para el tema propio. Lo de ellos está en Python; acá iría en el navegador, como `findBeats`.
   8. **Tonos para el explicativo.** Ellos tienen 7 (normal, pulido, parodia de startup, caótico, seco, de tráiler, de App Store), con cantidad de escenas, ritmo, transiciones y efectos por tono. Se podría usar el "Tono" del brief (seco, cálido, absurdo), que hoy no se usa en los explicativos. El "de tráiler, con grandes promesas" choca con la regla de no prometer de más.
-  9. **Traer la marca desde una web** (lo más grande): pegar el link del producto y que la app saque colores, fuentes, logo, capturas y textos para el kit de marca y el elenco. En Masogar, fotos y nombre del producto desde su página. Lo que diga la web va como [VERIFY] hasta que vos lo confirmes en "Lo que existe hoy", y solo con webs de la marca.
+  9. **Traer la marca desde una web** (lo más grande): pegar el link del producto y que la app saque colores, fuentes, logo, capturas y textos para el kit de marca y el elenco. En Máshogar, fotos y nombre del producto desde su página. Lo que diga la web va como [VERIFY] hasta que vos lo confirmes en "Lo que existe hoy", y solo con webs de la marca.
 - **Lo que no conviene usar:**
   - **La música** (5 temas "Happy Beats / Business Moves" de ende.app): el repo no dice la licencia y su propio README pide verificarla antes de redistribuir. No se copia hasta confirmar los derechos, como con las canciones de los videos de letra.
   - **Hyperframes:** sería un segundo motor de video.
   - **El tono "ridículo / grandes promesas":** va contra el playbook (no inventar números, el chiste es el problema).
 - **Si se construye:** se copian solo los efectos CC0 con su aviso de origen (Kenney y unicae_games) y la nota MIT del análisis, en `public/sfx/`.
+- **Construido (4 Oct 2026, "go 32: 1 a 5"):** portada en el cuadro 0 (automática, de la IA o tuya; también `portada-*.jpg`), check "Se lee" que bloquea el render, cuadros a mitad de corte en la hoja de contactos, biblioteca de efectos CC0 (18 sonidos en `public/sfx/`) con la plantilla "Texto que se tipea", y efectos al empezar cada movimiento (primero y último en las series). Quedan para otro "go": 6 a 9.
 - **Integrado al playbook (4 Oct 2026):** las reglas de oficio (gancho, mostrar el producto en uso, tiempo de lectura, transiciones, sonido, portada, texto para publicar, voz → ritmo) están en `PLAYBOOK.md` §3.1 y en `server/playbook.md`, así la IA ya escribe con ellas. Las funciones de la app (1 a 9) siguen esperando "go".
 
 ### 31. Motion graphics: videos de letra y videos explicativos
@@ -189,7 +190,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **La materia prima:**
   - las capas que separa Grok (Segmentos → "Descargar todo");
   - las pantallas reales de la app (IMAN);
-  - el producto recortado (Masogar);
+  - el producto recortado (Máshogar);
   - íconos y texto.
 - **Videos de letra:** las capas de Grok como fondo, con parallax 2.5D (el fondo se mueve menos que el frente) y elementos que entran, laten o se mueven al ritmo.
 - **Videos explicativos (formato nuevo en el brief, además de la historia):**
@@ -238,7 +239,9 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - Rondas del loop de calidad: 3 como máximo.
   - Fuentes de marca: Google Fonts. Si tenés archivos propios, se pueden sumar.
 
-### 30. Varias claves de IA y un selector de modelo
+### 30. Varias claves de IA y un selector de modelo — **Construido (4 Oct 2026, "go idea 30")**
+- **Sección Modelos** (el botón con el nombre de la IA, arriba a la derecha): quién escribe (Claude, Kimi, NVIDIA, OpenRouter), el modelo a mano o de la lista en vivo, **Probar**, el esfuerzo de Claude, quién mira las imágenes (otra IA opcional, **Probar con una imagen**) y las claves (también OpenAI y Replicate).
+- **Las claves se cargan en la app** y se guardan en `.env` (solo vos podés leerlo); nunca vuelven al navegador, solo los últimos 4 caracteres. La sección solo responde a la app en tu compu.
 - **Idea (tuya):** sumar más claves de IA (también la de Anthropic) y una sección en la app para elegir el modelo.
 - **Cómo funcionaría:**
   - **Sección "Modelos"** en la app: muestra cada proveedor con clave cargada (✓ o falta) y deja elegir el modelo de una lista.
@@ -478,7 +481,8 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
 ## Contenido y datos que faltan (no es código)
 - **IMAN:** la lista actualizada de funciones ("Lo que existe hoy"). Se edita en la app: Brief → Editar serie.
-- **Masogar:** confirmar cómo se escribe el nombre y su frase de marca.
+- **Máshogar:** ✓ nombre con acento y frase "porque el hogar es un sentimiento" (4 Oct 2026, ya en la serie).
+- **IMAN:** las capturas de pantalla reales (las pasás después).
 - **Prompt "content strategist":** si lo encontrás, pegalo.
 - **Episodios de The Daily Show:** seguir sumando resúmenes al playbook (§2.6) para encontrar patrones.
 

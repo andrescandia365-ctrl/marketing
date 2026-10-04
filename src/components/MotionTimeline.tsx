@@ -28,6 +28,8 @@ type Props = {
   voiceLengths: Record<string, number>;
   selected: Selection | null;
   playheadRef: RefObject<HTMLDivElement | null>;
+  // The thumbnail's second (frame 0 of the video), marked on the ruler.
+  poster?: number;
   onSeek: (t: number) => void;
   onSelect: (selection: Selection) => void;
   // Called once at the start of every drag, so the whole drag undoes in one step.
@@ -174,6 +176,15 @@ export function MotionTimeline(props: Props) {
                 .map((b) => (
                   <span key={`b${b}`} className="absolute bottom-0 h-1.5 w-px bg-muted/50" style={{ left: pct(b) }} />
                 ))}
+              {props.poster !== undefined && (
+                <span
+                  className="absolute top-0 z-10 -translate-x-1/2 rounded-sm bg-touch px-1 text-[9px] leading-[14px] font-bold text-white"
+                  style={{ left: pct(props.poster) }}
+                  title={`Portada: ${props.poster.toFixed(1)} s`}
+                >
+                  P
+                </span>
+              )}
               {ticks.map((t) => (
                 <span key={t} className="absolute top-0 h-full border-l border-line pl-0.5 font-mono text-[10px] text-muted" style={{ left: pct(t) }}>
                   {t}s

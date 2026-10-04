@@ -4,7 +4,7 @@ A web app (Spanish interface) for story-driven content, not ads: each piece is a
 (the product) and the Bad (the pain it removes), built with Daily Show/SNL structure (topics, bridges, callbacks).
 Flow: brief → topic menu → story in rounds with director notes → storyboard review → production (prompts, uploads,
 render). `server/engine.md` is the storytelling engine; `server/series/*.md` holds one bible per series (IMAN,
-Masogar); `server/playbook.md` is the operative copy of `PLAYBOOK.md` the app sends to Claude. When `PLAYBOOK.md`'s
+Máshogar); `server/playbook.md` is the operative copy of `PLAYBOOK.md` the app sends to Claude. When `PLAYBOOK.md`'s
 rules change, update it there too. The playbook's 75 s ad template does not drive the app.
 
 ## Layout
@@ -16,7 +16,11 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   Markdown to form fields and back); `tools/` holds one Markdown profile per image/video tool, read at startup; `images/` holds one file
   per image generator API; `demo.ts` is the sample output used when no model key is set. The writer is Claude
   (Anthropic SDK) or Kimi (`kimi.ts`, OpenAI-compatible Chat Completions, streamed, strict `json_schema` with a
-  JSON-mode fallback and one retry on a schema mismatch); `LLM_PROVIDER` picks when both keys are set.
+  JSON-mode fallback and one retry on a schema mismatch). The "Modelos" panel (`ModelsPanel`, `server/settings.ts`,
+  `/api/settings/*`, localhost-only) picks the writer (Claude, Moonshot, NVIDIA, OpenRouter, or a legacy KIMI_BASE_URL
+  gateway), an optional vision model for picture requests, Claude's effort, and saves keys to `.env` (mode 600;
+  only the last 4 characters are ever sent back). Claude options follow the Models API capabilities (adaptive
+  thinking, effort levels, structured outputs; refusal fallbacks only on the models that take them).
   `projects.ts` saves each piece as a folder in `proyectos/` (project.json, pieza.md, toma-NN-imagen/clip, video);
   the browser autosaves into it. Each series has a type (software / e-commerce) and a fixed cast (characters,
   places, products, real screens) stored as JSON in its Markdown; approved images live in `biblioteca/<series>/`.
@@ -74,6 +78,10 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   `render.mjs`: headless Chrome opens `/?render=<project>&format=` (`RenderPage`, `window.seek(t)`), PNG frames go to
   ffmpeg (H.264 yuv420p CRF 16, bt709, AAC); the server runs it for the app (`server/finalRender.ts`, localhost only).
   `src/lib/motionProject.ts` holds what the studio and the render page share, so both draw and mix the same.
+  Frame 0 of every render is the poster (`posterTime`: the person's, the AI's or the hook's settled frame; saved as
+  portada-*.jpg). `readingIssues` blocks rendering when a line stays on screen less than ~0.3 s per word. Effects
+  come from `public/sfx` (CC0, credited in CREDITOS.md) or are synthesized; `soundHits` puts them at the start of
+  each motion, first and last of a sequence only. The `type` template types the title into a field with key sounds.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
   a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Voices
   and sound effects are per-shot project media; one music track per piece ducks under speech and can pull the

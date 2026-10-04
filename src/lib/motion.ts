@@ -2,7 +2,7 @@
 // the brand and preloaded images only. No timers, no state carried between frames; noise is seeded (mulberry32),
 // never Math.random. The studio's banned defaults are not here: no centred title on a gradient, no
 // everything-fades-in, no corner labels or frame borders, no glow, no particle bursts.
-import { elementTimes, timeScenes, type MotionScene, type MotionScript, type TimedScene } from "../../shared/motion.ts";
+import { CUT_PUSH, TYPE_CPS, elementTimes, timeScenes, typingSeconds, type MotionScene, type MotionScript, type TimedScene } from "../../shared/motion.ts";
 import type { Brand } from "../../shared/series.ts";
 
 export type MotionAsset = { image: CanvasImageSource; width: number; height: number; name: string };
@@ -386,6 +386,92 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       title(m, vertical ? h * 0.15 : h * 0.16, titleSize * 0.9, w - m * 2);
       break;
     }
+    case "type": {
+      // The product in use: a field appears, the title is typed into it letter by letter, a button is tapped and
+      // the result (the text) arrives below.
+      const fw = vertical ? w - m * 2 : w * 0.62;
+      const fh = unit * 0.14;
+      const fx = m;
+      const fy = vertical ? h * 0.36 : h * 0.38;
+      const p = outBack(span(lt, at("media"), 0.55));
+      const size = unit * 0.05;
+      const typedEnd = at("title") + typingSeconds(s.title);
+      const field = put("media", fx + fw / 2, fy + fh / 2, () => {
+        ctx.globalAlpha = clamp01(p);
+        ctx.translate(0, (1 - clamp01(p)) * unit * 0.06);
+        ctx.fillStyle = hexA(world.brand.text, 0.07);
+        roundRect(ctx, fx, fy, fw, fh, fh / 2);
+        ctx.fill();
+        ctx.lineWidth = Math.max(1.5, unit * 0.004);
+        ctx.strokeStyle = hexA(world.brand.text, lt >= at("title") ? 0.6 : 0.3);
+        ctx.stroke();
+        return { x: fx, y: fy, w: fw, h: fh };
+      });
+      const shown = Math.max(0, Math.min(s.title.length, Math.floor((lt - at("title")) * TYPE_CPS)));
+      const placeholder = s.items[0] ?? "";
+      put("title", fx + fh * 0.45, fy + fh / 2, () => {
+        ctx.save();
+        roundRect(ctx, field.x, field.y, field.w, field.h, field.h / 2);
+        ctx.clip();
+        ctx.textBaseline = "middle";
+        ctx.font = ui(f, size, 500);
+        const tx = field.x + fh * 0.45;
+        const ty = field.y + field.h / 2;
+        if (shown === 0 && placeholder && p > 0.5) {
+          ctx.fillStyle = hexA(world.brand.text, 0.4);
+          ctx.fillText(placeholder, tx, ty);
+        }
+        const typed = s.title.slice(0, shown);
+        ctx.fillStyle = world.brand.text;
+        ctx.fillText(typed, tx, ty);
+        // The caret: steady while typing, then blinking (a pure function of the scene time).
+        const typing = lt >= at("title") && lt < typedEnd;
+        if (p > 0.5 && (typing || Math.floor(lt * 2.5) % 2 === 0)) {
+          ctx.fillStyle = world.brand.accent;
+          ctx.fillRect(tx + ctx.measureText(typed).width + unit * 0.006, ty - size * 0.6, Math.max(2, unit * 0.005), size * 1.2);
+        }
+        ctx.restore();
+        ctx.font = ui(f, size, 500);
+        return { x: tx, y: ty - size * 0.7, w: Math.max(ctx.measureText(s.title).width, unit * 0.1), h: size * 1.4 };
+      });
+      const button = s.items[1];
+      if (button) {
+        const q = outBack(span(lt, at("tag"), 0.45));
+        ctx.font = ui(f, unit * 0.042, 700);
+        const bw = ctx.measureText(button).width + unit * 0.08;
+        const bh = unit * 0.085;
+        const bx = vertical ? fx + fw - bw : fx + fw + unit * 0.03;
+        const by = vertical ? fy + fh + unit * 0.035 : fy + (fh - bh) / 2;
+        put("tag", bx + bw / 2, by + bh / 2, () => {
+          ctx.translate(bx + bw / 2, by + bh / 2);
+          ctx.scale(Math.max(0, q), Math.max(0, q));
+          ctx.fillStyle = world.brand.accent;
+          roundRect(ctx, -bw / 2, -bh / 2, bw, bh, bh / 2);
+          ctx.fill();
+          ctx.fillStyle = world.brand.bg;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = ui(f, unit * 0.042, 700);
+          ctx.fillText(button, 0, 0);
+          // The tap: a ring that grows and fades.
+          const tap = span(lt, at("tag") + 0.25, 0.6);
+          if (tap > 0 && tap < 1) {
+            ctx.globalAlpha = 1 - tap;
+            ctx.strokeStyle = world.brand.text;
+            ctx.lineWidth = unit * 0.005;
+            ctx.beginPath();
+            ctx.arc(0, 0, bh * (0.4 + tap * 0.9), 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          return { x: bx, y: by, w: bw, h: bh };
+        });
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+      }
+      const resultY = fy + fh + unit * (vertical && button ? 0.2 : 0.11);
+      text(m, resultY, unit * 0.048, vertical ? w - m * 2 : w * 0.62, outCubic(span(lt, at("text"), 0.5)));
+      break;
+    }
     case "callouts": {
       const p = outBack(span(lt, at("media"), 0.6));
       const cx = vertical ? w / 2 : w * 0.42;
@@ -638,7 +724,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
   }
 }
 
-const PUSH = 0.38;
+const PUSH = CUT_PUSH;
 
 export function sceneAt(scenes: TimedScene[], t: number): number {
   const i = scenes.findIndex((s) => t >= s.start && t < s.end);

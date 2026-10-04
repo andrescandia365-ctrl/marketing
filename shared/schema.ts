@@ -13,7 +13,7 @@ export type Role = (typeof ROLES)[number];
 export const BriefSchema = z.object({
   series: z.string(),
   length: z.enum(["short", "episode"]),
-  // Masogar: this episode's product. IMAN: an optional focus (a loop step or feature).
+  // Máshogar: this episode's product. IMAN: an optional focus (a loop step or feature).
   product: z.string(),
   // A moment the audience already feels: a date, a season, something everyone is talking about.
   angle: z.string(),
@@ -392,7 +392,7 @@ export function migrateBoard(board: Board): Board {
 
 // ── Server status ───────────────────────────────────────────────────────────────
 export type ToolInfo = { id: string; name: string; checked: string };
-// productPerEpisode: every episode features a different product (Masogar), so the brief must name it.
+// productPerEpisode: every episode features a different product (Máshogar), so the brief must name it.
 export type SeriesInfo = {
   id: string;
   name: string;
@@ -422,3 +422,14 @@ export type Status = {
   // The final render of explainers (render.mjs) needs ffmpeg on this computer.
   render: { ffmpeg: boolean };
 };
+
+// "Modelos": who writes, who looks at pictures, and which keys are set (never the keys themselves).
+export type SettingsView = {
+  writer: { provider: string; model: string } | null;
+  // Chosen apart from the writer; null means the writer also looks at pictures.
+  vision: { provider: string; model: string } | null;
+  effort: string;
+  providers: { id: string; label: string; ready: boolean; keyEnd: string; model: string; hint: string; editable: boolean }[];
+  keys: { name: string; label: string; use: string; hint: string; set: boolean; keyEnd: string }[];
+};
+export type ListedModel = { id: string; name: string; vision: boolean | null; structured: boolean | null; efforts?: string[] };

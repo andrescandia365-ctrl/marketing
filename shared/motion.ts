@@ -4,12 +4,13 @@
 import { z } from "zod";
 import type { QualityState } from "./motionQuality.ts";
 
-export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "callouts", "steps", "beforeAfter", "product", "stat", "logo"] as const;
+export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "callouts", "steps", "beforeAfter", "product", "stat", "logo"] as const;
 export type MotionTemplate = (typeof MOTION_TEMPLATES)[number];
 export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   hook: "Gancho: palabras que entran",
   screen: "Pantalla en el celular o la compu",
   zoom: "Zoom a una función",
+  type: "Texto que se tipea (buscar, escribir)",
   callouts: "Rótulos sobre la imagen",
   steps: "Paso a paso",
   beforeAfter: "Antes / después",
@@ -26,12 +27,12 @@ const SceneWire = z.object({
   template: z
     .string()
     .describe(
-      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene).",
+      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), type (the product in use: a field where the title is typed letter by letter with key sounds, a button is tapped, then the text appears as the result), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene).",
     ),
   seconds: z.number().describe("2 to 8 seconds; long enough for the voice line at about 2.5 words per second."),
   title: z.string().describe("Up to 6 words, readable on a phone. For stat: starts with the number (e.g. '3 minutos')."),
   text: z.string().describe("Up to 12 words of supporting text, or empty."),
-  items: z.array(z.string()).describe("callouts and steps: up to 4 labels of up to 5 words. beforeAfter: [before label, after label]. product: [price or offer]. logo: [call to action]. Else empty."),
+  items: z.array(z.string()).describe("callouts and steps: up to 4 labels of up to 5 words. beforeAfter: [before label, after label]. product: [price or offer]. logo: [call to action]. type: [the field's placeholder, the button's label]. Else empty."),
   asset: z.string().describe("The id of a cast member to show (a real screen, the product, a character, a place), 'layer:N' for an uploaded layer, or empty."),
   assetB: z.string().describe("beforeAfter only: the 'after' image id. Else empty."),
   focusX: z.number().describe("zoom only: the feature's position across the image, 0 to 1."),
@@ -148,6 +149,7 @@ const MEDIA_LABEL: Record<MotionTemplate, string> = {
   hook: "Imagen",
   screen: "Pantalla",
   zoom: "Pantalla",
+  type: "Campo",
   callouts: "Imagen",
   steps: "Pantalla",
   beforeAfter: "Antes / después",
@@ -203,6 +205,14 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
       add("media", media, "media", 0);
       add("wipe", "Cortina", "moves", Math.min(d * 0.4, 1.6), false);
       break;
+    case "type": {
+      add("media", media, "media", 0);
+      const typed = (scene.tweaks?.title?.at ?? 0.35) + typingSeconds(title);
+      if (title) add("title", "Texto tipeado", "title", 0.35);
+      if (scene.items[1]) add("tag", "Botón", "tag", typed + 0.15);
+      if (text) add("text", "Resultado", "text", typed + 0.6);
+      break;
+    }
     case "product":
       add("media", media, "media", 0);
       if (title) add("title", "Título", "title", 0.15);
@@ -221,6 +231,84 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
   if (scene.voice.trim()) add("voice", "Voz", "voice", 0.25, false);
   const latest = Math.max(0, d - 0.3);
   return list.map((e) => ({ ...e, at: Math.min(latest, Math.max(0, scene.tweaks?.[e.key]?.at ?? defaults[e.key])) }));
+}
+
+// Typing speed of the "type" template, characters per second.
+export const TYPE_CPS = 14;
+export const typingSeconds = (text: string) => text.length / TYPE_CPS;
+
+// The push between scenes lasts this long (the new scene slides in over the old one).
+export const CUT_PUSH = 0.38;
+
+// When an element is fully on screen and still (its entrance done), from the scene's start.
+export function settledAt(scene: MotionScene, el: SceneElement): number {
+  const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
+  switch (el.key) {
+    case "title":
+      if (scene.template === "stat") return el.at + 1.2;
+      if (scene.template === "type") return el.at + typingSeconds(scene.title);
+      if (scene.template === "logo") return el.at + 0.6;
+      // Words rise in one after another.
+      return el.at + Math.max(0, words(scene.title) - 1) * 0.11 + 0.45;
+    case "text":
+    case "tag":
+      return el.at + 0.5;
+    default:
+      return el.at + (el.key.startsWith("item") ? 0.5 : 0.6);
+  }
+}
+
+// The text an element shows, for the reading check.
+function shownText(scene: MotionScene, key: string): string {
+  if (key === "title") return scene.template === "logo" ? "" : scene.title;
+  if (key === "text") return scene.text;
+  if (key === "tag") return scene.template === "type" ? (scene.items[1] ?? "") : (scene.items[0] ?? "");
+  if (key.startsWith("item")) return scene.items[Number(key.slice(4))] ?? "";
+  if (key === "voice") return scene.voice;
+  return "";
+}
+
+// Reading time: a line to read stays fully on screen and still about 0.3 s per word (a sentence at least 1.2 s,
+// a 1-3 word label 0.8 s), counted from when the whole line is in. The voice's subtitle is on all through its scene.
+export function readingNeed(text: string): number {
+  const n = text.split(/\s+/).filter(Boolean).length;
+  return n <= 3 ? 0.8 : Math.max(1.2, 0.3 * n);
+}
+
+export type ReadingIssue = { sceneId: string; index: number; key: string; label: string; text: string; needs: number; has: number };
+
+export function readingIssues(scenes: MotionScene[]): ReadingIssue[] {
+  const issues: ReadingIssue[] = [];
+  for (const s of timeScenes(scenes)) {
+    for (const el of sceneElements(s)) {
+      const text = shownText(s, el.key).trim();
+      if (!text) continue;
+      const has = el.key === "voice" ? s.seconds : s.seconds - settledAt(s, el);
+      const needs = readingNeed(text);
+      if (has + 0.05 < needs) issues.push({ sceneId: s.id, index: s.index, key: el.key, label: el.key === "voice" ? "Subtítulo" : el.label, text, needs, has: Math.max(0, has) });
+    }
+  }
+  return issues;
+}
+
+export const readingKey = (i: ReadingIssue) => `lee:${i.sceneId}:${i.key}`;
+
+// The video's thumbnail is frame 0: the person's choice, the AI's, or the first scene's settled moment (the hook, all
+// its words in). Never in the middle of a cut.
+export function posterTime(scenes: MotionScene[], chosen?: { t: number } | null): number {
+  const timed = timeScenes(scenes);
+  const total = timed.at(-1)?.end ?? 0;
+  if (!timed.length) return 0;
+  let t: number;
+  if (chosen && chosen.t >= 0 && chosen.t < total) t = chosen.t;
+  else {
+    const first = timed[0];
+    const settled = Math.max(0, ...sceneElements(first).filter((e) => e.lane !== "voice" && e.lane !== "moves").map((e) => settledAt(first, e)));
+    t = Math.min(first.end - 0.1, settled + 0.15);
+  }
+  const s = timed.find((x) => t >= x.start && t < x.end) ?? timed.at(-1)!;
+  if (s.index > 0 && t - s.start < CUT_PUSH + 0.05) t = Math.min(s.end - 0.05, s.start + CUT_PUSH + 0.1);
+  return Math.max(0, Math.min(total - 0.04, t));
 }
 
 // When each element enters, by key. Keys a scene does not have read as 0.
@@ -294,6 +382,12 @@ export type MotionPiece = {
   snap: boolean;
   // The last quality loop (the AI's scores before any full render), or none yet.
   quality?: QualityState;
+  // Sound effects: the bundled public-domain library (CC0), synthesized in code, or none.
+  effects?: "library" | "synth" | "none";
+  // The thumbnail (frame 0): chosen by the person ("vos") or the AI ("ia"); none means the automatic one.
+  poster?: { t: number; by: "vos" | "ia" } | null;
+  // Reading-time warnings the person marked "no es un problema" (readingKey).
+  readingOk?: string[];
 };
 
 export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {
@@ -310,6 +404,9 @@ export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {
     voiceSlots: {},
     layers: 0,
     snap: true,
+    effects: "library",
+    poster: null,
+    readingOk: [],
   };
 }
 

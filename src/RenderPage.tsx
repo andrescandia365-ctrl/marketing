@@ -2,7 +2,7 @@
 // fonts, voices and track, then exposes window.seek(t), which paints frame t at full size, and the finished mix.
 // Nothing here moves on its own: every frame comes from seek(t).
 import { useEffect, useRef, useState } from "react";
-import { newMotionPiece, type MotionPiece } from "../shared/motion.ts";
+import { newMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
 import type { Brief } from "../shared/schema.ts";
 import { api } from "./lib/api.ts";
 import { ensureFont } from "./lib/fonts.ts";
@@ -16,6 +16,8 @@ export type MotionRender = {
   fps: number;
   duration: number;
   notice: string;
+  // The thumbnail's second: render.mjs paints it as frame 0.
+  poster: number;
   seek: (t: number) => void;
   // The mix (music, hits and voices, as the preview plays it) as a WAV file, base64.
   sound: () => Promise<string>;
@@ -68,6 +70,7 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
         fps: 30,
         duration: scriptDuration(snapped),
         notice: notice ? world.disclosure : "",
+        poster: posterTime(scenes, piece.poster),
         seek,
         sound: async () => {
           const { buffer } = await motionSound(snapped, piece, beats, media.voices, media.track?.buffer ?? null);

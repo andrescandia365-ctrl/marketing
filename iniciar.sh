@@ -49,14 +49,15 @@ ask_key() {
   set_var "$2" "$key"
   echo "Guardé la clave en .env."
 }
+# Guarda el modelo en la variable del proveedor (MOONSHOT_MODEL, NVIDIA_MODEL u OPENROUTER_MODEL).
 ask_model() {
-  read -rp "Modelo [$1]: " model
-  set_var KIMI_MODEL "${model:-$1}"
+  read -rp "Modelo [$2]: " model
+  set_var "$1" "${model:-$2}"
 }
 
-if [ "${1:-}" = "--ia" ] || { ! has_key KIMI_API_KEY && ! has_key ANTHROPIC_API_KEY; }; then
+if [ "${1:-}" = "--ia" ] || { ! has_key KIMI_API_KEY && ! has_key ANTHROPIC_API_KEY && ! has_key MOONSHOT_API_KEY && ! has_key NVIDIA_API_KEY && ! has_key OPENROUTER_API_KEY; }; then
   echo
-  echo "¿Qué IA escribe las historias?"
+  echo "¿Qué IA escribe las historias? (También se elige y se cambia en la app: botón Modelos, arriba a la derecha.)"
   echo "  1) Claude (Anthropic)"
   echo "  2) Kimi directo (Moonshot)"
   echo "  3) Kimi por NVIDIA"
@@ -68,26 +69,23 @@ if [ "${1:-}" = "--ia" ] || { ! has_key KIMI_API_KEY && ! has_key ANTHROPIC_API_
       ask_key "Claude" ANTHROPIC_API_KEY && set_var LLM_PROVIDER claude
       ;;
     2)
-      if ask_key "Kimi (Moonshot)" KIMI_API_KEY; then
-        set_var LLM_PROVIDER kimi
-        set_var KIMI_BASE_URL https://api.moonshot.ai/v1
-        ask_model kimi-k3
+      if ask_key "Kimi (Moonshot)" MOONSHOT_API_KEY; then
+        set_var LLM_PROVIDER moonshot
+        ask_model MOONSHOT_MODEL kimi-k3
       fi
       ;;
     3)
       echo "En NVIDIA, la clave es solo el texto que empieza con nvapi- (no todo el JSON)."
-      if ask_key "NVIDIA" KIMI_API_KEY; then
-        set_var LLM_PROVIDER kimi
-        set_var KIMI_BASE_URL https://integrate.api.nvidia.com/v1
-        ask_model moonshotai/kimi-k3
+      if ask_key "NVIDIA" NVIDIA_API_KEY; then
+        set_var LLM_PROVIDER nvidia
+        ask_model NVIDIA_MODEL moonshotai/kimi-k3
       fi
       ;;
     4)
       echo "En OpenRouter la clave empieza con sk-or-. Revisá el nombre exacto del modelo en openrouter.ai/models."
-      if ask_key "OpenRouter" KIMI_API_KEY; then
-        set_var LLM_PROVIDER kimi
-        set_var KIMI_BASE_URL https://openrouter.ai/api/v1
-        ask_model moonshotai/kimi-k3
+      if ask_key "OpenRouter" OPENROUTER_API_KEY; then
+        set_var LLM_PROVIDER openrouter
+        ask_model OPENROUTER_MODEL moonshotai/kimi-k3
       fi
       ;;
     *)

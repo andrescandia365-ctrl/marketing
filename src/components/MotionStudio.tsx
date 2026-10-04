@@ -11,6 +11,9 @@ import {
   MOTION_TEMPLATE_LABEL,
   blankScene,
   elementTimes,
+  posterTime,
+  readingIssues,
+  readingKey,
   newMotionPiece,
   quietGaps,
   revealTimes,
@@ -32,6 +35,7 @@ import { toWav, TARGET_LUFS } from "../lib/motionAudio.ts";
 import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
 import {
   LAYER_BASE,
+  POSTER_BASE,
   SHEET_BASE,
   VOICE_BASE,
   arrangeScenes,
@@ -43,6 +47,7 @@ import {
   makeWorld,
   motionBeats,
   motionSound,
+  posterJpeg,
   usesAiImages,
 } from "../lib/motionProject.ts";
 import type { RenderResult } from "../lib/render.ts";
@@ -230,6 +235,17 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const gaps = quietGaps(scenes);
   const key = (g: { from: number; to: number }) => `${g.from.toFixed(1)}-${g.to.toFixed(1)}`;
   const openGaps = gaps.filter((g) => !piece.dismissed.includes(key(g)));
+  // Lines on screen too briefly to read (about 0.3 s per word once fully in).
+  const openReading = readingIssues(scenes).filter((r) => !(piece.readingOk ?? []).includes(readingKey(r)));
+  const blocked = openGaps.length > 0 || openReading.length > 0;
+  // The thumbnail: frame 0 of every render.
+  const posterT = posterTime(scenes, piece.poster);
+  const posterRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const c = posterRef.current;
+    const ctx = c?.getContext("2d");
+    if (c && ctx && snapped) drawMotionFrame(ctx, c.width, c.height, posterT, snapped, world);
+  });
 
   const savedState = (p: MotionPiece) => ({ version: 1, kind: "motion", step: "motion", pieceBrief: brief, motion: p });
 
@@ -255,7 +271,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const soundKey = JSON.stringify(
     timeScenes(scenes).map((s) => [s.start, s.template, revealTimes(s), elementTimes(s).voice ?? null]),
   );
-  useEffect(() => setSoundUrl(null), [soundKey, voices, piece.music, piece.voice, track]);
+  useEffect(() => setSoundUrl(null), [soundKey, voices, piece.music, piece.voice, piece.effects, track]);
 
   // Live preview: frame t follows the player while it plays, else the timeline's time. The selected element gets a
   // dashed outline (the editor's, never in the video).
@@ -497,7 +513,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const reviewOk = (formats: SheetFormat[]) => reviewed(formats) && Boolean(quality!.passed || quality!.accepted);
 
   // Runs the rounds; returns the script as it ended (with the fixes) and the result, or null on an error.
-  async function runQuality(formats: SheetFormat[]): Promise<{ script: MotionScript; quality: QualityState } | null> {
+  async function runQuality(formats: SheetFormat[]): Promise<{ script: MotionScript; quality: QualityState; poster?: MotionPiece["poster"] } | null> {
     if (!script) return null;
     setError("");
     const rounds: QualityRound[] = [];
@@ -505,6 +521,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     let passed = false;
     const earlier: string[] = [];
     let lastSheets: { format: SheetFormat; blob: Blob | null }[] = [];
+    let poster: MotionPiece["poster"] | undefined;
     const voiceLengths = Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.duration]));
     const music = piece.music === "synth" ? `synthesized, ${script.music.mood}, ${script.music.bpm} bpm` : piece.music === "track" && track ? "the person's own track" : "none";
     try {
@@ -530,6 +547,12 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           earlier.join("\n"),
         );
         passed = passes(review.scores);
+        // The AI picks the thumbnail unless the person already did.
+        if (review.poster !== null && piece.poster?.by !== "vos") {
+          poster = { t: review.poster, by: "ia" };
+          const chosen = poster;
+          setPiece((p) => (p.poster?.by === "vos" ? p : { ...p, poster: chosen }));
+        }
         let applied: string[] = [];
         if (!passed && round < MAX_ROUNDS) {
           const fixed = applyFixes(working, review.fixes, formats);
@@ -568,12 +591,14 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     };
     setPiece((p) => ({ ...p, quality: state }));
     setReviewing("");
-    return { script: working, quality: state };
+    return { script: working, quality: state, poster };
   }
 
   // Before any full render: the loop, unless this exact piece already passed it (or the person chose to go ahead).
   // Returns the script to render (the loop may have fixed it), or null when it should not render.
-  async function ensureReviewed(formats: SheetFormat[]): Promise<{ script: MotionScript; quality: QualityState | null } | null> {
+  async function ensureReviewed(
+    formats: SheetFormat[],
+  ): Promise<{ script: MotionScript; quality: QualityState | null; poster?: MotionPiece["poster"] } | null> {
     if (!script) return null;
     if (reviewOk(formats)) return { script, quality };
     if (reviewed(formats)) {
@@ -599,7 +624,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     setError("");
     try {
       // The render reads the saved project: save it as it is now first.
-      const saving = { ...piece, script: ok.script, quality: ok.quality ?? piece.quality };
+      const saving = { ...piece, script: ok.script, quality: ok.quality ?? piece.quality, ...(ok.poster !== undefined && { poster: ok.poster }) };
       await api.saveProject(projectId, savedState(saving), pieceMarkdown(saving, playable(ok.script).played.scenes));
       const { job } = await api.startFinal(projectId, formats, location.origin);
       setFinalJob(job);
@@ -619,6 +644,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     const ok = await ensureReviewed(formats);
     if (!ok) return;
     const { played, beats: playedBeats, world: playedWorld } = playable(ok.script);
+    const cover = posterTime(played.scenes, ok.poster !== undefined ? ok.poster : piece.poster);
     setError("");
     setBusy("render");
     setResults([]);
@@ -633,11 +659,16 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           height: h,
           duration: scriptDuration(played),
           audio: sound,
-          draw: (ctx, t) => drawMotionFrame(ctx, w, h, t, played, playedWorld),
+          // Frame 0 is the thumbnail (platforms show the first frame); every other frame is the piece as it plays.
+          draw: (ctx, t) => drawMotionFrame(ctx, w, h, t === 0 ? cover : t, played, playedWorld),
           onProgress: (f) => setProgress((n + f) / formats.length),
         });
         let saved = "";
-        if (projectId) saved = `${projectsDir}/${projectId}/${(await api.saveVideo(projectId, out.blob, format)).file}`;
+        if (projectId) {
+          saved = `${projectsDir}/${projectId}/${(await api.saveVideo(projectId, out.blob, format)).file}`;
+          const poster = await posterJpeg(w, h, cover, played, playedWorld);
+          if (poster) await api.uploadMedia(projectId, POSTER_BASE + (format === "vertical" ? 0 : 1), "image", poster).catch(() => undefined);
+        }
         setResults((r) => [...r, { ...out, url: objectUrl(out.blob), format, saved }]);
       }
     } catch (e) {
@@ -751,6 +782,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               voiceLengths={Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.duration]))}
               selected={selected}
               playheadRef={playheadRef}
+              poster={posterT}
               onSeek={seek}
               onSelect={setSelected}
               onBegin={begin}
@@ -780,6 +812,68 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                   <input type="checkbox" checked={snap} onChange={(e) => set({ snap: e.target.checked })} />
                   Cortes en los beats
                 </label>
+              </div>
+            </div>
+
+            <div className={`rounded-xl border p-3 text-sm ${openReading.length ? "border-neg/40 bg-neg-soft" : "border-good/30 bg-good-soft"}`}>
+              {openReading.length ? (
+                <>
+                  <p className="font-semibold text-neg">Se lee: {openReading.length} texto(s) no llegan a leerse. No se puede generar hasta arreglarlo.</p>
+                  <ul className="mt-1 space-y-1">
+                    {openReading.map((r) => (
+                      <li key={readingKey(r)} className="flex flex-wrap items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          className="text-left hover:underline"
+                          onClick={() => {
+                            const at = timeScenes(scenes).find((x) => x.id === r.sceneId);
+                            if (at) seek(at.end - 0.1);
+                            setSelected({ sceneId: r.sceneId, key: r.key === "voice" ? null : r.key });
+                          }}
+                        >
+                          Escena {r.index + 1} · {r.label} (“{r.text.length > 40 ? `${r.text.slice(0, 40)}…` : r.text}”): queda quieto {r.has.toFixed(1)} s y necesita {r.needs.toFixed(1)} s. Hacelo entrar antes, acortalo o alargá la escena.
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-muted hover:text-ink"
+                          onClick={() => set({ readingOk: [...(piece.readingOk ?? []), readingKey(r)] })}
+                        >
+                          No es un problema
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="font-semibold text-good">✓ Cada texto se queda lo suficiente para leerlo.</p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-white p-3 text-sm">
+              <canvas
+                ref={posterRef}
+                width={vertical ? 108 : 192}
+                height={vertical ? 192 : 108}
+                aria-label="Portada"
+                className="rounded border border-line"
+              />
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <p className="font-semibold">Portada (el primer cuadro del video)</p>
+                <p className="text-xs text-muted">
+                  X, Slack y Discord muestran el primer cuadro como miniatura. Ahora: {posterT.toFixed(1)} s ·{" "}
+                  {piece.poster?.by === "vos" ? "la elegiste vos" : piece.poster?.by === "ia" ? "la eligió la IA" : "automática (el gancho entero)"}
+                  {piece.poster && Math.abs(posterT - piece.poster.t) > 0.01 ? " (se corrió para no caer en un corte)" : ""}.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => set({ poster: { t: Math.round(timeRef.current * 100) / 100, by: "vos" } })}>
+                    Usar el cuadro de ahora
+                  </Button>
+                  {piece.poster && (
+                    <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => set({ poster: null })}>
+                      Automática
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -825,6 +919,18 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                 )}
               </div>
               {piece.voice === "generated" && !voiceAvailable && <p className="mt-1 text-xs text-muted">La voz generada necesita OPENAI_API_KEY.</p>}
+            </Field>
+
+            <Field label="Efectos de sonido" group hint="La biblioteca libre (dominio público, Kenney y teclas) o sintetizados. Suenan al empezar cada movimiento.">
+              <Segmented
+                value={piece.effects ?? "library"}
+                onChange={(effects) => set({ effects })}
+                options={[
+                  { value: "library", label: "Biblioteca libre" },
+                  { value: "synth", label: "Sintetizados" },
+                  { value: "none", label: "Sin efectos" },
+                ]}
+              />
             </Field>
 
             <Field label="Música" group hint="Sintetizada en código, o tu tema (los cortes caen en sus beats).">
@@ -919,7 +1025,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               onAccept={() => quality && set({ quality: { ...quality, accepted: true } })}
             />
             <div className="flex gap-2">
-              <Button className="flex-1" onClick={() => render([piece.format])} disabled={busy !== null || Boolean(reviewing) || openGaps.length > 0}>
+              <Button className="flex-1" onClick={() => render([piece.format])} disabled={busy !== null || Boolean(reviewing) || blocked}>
                 {busy === "render" ? (
                   <>
                     <Spinner /> Generando…
@@ -928,7 +1034,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                   `Generar ${vertical ? "9:16" : "16:9"}`
                 )}
               </Button>
-              <Button variant="secondary" className="flex-1" onClick={() => render(["vertical", "horizontal"])} disabled={busy !== null || Boolean(reviewing) || openGaps.length > 0}>
+              <Button variant="secondary" className="flex-1" onClick={() => render(["vertical", "horizontal"])} disabled={busy !== null || Boolean(reviewing) || blocked}>
                 Los dos formatos
               </Button>
             </div>
@@ -942,7 +1048,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                   await finalRender([piece.format]);
                   setBusy(null);
                 }}
-                disabled={!ffmpeg || !projectId || busy !== null || Boolean(reviewing) || openGaps.length > 0}
+                disabled={!ffmpeg || !projectId || busy !== null || Boolean(reviewing) || blocked}
               >
                 {busy === "final" ? (
                   <>
@@ -960,7 +1066,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                   await finalRender(["vertical", "horizontal"]);
                   setBusy(null);
                 }}
-                disabled={!ffmpeg || !projectId || busy !== null || Boolean(reviewing) || openGaps.length > 0}
+                disabled={!ffmpeg || !projectId || busy !== null || Boolean(reviewing) || blocked}
               >
                 Render final de los dos
               </Button>

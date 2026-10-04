@@ -5,7 +5,9 @@ import type {
   Menu,
   ProductShot,
   SegmentEdit,
+  ListedModel,
   SeriesInfo,
+  SettingsView,
   Sheet,
   SheetTemplate,
   Shot,
@@ -139,6 +141,15 @@ export const api = {
   startFinal: (id: string, formats: ("vertical" | "horizontal")[], origin: string) =>
     call<{ job: FinalJob }>(`/api/projects/${enc(id)}/final`, { formats, origin }),
   finalJob: (job: string) => call<{ job: FinalJob }>(`/api/final/${enc(job)}`),
+  // Modelos (only answers from this computer).
+  settings: () => call<SettingsView>("/api/settings"),
+  saveKey: (name: string, key: string | null) => call<SettingsView>("/api/settings/key", { name, key }, "PUT"),
+  saveWriter: (provider: string, model: string) => call<SettingsView>("/api/settings/writer", { provider, model }, "PUT"),
+  saveVision: (provider: string | null, model: string | null) => call<SettingsView>("/api/settings/vision", { provider, model }, "PUT"),
+  saveEffort: (effort: string) => call<SettingsView>("/api/settings/effort", { effort }, "PUT"),
+  models: (provider: string) => call<{ models: ListedModel[] }>(`/api/settings/models?provider=${enc(provider)}`),
+  efforts: (model: string) => call<{ efforts: string[] }>(`/api/settings/efforts?model=${enc(model)}`),
+  testModel: (provider: string, model: string, vision: boolean) => call<{ result: string }>("/api/settings/test", { provider, model, vision }),
   uploadLogo: (seriesId: string, image: Blob) =>
     upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/logo`, image, image.type),
   saveLyricStyle: (id: string, lyricStyle: LyricStyle) =>

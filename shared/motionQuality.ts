@@ -47,11 +47,16 @@ export const MotionReviewSchema = z.object({
     .describe("Exactly one score per criterion, all six."),
   fixes: z.array(FixWire).describe("The three worst problems (fewer if fewer scores are under 8), worst first, each as an edit. Empty if every score is 8 or more."),
   summary: z.string().describe("In Spanish, one or two sentences on the piece as a whole."),
+  poster: z
+    .number()
+    .describe(
+      "The second of the strongest settled frame for the video's thumbnail: text fully in, not in the middle of a cut (frames marked 'corte'); usually the hook, the product reveal or the logo.",
+    ),
 });
 export type MotionReviewWire = z.infer<typeof MotionReviewSchema>;
 export type Fix = z.infer<typeof FixWire>;
 export type Scores = Record<Criterion, { score: number; note: string }>;
-export type MotionReview = { scores: Scores; fixes: Fix[]; summary: string };
+export type MotionReview = { scores: Scores; fixes: Fix[]; summary: string; poster: number | null };
 
 export function normalizeReview(wire: MotionReviewWire): MotionReview {
   const scores = Object.fromEntries(CRITERIA.map((c) => [c, { score: 0, note: "La IA no lo puntuó." }])) as Scores;
@@ -60,7 +65,8 @@ export function normalizeReview(wire: MotionReviewWire): MotionReview {
     const c = CRITERIA.find((x) => key === x || key.startsWith(x) || key.includes(x));
     if (c) scores[c] = { score: Math.round(Math.min(10, Math.max(1, Number(s.score) || 1))), note: s.note };
   }
-  return { scores, fixes: wire.fixes.slice(0, MAX_FIXES), summary: wire.summary };
+  const poster = Number(wire.poster);
+  return { scores, fixes: wire.fixes.slice(0, MAX_FIXES), summary: wire.summary, poster: Number.isFinite(poster) && poster >= 0 ? poster : null };
 }
 
 export const passes = (scores: Scores) => CRITERIA.every((c) => scores[c].score >= PASS);

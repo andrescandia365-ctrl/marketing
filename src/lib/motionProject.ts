@@ -1,17 +1,19 @@
 // What the explainer studio and the render page (render.mjs) share: loading a piece's images, voices and track,
 // the beat grid, the scenes on it, the world the engine draws with, and the sound. Both build frame t and the mix
 // the same way, so the final render matches the preview.
-import { elementTimes, revealTimes, snapScenes, timeScenes, type MotionPiece, type MotionScene, type MotionScript } from "../../shared/motion.ts";
+import { TYPE_CPS, elementTimes, sceneElements, snapScenes, timeScenes, type MotionPiece, type MotionScene, type MotionScript } from "../../shared/motion.ts";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import type { Brand } from "../../shared/series.ts";
 import { libraryFileUrl, projectFileUrl, type MediaFileRecord, type MediaRecord } from "./api.ts";
-import { beatGrid, scriptDuration, type MotionAsset, type MotionWorld } from "./motion.ts";
-import { buildSound, onGrid, type SoundPlan } from "./motionAudio.ts";
+import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "./motion.ts";
+import { buildSound, nearBeat, type HitKind, type SoundPlan } from "./motionAudio.ts";
 import { findBeats } from "./render.ts";
 
 export const VOICE_BASE = 100;
 export const LAYER_BASE = 200;
 export const SHEET_BASE = 300;
+// The thumbnail of the last render, per format: 302 (9:16) and 303 (16:9).
+export const POSTER_BASE = 302;
 export const MOTION_SEED = 20261003;
 export const AI_NOTICE = "Algunas imágenes están hechas con IA";
 
@@ -104,22 +106,92 @@ export function makeWorld(brand: Brand, assets: Record<string, MotionAsset>, log
   return { brand, assets, logo, beats, seed: MOTION_SEED, disclosure: notice ? AI_NOTICE : "" };
 }
 
-// The plan of the sound: voices at their scenes, whooshes on the cuts and pops on new elements, on the grid.
+// The bundled public-domain effects (public/sfx, CC0; see CREDITOS.md there), loaded once.
+const SFX_FILES: Record<HitKind, string[]> = {
+  whoosh: ["desliza"],
+  pop: ["cae-1", "cae-2"],
+  reveal: ["golpe-suave"],
+  logo: ["campana"],
+  tap: ["toque"],
+  key: Array.from({ length: 12 }, (_, i) => `tecla-${String(i + 1).padStart(2, "0")}`),
+};
+let sfx: Promise<Partial<Record<HitKind, AudioBuffer[]>>> | null = null;
+export function loadSfx(): Promise<Partial<Record<HitKind, AudioBuffer[]>>> {
+  sfx ??= Promise.all(
+    (Object.entries(SFX_FILES) as [HitKind, string[]][]).map(async ([kind, names]) => {
+      const buffers = await Promise.all(
+        names.map((n) =>
+          fetch(`/sfx/${n}.wav`)
+            .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(n))))
+            .then(decodeAudio)
+            .catch(() => null),
+        ),
+      );
+      return [kind, buffers.filter((b): b is AudioBuffer => Boolean(b))] as const;
+    }),
+  ).then((list) => Object.fromEntries(list));
+  return sfx;
+}
+
+// Where the effects go. Each lands as its motion starts (a hair before), and on a beat only when one is within
+// 0.06 s. In a sequence (labels, steps) only the first and the last arrival sound. Typing sounds per key.
+export function soundHits(snapped: MotionScript, beats: number[]): SoundPlan["hits"] {
+  const hits: SoundPlan["hits"] = [];
+  const hit = (t: number, kind: HitKind, n?: number) => hits.push({ at: Math.max(0, nearBeat(t, beats) - 0.02), kind, n });
+  for (const s of timeScenes(snapped.scenes)) {
+    if (s.index > 0) hits.push({ at: s.start, kind: "whoosh" });
+    const T = elementTimes(s);
+    const has = (key: string) => key in T;
+    const within = (r: number) => r < s.seconds - 0.05;
+    switch (s.template) {
+      case "callouts":
+      case "steps": {
+        const items = sceneElements(s)
+          .filter((e) => e.lane === "items" && within(e.at))
+          .sort((a, b) => a.at - b.at);
+        if (items.length) hit(s.start + items[0].at, "pop");
+        if (items.length > 1) hit(s.start + items[items.length - 1].at, "pop", 1);
+        break;
+      }
+      case "product":
+        hit(s.start + Math.max(0.05, T.media ?? 0), "reveal");
+        if (has("tag") && within(T.tag)) hit(s.start + T.tag, "pop");
+        break;
+      case "logo":
+        hit(s.start + Math.max(0.05, T.media ?? 0), "logo");
+        if (has("tag") && within(T.tag)) hit(s.start + T.tag, "pop", 1);
+        break;
+      case "zoom":
+        if (within(T.ring + 0.5)) hit(s.start + T.ring + 0.5, "tap");
+        break;
+      case "stat":
+        if (has("title") && within(T.title + 1.2)) hit(s.start + T.title + 1.2, "pop");
+        break;
+      case "type": {
+        if (has("title")) {
+          [...s.title].forEach((ch, i) => {
+            const t = T.title + i / TYPE_CPS;
+            if (ch.trim() && within(t) && i < 60) hits.push({ at: s.start + t, kind: "key", n: i * 7 + s.index });
+          });
+        }
+        if (has("tag") && within(T.tag + 0.25)) hit(s.start + T.tag + 0.25, "tap");
+        if (has("text") && within(T.text)) hit(s.start + T.text, "pop");
+        break;
+      }
+    }
+  }
+  return hits.sort((a, b) => a.at - b.at);
+}
+
+// The plan of the sound: voices at their scenes, effects where things happen.
 export function soundPlan(
   snapped: MotionScript,
   piece: MotionPiece,
   beats: number[],
   voices: Record<string, { blob: Blob }>,
   track: AudioBuffer | null,
-): { plan: Omit<SoundPlan, "voices">; voiceBlobs: { at: number; blob: Blob }[] } {
+): { plan: Omit<SoundPlan, "voices" | "samples">; voiceBlobs: { at: number; blob: Blob }[] } {
   const timed = timeScenes(snapped.scenes);
-  const hits: SoundPlan["hits"] = [];
-  for (const s of timed) {
-    if (s.index > 0) hits.push({ at: s.start, kind: "whoosh" });
-    revealTimes(s)
-      .filter((r) => r > 0.05 && r < s.seconds && ["callouts", "steps", "product", "logo"].includes(s.template))
-      .forEach((r) => hits.push({ at: onGrid(s.start + r, beats), kind: "pop" }));
-  }
   const voiceBlobs =
     piece.voice === "none"
       ? []
@@ -131,7 +203,8 @@ export function soundPlan(
       mood: snapped.music.mood,
       bpm: snapped.music.bpm,
       track,
-      hits,
+      hits: soundHits(snapped, beats),
+      effects: piece.effects ?? "library",
     },
     voiceBlobs,
   };
@@ -146,5 +219,15 @@ export async function motionSound(
 ): Promise<{ buffer: AudioBuffer; lufs: number }> {
   const made = soundPlan(snapped, piece, beats, voices, track);
   const decoded = await Promise.all(made.voiceBlobs.map(async (v) => ({ at: v.at, buffer: await decodeAudio(v.blob) })));
-  return buildSound({ ...made.plan, voices: decoded });
+  const samples = made.plan.effects === "library" ? await loadSfx() : undefined;
+  return buildSound({ ...made.plan, voices: decoded, samples });
+}
+
+// The thumbnail as a JPEG, full size: the frame at `t`.
+export function posterJpeg(w: number, h: number, t: number, script: MotionScript, world: MotionWorld): Promise<Blob | null> {
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  drawMotionFrame(canvas.getContext("2d")!, w, h, t, script, world);
+  return new Promise((done) => canvas.toBlob(done, "image/jpeg", 0.92));
 }

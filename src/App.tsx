@@ -11,6 +11,7 @@ import { BoardView } from "./components/BoardView.tsx";
 import { BriefForm } from "./components/BriefForm.tsx";
 import { MenuPicker } from "./components/MenuPicker.tsx";
 import { LyricStudio, type LyricOpen } from "./components/LyricStudio.tsx";
+import { ModelsPanel } from "./components/ModelsPanel.tsx";
 import { MotionStudio, type MotionOpen } from "./components/MotionStudio.tsx";
 import { ProductPanel } from "./components/ProductPanel.tsx";
 import { ProjectsPanel } from "./components/ProjectsPanel.tsx";
@@ -82,6 +83,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
+  const [showModels, setShowModels] = useState(false);
   const [step, setStep] = useState<Step>("brief");
   const [brief, setBrief] = useState<Brief>(loadBrief);
   // The brief the current piece was written from; later steps use it even if the form changes.
@@ -793,11 +795,14 @@ export function App() {
                 + Nueva pieza
               </Button>
             )}
-            <span
-              className={`rounded-full border px-2.5 py-1 font-medium ${status.writer ? "border-good/40 bg-good-soft text-good" : "border-line bg-white text-muted"}`}
+            <button
+              type="button"
+              onClick={() => setShowModels(true)}
+              title="Modelos: quién escribe y las claves"
+              className={`rounded-full border px-2.5 py-1 font-medium hover:border-ink ${status.writer ? "border-good/40 bg-good-soft text-good" : "border-line bg-white text-muted"}`}
             >
-              {status.writer ? `${status.writer.label} · ${status.writer.model}` : "IA sin conectar"}
-            </span>
+              {status.writer ? `${status.writer.label} · ${status.writer.model}` : "IA sin conectar"} · Modelos
+            </button>
             {realProviders.map((p) => (
               <span key={p.id} className="rounded-full border border-good/40 bg-good-soft px-2.5 py-1 font-medium text-good">
                 {p.label}
@@ -806,6 +811,18 @@ export function App() {
           </div>
         )}
       </header>
+
+      {showModels && (
+        <ModelsPanel
+          onClose={() => setShowModels(false)}
+          onChanged={() =>
+            api
+              .status()
+              .then((s) => setStatus((old) => (old ? { ...old, writer: s.writer, voice: s.voice, lyrics: s.lyrics, imageProviders: s.imageProviders } : s)))
+              .catch(() => undefined)
+          }
+        />
+      )}
 
       <nav className="mt-6 flex gap-1 overflow-x-auto border-b border-line">
         {steps.map((s) => (
@@ -827,8 +844,11 @@ export function App() {
         {status && !status.writer && !lyric && !motion && (
           <Notice tone="warn">
             <b>Modo de muestra.</b> No hay clave de IA: el menú, la historia y el storyboard son un ejemplo fijo de
-            IMAN, y las revisiones no cambian nada. Agregá <code>ANTHROPIC_API_KEY</code> (Claude) o <code>KIMI_API_KEY</code> (Kimi) en <code>.env</code> y reiniciá
-            para escribir los de verdad.
+            IMAN, y las revisiones no cambian nada. Cargá una clave en{" "}
+            <button type="button" className="font-semibold underline" onClick={() => setShowModels(true)}>
+              Modelos
+            </button>{" "}
+            (Claude, Kimi, NVIDIA u OpenRouter) para escribir los de verdad.
           </Notice>
         )}
         {error && <Notice tone="error">{error}</Notice>}

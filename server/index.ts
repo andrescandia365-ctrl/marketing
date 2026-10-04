@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
   BoardWireSchema,
@@ -12,6 +12,7 @@ import {
   normalizeBoard,
   normalizeShot,
   normalizeStory,
+  type SettingsView,
   type Status,
 } from "../shared/schema.ts";
 import {
@@ -23,6 +24,9 @@ import {
   proposeMenu,
   productShot,
   reviewMotion,
+  listModels,
+  testModel,
+  claudeEfforts,
   referenceSheet,
   reviewPicture,
   segmentEdit,
@@ -38,6 +42,24 @@ import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
 import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, LyricStyleSchema, alignLyrics, cleanIdeas } from "../shared/lyrics.ts";
 import { DEMO_BOARD, DEMO_MENU, DEMO_STORY, demoMotion, demoMotionReview } from "./demo.ts";
 import { RenderError, ffmpegAvailable, getFinal, startFinal } from "./finalRender.ts";
+import {
+  EFFORTS,
+  OTHER_KEYS,
+  PROVIDERS,
+  SettingsError,
+  claudeEffort,
+  keyOf,
+  keyVarsOf,
+  labelOf,
+  mask,
+  modelOf,
+  providerIds,
+  ready,
+  setEnv,
+  visionChoice,
+  writerChoice,
+  type ProviderId,
+} from "./settings.ts";
 import { getProvider, listProviders } from "./images/index.ts";
 import { CastMemberSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
 import {
@@ -77,7 +99,9 @@ const app = new Hono();
 
 app.onError((error, c) => {
   if (error instanceof WriterError || error instanceof KimiError) return c.json({ error: error.message }, 502);
-  if (error instanceof SeriesError || error instanceof ProjectError || error instanceof RenderError) return c.json({ error: error.message }, 400);
+  if (error instanceof SeriesError || error instanceof ProjectError || error instanceof RenderError || error instanceof SettingsError) {
+    return c.json({ error: error.message }, 400);
+  }
   if (error instanceof VoiceError || error instanceof LyricsError) return c.json({ error: error.message }, 502);
   if (error instanceof z.ZodError) return c.json({ error: "Al pedido le faltaban datos." }, 400);
   console.error(error);
@@ -346,6 +370,104 @@ app.post("/api/review", async (c) => {
     });
   }
   return c.json({ ...(await reviewPicture(brief, shot, setups, picture, refs)), demo: false });
+});
+
+// ── Modelos: keys and models, set from the app. Only from this computer: the request must come from the loopback
+// address, name localhost as its host and, from a page, be sent by a localhost page (so no website or device on
+// the network can read or change them).
+const LOOPBACK = /^(127\.|::1$|::ffff:127\.)/;
+const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/;
+const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/;
+const localOnly = async (c: Context, next: () => Promise<void>) => {
+  const address = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress ?? "";
+  const origin = c.req.header("origin");
+  const json = (c.req.header("content-type") ?? "").includes("application/json");
+  if (!LOOPBACK.test(address) || !LOCAL_HOST.test(c.req.header("host") ?? "") || (origin && !LOCAL_ORIGIN.test(origin)) || (c.req.method !== "GET" && !json)) {
+    return c.json({ error: "Las claves y los modelos se cambian solo desde la app en esta compu." }, 403);
+  }
+  await next();
+};
+app.use("/api/settings", localOnly);
+app.use("/api/settings/*", localOnly);
+
+const ProviderParam = z.string().refine((p) => (providerIds() as string[]).includes(p), "Ese proveedor no existe.");
+const ModelName = z.string().trim().regex(/^[\w.\-/:@+]{1,120}$/, "Ese nombre de modelo no es válido.");
+const asProvider = (p: string) => p as ProviderId;
+
+function settingsView(): SettingsView {
+  const w = writerChoice();
+  const visionSet = Boolean(process.env.VISION_PROVIDER);
+  const v = visionSet ? visionChoice() : null;
+  return {
+    writer: w,
+    vision: v && (v.provider !== w?.provider || v.model !== w?.model) ? v : null,
+    effort: claudeEffort(),
+    providers: providerIds().map((id) => ({
+      id,
+      label: labelOf(id),
+      ready: ready(id),
+      keyEnd: mask(keyOf(id)) || (id === "claude" && ready(id) ? "(sesión de Anthropic)" : ""),
+      model: modelOf(id),
+      hint: id === "custom" ? "Configurado en .env (KIMI_BASE_URL)" : PROVIDERS[id].keyHint,
+      editable: id !== "custom",
+    })),
+    keys: OTHER_KEYS.map((k) => ({ name: k.name, label: k.label, use: k.use, hint: k.hint, set: Boolean(process.env[k.name]), keyEnd: mask(process.env[k.name]) })),
+  };
+}
+
+app.get("/api/settings", (c) => c.json(settingsView()));
+
+app.put("/api/settings/key", async (c) => {
+  const { name, key } = z
+    .object({ name: z.string().max(40), key: z.string().trim().max(400).nullable() })
+    .parse(await c.req.json());
+  const other = OTHER_KEYS.find((k) => k.name === name);
+  if (other) await setEnv({ [other.name]: key || null });
+  else {
+    const id = asProvider(ProviderParam.parse(name));
+    if (id === "custom") throw new SettingsError("Ese proveedor se configura en .env.");
+    if (key) await setEnv({ [PROVIDERS[id].keyVar]: key });
+    else await setEnv(Object.fromEntries(keyVarsOf(id).map((v) => [v, null])));
+  }
+  return c.json(settingsView());
+});
+
+app.put("/api/settings/writer", async (c) => {
+  const { provider, model } = z.object({ provider: ProviderParam, model: ModelName }).parse(await c.req.json());
+  const id = asProvider(provider);
+  if (!ready(id)) throw new SettingsError(`Primero cargá la clave de ${labelOf(id)}.`);
+  await setEnv({ LLM_PROVIDER: id, [id === "custom" ? "KIMI_MODEL" : PROVIDERS[id].modelVar]: model });
+  return c.json(settingsView());
+});
+
+app.put("/api/settings/vision", async (c) => {
+  const { provider, model } = z.object({ provider: ProviderParam.nullable(), model: ModelName.nullable() }).parse(await c.req.json());
+  if (provider && !ready(asProvider(provider))) throw new SettingsError(`Primero cargá la clave de ${labelOf(asProvider(provider))}.`);
+  await setEnv(provider && model ? { VISION_PROVIDER: provider, VISION_MODEL: model } : { VISION_PROVIDER: null, VISION_MODEL: null });
+  return c.json(settingsView());
+});
+
+app.put("/api/settings/effort", async (c) => {
+  const { effort } = z.object({ effort: z.enum(EFFORTS as [string, ...string[]]) }).parse(await c.req.json());
+  await setEnv({ WRITER_EFFORT: effort });
+  return c.json(settingsView());
+});
+
+// The provider's models, and for Claude the effort levels each accepts.
+app.get("/api/settings/models", async (c) => {
+  const id = asProvider(ProviderParam.parse(c.req.query("provider") ?? ""));
+  if (!ready(id)) throw new SettingsError(`Primero cargá la clave de ${labelOf(id)}.`);
+  return c.json({ models: await listModels(id) });
+});
+
+app.get("/api/settings/efforts", (c) => c.json({ efforts: claudeEfforts(ModelName.parse(c.req.query("model") ?? "")) }));
+
+// A tiny real request with the chosen provider and model; with vision, a red picture to name.
+app.post("/api/settings/test", async (c) => {
+  const { provider, model, vision } = z.object({ provider: ProviderParam, model: ModelName, vision: z.boolean().default(false) }).parse(await c.req.json());
+  const id = asProvider(provider);
+  if (!ready(id)) throw new SettingsError(`Primero cargá la clave de ${labelOf(id)}.`);
+  return c.json({ result: await testModel({ provider: id, label: labelOf(id), model }, vision) });
 });
 
 // The motion quality loop: the reviewer scores the contact sheet(s) against the app's measurements.

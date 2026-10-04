@@ -4,7 +4,8 @@
 // yuv420p, CRF 16, with the piece's mix (-14 LUFS) in AAC.
 //
 // Usage (with the app running):  node render.mjs <proyecto> [vertical|horizontal|ambos] [--url http://localhost:5173]
-// The video lands in the project's folder as video-final-vertical.mp4 / video-final-horizontal.mp4.
+// The video lands in the project's folder as video-final-vertical.mp4 / video-final-horizontal.mp4. Frame 0 is the
+// piece's thumbnail (platforms show the first frame), also saved as portada-9x16.jpg / portada-16x9.jpg.
 // Browser: Google Chrome if installed, or the one at CHROME_PATH.
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
@@ -60,8 +61,8 @@ async function renderOne(browser, format, index) {
   const problem = await page.evaluate(() => window.motionRenderError);
   if (problem) fail(problem);
   const info = await page.evaluate(() => {
-    const { width, height, fps, duration, notice } = window.motionRender;
-    return { width, height, fps, duration, notice };
+    const { width, height, fps, duration, notice, poster } = window.motionRender;
+    return { width, height, fps, duration, notice, poster };
   });
   const temp = await mkdtemp(join(tmpdir(), "render-"));
   const wav = join(temp, "sonido.wav");
@@ -119,12 +120,14 @@ async function renderOne(browser, format, index) {
   const canvas = page.locator("canvas");
   const frames = Math.round(info.duration * info.fps);
   for (let f = 0; f < frames; f++) {
-    await page.evaluate((t) => window.seek(t), f / info.fps);
+    await page.evaluate((t) => window.seek(t), f === 0 ? info.poster : f / info.fps);
     await feed(ffmpeg.stdin, await canvas.screenshot({ type: "png", animations: "disabled" }));
     if (f % 15 === 0) console.log(`progreso ${format} ${((index + f / frames) / formats.length).toFixed(3)}`);
   }
   ffmpeg.stdin.end();
   const code = await finished;
+  await page.evaluate((t) => window.seek(t), info.poster);
+  await writeFile(join(folder, `portada-${vertical ? "9x16" : "16x9"}.jpg`), await canvas.screenshot({ type: "jpeg", quality: 92 }));
   await rm(temp, { recursive: true, force: true });
   await page.close();
   if (code !== 0) {
