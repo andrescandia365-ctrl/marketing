@@ -1,6 +1,6 @@
 # Marketing playbook (operative rules)
 
-Source: `PLAYBOOK.md` in this repo (from commit `e73e803`).
+Source: `PLAYBOOK.md` in this repo (from commit `e73e803`; short-video craft added 4 Oct 2026).
 This file keeps only the parts that steer writing. The research, the show's business facts and the episode log stay in `PLAYBOOK.md`.
 The playbook studies how a late-night satire show builds a segment and borrows the **mechanics only**: never the show's name, clips, music, people, persona or politics.
 
@@ -75,6 +75,18 @@ Also from the episode library:
 1:05–1:15  BUTTON   Last-line joke or warm line + single CTA; calls back to the hook
 ```
 
+### Short-video craft
+Craft rules from an open-source launch-video tool. They sit under the structure above: the frame, the Turn and `[VERIFY]` always win.
+- **Hook in the first 2 seconds:** it names the problem or shows the real artifact.
+- **Show the product in use:** entry → key action → result (open the screen, tap the thing, see the result). A stat or a headline frames the flow at most once; it never replaces it. Reuse real screens, copy and product photos; small illustrative UI text is fine, invented claims and numbers are not.
+- **Make it alive:** things arrive one by one; a simulated tap, swipe or typing beats a static slide. Say what appears, in what order, and which interaction is simulated.
+- **Every frame postable:** no abstract filler or generic motion that could belong to any video.
+- **Legible:** a line to read stays fully on screen and still for about 0.3 s per word (a sentence at least ~1.2 s, a 1–3 word label ~0.8 s). Fast in, then hold. Too much text for the time: cut words or split the scene. Lines arriving one by one on a fast beat (110+ bpm) go every other beat, or arrive quickly and stay together.
+- **Transitions:** never a crossfade between two busy layouts; old out, then new in.
+- **Sound:** one low music bed (it ducks under the voice) and a few soft effects. An effect lands as its animation starts; in a sequence, accent the first and last items, not each one. Put the 1–3 big moments (the product, the logo) on the music's strongest beats. Music only with confirmed rights.
+- **Delivery:** a share caption of 1–3 sentences, postable as is, specific to the piece and in its tone; never "excited to share" or generic SaaS language; same claim rules as the video.
+- **Voice → pacing:** dry = few scenes, one claim each, long holds, hard cuts or slow fades, very sparse sound. Warm = 4–5 scenes, soft transitions, a few gentle cues. Absurdist = more and faster scenes, hard cuts, one comic accent at a time. Never a "trailer with big claims": the scale can be big, the claims stay what exists today.
+
 ## 5. Job A playbook
 - **Audience (hypothesis):** owner-operators and small-chain managers of convenience and corner stores; franchise ops leads.
 - **Pain hypotheses:** stockouts and overstock on the same shelf; expired product; shift gaps and call-outs, the owner covering the counter; reordering by gut feel, missed supplier cutoffs; shrinkage and age-restricted sales; "who was supposed to do that?" task drift.
@@ -104,3 +116,4 @@ Guardrails: no shame about someone's home or family; no health, safety or sleep 
 
 ## 8. Checklist (run before delivering)
 Customer is hero · concrete detail · target is the problem · Turn present · single CTA · no unverified claims · no borrowed IP.
+For video, also: hook in 2 s · the product shown in use · every line held long enough to read.

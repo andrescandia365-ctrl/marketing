@@ -180,6 +180,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Hyperframes:** sería un segundo motor de video.
   - **El tono "ridículo / grandes promesas":** va contra el playbook (no inventar números, el chiste es el problema).
 - **Si se construye:** se copian solo los efectos CC0 con su aviso de origen (Kenney y unicae_games) y la nota MIT del análisis, en `public/sfx/`.
+- **Integrado al playbook (4 Oct 2026):** las reglas de oficio (gancho, mostrar el producto en uso, tiempo de lectura, transiciones, sonido, portada, texto para publicar, voz → ritmo) están en `PLAYBOOK.md` §3.1 y en `server/playbook.md`, así la IA ya escribe con ellas. Las funciones de la app (1 a 9) siguen esperando "go".
 
 ### 31. Motion graphics: videos de letra y videos explicativos
 - **Idea (tuya):** videos con motion graphics para dos cosas:
