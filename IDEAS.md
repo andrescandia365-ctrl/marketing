@@ -162,6 +162,33 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 33. Personajes 3D que funcionen con motion graphics (4 Oct 2026)
+- **Idea (tuya):** poder crear personajes 3D y usarlos en los explicativos (motion graphics).
+- **Dos caminos, de menos a más:**
+  - **A. Look 3D, animado como recorte (2.5D):**
+    - La app escribe la hoja del personaje con estilo 3D estilizado (como las hojas de Chica/Chico, pero para Grok u otra herramienta de imágenes): de frente, de 3/4, de perfil, 4 expresiones y 4 bocas (cerrada, A, O, E).
+    - Con Segmentos de Grok separás cabeza, cuerpo y brazos (como las capas).
+    - El motor los mueve como títere: respira, gira la cabeza, parpadea, saluda o señala. La boca sigue la voz (se cambia según el volumen) y la expresión, según la emoción de la línea.
+    - Escena nueva **"Personaje"**: el personaje presenta, señala la pantalla real o el producto, o reacciona. Sigue siendo función pura del tiempo, así que anda en la vista previa, la línea de tiempo, el control de calidad y el render final.
+    - Barato y rápido; no gira de verdad (solo cambia de vista).
+  - **B. 3D de verdad (modelo .glb):**
+    - Cargás un modelo 3D con esqueleto. Se hace con herramientas de imagen a 3D (Meshy, Tripo, Rodin…) y se le pone esqueleto y gestos con Mixamo u otra. **[NOT SURE]**: qué hace hoy cada una, sus precios y licencias.
+    - La app lo dibuja con three.js dentro del cuadro: gira, la cámara se mueve, gestos como saludar, señalar o festejar, y la boca con la voz si el modelo la trae.
+    - Sigue siendo función pura del tiempo: cada gesto se pide en el segundo t.
+    - **[NOT SURE]** El render final necesita WebGL en Chrome sin ventana: hay que probar que ande y cuánto tarda.
+    - Más trabajo y una herramienta externa más, pero se ve 3D de verdad.
+- **Quiénes pueden ser:**
+  - personas inventadas (adultas, nunca alguien real ni parecido a alguien famoso);
+  - mascotas u objetos que hablan: "The Manager" de IMAN, el paquete de yerba; en Máshogar, los Malos personificados (el Frío, el Desorden, la Humedad) y el producto que llega a salvar;
+  - nunca un personaje conocido ni "al estilo de" un estudio con nombre.
+- **Se guardan en el elenco de la serie** (como los personajes de hoy), con su hoja, sus partes y, en B, su modelo.
+- **Recomendación:** empezar por A, que sirve ya con Grok y el motor actual, y sumar B si querés giros de cámara de verdad.
+- **Preguntas:**
+  1. ¿A (look 3D como títere), B (3D de verdad que gira) o los dos?
+  2. ¿Personas, mascotas u objetos que hablan, o todo?
+  3. ¿Boca sincronizada con la voz?
+  4. Para B: ¿tenés o querés usar alguna herramienta para hacer el modelo 3D?
+
 ### 32. Lo que sirve del repo `latent-spaces/brag` (4 Oct 2026)
 - **Qué es:** una skill para agentes (Claude Code, Codex…) que hace un video de lanzamiento de 15–25 s de un proyecto o una web, con música, efectos y texto para publicar. Renderiza con Hyperframes (HeyGen); la versión "slim" lo hace todo con el modelo. Licencia MIT.
 - **Ya lo tenemos:** cuadros como función pura del tiempo, render con navegador sin ventana + ffmpeg, grilla de beats, gancho en 2 s, "mostrar la cosa real" (pantallas reales) y nada de lenguaje SaaS genérico. No hace falta Hyperframes.
