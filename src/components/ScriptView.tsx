@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { polishWords } from "../../shared/checks.ts";
 import { buildCopyPrompt } from "../../shared/prompt.ts";
-import { SHOT_LENGTHS, type Board, type Brief, type Setup, type Shot, type Story } from "../../shared/schema.ts";
+import { SHOT_LENGTHS, type Board, type Brief, type ImageReview, type SegmentEdit, type Setup, type Shot, type Story } from "../../shared/schema.ts";
 import type { CastMember } from "../../shared/series.ts";
 import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 import { copyText } from "../lib/files.ts";
@@ -12,9 +13,13 @@ import { BeatChip, Button, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
 export type ClipFile = { url: string; blob: Blob; name: string; duration: number };
 // A member of the series' fixed cast, with the URL of its approved image.
 export type LibraryEntry = CastMember & { url?: string };
+// The writer's look at an uploaded image or clip frame, and the picture's format against the video's.
+export type ReviewState = { what: "image" | "clip"; loading: boolean; result?: ImageReview; format?: string; error?: string };
+
 export type MediaState = {
   image?: string;
   clip?: ClipFile;
+  review?: ReviewState;
   voice?: AudioFile;
   sfx?: AudioFile;
   loading?: boolean;
@@ -205,6 +210,10 @@ type CardProps = {
   onUploadImage: (index: number, file: File) => void;
   onUploadClip: (index: number, file: File) => void;
   onRemoveMedia: (index: number, kind: "image" | "clip") => void;
+  // One object changed in the image with the tool's segments.
+  onSegment: (index: number, note: string) => Promise<SegmentEdit>;
+  // Look at the shot's clip (or else its image) again; null when no writer can look at pictures.
+  onReview: ((index: number) => void) | null;
   onRewrite: (index: number, note: string) => Promise<boolean>;
   // The series' fixed cast by id: approved images, @ references and real screens.
   library: Record<string, LibraryEntry>;
@@ -231,6 +240,7 @@ function PromptBox({
   onChange: (value: string) => void;
 }) {
   const words = value.trim().split(/\s+/).filter(Boolean).length;
+  const polish = useContext(StrictLook) ? polishWords(value) : [];
   return (
     <div className="overflow-hidden rounded-lg border border-line">
       <div className="flex items-center justify-between gap-2 border-b border-line bg-paper py-1.5 pr-1.5 pl-3">
@@ -254,9 +264,17 @@ function PromptBox({
           <ActionWarning prompt={value} />
         </div>
       )}
+      {polish.length > 0 && (
+        <p className="mx-3 mb-2 rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900">
+          Pide "{polish.join('", "')}": con el look de la serie, pedí defectos (cámara, grano, foco, luz), no un look pulido.
+        </p>
+      )}
     </div>
   );
 }
+
+// True when the series has a look: prompts that ask for a polished look get a yellow note.
+const StrictLook = createContext(false);
 
 // Who and what is in the frame. Linked members of the fixed cast show their @ reference for the image tool.
 function InFrame({
@@ -337,6 +355,8 @@ function ShotCard(props: CardProps) {
     onUploadClip,
     onRemoveMedia,
     onRewrite,
+    onReview,
+    onSegment,
     library,
     voice,
   } = props;
@@ -521,6 +541,8 @@ function ShotCard(props: CardProps) {
             Generar imagen
           </button>
           {media.error && <p className="text-xs text-neg">{media.error}</p>}
+          <ReviewBox review={media.review} onReview={onReview && (media.image || media.clip) ? () => onReview(shot.index) : null} />
+          {media.image && shot.kind !== "screen" && <SegmentBox toolName={toolName} onSegment={(note) => onSegment(shot.index, note)} />}
         </div>
 
         <div className="min-w-0 space-y-3">
@@ -531,6 +553,28 @@ function ShotCard(props: CardProps) {
             toolName={toolName}
             onChange={(setups) => set("setups", setups)}
           />
+          {shot.timeline.length > 0 && (
+            <div className="rounded-lg border border-line bg-paper p-2 text-xs">
+              <p className="font-semibold">
+                Toma continua · el primer cuadro es el hero still; los tiempos van en el prompt de video
+              </p>
+              <ol className="mt-1 space-y-0.5">
+                {shot.timeline.map((b, i) => (
+                  <li key={i}>
+                    <span className="font-mono text-muted">
+                      {b.from.toFixed(1)}–{b.to.toFixed(1)} s
+                    </span>{" "}
+                    {b.line && (
+                      <>
+                        <b>{story.characters.find((c) => c.id === b.speaker)?.name ?? b.speaker}</b> ({b.emotion}): “{b.line}” ·{" "}
+                      </>
+                    )}
+                    <span className="text-muted">{b.action}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
           {shot.kind !== "screen" && (
             <PromptBox
               label={shot.kind === "transform" ? "Imagen inicial" : "Prompt de imagen"}
@@ -643,15 +687,112 @@ function ShotCard(props: CardProps) {
   );
 }
 
-type Props = Omit<CardProps, "shot" | "media"> & { media: Record<number, MediaState> };
-
-export function ScriptView(props: Props) {
+// "Cambiar un solo objeto": the tool's segments edit one thing in the existing image and keep the rest.
+function SegmentBox({ toolName, onSegment }: { toolName: string; onSegment: (note: string) => Promise<SegmentEdit> }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<SegmentEdit | null>(null);
+  const [error, setError] = useState("");
+  async function ask() {
+    setBusy(true);
+    setError("");
+    try {
+      setResult(await onSegment(note.trim()));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <ol className="space-y-3">
-      {timeShots(props.board.shots).map((shot) => (
-        <ShotCard key={shot.index} {...props} shot={shot} media={props.media[shot.index] ?? {}} />
-      ))}
-    </ol>
+    <details className="text-xs">
+      <summary className="cursor-pointer font-semibold text-muted hover:text-ink">Cambiar un solo objeto</summary>
+      <div className="mt-1.5 space-y-1.5">
+        <p className="text-muted">Con los segmentos de {toolName}: elegís un objeto y cambiás solo eso.</p>
+        <input
+          className={`${inputClass} py-1 text-xs`}
+          placeholder="ej. cambiá solo el yogur vencido por uno fresco"
+          aria-label="Qué cambiar"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && note.trim() && !busy) ask();
+          }}
+        />
+        <Button variant="secondary" className="w-full px-2 py-1 text-xs" disabled={!note.trim() || busy} onClick={ask}>
+          {busy ? <Spinner /> : null} Armar el segmento
+        </Button>
+        {error && <p className="text-neg">{error}</p>}
+        {result && (
+          <div className="space-y-1 rounded-md bg-paper p-2">
+            <p>
+              <b>Seleccioná:</b> {result.select}
+            </p>
+            <p className="font-mono">{result.prompt}</p>
+            <CopyButton text={result.prompt} idle="Copiar prompt" variant="secondary" />
+            {result.note && <p className="text-muted">{result.note}</p>}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function ReviewBox({ review, onReview }: { review?: ReviewState; onReview: (() => void) | null }) {
+  const failed = review?.result?.checks.filter((c) => !c.pass) ?? [];
+  return (
+    <div className="space-y-1.5 text-xs">
+      {review?.loading && (
+        <p className="flex items-center gap-1.5 text-muted">
+          <Spinner /> La IA está mirando {review.what === "clip" ? "el clip" : "la imagen"}…
+        </p>
+      )}
+      {review?.format && <p className="rounded-md bg-amber-100 px-2 py-1 text-amber-900">{review.format}</p>}
+      {review?.error && <p className="text-neg">No se pudo revisar: {review.error}</p>}
+      {review?.result && !review.loading && (
+        <div className={`rounded-md px-2 py-1.5 ${failed.length ? "bg-neg-soft" : "bg-good-soft"}`}>
+          <p className={`font-semibold ${failed.length ? "text-neg" : "text-good"}`}>
+            {failed.length
+              ? `Revisión de la IA: ${failed.length} problema${failed.length === 1 ? "" : "s"}`
+              : "Revisión de la IA: no ve problemas"}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {review.result.checks.map((c, i) => (
+              <li key={i} className={c.pass ? "text-muted" : ""}>
+                {c.pass ? "✓" : "✗"} <b>{c.item}</b>
+                {c.note ? `: ${c.note}` : ""}
+              </li>
+            ))}
+          </ul>
+          {review.result.fixPrompt && (
+            <div className="mt-1.5 space-y-1">
+              <p className="text-muted">Prompt de edición para corregirlo:</p>
+              <p className="font-mono">{review.result.fixPrompt}</p>
+              <CopyButton text={review.result.fixPrompt} idle="Copiar prompt de edición" variant="secondary" />
+            </div>
+          )}
+        </div>
+      )}
+      {onReview && !review?.loading && (
+        <button type="button" onClick={onReview} className="font-semibold text-muted hover:text-ink">
+          {review?.result ? "Revisar de nuevo con IA" : "Revisar con IA"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+type Props = Omit<CardProps, "shot" | "media"> & { media: Record<number, MediaState>; strictLook: boolean };
+
+export function ScriptView({ strictLook, ...props }: Props) {
+  return (
+    <StrictLook.Provider value={strictLook}>
+      <ol className="space-y-3">
+        {timeShots(props.board.shots).map((shot) => (
+          <ShotCard key={shot.index} {...props} shot={shot} media={props.media[shot.index] ?? {}} />
+        ))}
+      </ol>
+    </StrictLook.Provider>
   );
 }
 

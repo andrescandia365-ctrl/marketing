@@ -104,6 +104,13 @@ const ACTION_WORDS = [
   "closes the",
 ];
 
+// With a series look, prompts ask for flaws; these words ask for the polished fake look instead.
+const POLISH_WORDS = ["cinematic", "vintage", "film still", "hyperrealistic", "8k", "masterpiece", "flawless", "airbrushed"];
+export function polishWords(prompt: string): string[] {
+  const text = prompt.toLowerCase();
+  return POLISH_WORDS.filter((w) => text.includes(w));
+}
+
 export function actionWords(prompt: string): string[] {
   const text = ` ${prompt.toLowerCase()} `;
   return ACTION_WORDS.filter((w) => new RegExp(`[^a-z]${w.replace(/ /g, "\\s+")}[^a-z]`).test(text));

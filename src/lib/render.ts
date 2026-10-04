@@ -191,7 +191,7 @@ function paintStill(
 function drawOverlay(
   ctx: CanvasRenderingContext2D,
   shot: TimedShot,
-  speaker: Speaker | undefined,
+  speakers: Record<string, Speaker>,
   t: number,
   options: Pick<RenderOptions, "disclosure" | "headlines" | "style">,
 ) {
@@ -237,15 +237,18 @@ function drawOverlay(
     ctx.restore();
   }
 
+  // A continuous take says who speaks and what beat by beat; a one-line shot splits its line by sentence.
+  const beat = shot.timeline?.find((b) => t - shot.start >= b.from && t - shot.start < b.to);
+  const speaker = speakers[beat ? beat.speaker : shot.speaker];
   // The subtitle block sits low but grows upward when large type wraps to more lines.
-  const subtitle = subtitleAt(shot, t);
+  const subtitle = beat ? beat.line : shot.timeline?.length ? "" : subtitleAt(shot, t);
   const subSize = unit * 0.045 * (style.subtitleSize / 100);
   ctx.font = `600 ${subSize}px ${FONT}`;
   const subHeight = subtitle ? wrapLines(ctx, subtitle, w * 0.84).length * subSize * 1.18 : 0;
   const floor = h - unit * (disclosure ? 0.13 : 0.08);
   const subtitleTop = Math.min(h * 0.8, floor - subHeight);
 
-  if (speaker && shot.voiceover) {
+  if (speaker && subtitle) {
     const nameSize = unit * 0.032 * Math.max(style.subtitleSize / 100, 0.8);
     drawText(ctx, speaker.name.toUpperCase(), w / 2, subtitleTop - nameSize * 1.5, nameSize, w * 0.84, 700, ROLE_COLOR[speaker.role], style);
   }
@@ -260,6 +263,22 @@ function drawOverlay(
   }
   ctx.shadowBlur = 0;
 }
+
+// One shot at a moment, drawn exactly as the video draws it (picture, headline, speaker and line). The storyboard
+// and its "Ver la pieza" playback use it, so the board looks like the finished piece.
+export function drawShot(
+  ctx: CanvasRenderingContext2D,
+  shot: TimedShot,
+  img: HTMLImageElement | null,
+  speakers: Record<string, Speaker>,
+  t: number,
+  options: Pick<RenderOptions, "disclosure" | "fullFrame" | "headlines" | "style">,
+) {
+  paintStill(ctx, img, shot, t, options.fullFrame);
+  drawOverlay(ctx, shot, speakers, t, options);
+}
+
+export { loadImage };
 
 // A still of one shot with its type on top, for the style preview. Uses the shot's image, or its colour card.
 export async function renderPreview(
@@ -280,7 +299,7 @@ export async function renderPreview(
   await document.fonts?.load(`600 24px "IBM Plex Sans"`).catch(() => []);
   const mid = (shot.start + shot.end) / 2;
   paintStill(ctx, img, shot, mid, options.fullFrame);
-  drawOverlay(ctx, shot, options.speakers[shot.speaker], mid, options);
+  drawOverlay(ctx, shot, options.speakers, mid, options);
 }
 
 type OpenClip = { input: Input; frames: AsyncGenerator<WrappedCanvas | null, void, unknown> };
@@ -536,7 +555,7 @@ export async function renderVideo(
       }
       ctx.drawImage(layer.canvas, 0, 0);
       ctx.globalAlpha = 1;
-      drawOverlay(ctx, shot, options.speakers[shot.speaker], t, options);
+      drawOverlay(ctx, shot, options.speakers, t, options);
 
       await video.add(t, 1 / FPS);
       if (f % 15 === 0) onProgress(0.05 + 0.95 * (f / frames));

@@ -20,7 +20,7 @@ export function storyToMarkdown(story: Story): string {
       const lines = t.lines
         .map(
           (l) =>
-            `- *${BEAT_INFO[l.beat].label}* · **${cast[l.speaker]?.name ?? l.speaker}:** “${l.text}”\n  - _${l.direction}_`,
+            `- *${BEAT_INFO[l.beat].label}* · **${cast[l.speaker]?.name ?? l.speaker}:** “${l.text}”${l.emotion ? ` _(${l.emotion})_` : ""}\n  - _${l.direction}_`,
         )
         .join("\n");
       return `### Tema ${i + 1} · ${t.title}\n\n${i === 0 ? "Arranca con" : "Puente"}: ${t.bridge}\n\n${lines}`;
@@ -83,7 +83,13 @@ export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolNa
         `### Toma ${s.index + 1} · ${s.title}`,
         `${formatTime(s.start)}–${formatTime(s.end)} · ${s.seconds} s · ${BEAT_INFO[s.beat].label} · ${s.kind === "transform" ? "Transformación · " : s.kind === "screen" ? "Pantalla real · " : ""}En cuadro: ${s.setups.join(" + ") || "—"}${disclosure}`,
         s.action ? `- **Qué pasa:** ${s.action}` : "",
-        s.voiceover ? `- **${cast[s.speaker]?.name ?? s.speaker}:** “${s.voiceover}”` : "",
+        s.timeline?.length
+          ? `- **Toma continua:**\n${s.timeline
+              .map((b) => `  - ${b.from.toFixed(1)}–${b.to.toFixed(1)} s${b.line ? ` · **${cast[b.speaker]?.name ?? b.speaker}** (${b.emotion}): “${b.line}”` : ""} · ${b.action}`)
+              .join("\n")}`
+          : s.voiceover
+            ? `- **${cast[s.speaker]?.name ?? s.speaker}:** “${s.voiceover}”`
+            : "",
         s.onScreenText ? `- **Headline:** ${s.onScreenText}` : "",
         `- **En ${toolName}:** ${s.toolSettings}`,
         s.kind === "screen" ? `- **Pantalla real:** ${s.screen}` : "",

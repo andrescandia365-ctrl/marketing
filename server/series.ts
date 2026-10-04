@@ -3,12 +3,14 @@
 // /api/series); editing a file by hand works too and is picked up on the next restart.
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import type { LyricStyle } from "../shared/lyrics.ts";
 import type { SeriesInfo } from "../shared/schema.ts";
 import {
   markdownToSeries,
   seriesId,
   seriesToMarkdown,
   type CastMember,
+  type PuppetRole,
   type SeriesFields,
   type TextStyle,
 } from "../shared/series.ts";
@@ -38,6 +40,9 @@ function toSeries(id: string, text: string): Series {
     type: f.type,
     productPerEpisode: f.type === "ecommerce",
     textStyle: f.textStyle,
+    lyricStyle: f.lyricStyle,
+    look: f.look,
+    brand: f.brand,
     cast: f.cast,
     text,
   };
@@ -79,11 +84,31 @@ export function saveTextStyle(id: string, textStyle: TextStyle) {
   saveSeries(id, { ...getSeriesFields(id), textStyle });
 }
 
+export function saveLyricStyle(id: string, lyricStyle: LyricStyle) {
+  saveSeries(id, { ...getSeriesFields(id), lyricStyle });
+}
+
+// The puppet's files are the server's (they change only by uploading or removing a part): what the app sends may
+// change roles and pivots, but never brings a file back or drops one.
+function keepPuppet(old: CastMember | undefined, next: CastMember): CastMember["puppet"] {
+  const files = new Map((old?.puppet.layers ?? []).map((l) => [l.file, l]));
+  if (!files.size) return { layers: [] };
+  const sent = next.puppet.layers.filter((l) => files.has(l.file));
+  const seen = new Set(sent.map((l) => l.file));
+  return { layers: [...sent, ...[...files.values()].filter((l) => !seen.has(l.file))] };
+}
+
+// The series as the app saves it from "Editar serie", with each character's puppet kept.
+export function saveSeriesFromApp(id: string, fields: SeriesFields) {
+  const old = getSeriesFields(id).cast;
+  saveSeries(id, { ...fields, cast: fields.cast.map((m) => ({ ...m, puppet: keepPuppet(old.find((o) => o.id === m.id), m) })) });
+}
+
 // Adds a cast member to the series, or replaces the one with the same id (keeping its image if none is given).
 export function upsertCastMember(id: string, member: CastMember) {
   const fields = getSeriesFields(id);
   const old = fields.cast.find((m) => m.id === member.id);
-  const next = { ...member, image: member.image || old?.image || "" };
+  const next = { ...member, image: member.image || old?.image || "", puppet: keepPuppet(old, member) };
   fields.cast = old ? fields.cast.map((m) => (m.id === member.id ? next : m)) : [...fields.cast, next];
   saveSeries(id, fields);
 }
@@ -106,8 +131,56 @@ export function setCastImage(id: string, castId: string, data: Buffer, type: str
   return file;
 }
 
+// A puppet layer (characters only): a transparent PNG or WebP from Grok's Segments, saved as <castId>-p<n>.<ext>.
+// Index n replaces that layer; one past the end adds one.
+export function setPuppetLayer(id: string, castId: string, index: number, data: Buffer, type: string, role: PuppetRole): CastMember {
+  const fields = getSeriesFields(id);
+  const member = fields.cast.find((m) => m.id === castId);
+  if (!member) throw new SeriesError("Ese integrante del elenco no existe.");
+  if (member.kind !== "character") throw new SeriesError("Solo los personajes tienen títere.");
+  const ext = { "image/png": "png", "image/webp": "webp" }[type.split(";")[0].trim()];
+  if (!ext) throw new SeriesError("Las partes del títere van en PNG o WebP con fondo transparente (las capas de Segmentos).");
+  const layers = [...member.puppet.layers];
+  if (!Number.isInteger(index) || index < 0 || index > layers.length || index >= 12) throw new SeriesError("Esa parte no existe.");
+  const dir = join(LIBRARY_DIR, id);
+  mkdirSync(dir, { recursive: true });
+  // A new name each time, so the browser never shows an old part from its cache.
+  const file = `${castId.slice(0, 30)}-p${index}-${Date.now().toString(36)}.${ext}`;
+  const old = layers[index]?.file;
+  writeFileSync(join(dir, file), data);
+  if (old) rmSync(join(dir, old), { force: true });
+  layers[index] = { file, role, pivot: null };
+  member.puppet = { layers };
+  saveSeries(id, fields);
+  return member;
+}
+
+export function removePuppetLayer(id: string, castId: string, index: number): CastMember {
+  const fields = getSeriesFields(id);
+  const member = fields.cast.find((m) => m.id === castId);
+  if (!member || !member.puppet.layers[index]) throw new SeriesError("Esa parte no existe.");
+  rmSync(join(LIBRARY_DIR, id, member.puppet.layers[index].file), { force: true });
+  member.puppet = { layers: member.puppet.layers.filter((_, i) => i !== index) };
+  saveSeries(id, fields);
+  return member;
+}
+
+// The brand logo lives in the series library as logo.<ext>.
+export function setLogo(id: string, data: Buffer, type: string): string {
+  const fields = getSeriesFields(id);
+  const ext = IMAGE_EXT[type.split(";")[0].trim()];
+  if (!ext) throw new SeriesError("Ese archivo no es una imagen.");
+  const dir = join(LIBRARY_DIR, id);
+  mkdirSync(dir, { recursive: true });
+  const file = `logo.${ext}`;
+  if (fields.brand.logo && fields.brand.logo !== file) rmSync(join(dir, fields.brand.logo), { force: true });
+  writeFileSync(join(dir, file), data);
+  saveSeries(id, { ...fields, brand: { ...fields.brand, logo: file } });
+  return file;
+}
+
 export function readLibraryFile(id: string, name: string): { data: Buffer; type: string } {
-  if (!ID.test(id) || !/^[a-z0-9-]{1,40}\.(png|jpg|webp|gif)$/.test(name)) throw new SeriesError("Ese archivo no existe.");
+  if (!ID.test(id) || !/^[a-z0-9-]{1,60}\.(png|jpg|webp|gif)$/.test(name)) throw new SeriesError("Ese archivo no existe.");
   const type = Object.entries(IMAGE_EXT).find(([, e]) => name.endsWith(`.${e}`))?.[0] ?? "application/octet-stream";
   try {
     return { data: readFileSync(join(LIBRARY_DIR, id, name)), type };

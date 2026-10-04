@@ -1,7 +1,8 @@
 // Shapes shared by the server (Claude output validation) and the browser (types only).
 // Flow: Brief → Menu (topics) → Story (Good vs Bad, in rounds) → Board (shots) → production.
 import { z } from "zod";
-import type { CastMember, SeriesType, TextStyle } from "./series.ts";
+import type { LyricStyle } from "./lyrics.ts";
+import type { Brand, CastMember, SeriesLook, SeriesType, TextStyle } from "./series.ts";
 
 export const BEATS = ["negative", "touching", "good"] as const;
 export type Beat = (typeof BEATS)[number];
@@ -12,7 +13,7 @@ export type Role = (typeof ROLES)[number];
 export const BriefSchema = z.object({
   series: z.string(),
   length: z.enum(["short", "episode"]),
-  // Masogar: this episode's product. IMAN: an optional focus (a loop step or feature).
+  // Máshogar: this episode's product. IMAN: an optional focus (a loop step or feature).
   product: z.string(),
   // A moment the audience already feels: a date, a season, something everyone is talking about.
   angle: z.string(),
@@ -23,6 +24,10 @@ export const BriefSchema = z.object({
   tool: z.string(),
   // Software series: which of the series' real screens this piece may show.
   screens: z.array(z.string()).default([]),
+  // lines: one line per shot (6/10/15 s). continuous: 15 s handheld takes, each a scene with timed beats.
+  takes: z.enum(["lines", "continuous"]).default("lines"),
+  // story: Good vs Bad with a storyboard. explainer: a motion-graphics video that explains (software or one product).
+  piece: z.enum(["story", "explainer"]).default("story"),
 });
 export type Brief = z.infer<typeof BriefSchema>;
 
@@ -72,6 +77,7 @@ const LineWire = z.object({
   beat: z.string().describe("One of: negative, touching, good."),
   speaker: z.string().describe("A character id."),
   text: z.string().describe("The spoken line, in the piece's language."),
+  emotion: z.string().describe("How it is said, one to three words in Spanish (e.g. divertida, con fastidio, en voz baja)."),
   direction: z.string().describe("What is on screen while it is said, in Spanish."),
 });
 export type Line = Omit<z.infer<typeof LineWire>, "beat"> & { beat: Beat };
@@ -148,6 +154,60 @@ export type Story = Omit<z.infer<typeof StoryWireSchema>, "characters" | "topics
   topics: Topic[];
 };
 
+// ── Review of an uploaded image or clip frame ───────────────────────────────────
+export const ImageReviewSchema = z.object({
+  checks: z
+    .array(z.object({ item: z.string(), pass: z.boolean(), note: z.string() }))
+    .describe(
+      "Each check, named in Spanish: Momento de la toma (it shows the shot's moment), Personajes y lugares (they look like their setup lines and reference images), Sin texto ni logos, Sin personas reales (no real person's likeness), Pantallas (screens face away or are out of focus; skip if none), Estilo. A pass you cannot see in the picture is a fail. Notes in Spanish.",
+    ),
+  fixPrompt: z
+    .string()
+    .describe("If anything failed: an edit prompt in English for the tool that fixes only that and keeps everything else. Empty if all pass."),
+});
+export type ImageReview = z.infer<typeof ImageReviewSchema>;
+
+// ── A reference sheet for the series' cast: a character (girl or boy template), a 3D-look puppet character (a
+// person, a mascot or a talking object, for motion graphics) or a place ──
+export const SHEET_TEMPLATES = ["girl", "boy", "puppet", "place"] as const;
+export type SheetTemplate = (typeof SHEET_TEMPLATES)[number];
+export const SheetSchema = z.object({
+  name: z.string().describe("The name as the cast will call it, in Spanish."),
+  identity: z
+    .string()
+    .describe("The identity line in English, repeated word for word in every prompt: for a person, age, skin, eyes, hair, build, wardrobe and jewellery; for a place, what it is and its fixed details."),
+  sheetPrompt: z.string().describe("The whole reference sheet as one image prompt in English, in the tool's format."),
+  views: z
+    .array(z.object({ title: z.string().describe("In Spanish."), prompt: z.string().describe("English.") }))
+    .describe("The same sheet split into separate prompts, one per view or panel, for when the tool does not hold the grid."),
+  filled: z
+    .array(z.object({ field: z.string(), value: z.string() }))
+    .describe("Each detail the person left empty and you chose, in Spanish (field name as given)."),
+  note: z.string().describe("In Spanish: what to check in the result. Empty if nothing."),
+});
+export type Sheet = z.infer<typeof SheetSchema>;
+
+// ── E-commerce: the episode's product, clean, to cut out in the tool and reuse ──
+export const ProductShotSchema = z.object({
+  name: z.string().describe("The product's short name in Spanish, as the cast will call it."),
+  identity: z.string().describe("The product's identity line in English: shape, material, colour, size cues. Repeated word for word in every prompt."),
+  prompt: z
+    .string()
+    .describe(
+      "An image prompt in English in the tool's format: the product alone, whole and centred, front three-quarter view, on a plain light-grey seamless background, soft even studio light, sharp edges, nothing else in frame, no text, no logo, no brand name. Made to cut out with the tool's background removal.",
+    ),
+  note: z.string().describe("One line in Spanish: anything to check (a detail of the product the prompt guesses)."),
+});
+export type ProductShot = z.infer<typeof ProductShotSchema>;
+
+// ── Change one object in a shot's image with the tool's segments ──
+export const SegmentEditSchema = z.object({
+  select: z.string().describe("In Spanish: exactly what to select with the tool's segment tool (one object or area)."),
+  prompt: z.string().describe("The edit prompt in English for that selection only; everything else stays as it is."),
+  note: z.string().describe("In Spanish: what to check after the edit, or why it cannot be done this way. Empty if nothing."),
+});
+export type SegmentEdit = z.infer<typeof SegmentEditSchema>;
+
 // ── Step 3: the storyboard ──────────────────────────────────────────────────────
 // Grok makes clips of exactly these lengths, so every shot is one of them.
 export const SHOT_LENGTHS = [6, 10, 15] as const;
@@ -196,7 +256,20 @@ export const ShotWireSchema = z.object({
     .describe("Prompt that animates this shot's still: the one action of this shot, in the chosen tool's format. English."),
   toolSettings: z.string().describe("What to set in the tool's own controls, very short, e.g. '9:16 · 6 s'."),
   disclosure: z.string().describe("One of: none, concept, simulation."),
+  timeline: z
+    .array(
+      z.object({
+        from: z.number().describe("Seconds from the start of this shot."),
+        to: z.number(),
+        speaker: z.string().describe("Character id, or 'none'."),
+        line: z.string().describe("The exact line said in this beat, or empty."),
+        emotion: z.string().describe("How it is said, in Spanish."),
+        action: z.string().describe("What the bodies and the camera do, including its mistakes, in Spanish."),
+      }),
+    )
+    .describe("Continuous takes only: the timed beats inside the shot, in order, covering it. Empty for a one-line shot."),
 });
+export type TimelineBeat = z.infer<typeof ShotWireSchema>["timeline"][number];
 export const SHOT_KINDS = ["single", "transform", "screen"] as const;
 export type ShotKind = (typeof SHOT_KINDS)[number];
 
@@ -243,7 +316,12 @@ function pick<T extends string>(value: string, options: readonly T[], fallback: 
 
 // Stories saved before the problem title and the practices check.
 export function migrateStory(story: Story): Story {
-  return { ...story, problem: story.problem ?? "", practices: story.practices ?? [] };
+  return {
+    ...story,
+    problem: story.problem ?? "",
+    practices: story.practices ?? [],
+    topics: story.topics.map((t) => ({ ...t, lines: t.lines.map((l) => ({ ...l, emotion: l.emotion ?? "" })) })),
+  };
 }
 
 export function normalizeStory(wire: z.infer<typeof StoryWireSchema>): Story {
@@ -264,6 +342,12 @@ export function snapSeconds(seconds: number): number {
 
 export function normalizeShot(wire: z.infer<typeof ShotWireSchema>): Shot {
   const d = wire.disclosure.toLowerCase();
+  const seconds = snapSeconds(wire.seconds);
+  // Beats stay inside the shot and in order.
+  const timeline = wire.timeline
+    .map((b) => ({ ...b, from: Math.max(0, Math.min(b.from, seconds)), to: Math.max(0, Math.min(b.to, seconds)) }))
+    .filter((b) => b.to > b.from)
+    .sort((a, b) => a.from - b.from);
   let kind = pick(wire.kind, SHOT_KINDS, "single");
   if (kind === "screen" && !wire.screen.trim()) kind = "single";
   if (kind === "transform" && !wire.endPrompt.trim()) kind = "single";
@@ -273,7 +357,8 @@ export function normalizeShot(wire: z.infer<typeof ShotWireSchema>): Shot {
     setups: wire.setups.map((x) => x.trim()).filter(Boolean),
     editFrom: Math.max(0, Math.round(wire.editFrom || 0)),
     beat: pick(wire.beat, BEATS, "negative"),
-    seconds: snapSeconds(wire.seconds),
+    seconds,
+    timeline,
     disclosure: d.includes("concept") ? "concept" : d.includes("simulation") ? "simulation" : "none",
   };
 }
@@ -300,6 +385,7 @@ export function migrateBoard(board: Board): Board {
         endPrompt: old.endPrompt ?? "",
         editFrom: old.editFrom ?? 0,
         editPrompt: old.editPrompt ?? "",
+        timeline: old.timeline ?? [],
       } as Shot;
     }),
   };
@@ -307,7 +393,7 @@ export function migrateBoard(board: Board): Board {
 
 // ── Server status ───────────────────────────────────────────────────────────────
 export type ToolInfo = { id: string; name: string; checked: string };
-// productPerEpisode: every episode features a different product (Masogar), so the brief must name it.
+// productPerEpisode: every episode features a different product (Máshogar), so the brief must name it.
 export type SeriesInfo = {
   id: string;
   name: string;
@@ -315,6 +401,9 @@ export type SeriesInfo = {
   type: SeriesType;
   productPerEpisode: boolean;
   textStyle: TextStyle;
+  lyricStyle: LyricStyle;
+  look: SeriesLook;
+  brand: Brand;
   cast: CastMember[];
 };
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };
@@ -329,4 +418,19 @@ export type Status = {
   projectsDir: string;
   // Generated voice ("Voz generada"): needs an OpenAI key.
   voice: { available: boolean; defaultVoice: string };
+  // Lyric videos: automatic sync needs the transcription API (same OpenAI key).
+  lyrics: { autoSync: boolean };
+  // The final render of explainers (render.mjs) needs ffmpeg on this computer.
+  render: { ffmpeg: boolean };
 };
+
+// "Modelos": who writes, who looks at pictures, and which keys are set (never the keys themselves).
+export type SettingsView = {
+  writer: { provider: string; model: string } | null;
+  // Chosen apart from the writer; null means the writer also looks at pictures.
+  vision: { provider: string; model: string } | null;
+  effort: string;
+  providers: { id: string; label: string; ready: boolean; keyEnd: string; model: string; hint: string; editable: boolean }[];
+  keys: { name: string; label: string; use: string; hint: string; set: boolean; keyEnd: string }[];
+};
+export type ListedModel = { id: string; name: string; vision: boolean | null; structured: boolean | null; efforts?: string[] };

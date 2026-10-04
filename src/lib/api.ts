@@ -1,4 +1,23 @@
-import type { Board, Brief, Menu, SeriesInfo, Shot, Status, Story, TopicIdea } from "../../shared/schema.ts";
+import type {
+  Board,
+  Brief,
+  ImageReview,
+  Menu,
+  ProductShot,
+  SegmentEdit,
+  ListedModel,
+  SeriesInfo,
+  SettingsView,
+  Sheet,
+  SheetTemplate,
+  Shot,
+  Status,
+  Story,
+  TopicIdea,
+} from "../../shared/schema.ts";
+import type { MotionScript } from "../../shared/motion.ts";
+import type { MotionReview } from "../../shared/motionQuality.ts";
+import type { BackgroundPrompts, LyricLanguage, LyricLine, LyricStyle } from "../../shared/lyrics.ts";
 import type { CastMember, SeriesFields, TextStyle } from "../../shared/series.ts";
 
 export type ProjectSummary = {
@@ -10,6 +29,8 @@ export type ProjectSummary = {
   shots: number;
   hasVideo: boolean;
 };
+// The final render (render.mjs + ffmpeg) as the server reports it.
+export type FinalJob = { id: string; project: string; formats: string[]; current: string; progress: number; done: boolean; error: string; files: string[] };
 export type MediaFileRecord = { file: string; name: string; duration: number };
 export type MediaRecord = { image?: string; clip?: MediaFileRecord; voice?: MediaFileRecord; sfx?: MediaFileRecord };
 export type MediaKind = "image" | "clip" | "voice" | "sfx";
@@ -71,6 +92,14 @@ export const api = {
 
   upsertCast: (seriesId: string, member: CastMember) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(member.id)}`, member, "PUT"),
+  uploadPuppetLayer: (seriesId: string, castId: string, index: number, image: Blob, role: string) =>
+    upload<{ member: CastMember; series: SeriesInfo[] }>(
+      `/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}?role=${enc(role)}`,
+      image,
+      image.type,
+    ),
+  removePuppetLayer: (seriesId: string, castId: string, index: number) =>
+    call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}`, undefined, "DELETE"),
   uploadCastImage: (seriesId: string, castId: string, image: Blob) =>
     upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/image`, image, image.type),
 
@@ -109,5 +138,79 @@ export const api = {
     }
     return res.blob();
   },
-  saveVideo: (id: string, video: Blob) => upload<{ file: string }>(`/api/projects/${enc(id)}/video`, video, video.type),
+  motionReview: (
+    brief: Brief,
+    scenes: string,
+    facts: string,
+    sheets: { format: "vertical" | "horizontal"; jpeg: string }[],
+    round: number,
+    earlier: string,
+  ) => call<{ review: MotionReview } & Demo>("/api/motion/review", { brief, scenes, facts, sheets, round, earlier }),
+  startFinal: (id: string, formats: ("vertical" | "horizontal")[], origin: string) =>
+    call<{ job: FinalJob }>(`/api/projects/${enc(id)}/final`, { formats, origin }),
+  finalJob: (job: string) => call<{ job: FinalJob }>(`/api/final/${enc(job)}`),
+  // Modelos (only answers from this computer).
+  settings: () => call<SettingsView>("/api/settings"),
+  saveKey: (name: string, key: string | null) => call<SettingsView>("/api/settings/key", { name, key }, "PUT"),
+  saveWriter: (provider: string, model: string) => call<SettingsView>("/api/settings/writer", { provider, model }, "PUT"),
+  saveVision: (provider: string | null, model: string | null) => call<SettingsView>("/api/settings/vision", { provider, model }, "PUT"),
+  saveEffort: (effort: string) => call<SettingsView>("/api/settings/effort", { effort }, "PUT"),
+  models: (provider: string) => call<{ models: ListedModel[] }>(`/api/settings/models?provider=${enc(provider)}`),
+  efforts: (model: string) => call<{ efforts: string[] }>(`/api/settings/efforts?model=${enc(model)}`),
+  testModel: (provider: string, model: string, vision: boolean) => call<{ result: string }>("/api/settings/test", { provider, model, vision }),
+  uploadLogo: (seriesId: string, image: Blob) =>
+    upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/logo`, image, image.type),
+  saveLyricStyle: (id: string, lyricStyle: LyricStyle) =>
+    call<{ series: SeriesInfo[] }>(`/api/series/${enc(id)}/lyric-style`, { lyricStyle }, "PUT"),
+  // Automatic sync: the song is transcribed with word times and matched to the lines.
+  syncLyrics: async (song: Blob, name: string, lines: string[], seconds: string[], language: LyricLanguage) => {
+    const form = new FormData();
+    form.append("audio", song, name);
+    form.append("lines", JSON.stringify(lines));
+    form.append("seconds", JSON.stringify(seconds));
+    form.append("language", language);
+    const res = await fetch("/api/lyrics/sync", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    return data as { lines: LyricLine[]; heard: number };
+  },
+  lyricIdeas: (series: string, title: string, artist: string, lines: string[]) =>
+    call<{ palette: string[]; mood: "calm" | "lively"; keywords: { line: number; words: string[] }[]; note: string } & Demo>(
+      "/api/lyrics/ideas",
+      { series, title, artist, lines },
+    ),
+  secondLines: (series: string, lines: string[], mode: "romanize" | "translate") =>
+    call<{ lines: string[]; note: string } & Demo>("/api/lyrics/second", { series, lines, mode }),
+  lyricBackgrounds: (
+    series: string,
+    tool: string,
+    title: string,
+    lines: string[],
+    style: { palette: string[]; mood: string },
+    format: "vertical" | "horizontal",
+  ) =>
+    call<BackgroundPrompts & Demo>("/api/lyrics/backgrounds", {
+      series,
+      tool,
+      title,
+      lines,
+      palette: style.palette,
+      mood: style.mood,
+      format,
+    }),
+  motion: (brief: Brief, target: number | null, layers: number) =>
+    call<{ script: MotionScript } & Demo>("/api/motion", { brief, target, layers }),
+  sheet: (series: string, template: SheetTemplate, details: Record<string, string>, age: number) =>
+    call<Sheet & Demo>("/api/sheet", { series, template, details, age }),
+  productShot: (brief: Brief) => call<ProductShot & Demo>("/api/product-shot", { brief }),
+  segmentEdit: (brief: Brief, shot: Shot, note: string) => call<SegmentEdit & Demo>("/api/shot/segment", { brief, shot, note }),
+  review: (
+    brief: Brief,
+    shot: { title: string; action: string; prompt: string; what: "image" | "clip" },
+    setups: { name: string; identity: string }[],
+    picture: string,
+    refs: { label: string; jpeg: string }[],
+  ) => call<ImageReview & Demo>("/api/review", { brief, shot, setups, picture, refs }),
+  saveVideo: (id: string, video: Blob, variant?: "vertical" | "horizontal") =>
+    upload<{ file: string }>(`/api/projects/${enc(id)}/video${variant ? `?variant=${variant}` : ""}`, video, video.type),
 };

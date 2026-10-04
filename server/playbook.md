@@ -1,6 +1,6 @@
 # Marketing playbook (operative rules)
 
-Source: `PLAYBOOK.md` in this repo (from commit `e73e803`).
+Source: `PLAYBOOK.md` in this repo (from commit `e73e803`; short-video craft and static images added 4 Oct 2026).
 This file keeps only the parts that steer writing. The research, the show's business facts and the episode log stay in `PLAYBOOK.md`.
 The playbook studies how a late-night satire show builds a segment and borrows the **mechanics only**: never the show's name, clips, music, people, persona or politics.
 
@@ -75,6 +75,41 @@ Also from the episode library:
 1:05–1:15  BUTTON   Last-line joke or warm line + single CTA; calls back to the hook
 ```
 
+### Short-video craft
+Craft rules from an open-source launch-video tool. They sit under the structure above: the frame, the Turn and `[VERIFY]` always win.
+- **Hook in the first 2 seconds:** it names the problem or shows the real artifact.
+- **Show the product in use:** entry → key action → result (open the screen, tap the thing, see the result). A stat or a headline frames the flow at most once; it never replaces it. Reuse real screens, copy and product photos; small illustrative UI text is fine, invented claims and numbers are not.
+- **Make it alive:** things arrive one by one; a simulated tap, swipe or typing beats a static slide. Say what appears, in what order, and which interaction is simulated.
+- **Every frame postable:** no abstract filler or generic motion that could belong to any video.
+- **Legible:** a line to read stays fully on screen and still for about 0.3 s per word (a sentence at least ~1.2 s, a 1–3 word label ~0.8 s). Fast in, then hold. Too much text for the time: cut words or split the scene. Lines arriving one by one on a fast beat (110+ bpm) go every other beat, or arrive quickly and stay together.
+- **Transitions:** never a crossfade between two busy layouts; old out, then new in.
+- **Sound:** one low music bed (it ducks under the voice) and a few soft effects. An effect lands as its animation starts; in a sequence, accent the first and last items, not each one. Put the 1–3 big moments (the product, the logo) on the music's strongest beats. Music only with confirmed rights.
+- **Delivery:** a share caption of 1–3 sentences, postable as is, specific to the piece and in its tone; never "excited to share" or generic SaaS language; same claim rules as the video.
+- **Voice → pacing:** dry = few scenes, one claim each, long holds, hard cuts or slow fades, very sparse sound. Warm = 4–5 scenes, soft transitions, a few gentle cues. Absurdist = more and faster scenes, hard cuts, one comic accent at a time. Never a "trailer with big claims": the scale can be big, the claims stay what exists today.
+
+### Static images and reference ads
+Rules from user-supplied prompt templates. They sit under the structure above: the frame, the Turn and `[VERIFY]` always win.
+- **Brand first:** read the series bible, its cast, its look and "Lo que existe hoy" before writing a concept.
+- **Tear down a reference ad before borrowing from it:**
+  - the hierarchy: layout, focal point, and what the eye reads first → last;
+  - the design: palette in hex, type style, image style (UGC, studio, lifestyle, product only, illustration, minimal), contrast and whitespace;
+  - the copy: hook, core promise, CTA;
+  - the angle: pain relief, fear or urgency, status, curiosity, ease, authority.
+- **Borrow the structure, never the ad:** keep the composition idea, the reading order and the kind of promise. Change the brand, product, words, picture and people. Never another brand's logo, images, product shots, characters or lines, and never a near-identical copy.
+- **Concept families for one image**, each the Negative → Good frame in a single frame:
+  - before/after (same place and light, one thing changed);
+  - nightmare scenario (the pain pushed to the absurd, with humor; never fear sold);
+  - comparison or us vs. them (against the problem or "the old way", never a named brand or a group of people);
+  - big benefit, reasons why, features and benefits (shipped features only, each tied to its pain);
+  - humor.
+- **Proof stays real:**
+  - an offer only with its real terms and dates;
+  - press only if it exists, with the link;
+  - a testimonial or review only from a real customer, quoted exactly, with consent. Otherwise the line is `[VERIFY]` and the piece does not ship.
+- **The Turn in a still:** one plain line, or the touching detail inside the picture.
+- **Image prompt slots, in order:** subject and action (one frozen moment) → style → light → camera and angle → composition → brand colours → how the product appears → exact text in quotes with its type style and placement → legibility (no distorted, missing or extra letters) → aspect ratio in the tool's syntax.
+- **Text on the image:** models misspell (accents and ñ most of all). Prefer a picture with clear space and no text, with the text set on top in the brand's fonts. If the model writes it, give the exact strings and check the spelling.
+
 ## 5. Job A playbook
 - **Audience (hypothesis):** owner-operators and small-chain managers of convenience and corner stores; franchise ops leads.
 - **Pain hypotheses:** stockouts and overstock on the same shelf; expired product; shift gaps and call-outs, the owner covering the counter; reordering by gut feel, missed supplier cutoffs; shrinkage and age-restricted sales; "who was supposed to do that?" task drift.
@@ -99,8 +134,11 @@ Guardrails: no shame about someone's home or family; no health, safety or sleep 
 ## 7. Do and don't
 - Do reuse the techniques above.
 - Don't use any show's name, logo, clips or music, or any real host's name, voice or likeness; don't imply endorsement. Build a distinct character.
+- Don't copy another brand's ad or use its assets; borrow its structure only.
 - Don't make the brand a political actor.
 - Don't invent statistics, quotes or case studies; mark gaps `[VERIFY]`.
 
 ## 8. Checklist (run before delivering)
 Customer is hero · concrete detail · target is the problem · Turn present · single CTA · no unverified claims · no borrowed IP.
+For video, also: hook in 2 s · the product shown in use · every line held long enough to read.
+For a static image, also: one frozen moment · Negative → Good readable at a glance · exact, legible text · nothing borrowed from a reference but its structure.

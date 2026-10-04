@@ -15,40 +15,77 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
   const set = <K extends keyof Brief>(key: K, value: Brief[K]) => onChange({ ...brief, [key]: value });
   const current = series.find((s) => s.id === brief.series);
   const productMode = current?.productPerEpisode ?? false;
+  const explainer = brief.piece === "explainer";
   const screens = current?.type === "software" ? current.cast.filter((m) => m.kind === "screen") : [];
+
+  const seriesField = (
+    <div className="md:col-span-2">
+      <Field label="Serie" group hint="Lo que la IA sabe de cada marca sale de su serie. Editala cuando cambie algo.">
+        <div className="flex flex-wrap items-center gap-2">
+          <Segmented
+            value={brief.series}
+            onChange={(v) => set("series", v)}
+            options={series.map((s) => ({ value: s.id, label: s.name }))}
+          />
+          <Button variant="secondary" onClick={() => onEditSeries(brief.series)} disabled={!brief.series}>
+            Editar serie
+          </Button>
+          <Button variant="ghost" onClick={onNewSeries}>
+            + Nueva serie
+          </Button>
+        </div>
+      </Field>
+    </div>
+  );
+
+  // A music series makes lyric videos: no story, so none of the story's brief.
+  if (current?.type === "music") {
+    return (
+      <div className="grid gap-5 md:grid-cols-2">
+        {seriesField}
+        <p className="text-sm text-muted md:col-span-2">
+          {current.name} es una serie de música: hace videos de letra. La canción, la letra (en cualquier idioma) y el estilo se
+          cargan en el paso siguiente.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-5 md:grid-cols-2">
-      <div className="md:col-span-2">
-        <Field label="Serie" group hint="Lo que la IA sabe de cada marca sale de su serie. Editala cuando cambie algo.">
-          <div className="flex flex-wrap items-center gap-2">
-            <Segmented
-              value={brief.series}
-              onChange={(v) => set("series", v)}
-              options={series.map((s) => ({ value: s.id, label: s.name }))}
-            />
-            <Button variant="secondary" onClick={() => onEditSeries(brief.series)} disabled={!brief.series}>
-              Editar serie
-            </Button>
-            <Button variant="ghost" onClick={onNewSeries}>
-              + Nueva serie
-            </Button>
-          </div>
-        </Field>
-      </div>
+      {seriesField}
 
       <div className="md:col-span-2">
-        <Field label="Largo" group>
+        <Field
+          label="Pieza"
+          group
+          hint="Historia: el Bueno contra el Malo, con storyboard. Explicativo: motion graphics que explican la app o el producto, con la marca de la serie."
+        >
           <Segmented
-            value={brief.length}
-            onChange={(v) => set("length", v)}
+            value={brief.piece}
+            onChange={(v) => set("piece", v)}
             options={[
-              { value: "short", label: LENGTHS.short.label },
-              { value: "episode", label: LENGTHS.episode.label },
+              { value: "story", label: "Historia" },
+              { value: "explainer", label: "Explicativo (motion graphics)" },
             ]}
           />
         </Field>
       </div>
+
+      {!explainer && (
+        <div className="md:col-span-2">
+          <Field label="Largo" group>
+            <Segmented
+              value={brief.length}
+              onChange={(v) => set("length", v)}
+              options={[
+                { value: "short", label: LENGTHS.short.label },
+                { value: "episode", label: LENGTHS.episode.label },
+              ]}
+            />
+          </Field>
+        </div>
+      )}
 
       <Field
         label={productMode ? "Producto de este episodio" : "Foco (opcional)"}
@@ -100,17 +137,19 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
       </div>
 
       <div className="flex flex-wrap gap-6 md:col-span-2">
-        <Field label="Tono" group>
-          <Segmented
-            value={brief.tone}
-            onChange={(v) => set("tone", v)}
-            options={[
-              { value: "dry", label: "Seco" },
-              { value: "warm", label: "Cálido" },
-              { value: "absurdist", label: "Absurdo" },
-            ]}
-          />
-        </Field>
+        {!explainer && (
+          <Field label="Tono" group>
+            <Segmented
+              value={brief.tone}
+              onChange={(v) => set("tone", v)}
+              options={[
+                { value: "dry", label: "Seco" },
+                { value: "warm", label: "Cálido" },
+                { value: "absurdist", label: "Absurdo" },
+              ]}
+            />
+          </Field>
+        )}
         <Field label="Idioma de lo que se dice" group>
           <Segmented
             value={brief.language}
@@ -121,6 +160,22 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
             ]}
           />
         </Field>
+        {!explainer && (
+          <Field
+            label="Tomas"
+            group
+            hint="Toma continua: planos de 15 s en mano con varias líneas, tiempos, errores de cámara y diálogo dicho dentro del clip."
+          >
+            <Segmented
+              value={brief.takes}
+              onChange={(v) => set("takes", v)}
+              options={[
+                { value: "lines", label: "Una línea por toma" },
+                { value: "continuous", label: "Toma continua (15 s)" },
+              ]}
+            />
+          </Field>
+        )}
         <Field label="Formato" group>
           <Segmented
             value={brief.format}
@@ -131,16 +186,18 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
             ]}
           />
         </Field>
-        <Field label="Herramienta de imagen y video" hint="Los prompts se escriben en su formato.">
-          <select className={inputClass} value={brief.tool} onChange={(e) => set("tool", e.target.value)}>
-            {tools.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-                {t.checked ? ` · revisado ${t.checked}` : ""}
-              </option>
-            ))}
-          </select>
-        </Field>
+        {!explainer && (
+          <Field label="Herramienta de imagen y video" hint="Los prompts se escriben en su formato.">
+            <select className={inputClass} value={brief.tool} onChange={(e) => set("tool", e.target.value)}>
+              {tools.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {t.checked ? ` · revisado ${t.checked}` : ""}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
       </div>
     </div>
   );

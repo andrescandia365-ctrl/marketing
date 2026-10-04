@@ -3,6 +3,7 @@ import {
   VOICE_MODES,
   VOICE_MODE_LABEL,
   speakingPrompt,
+  voiceModeOf,
   type AudioSettings,
   type CharacterVoice,
   type VoiceMode,
@@ -52,7 +53,7 @@ export async function audioDuration(blob: Blob): Promise<number> {
 }
 
 // Records the microphone while showing the line to read.
-function Recorder({ line, onDone }: { line: string; onDone: (blob: Blob) => void }) {
+export function Recorder({ line, onDone }: { line: string; onDone: (blob: Blob) => void }) {
   const [state, setState] = useState<"idle" | "recording" | "error">("idle");
   const [error, setError] = useState("");
   const recorder = useRef<MediaRecorder | null>(null);
@@ -181,7 +182,7 @@ export function VoiceRow(props: VoiceRowProps) {
   const [error, setError] = useState("");
   const line = shot.voiceover.trim();
   const own = speaker ? audio.characters[speaker.id] : undefined;
-  const mode: VoiceMode = !line ? "subtitles" : (audio.shots[index] ?? own?.mode ?? "subtitles");
+  const mode: VoiceMode = voiceModeOf(audio, shot, index);
   const tooLong = voice && voice.duration > shot.seconds - 0.2;
   const fits = voice ? SHOT_LENGTHS.find((l) => l >= voice.duration + 0.3) : undefined;
 
@@ -227,7 +228,14 @@ export function VoiceRow(props: VoiceRowProps) {
             Grok dice la línea dentro del clip{own?.grokVoice ? ` con la voz ${own.grokVoice}` : ""}. Dejá "Sonido de los
             clips" en Mantener.
           </span>
-          <CopyPrompt text={speakingPrompt(shot.videoPrompt, speaker?.name ?? "The character", line, own?.grokVoice ?? "", language)} />
+          {/* A continuous take's director's prompt already scripts its dialogue. */}
+          <CopyPrompt
+            text={
+              shot.timeline?.length
+                ? shot.videoPrompt
+                : speakingPrompt(shot.videoPrompt, speaker?.name ?? "The character", line, own?.grokVoice ?? "", language)
+            }
+          />
         </div>
       )}
 

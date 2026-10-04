@@ -35,6 +35,8 @@ export const DEFAULT_AUDIO: AudioSettings = { characters: {}, shots: {}, musicVo
 
 export function voiceModeOf(audio: AudioSettings, shot: Shot, index: number): VoiceMode {
   if (!shot.voiceover.trim()) return "subtitles";
+  // A continuous take is spoken inside the clip: its director's prompt scripts the dialogue.
+  if (shot.timeline?.length) return audio.shots[index] ?? "grok";
   return audio.shots[index] ?? audio.characters[shot.speaker]?.mode ?? "subtitles";
 }
 

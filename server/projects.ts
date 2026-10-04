@@ -26,6 +26,8 @@ export type ProjectFile = {
   // Shot index → files in the folder.
   media: Record<string, MediaRecord>;
   video?: string;
+  // Lyric videos keep one video per format: video-vertical.webm, video-horizontal.webm.
+  videos?: Record<string, string>;
   // One music track for the whole piece.
   music?: MediaFile;
 };
@@ -151,6 +153,8 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       const p = await read(name);
       const state = p.state as {
         story?: { problem?: string; title?: string };
+        lyrics?: { title?: string; artist?: string };
+        motion?: { script?: { problem?: string } | null };
         menu?: unknown;
         pieceBrief?: { series?: string };
         step?: string;
@@ -158,12 +162,17 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       };
       out.push({
         id: p.id,
-        title: state.story?.problem || state.story?.title || "Sin título todavía",
+        title:
+          state.story?.problem ||
+          state.story?.title ||
+          (state.lyrics?.title && `♪ ${state.lyrics.title}${state.lyrics.artist ? ` · ${state.lyrics.artist}` : ""}`) ||
+          (state.motion && `▶ ${state.motion.script?.problem || "Explicativo"}`) ||
+          "Sin título todavía",
         series: state.pieceBrief?.series ?? "",
         step: state.step ?? "brief",
         updatedAt: p.updatedAt,
         shots: state.board?.shots?.length ?? 0,
-        hasVideo: Boolean(p.video),
+        hasVideo: Boolean(p.video || Object.keys(p.videos ?? {}).length),
       });
     } catch {
       // A folder without a readable project.json is not a project; leave it alone.
@@ -189,7 +198,16 @@ export function saveState(id: string, state: Record<string, unknown>, markdown: 
 }
 
 const SLOT_NAME: Record<MediaKind, string> = { image: "imagen", clip: "clip", voice: "voz", sfx: "efecto" };
-const slot = (index: number, kind: MediaKind) => `toma-${String(index + 1).padStart(2, "0")}-${SLOT_NAME[kind]}`;
+// Explainers keep their last contact sheets (quality loop) in slots 300 (9:16) and 301 (16:9), and the thumbnail of
+// the last render in 302 and 303.
+const SHEETS: Record<number, string> = {
+  300: "hoja-de-contactos-9x16",
+  301: "hoja-de-contactos-16x9",
+  302: "portada-9x16",
+  303: "portada-16x9",
+};
+const slot = (index: number, kind: MediaKind) =>
+  (kind === "image" && SHEETS[index]) || `toma-${String(index + 1).padStart(2, "0")}-${SLOT_NAME[kind]}`;
 
 export function saveMedia(
   id: string,
@@ -238,13 +256,15 @@ export function clearMedia(id: string) {
   });
 }
 
-export function saveVideo(id: string, data: Buffer, type: string) {
-  const file = `video.${extension(type, "video")}`;
+export function saveVideo(id: string, data: Buffer, type: string, variant?: "vertical" | "horizontal") {
+  const file = `${variant ? `video-${variant}` : "video"}.${extension(type, "video")}`;
   return locked(id, async () => {
     const project = await read(id);
-    if (project.video && project.video !== file) await rm(join(folder(id), project.video), { force: true });
+    const old = variant ? project.videos?.[variant] : project.video;
+    if (old && old !== file) await rm(join(folder(id), old), { force: true });
     await writeFile(join(folder(id), file), data);
-    project.video = file;
+    if (variant) project.videos = { ...project.videos, [variant]: file };
+    else project.video = file;
     project.updatedAt = new Date().toISOString();
     await write(project);
     return file;

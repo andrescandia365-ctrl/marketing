@@ -74,7 +74,10 @@ export function StoryView({ story, round, length, busy, problems, dismissed, onR
                     <p className={`text-xs font-bold ${who ? ROLE_TEXT[who.role] : "text-muted"}`}>{who?.name ?? line.speaker}</p>
                   </div>
                   <div>
-                    <p className="font-medium">“{line.text}”</p>
+                    <p className="font-medium">
+                      “{line.text}”
+                      {line.emotion && <span className="ml-1.5 text-xs font-normal text-touch italic">({line.emotion})</span>}
+                    </p>
                     <p className="text-xs text-muted">{line.direction}</p>
                   </div>
                 </li>

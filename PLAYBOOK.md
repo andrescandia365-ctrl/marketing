@@ -10,6 +10,8 @@ This file tells Claude **why the show works** and **how to borrow its mechanics*
 - `[BK]` background knowledge, not re-checked this session. Verify before using in anything public.
 - `[INF]` my analysis or inference. A hypothesis to test, not a fact.
 - `[EP]` user-supplied episode summary (§2.6). Not checked against the video.
+- `[TOOL]` a working rule from another team's open-source video tool (`latent-spaces/brag`, §3.1, §10), read in full. House practice, not measured evidence.
+- `[PRM]` a rule from a user-supplied prompt template written by someone else (§3.2), adapted to these rules. A practitioner's workflow, not evidence.
 
 ---
 
@@ -151,6 +153,99 @@ Observations [INF] · Marketing translation · Check against the video
 ```
 Deliver **5 hook variants** per script and name which move each uses (§2.5).
 
+### 3.1 Short-video craft (from a launch-video tool) `[TOOL]`
+Rules from `/brag`, an open-source skill that turns a product into a 15–25 s launch video (§10). They are about **craft** (timing, legibility, sound, delivery), so they sit under our structure, never above it: the Negative / Touching / Good frame, the Turn and the `[VERIFY]` rule still win.
+
+**Hook and showing**
+- **The first 2 seconds decide.** Plan the hook before anything else; it names the problem or shows the real artifact (Clip Drop).
+- **Show the product in use, not its marketing.** The strongest material is the product doing its job: **entry → key action → result** (open the screen, tap the thing, see the result). A stat card or a headline frames the flow at most once; it never replaces it.
+- **Reuse the real thing.** Real screens, real copy, real product photos over redrawn versions. Small illustrative UI text is fine when showing the product in use (a filename, a "Pedido enviado" toast); invented claims, numbers or testimonials are not.
+- **Make it alive.** Things that arrive one by one, a simulated tap, swipe or typing beat a static slide. Say in the storyboard what appears, in what order, and which interaction is simulated.
+- **Every frame postable.** Any frozen frame should be worth sharing; no abstract filler, colour washes or generic motion that could belong to any video.
+
+**Legibility (pace comes from motion and cuts, never from pulling text away)**
+- A line the viewer must read stays fully visible and still for about **0.3 s per word** (minimum ~1.2 s for a sentence; ~0.8 s for a 1–3 word label), counted from when the whole line is on screen. **Fast in, then hold.**
+- Too much text for the scene's length: cut words or split the scene; never speed it up.
+- **Sequential text on a fast beat is too fast.** At 110+ bpm beats land ~0.5 s apart: fine for accents (a dot, a tick), not for lines to read. Reveal text every other beat, or bring the set in quickly and hold it together.
+- **Transitions:** a crossfade between two busy layouts makes a muddy double exposure. Stagger it (old out, then new in) or pass through the background. Check stills from mid-transition, not only from each scene.
+
+**Sound**
+- **One music bed and a few well-timed effects** usually beat both silence and a grab bag of cute sounds. Music sits low (about 0.3–0.4 of full volume; 0.12–0.22 for dry, restrained pieces) and ducks under the voice.
+- An effect lands at the **start** of its animation (0–0.1 s before the element appears), not at the end. When items arrive one after another, accent the first and the last (or the strongest), not every one.
+- Effects belong to the music's space: soft, nothing harsh or hissy, and repeated little sounds stay in the background. Prefer warm, short sounds for polished pieces; save bright or glitchy ones for a single comic accent.
+- **Big moments on strong beats.** Lock 1–3 major reveals (the product, the logo) to the music's strongest hits (within ~0.15 s); smaller entrances may sit on ordinary beats (within ~0.10 s). Ignore the beat whenever it hurts reading or the story.
+- **Rights:** music only with a confirmed licence (as with lyric videos). Public-domain (CC0) effect libraries are fine; keep their credit file.
+
+**Delivery**
+- **Poster as frame 0.** Pick the strongest *settled* frame (text fully in, not mid-transition), save it as the thumbnail image and make it frame 0 of the video: X, Slack and Discord build their preview from the first frame. Replace frame 0; never add a frame, so length and sync stay the same.
+- **Share caption:** 1–3 sentences, postable as is, specific to this piece, in its tone. The piece's own problem and words, never "excited to share" or generic SaaS language ("streamline your workflow"). Same claim rules as the video: nothing unverified ships without `[VERIFY]`.
+
+**Voice → pacing** `[INF]` (our three voices, mapped onto the tool's tone presets)
+
+| Our voice (§8) | Closest presets | Scenes and holds | Transitions | Effects |
+|---|---|---|---|---|
+| Dry | deadpan, startup-launch parody played straight | 3–5 scenes, one claim each, long holds, empty space | hard cuts or slow fades | very sparse: a quiet bed and 1–2 dry cues |
+| Warm | default, polished | 4–5 scenes, comfortable rhythm | soft slides and fades | moderate: 3–5 cues, a soft one on the logo |
+| Absurdist | chaotic | 6–8 scenes, some under 2 s | hard, fast cuts | denser, one comic accent at a time |
+
+The tool also has a trailer-style preset built on "big motion, bigger claims": we do not use it. The scale can be big; the claims stay what the brand does today.
+
+---
+
+### 3.2 Static images and reference ads `[PRM]`
+Rules from two user-supplied prompt templates (4 Oct 2026): a "Direct Response Creative Director" brief for adapting competitor ads, and a two-step prompt for static e-commerce ad concepts. They are one practitioner's workflow, not evidence, so they sit under §1–3: the Negative / Touching / Good frame, the Turn and `[VERIFY]` still win. We keep the teardown, the concept families and the prompt slots. We drop the copying and the invented proof (see the end of this section).
+
+**Read the brand first.** Before writing a concept, read the brand's material: in the app, the series bible, its cast, its look and "Lo que existe hoy". If it is unclear which brand a piece is for, ask.
+
+**Tear down a reference ad** (any ad that works, a competitor's or our own) before borrowing from it:
+- **Visual hierarchy:** the layout, the focal point, the secondary elements, and what the eye sees first, then next, then last.
+- **Design:** the palette (estimated hex codes), the type (serif, sans, handwritten, condensed; weight), the image style (UGC, studio, lifestyle, product only, illustration, minimal), and the use of contrast, whitespace, framing and overlays.
+- **Copy:** every visible line, split into hook, core promise and CTA.
+- **Angle:** pain relief · fear or urgency · status or identity · curiosity · ease · authority. Name it: the angle and the reading order are what is worth borrowing.
+
+**Borrow the structure, never the ad.** This is the same rule as with the show (§6). Keep the composition idea, the reading order and the kind of promise. Change the brand, the product, the words, the picture and the people.
+- The reference's picture never goes to an image generator as input; only its written teardown does.
+- Its logo, product shots, photos, characters and lines never appear in our work.
+- "Don't reinvent winning ads" means don't throw away what makes them work. It does not mean copying them.
+
+**Concept families for one image.** Each one is the Negative → Good frame inside a single frame:
+
+| Family | Our version |
+|---|---|
+| Before / after | The Negative and the Good side by side: same place, same light, one thing changed. |
+| Nightmare scenario | The pain pushed to the absurd, with humor. It is only the pain; fear is never what we sell. |
+| Comparison / us vs. them | Against the problem or "the old way", never against a named brand or a group of people (§3 rule 3). |
+| Big benefit | One promise, from what exists today, in concrete words. |
+| Reasons why / features and benefits | Each feature tied to the pain it removes; shipped features only. |
+| Offer | Only a real offer, with its real terms and dates. No invented scarcity or deadline. |
+| Press / "as seen in" | Only real coverage, with its link. |
+| Testimonial / review | Only a real customer, quoted exactly, with consent. Otherwise the line is `[VERIFY]` and the piece does not ship. |
+| Humor | Punch at the problem, never the person. |
+
+**The Turn in a still image:** one plain, sincere line, or the touching detail inside the picture (the one cleared surface, the person exhaling at the door).
+
+**Image prompt slots**, in this order:
+1. Subject and action (one frozen moment).
+2. Style or medium.
+3. Light and atmosphere.
+4. Camera and angle.
+5. Composition and layout.
+6. Brand colours.
+7. How the product appears.
+8. Exact text in quotes, with its type style and placement.
+9. Legibility: no distorted, missing or extra letters.
+10. Aspect ratio, in the tool's own syntax.
+
+**Text on the image** `[INF]`: image models still misspell, accents and ñ most of all.
+- Prefer generating the picture with no text, with clear space left where the text goes, and setting the text on top in the brand's fonts.
+- When the model writes the text, give it the exact strings and check the spelling before using the image.
+
+**Dropped, because it clashes with this playbook:**
+- Near-identical copies of another brand's ad (layout plus copy), and any use of its assets.
+- Invented press, testimonials, reviews, numbers or awards.
+- Manufactured urgency or scarcity (§5).
+- Fear, shame or guilt sold as the product (§1, Job B).
+
 ---
 
 ## 4. Job A playbook — [PLANNER] / manager agent / convenience store
@@ -204,6 +299,8 @@ Deliver **5 hook variants** per script and name which move each uses (§2.5).
 - **Don't** imitate Stewart's persona so closely that audiences could mistake our content for the show's. Build a distinct character.
 - **Don't** make our brand a political actor by default (§3 rule 7).
 - **Don't** invent statistics, quotes, or case studies. Mark gaps `[VERIFY]` and ask the user.
+- **Don't** use music without a confirmed licence. A tool or a library shipping a track is not clearance (the `/brag` repo ships five tracks with no licence stated, §9).
+- **Don't** copy another brand's ad: no near-identical layout and copy, and never its images, logo, product shots, characters or lines. Borrow the structure only (§3.2). `[BK]` Close copies can raise copyright and trademark problems; get legal review before referencing a competitor by name.
 
 ---
 
@@ -212,7 +309,7 @@ Deliver **5 hook variants** per script and name which move each uses (§2.5).
 1. **Clarify inputs first** (ask the user): product name and tagline; target buyer; what is shipped vs. roadmap; price/offer; channels (YouTube, Shorts, email, landing page); tone limits.
 2. **Pick the job (A or B)** and the format (script / landing page / email / series plan / content calendar).
 3. **Draft hooks first** (5 variants), user picks, then write the piece with the §3 template.
-4. **Run the checklist** before delivering: customer is hero · concrete detail · target is the problem · Turn present · single CTA · no unverified claims · no borrowed IP.
+4. **Run the checklist** before delivering: customer is hero · concrete detail · target is the problem · Turn present · single CTA · no unverified claims · no borrowed IP. For video, also: hook in 2 s · the product shown in use · every line held long enough to read · poster and share caption. For a static image: one frozen moment · Negative → Good readable at a glance · exact, legible text · nothing borrowed from a reference but its structure.
 5. **Keep deliverables as Markdown** in this repo; propose folder names (e.g. `scripts/`, `campaigns/`) rather than assuming them. `[proposal]`
 6. **Re-verify** any `[V]` figure before it appears in public copy; numbers move (ratings, subscribers, contract status).
 7. **Log new episode breakdowns** from the user in §2.6 using the entry template, and fold any move that repeats across episodes into §2.5.
@@ -230,6 +327,8 @@ Deliver **5 hook variants** per script and name which move each uses (§2.5).
 - Full text of Deadline, NBC, TheWrap, Awards Focus, WGA East, and Shorty Awards pages was **blocked by the network proxy**; those facts rest on search-result summaries.
 - No episodes were watched and no YouTube analytics were available. Episode breakdowns (§2.6) are user-supplied summaries, not verified against the video; one episode is logged so far, which is too few to call any pattern a rule. Channel numbers are from a third-party snapshot, and the hook taxonomy in §2.5 is analysis, not an official description.
 - Convenience-store and home-product pain points are hypotheses, not research findings.
+- The short-video craft rules (§3.1) are one team's working practice, written for 15–25 s launch videos; they are not audience research. The reading-time numbers are rules of thumb. The `/brag` repo states no licence for its bundled music; its effects are CC0 (Kenney; keyboard set by unicae_games).
+- The static-image rules (§3.2) come from two user-supplied prompt templates with no author, date or results attached; the concept families and prompt slots are untested here. "Image models misspell" is an observation to re-check per tool.
 - A thorough pass would add: watching 15–20 episodes and clips and logging their hooks; reading Jones and Amarasingam in full; customer interviews for both jobs.
 
 ## 10. Sources
@@ -239,4 +338,6 @@ Deliver **5 hook variants** per script and name which move each uses (§2.5).
 - Field pieces: [Klepper interview (Westfield Goodfest, 2026)](https://goodfest.westfield.com/2026/06/the-daily-shows-jordan-klepper-on-what-hes-learned-about-americans/) · [Little Village](https://littlevillagemag.com/five-questions-with-jordan-klepper-daily-show/)
 - Public opinion: [CJR, "Inside Jokes"](https://www.cjr.org/the_research_report/inside_jokes.php) · [*The Stewart/Colbert Effect*](https://mcfarlandbooks.com/?p=14198) · [Jeffrey P. Jones](https://en.wikipedia.org/wiki/Jeffrey_P._Jones)
 - Stewart moments: [*Crossfire* 2004](https://en.wikipedia.org/wiki/Jon_Stewart%27s_2004_appearance_on_Crossfire) · [9/11 fund, 2019 (CBS)](https://www.cbsnews.com/news/jon-stewart-returns-to-the-daily-show-advocates-for-911-first-responders-zadroga-act/) · [On media trust (Fox News coverage of his MS NOW remarks)](https://www.foxnews.com/media/jon-stewart-admits-media-squandered-trust-trump-russia-collusion-hype-other-claims.print) · [*Weekly Show* launch (Rolling Stone)](https://www.rollingstone.com/tv-movies/tv-movie-news/jon-stewart-announces-weekly-show-podcast-comedy-central-1235017899/)
+- Short-video craft: [`latent-spaces/brag`](https://github.com/latent-spaces/brag) (MIT; skills `brag` and `brag-slim`, references `step-2-plan`, `step-4-deliver`, `audio`, `tones`), read 4 Oct 2026 · Effects: [Kenney](https://kenney.nl/) (CC0) · [Keyboard Soundpack #1](https://opengameart.org/content/keyboard-soundpack-1-typing-and-single-keystrokes) (CC0)
+- Static images: two user-supplied prompt templates (a "Direct Response Creative Director" project brief and a two-step static-ad prompt), received 4 Oct 2026; no author or link given.
 - Marketing frameworks: [Berger, *Contagious* / STEPPS](https://unruly.co/blog/article/2015/10/26/jonah-berger-6-key-stepps-to-creating-contagious-content/) · Heath & Heath, *Made to Stick* · [StoryBrand and pain points](https://www.chatterbuzzmedia.com/blog/customer-pain-points-storybrand/)

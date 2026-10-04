@@ -29,7 +29,10 @@ Tags: **[DOCS]** in xAI's docs · **[NOT SURE]** not confirmed, don't rely on it
 
 - [DOCS] Image prompt: one paragraph, roughly 40 to 90 words. Order: subject (age, build, clothes) → action or pose → place → time and light → lens and framing → style. Front-load the subject. No shot lists.
 - [DOCS] Video prompt (animating a still): roughly 25 to 60 words. Do not describe the person again. One action, one camera move, what must stay still, then a sound line: "Audio: …".
-- [NOT SURE] Timed beats inside a clip ("0–2 s: she turns; 2–4 s: push in") are not documented. Write one action per clip; a second beat is a separate clip made with Extend.
+- [NOT SURE] Timed beats inside a clip ("0–2 s: she turns; 2–4 s: push in") are not documented. Write one action per clip; a second beat is a separate clip made with Extend. Exception: when the brief asks for continuous takes, write the director's prompt below anyway (the person chose it to test).
+- [NOT SURE] Director's prompt for a continuous 15 s take (the same prompt used for Seedance 2.5): a reference map first (the initial frame is the hero still; each character is its @ref sheet; the place is its @ref sheet, environment only; the images are law), then "one continuous handheld take, no cuts", then timed beats with each line, its emotion and the camera's mistakes (late pan, autofocus hunt, auto-exposure rolling), then hard rules (real skin with pores, grain throughout, no stabilization, no grade, no music, no text, no zoom, no slow motion, the light never changes, each line spoken once as written, raw phone-mic audio).
+- [NOT SURE] Reference sheets as references: one 16:9 image with the character's views (front, three-quarter, profile, back, face close-ups with expressions, insets) or a place's six panels, saved as a named reference. If Grok does not hold the grid, make each view on its own.
+- [NOT SURE] Realism comes from asking for flaws, not polish: name the camera, its flash, the grain, focus that misses and where the light hits; skin with pores and freckles. "Cinematic", "vintage" or "film still" make it look fake.
 - [DOCS] Camera words that match xAI's examples: slow push-in, slow zoom out, pan, over-the-shoulder, tracking alongside, locked-off / static. Use one move. Slow beats fast.
 - [NOT SURE] Handheld, dolly and close-up are reasonable words; their reliability is unknown.
 - [NOT SURE] Negative lists may be ignored. Write the wanted state positively: "bare shutter, blank labels, no signage" instead of "no text, no logos".
@@ -54,3 +57,5 @@ Video: "He slowly lifts the metal shutter a short way; the slats clack and catch
 1. Timed beats: animate one still with "0–2 s: the door swings shut; 2–4 s: the light flickers." Do both happen, in order?
 2. Silence: add "Audio: fridge hum only, no music, no speech." Is there music or a voice anyway?
 3. Lengths: done: 6, 10 or 15 s.
+4. Continuous take: a 15 s director's prompt with a hero still as the initial frame, two @ref sheets and three timed lines. Do the beats land near their times, and do the faces hold?
+5. Sheets: does Grok draw a 16:9 character sheet with the same face in every panel? Does attaching it as a reference keep the face?

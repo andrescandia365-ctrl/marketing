@@ -4,12 +4,16 @@ import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/c
 import { buildCopyPrompt } from "../shared/prompt.ts";
 import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
 import { migrateBoard, migrateStory, type Board, type Brief, type Menu, type Setup, type Shot, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
-import { DEFAULT_TEXT_STYLE, castRef, seriesId, type CastMember, type TextStyle } from "../shared/series.ts";
+import { DEFAULT_TEXT_STYLE, castRef, hasLook, seriesId, type CastMember, type TextStyle } from "../shared/series.ts";
 import { BEAT_INFO, formatTime, timeShots } from "../shared/template.ts";
 import { VoicesPanel, audioDuration, type AudioFile } from "./components/Audio.tsx";
 import { BoardView } from "./components/BoardView.tsx";
 import { BriefForm } from "./components/BriefForm.tsx";
 import { MenuPicker } from "./components/MenuPicker.tsx";
+import { LyricStudio, type LyricOpen } from "./components/LyricStudio.tsx";
+import { ModelsPanel } from "./components/ModelsPanel.tsx";
+import { MotionStudio, type MotionOpen } from "./components/MotionStudio.tsx";
+import { ProductPanel } from "./components/ProductPanel.tsx";
 import { ProjectsPanel } from "./components/ProjectsPanel.tsx";
 import { SeriesEditor } from "./components/SeriesEditor.tsx";
 import {
@@ -27,10 +31,12 @@ import { StoryView } from "./components/StoryView.tsx";
 import { VideoPanel } from "./components/VideoPanel.tsx";
 import { Button, Notice, PieceTitle, Spinner } from "./components/ui.tsx";
 import { api, libraryFileUrl, projectFileUrl, type ProjectSummary } from "./lib/api.ts";
-import { blobToDataUrl, readImageFile } from "./lib/files.ts";
+import { blobToDataUrl, pictureForReview, readImageFile } from "./lib/files.ts";
 import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from "./lib/markdown.ts";
 
-type Step = "brief" | "menu" | "story" | "board" | "production";
+// "lyrics": a lyric video (series of type music), with its own steps inside.
+// "motion": a motion-graphics explainer (software or one product).
+type Step = "brief" | "menu" | "story" | "board" | "production" | "lyrics" | "motion";
 
 // What a project folder's project.json holds (media files are tracked by the server).
 type SavedState = {
@@ -77,6 +83,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
+  const [showModels, setShowModels] = useState(false);
   const [step, setStep] = useState<Step>("brief");
   const [brief, setBrief] = useState<Brief>(loadBrief);
   // The brief the current piece was written from; later steps use it even if the form changes.
@@ -103,6 +110,9 @@ export function App() {
   // undefined: not editing; null: a new series; a string: that series.
   const [editingSeries, setEditingSeries] = useState<string | null | undefined>(undefined);
 
+  // The open lyric video, if this piece is one; `key` remounts it for another piece.
+  const [lyric, setLyric] = useState<{ key: string; initial: LyricOpen | null } | null>(null);
+  const [motion, setMotion] = useState<{ key: string; initial: MotionOpen | null } | null>(null);
   // The project folder this piece autosaves into.
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -172,7 +182,8 @@ export function App() {
 
   // Autosave: a short pause after any change writes the state (and pieza.md) into the project folder.
   useEffect(() => {
-    if (!projectId) return;
+    // Lyric videos and explainers save themselves.
+    if (!projectId || lyric || motion) return;
     unsaved.current = true;
     setSaveStatus("saving");
     const seq = ++saveSeq.current;
@@ -210,7 +221,7 @@ export function App() {
     }, 800);
     return () => clearTimeout(timer);
     // toolName only changes with the brief or the status, which are covered.
-  }, [projectId, step, pieceBrief, menu, demo, story, storyRound, board, boardRound, boardApproved, log, dismissed, audio]);
+  }, [projectId, lyric, motion, step, pieceBrief, menu, demo, story, storyRound, board, boardRound, boardApproved, log, dismissed, audio]);
 
   function addLog(entry: Omit<LogEntry, "at">) {
     setLog((l) => [...l, { ...entry, at: Date.now() - logStart.current }]);
@@ -260,6 +271,8 @@ export function App() {
     setDismissed([]);
     setAudio(DEFAULT_AUDIO);
     setMusic(null);
+    setLyric(null);
+    setMotion(null);
     logStart.current = Date.now();
   }
 
@@ -273,11 +286,23 @@ export function App() {
   async function openProject(id: string) {
     const project = await run("open", () => api.project(id));
     if (!project) return;
-    const st = project.state as Partial<SavedState>;
+    const st = project.state as Partial<SavedState> & { kind?: string; lyrics?: LyricOpen["piece"]; motion?: MotionOpen["piece"] };
     resetPiece();
     const pb = { ...EMPTY_BRIEF, ...(st.pieceBrief ?? brief) };
     setBrief(pb);
     setPieceBrief(pb);
+    if (st.kind === "motion" && st.motion) {
+      setProjectId(id);
+      setMotion({ key: id, initial: { piece: st.motion, media: project.media, music: project.music } });
+      setStep("motion");
+      return;
+    }
+    if (st.kind === "lyrics" && st.lyrics) {
+      setProjectId(id);
+      setLyric({ key: id, initial: { piece: st.lyrics, music: project.music, media: project.media } });
+      setStep("lyrics");
+      return;
+    }
     setMenu(st.menu ?? null);
     setDemo(st.demo ?? false);
     setStory(st.story ? migrateStory(st.story) : null);
@@ -336,6 +361,24 @@ export function App() {
     } catch (e) {
       setError(message(e));
     }
+  }
+
+  // A lyric video or an explainer: its own project folder, then its studio.
+  async function startStudio(kind: "lyrics" | "motion") {
+    resetPiece();
+    setError("");
+    setPieceBrief(brief);
+    let id: string | null = null;
+    try {
+      id = (await api.createProject(brief.series)).id;
+    } catch (e) {
+      setError(`Se puede seguir, pero no se pudo crear la carpeta del proyecto: ${message(e)}`);
+    }
+    setProjectId(id);
+    const open = { key: id ?? String(Date.now()), initial: null };
+    if (kind === "lyrics") setLyric(open);
+    else setMotion(open);
+    setStep(kind);
   }
 
   // Step 1 → menu. A new piece gets its own project folder.
@@ -451,11 +494,51 @@ export function App() {
     await Promise.all([worker(), worker(), worker()]);
   }
 
+  // Checks an uploaded picture: its format here, and, when a writer is set, the AI's look against the shot.
+  async function reviewMedia(index: number, what: "image" | "clip", source: string | Blob) {
+    if (!board) return;
+    const shot = board.shots[index];
+    setShotMedia(index, { review: { what, loading: true } });
+    try {
+      const picture = await pictureForReview(source);
+      const expected = pieceBrief.format === "vertical" ? 9 / 16 : 16 / 9;
+      const format =
+        Math.abs(picture.width / picture.height - expected) / expected > 0.04
+          ? `${what === "clip" ? "El clip" : "La imagen"} mide ${picture.width}×${picture.height} y el video es ${pieceBrief.format === "vertical" ? "9:16" : "16:9"}: se va a ver con bandas o recortado.`
+          : undefined;
+      if (!status?.writer) {
+        setShotMedia(index, { review: { what, loading: false, format } });
+        return;
+      }
+      const inFrame = shot.setups.map((id) => board.setups.find((x) => x.id === id)).filter((x) => x !== undefined);
+      const refs = await Promise.all(
+        inFrame
+          .map((x) => (x.castId ? library[x.castId] : undefined))
+          .filter((e) => e?.url)
+          .slice(0, 3)
+          .map(async (e) => ({ label: `Approved reference image of ${e!.name} (${e!.identity}):`, jpeg: (await pictureForReview(e!.url!, 512)).jpeg })),
+      );
+      const result = await api.review(
+        pieceBrief,
+        { title: shot.title, action: shot.action, prompt: what === "clip" ? shot.videoPrompt : shot.visualPrompt, what },
+        inFrame.map((x) => ({ name: x.name, identity: x.identity })),
+        picture.jpeg,
+        refs,
+      );
+      setShotMedia(index, { review: { what, loading: false, format, result } });
+      const failed = result.checks.filter((c) => !c.pass).length;
+      if (!result.demo) addLog({ shot: index, text: `Revisión de la IA (${what === "clip" ? "clip" : "imagen"})`, outcome: failed ? `${failed} problema(s)` : "sin problemas" });
+    } catch (e) {
+      setShotMedia(index, { review: { what, loading: false, error: message(e) } });
+    }
+  }
+
   async function uploadImage(index: number, file: File) {
     try {
       const image = await readImageFile(file);
       setShotMedia(index, { image, error: undefined });
       addLog({ shot: index, text: `Imagen subida: ${file.name}` });
+      reviewMedia(index, "image", image);
       await keep(index, (id) => api.uploadMedia(id, index, "image", file));
     } catch (e) {
       setShotMedia(index, { error: message(e) });
@@ -474,6 +557,7 @@ export function App() {
       const clip: ClipFile = { url, blob: file, name: file.name, duration };
       setShotMedia(index, { clip, error: undefined });
       addLog({ shot: index, text: `Clip subido: ${file.name}, ${duration.toFixed(1)} s` });
+      reviewMedia(index, "clip", file);
       await keep(index, (id) => api.uploadMedia(id, index, "clip", file, { name: file.name, duration }));
     } catch (e) {
       URL.revokeObjectURL(url);
@@ -485,6 +569,7 @@ export function App() {
     setMedia((prev) => {
       const next = { ...prev[index] };
       delete next[kind];
+      if (kind === "image" || kind === "clip") delete next.review;
       return { ...prev, [index]: next };
     });
     const what = { image: "Imagen quitada", clip: "Clip quitado", voice: "Voz quitada", sfx: "Efecto quitado" }[kind];
@@ -581,6 +666,8 @@ export function App() {
         identity: setup.identity,
         note: "",
         image: "",
+        sheet: "",
+        puppet: { layers: [] },
       });
       setStatus((s) => (s ? { ...s, series } : s));
       const linked = castId;
@@ -649,6 +736,16 @@ export function App() {
       },
     ]),
   );
+  // What each storyboard frame shows: its picture so far, else the real screen or the main setup's approved image.
+  const shotImages = Object.fromEntries(
+    (board?.shots ?? []).map((shot, i) => {
+      const castId = board?.setups.find((x) => x.id === shot.setups[0])?.castId;
+      return [
+        i,
+        renderMedia[i]?.image ?? (castId ? library[castId]?.url : undefined),
+      ];
+    }),
+  );
   const spoken = modes.map((m, i) => (m === "grok" ? true : m !== "subtitles" && Boolean(renderMedia[i]?.voice)));
   const generating = Object.values(media).some((m) => m.loading);
   const realProviders = status?.imageProviders.filter((p) => p.available && p.id !== "placeholder") ?? [];
@@ -657,13 +754,23 @@ export function App() {
   const storyIssues = story ? storyProblems(story) : [];
   const boardIssues = board ? boardProblems(board) : [];
 
-  const steps: { id: Step; label: string; enabled: boolean }[] = [
-    { id: "brief", label: "1 · Brief", enabled: true },
-    { id: "menu", label: "2 · Menú", enabled: menu !== null },
-    { id: "story", label: "3 · Historia", enabled: story !== null },
-    { id: "board", label: "4 · Storyboard", enabled: board !== null },
-    { id: "production", label: "5 · Producción", enabled: board !== null && (boardApproved || step === "production") },
-  ];
+  const steps: { id: Step; label: string; enabled: boolean }[] = lyric
+    ? [
+        { id: "brief", label: "1 · Brief", enabled: true },
+        { id: "lyrics", label: "2 · Video de letra", enabled: true },
+      ]
+    : motion
+      ? [
+          { id: "brief", label: "1 · Brief", enabled: true },
+          { id: "motion", label: "2 · Explicativo", enabled: true },
+        ]
+      : [
+          { id: "brief", label: "1 · Brief", enabled: true },
+          { id: "menu", label: "2 · Menú", enabled: menu !== null },
+          { id: "story", label: "3 · Historia", enabled: story !== null },
+          { id: "board", label: "4 · Storyboard", enabled: board !== null },
+          { id: "production", label: "5 · Producción", enabled: board !== null && (boardApproved || step === "production") },
+        ];
 
   return (
     <div className="mx-auto max-w-6xl px-4 pt-6 pb-16">
@@ -689,11 +796,14 @@ export function App() {
                 + Nueva pieza
               </Button>
             )}
-            <span
-              className={`rounded-full border px-2.5 py-1 font-medium ${status.writer ? "border-good/40 bg-good-soft text-good" : "border-line bg-white text-muted"}`}
+            <button
+              type="button"
+              onClick={() => setShowModels(true)}
+              title="Modelos: quién escribe y las claves"
+              className={`rounded-full border px-2.5 py-1 font-medium hover:border-ink ${status.writer ? "border-good/40 bg-good-soft text-good" : "border-line bg-white text-muted"}`}
             >
-              {status.writer ? `${status.writer.label} · ${status.writer.model}` : "IA sin conectar"}
-            </span>
+              {status.writer ? `${status.writer.label} · ${status.writer.model}` : "IA sin conectar"} · Modelos
+            </button>
             {realProviders.map((p) => (
               <span key={p.id} className="rounded-full border border-good/40 bg-good-soft px-2.5 py-1 font-medium text-good">
                 {p.label}
@@ -702,6 +812,18 @@ export function App() {
           </div>
         )}
       </header>
+
+      {showModels && (
+        <ModelsPanel
+          onClose={() => setShowModels(false)}
+          onChanged={() =>
+            api
+              .status()
+              .then((s) => setStatus((old) => (old ? { ...old, writer: s.writer, voice: s.voice, lyrics: s.lyrics, imageProviders: s.imageProviders } : s)))
+              .catch(() => undefined)
+          }
+        />
+      )}
 
       <nav className="mt-6 flex gap-1 overflow-x-auto border-b border-line">
         {steps.map((s) => (
@@ -720,11 +842,14 @@ export function App() {
       </nav>
 
       <div className="mt-6 space-y-4">
-        {status && !status.writer && (
+        {status && !status.writer && !lyric && !motion && (
           <Notice tone="warn">
             <b>Modo de muestra.</b> No hay clave de IA: el menú, la historia y el storyboard son un ejemplo fijo de
-            IMAN, y las revisiones no cambian nada. Agregá <code>ANTHROPIC_API_KEY</code> (Claude) o <code>KIMI_API_KEY</code> (Kimi) en <code>.env</code> y reiniciá
-            para escribir los de verdad.
+            IMAN, y las revisiones no cambian nada. Cargá una clave en{" "}
+            <button type="button" className="font-semibold underline" onClick={() => setShowModels(true)}>
+              Modelos
+            </button>{" "}
+            (Claude, Kimi, NVIDIA u OpenRouter) para escribir los de verdad.
           </Notice>
         )}
         {error && <Notice tone="error">{error}</Notice>}
@@ -738,6 +863,7 @@ export function App() {
               setBrief((b) => ({ ...b, series: id }));
               setEditingSeries(undefined);
             }}
+            onLogoSaved={(series) => setStatus((s) => (s ? { ...s, series } : s))}
             onDeleted={(series) => {
               setStatus((s) => (s ? { ...s, series } : s));
               setBrief((b) => ({ ...b, series: series[0]?.id ?? "" }));
@@ -768,20 +894,45 @@ export function App() {
               onEditSeries={(id) => setEditingSeries(id)}
               onNewSeries={() => setEditingSeries(null)}
             />
-            <div className="flex items-center gap-3 border-t border-line pt-5">
-              <Button onClick={openMenu} disabled={busy !== null || needsProduct}>
-                {busy === "menu" ? (
-                  <>
-                    <Spinner /> Armando el menú…
-                  </>
-                ) : (
-                  "Ver el menú de temas"
+            {currentSeries?.type === "music" ? (
+              <div className="flex items-center gap-3 border-t border-line pt-5">
+                <Button onClick={() => startStudio("lyrics")} disabled={busy !== null}>
+                  Empezar un video de letra
+                </Button>
+                {lyric && (
+                  <Button variant="secondary" onClick={() => setStep("lyrics")}>
+                    Volver al video abierto
+                  </Button>
                 )}
-              </Button>
-              {needsProduct && (
-                <span className="text-sm text-muted">Para {currentSeries?.name}, escribí el producto del episodio.</span>
-              )}
-            </div>
+              </div>
+            ) : brief.piece === "explainer" ? (
+              <div className="flex items-center gap-3 border-t border-line pt-5">
+                <Button onClick={() => startStudio("motion")} disabled={busy !== null || needsProduct}>
+                  Empezar un explicativo
+                </Button>
+                {motion && (
+                  <Button variant="secondary" onClick={() => setStep("motion")}>
+                    Volver al explicativo abierto
+                  </Button>
+                )}
+                {needsProduct && <span className="text-sm text-muted">Para {currentSeries?.name}, escribí el producto del episodio.</span>}
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 border-t border-line pt-5">
+                <Button onClick={openMenu} disabled={busy !== null || needsProduct}>
+                  {busy === "menu" ? (
+                    <>
+                      <Spinner /> Armando el menú…
+                    </>
+                  ) : (
+                    "Ver el menú de temas"
+                  )}
+                </Button>
+                {needsProduct && (
+                  <span className="text-sm text-muted">Para {currentSeries?.name}, escribí el producto del episodio.</span>
+                )}
+              </div>
+            )}
             <ProjectsPanel
               projects={projects}
               series={status?.series ?? []}
@@ -791,6 +942,35 @@ export function App() {
               onDelete={removeProject}
             />
           </section>
+        )}
+
+        {step === "motion" && motion && pieceSeries && (
+          <MotionStudio
+            key={motion.key}
+            projectId={projectId}
+            brief={pieceBrief}
+            series={pieceSeries}
+            initial={motion.initial}
+            voiceAvailable={status?.voice.available ?? false}
+            defaultVoice={status?.voice.defaultVoice ?? ""}
+            projectsDir={status?.projectsDir ?? "proyectos"}
+            ffmpeg={status?.render?.ffmpeg ?? false}
+            onSaveStatus={setSaveStatus}
+          />
+        )}
+
+        {step === "lyrics" && lyric && pieceSeries && (
+          <LyricStudio
+            key={lyric.key}
+            projectId={projectId}
+            brief={pieceBrief}
+            series={pieceSeries}
+            initial={lyric.initial}
+            autoSync={status?.lyrics.autoSync ?? false}
+            projectsDir={status?.projectsDir ?? "proyectos"}
+            onSaveStatus={setSaveStatus}
+            onSeries={(series) => setStatus((s) => (s ? { ...s, series } : s))}
+          />
         )}
 
         {step === "menu" && menu && (
@@ -842,6 +1022,7 @@ export function App() {
             busy={busy === "reviseBoard" ? "revise" : busy === "fixBoard" ? "fix" : null}
             problems={boardIssues.filter(open)}
             dismissed={boardIssues.length - boardIssues.filter(open).length}
+            look={{ format: pieceBrief.format, style: pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE, images: shotImages }}
             onRevise={(note, shotNotes) => reviseBoard(note, shotNotes)}
             onFix={() => reviseBoard(fixNote(boardIssues.filter(open)), [], "fixBoard")}
             onDismiss={dismiss}
@@ -858,6 +1039,26 @@ export function App() {
                 <p className="text-sm text-muted">{story.logline}</p>
               </div>
               <Timeline board={board} />
+              {pieceSeries?.type === "ecommerce" && (
+                <ProductPanel
+                  toolName={toolName}
+                  setups={board.setups}
+                  products={Object.values(library).filter((m) => m.kind === "product")}
+                  onWrite={async () => {
+                    setError("");
+                    try {
+                      return await api.productShot(pieceBrief);
+                    } catch (e) {
+                      setError(message(e));
+                      return null;
+                    }
+                  }}
+                  onSave={async (setup, image) => {
+                    await fixSetup(setup, "product", image);
+                    addLog({ text: `Producto recortado: ${setup.name}` });
+                  }}
+                />
+              )}
 
               <div className="space-y-3 rounded-xl border border-line bg-white p-3">
                 <div className="flex flex-wrap items-center gap-2">
@@ -924,6 +1125,21 @@ export function App() {
                 onUploadClip={uploadClip}
                 onRemoveMedia={removeMedia}
                 onRewrite={rewriteShot}
+                strictLook={pieceSeries ? hasLook(pieceSeries.look) : false}
+                onSegment={async (index, note) => {
+                  const result = await api.segmentEdit(pieceBrief, board.shots[index], note);
+                  addLog({ shot: index, text: `Segmento: “${note}”`, outcome: result.select });
+                  return result;
+                }}
+                onReview={
+                  status?.writer
+                    ? (index) => {
+                        const m = media[index];
+                        const source = m?.clip?.blob ?? m?.image;
+                        if (source) reviewMedia(index, m?.clip ? "clip" : "image", source);
+                      }
+                    : null
+                }
                 library={library}
                 voice={{
                   language: pieceBrief.language,
