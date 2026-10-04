@@ -162,6 +162,25 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 32. Lo que sirve del repo `latent-spaces/brag` (4 Oct 2026)
+- **Qué es:** una skill para agentes (Claude Code, Codex…) que hace un video de lanzamiento de 15–25 s de un proyecto o una web, con música, efectos y texto para publicar. Renderiza con Hyperframes (HeyGen); la versión "slim" lo hace todo con el modelo. Licencia MIT.
+- **Ya lo tenemos:** cuadros como función pura del tiempo, render con navegador sin ventana + ffmpeg, grilla de beats, gancho en 2 s, "mostrar la cosa real" (pantallas reales) y nada de lenguaje SaaS genérico. No hace falta Hyperframes.
+- **Lo que sirve, de más a menos útil:**
+  1. **Portada en el cuadro 0.** Elegir el mejor cuadro "quieto" (texto entero, fuera de una transición), guardarlo como `portada.jpg` y ponerlo como primer cuadro del video. X, Slack y Discord toman el cuadro 0 como miniatura. Va en el render final y en el del navegador; la IA del control de calidad puede elegir el cuadro.
+  2. **Tiempo de lectura.** Cada texto quieto en pantalla unos 0,3 s por palabra (un rótulo corto, 0,8 s), contado desde que está entero. Los rótulos y pasos que entran beat a beat a más de 110 bpm no se llegan a leer: uno cada dos beats, o entrar rápido y quedarse todos. Hoy nuestros rótulos pueden entrar cada 0,35 s. Sería un check más (como el de 2–4 s) y un dato más para la IA.
+  3. **Cuadros a mitad de transición en la hoja de contactos.** Para ver si dos escenas se pisan feo en el corte.
+  4. **Efectos de sonido CC0 (dominio público).** 228 efectos de Kenney y 32 teclas sueltas (3,5 MB), con un análisis de cada uno (brillo, riesgo de sonido chillón, para qué sirve). Reemplazan o suman a los golpes sintetizados: toques, cartas que se deslizan, un "bong" para el logo. Con eso queda una plantilla nueva: **texto que se tipea** con sonido de teclas. Responde en parte al pin de "efectos de sonido" (decisión 8).
+  5. **Reglas de efectos:** el golpe va al empezar la animación (0–0,1 s antes), y en los elementos que entran uno tras otro suena el primero y el último, no todos (hoy suena cada uno).
+  6. **Texto para publicar.** 1 a 3 frases listas para pegar en X, LinkedIn o Instagram, en el tono de la pieza. Para nosotros, con las reglas del playbook: nada sin verificar ([VERIFY]) y nada de "estamos felices de compartir".
+  7. **Golpes fuertes de la música.** Además de los beats, medir cuáles pegan más fuerte (inicio de nota, volumen, graves) y poner ahí los 1 a 3 momentos grandes (el producto, el logo); lo chico, en beats comunes. Sirve para el tema propio. Lo de ellos está en Python; acá iría en el navegador, como `findBeats`.
+  8. **Tonos para el explicativo.** Ellos tienen 7 (normal, pulido, parodia de startup, caótico, seco, de tráiler, de App Store), con cantidad de escenas, ritmo, transiciones y efectos por tono. Se podría usar el "Tono" del brief (seco, cálido, absurdo), que hoy no se usa en los explicativos. El "de tráiler, con grandes promesas" choca con la regla de no prometer de más.
+  9. **Traer la marca desde una web** (lo más grande): pegar el link del producto y que la app saque colores, fuentes, logo, capturas y textos para el kit de marca y el elenco. En Masogar, fotos y nombre del producto desde su página. Lo que diga la web va como [VERIFY] hasta que vos lo confirmes en "Lo que existe hoy", y solo con webs de la marca.
+- **Lo que no conviene usar:**
+  - **La música** (5 temas "Happy Beats / Business Moves" de ende.app): el repo no dice la licencia y su propio README pide verificarla antes de redistribuir. No se copia hasta confirmar los derechos, como con las canciones de los videos de letra.
+  - **Hyperframes:** sería un segundo motor de video.
+  - **El tono "ridículo / grandes promesas":** va contra el playbook (no inventar números, el chiste es el problema).
+- **Si se construye:** se copian solo los efectos CC0 con su aviso de origen (Kenney y unicae_games) y la nota MIT del análisis, en `public/sfx/`.
+
 ### 31. Motion graphics: videos de letra y videos explicativos
 - **Idea (tuya):** videos con motion graphics para dos cosas:
   1. **Videos de letra.**
