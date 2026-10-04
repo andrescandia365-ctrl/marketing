@@ -135,11 +135,67 @@ export function motionBeats(script: MotionScript | null, music: MotionPiece["mus
   return beatGrid(scriptDuration(script) + 2, script.music.bpm);
 }
 
-// The scenes as they play: snapped onto the beats unless the person turned that off.
-export function arrangeScenes(script: MotionScript | null, beats: number[], snap: boolean): MotionScene[] {
-  if (!script) return [];
-  return snap ? snapScenes(script.scenes, beats) : script.scenes;
+// The strongest hits, where the big moments (the product, the logo) go: the synthesized score's bar starts (every
+// fourth beat), or the person's track's beats with the hardest low end (its top fifth). Pure: the same track gives the
+// same list in the studio and in the render.
+export function strongBeats(beats: number[], music: MotionPiece["music"], track: AudioBuffer | null): number[] {
+  if (music === "none" || beats.length < 2) return [];
+  if (music !== "track" || !track) return beats.filter((_, i) => i % 4 === 0);
+  const low = lowEnergy(track);
+  const hop = LOW_HOP / track.sampleRate;
+  const at = (t: number) => low[Math.min(low.length - 1, Math.max(0, Math.round(t / hop)))] ?? 0;
+  // Low-end energy just after the beat against just before it: a kick or a bass hit, not a bright tick.
+  const strength = beats.map((t) => {
+    let after = 0;
+    let before = 0;
+    for (let k = 0; k < 4; k++) {
+      after += at(t + k * hop);
+      before += at(t - (k + 1) * hop);
+    }
+    return after - before;
+  });
+  const sorted = [...strength].sort((a, b) => b - a);
+  const bar = sorted[Math.max(0, Math.floor(sorted.length / 5) - 1)];
+  return beats.filter((_, i) => strength[i] >= bar && strength[i] > 0);
 }
+
+// The track's energy under ~150 Hz in hops of LOW_HOP samples (channel 0, one-pole low-pass), kept per track.
+const LOW_HOP = 512;
+const lows = new WeakMap<AudioBuffer, Float32Array>();
+function lowEnergy(track: AudioBuffer): Float32Array {
+  const known = lows.get(track);
+  if (known) return known;
+  const data = track.getChannelData(0);
+  const a = 1 - Math.exp((-2 * Math.PI * 150) / track.sampleRate);
+  const out = new Float32Array(Math.floor(data.length / LOW_HOP));
+  let y = 0;
+  for (let h = 0; h < out.length; h++) {
+    let sum = 0;
+    for (let j = h * LOW_HOP; j < (h + 1) * LOW_HOP; j++) {
+      y += a * (data[j] - y);
+      sum += y * y;
+    }
+    out[h] = Math.sqrt(sum / LOW_HOP);
+  }
+  lows.set(track, out);
+  return out;
+}
+
+// The scenes as they play: snapped onto the beats unless the person turned that off, with the cuts into the product
+// and the logo on the strongest hits.
+export function arrangeScenes(
+  script: MotionScript | null,
+  beats: number[],
+  snap: boolean,
+  music: MotionPiece["music"] = "synth",
+  track: AudioBuffer | null = null,
+): MotionScene[] {
+  if (!script) return [];
+  return snap ? snapScenes(script.scenes, beats, strongBeats(beats, music, track)) : script.scenes;
+}
+
+// The music bed's level by tone: lower under a dry piece, a touch higher in an absurd one.
+export const TONE_BED = { dry: 0.6, warm: 1, absurdist: 1.1 } as const;
 
 export function layerAssets(layers: HTMLImageElement[]): Record<string, MotionAsset> {
   return Object.fromEntries(layers.map((img, k) => [`layer:${k}`, asAsset(img, `layer:${k}`)]));
@@ -192,9 +248,14 @@ export function loadSfx(): Promise<Partial<Record<HitKind, AudioBuffer[]>>> {
 // 0.06 s. In a sequence (labels, steps) only the first and the last arrival sound. Typing sounds per key.
 export function soundHits(snapped: MotionScript, beats: number[]): SoundPlan["hits"] {
   const hits: SoundPlan["hits"] = [];
-  const hit = (t: number, kind: HitKind, n?: number) => hits.push({ at: Math.max(0, nearBeat(t, beats) - 0.02), kind, n });
+  // Dry: only the big moments sound (the product, the logo, a tap or key that is the action itself); no whoosh.
+  const dry = snapped.tone === "dry";
+  const hit = (t: number, kind: HitKind, n?: number) => {
+    if (dry && (kind === "pop" || kind === "whoosh")) return;
+    hits.push({ at: Math.max(0, nearBeat(t, beats) - 0.02), kind, n });
+  };
   for (const s of timeScenes(snapped.scenes)) {
-    if (s.index > 0) hits.push({ at: s.start, kind: "whoosh" });
+    if (s.index > 0) hit(s.start, "whoosh");
     const T = elementTimes(s);
     const has = (key: string) => key in T;
     const within = (r: number) => r < s.seconds - 0.05;
@@ -266,6 +327,7 @@ export function soundPlan(
       track,
       hits: soundHits(snapped, beats),
       effects: piece.effects ?? "library",
+      bed: TONE_BED[snapped.tone ?? "warm"],
     },
     voiceBlobs,
   };

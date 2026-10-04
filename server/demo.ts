@@ -312,14 +312,18 @@ export function demoMotion(brief: Brief, target: number | null): MotionScript {
       ]
     : scenes;
   const scale = target ? target / withCharacter.reduce((n, s) => n + s.seconds, 0) : 1;
-  return normalizeMotion({
+  const motion = normalizeMotion({
     problem: shop ? "El frío que entra por abajo de la puerta" : "Armar el pedido antes del corte del proveedor",
     title: shop ? "El burlete en 15 segundos" : "Pedir antes del corte",
     durationNote: "Ejemplo de muestra, sin clave de IA.",
     scenes: withCharacter.map((s) => ({ assetB: "", gesture: "", focusX: 0.5, focusY: 0.5, zoom: 2, ...s, seconds: s.seconds * scale })),
     music: { mood: "drive", bpm: 112 },
     note: "Guion de muestra. Los datos marcados [VERIFY] hay que confirmarlos.",
+    caption: shop
+      ? "El frío no entra por la ventana: entra por abajo de la puerta. Un burlete y la casa vuelve a ser casa."
+      : "Son las 17:50 y el proveedor cierra a las 18. Así se arma el pedido sin contar la góndola a mano. [VERIFY]",
   });
+  return { ...motion, tone: brief.tone };
 }
 
 // Sample review: the first round finds the hook title small and makes it bigger; later rounds pass. It never looks

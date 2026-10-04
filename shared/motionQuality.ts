@@ -87,7 +87,8 @@ export type QualityState = {
 
 // A short fingerprint of what the review looked at.
 export function qualityKey(scenes: MotionScene[], script: MotionScript, extra: string): string {
-  const text = JSON.stringify([scenes, script.music, extra]);
+  // The tone changes the cuts and the sound, so a new tone needs a new look; the caption does not.
+  const text = JSON.stringify([scenes, script.music, script.tone ?? "warm", extra]);
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);

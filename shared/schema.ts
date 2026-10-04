@@ -425,6 +425,33 @@ export type Status = {
 };
 
 // "Modelos": who writes, who looks at pictures, and which keys are set (never the keys themselves).
+// "Traer la marca desde su web": the suggestion and what was read. Nothing is applied until the person picks it;
+// claims are [VERIFY] until the person confirms them into "Lo que existe hoy".
+export const BrandSuggestionSchema = z.object({
+  name: z.string().describe("The brand or product name as the page writes it."),
+  tagline: z.string().describe("The brand's own short line from the page, in its language. Empty if there is none."),
+  bg: z.string().describe("Background colour, #rrggbb, from the page's colours."),
+  text: z.string().describe("Text colour on that background, #rrggbb, readable (strong contrast)."),
+  accent: z.string().describe("The ONE accent colour, #rrggbb: the brand's signature colour (buttons, logo), not black, white or grey."),
+  displayFont: z.string().describe("A Google Fonts family for titles: the page's own when it is on Google Fonts, else the closest that is."),
+  uiFont: z.string().describe("A Google Fonts family for body and UI text, same rule."),
+  fontNote: z.string().describe("In Spanish: which fonts the page really uses and why these, when they differ. Empty if they are the page's own."),
+  logo: z.number().describe("Index of the logo candidate that is the brand's logo (0-based), or -1 if none is."),
+  claims: z.array(z.string()).describe("What the page says the product does or offers, one short plain sentence each in Spanish, up to 8. Only what the page says; no prices or numbers unless the page states them."),
+  note: z.string().describe("In Spanish: anything to check (a page that looks like a reseller, not the brand's own; colours that come from a banner). Empty if nothing."),
+});
+export type BrandSuggestion = z.infer<typeof BrandSuggestionSchema>;
+export type BrandFromWeb = {
+  url: string;
+  title: string;
+  colors: string[];
+  fonts: string[];
+  suggestion: BrandSuggestion;
+  // The chosen logo as a data URL (an SVG comes as SVG: the browser cleans and rasterizes it), or empty.
+  logo: string;
+  demo: boolean;
+};
+
 export type SettingsView = {
   writer: { provider: string; model: string } | null;
   // Chosen apart from the writer; null means the writer also looks at pictures.

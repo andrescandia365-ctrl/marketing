@@ -20,6 +20,7 @@ import {
   type SeriesLook,
 } from "../../shared/series.ts";
 import { ensureFont } from "../lib/fonts.ts";
+import { BrandFromWeb } from "./BrandFromWeb.tsx";
 import { PuppetArranger } from "./PuppetArranger.tsx";
 import { PuppetPreview } from "./PuppetPreview.tsx";
 import { SheetBuilder } from "./SheetBuilder.tsx";
@@ -529,12 +530,18 @@ function BrandSection({
   version,
   onChange,
   onLogo,
+  works,
+  onName,
+  onConfirm,
 }: {
   brand: Brand;
   seriesId: string | null;
   version: number;
   onChange: (brand: Brand) => void;
   onLogo: (file: File) => Promise<void>;
+  works: string;
+  onName: (name: string, tagline: string) => void;
+  onConfirm: (claim: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -596,7 +603,7 @@ function BrandSection({
             <label className="block text-xs">
               <span className="font-semibold">Fuente de títulos</span>
               <select className={`${inputClass} mt-0.5 py-1`} value={brand.displayFont} onChange={(e) => onChange({ ...brand, displayFont: e.target.value })}>
-                {DISPLAY_FONTS.map((f) => (
+                {[...new Set([...DISPLAY_FONTS, brand.displayFont])].map((f) => (
                   <option key={f}>{f}</option>
                 ))}
               </select>
@@ -604,7 +611,7 @@ function BrandSection({
             <label className="block text-xs">
               <span className="font-semibold">Fuente de interfaz</span>
               <select className={`${inputClass} mt-0.5 py-1`} value={brand.uiFont} onChange={(e) => onChange({ ...brand, uiFont: e.target.value })}>
-                {UI_FONTS.map((f) => (
+                {[...new Set([...UI_FONTS, brand.uiFont])].map((f) => (
                   <option key={f}>{f}</option>
                 ))}
               </select>
@@ -617,6 +624,9 @@ function BrandSection({
             <p style={{ fontFamily: `"${brand.uiFont}"`, fontSize: 13, opacity: 0.85 }}>Así se ven los títulos y el texto.</p>
           </div>
         </div>
+      </div>
+      <div className="mt-3">
+        <BrandFromWeb brand={brand} seriesId={seriesId} works={works} onBrand={onChange} onLogo={onLogo} onName={onName} onConfirm={onConfirm} />
       </div>
     </Field>
   );
@@ -860,6 +870,9 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
           setVersion(Date.now());
           onLogoSaved?.(series);
         }}
+        works={works}
+        onName={(name, tagline) => setFields((f) => (f ? { ...f, name: name || f.name, tagline: tagline || f.tagline } : f))}
+        onConfirm={(claim) => setWorks((w) => (w.trim() ? `${w.replace(/\s+$/, "")}\n${claim}` : claim))}
       />
 
       {!music && <LookSection look={fields.look} onChange={(look) => set("look", look)} />}

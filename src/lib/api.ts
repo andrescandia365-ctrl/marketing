@@ -1,5 +1,6 @@
 import type {
   Board,
+  BrandFromWeb,
   Brief,
   ImageReview,
   Menu,
@@ -101,6 +102,7 @@ export const api = {
     ),
   replacePuppet: (seriesId: string, castId: string, layers: { role: string; name: string; png: string }[]) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PUT"),
+  brandFromWeb: (url: string, series: string | null) => call<BrandFromWeb>("/api/brand/from-web", { url, series: series ?? undefined, own: true }),
   arrangePuppet: (seriesId: string, castId: string, layers: Pick<PuppetLayer, "file" | "role" | "pivot" | "place">[]) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PATCH"),
   removePuppetLayer: (seriesId: string, castId: string, index: number) =>

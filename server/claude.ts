@@ -4,6 +4,7 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import {
   BoardWireSchema,
+  BrandSuggestionSchema,
   ImageReviewSchema,
   MenuSchema,
   ProductShotSchema,
@@ -25,8 +26,10 @@ import {
   type Shot,
   type Story,
   type TopicIdea,
+  type BrandSuggestion,
 } from "../shared/schema.ts";
 import { EMPTY_BRIEF } from "../shared/example.ts";
+import type { SiteFacts } from "./brandWeb.ts";
 import { MotionScriptSchema, normalizeMotion, type MotionScript } from "../shared/motion.ts";
 import { MotionReviewSchema, normalizeReview, type MotionReview } from "../shared/motionQuality.ts";
 import {
@@ -655,7 +658,7 @@ export async function motionScript(brief: Brief, target: number | null, layers: 
   const cast = (series?.cast ?? [])
     .map((m) => `- ${m.id} (${m.kind}${m.image ? ", has image" : ", no image yet"}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}): ${m.name}. ${m.identity}`)
     .join("\n");
-  return normalizeMotion(
+  const motion = normalizeMotion(
     await ask(
       brief,
       false,
@@ -679,11 +682,46 @@ The studio's rules:
 - Voice lines in Rioplatense Spanish, each with its emotion, fitting its scene at about 2.5 words per second.
 - A character from the cast (a 3D puppet, or one with an image) can host with the character template: it says its scene's voice line (its mouth moves), makes one gesture (presenta, saluda, señala, festeja, se sorprende) and can point at or present a real screen or the product (assetB). Use it once or twice, to guide, never to replace showing the product.
 - The last scene is the logo with a soft call to action.
-- music: a mood (calm, drive or bright) and a tempo for the synthesized score.`,
+- Pace for the brief's comic voice (${brief.tone}): ${TONE_PACE[brief.tone]}
+- The product and the logo are the big moments: they land on the music's strongest hits (the app moves their cuts there).
+- music: a mood (calm, drive or bright) and a tempo for the synthesized score.
+- caption: the text to post with the video, 1 to 3 sentences in the piece's tone, about this problem in its own words; never "excited to share" or generic SaaS language; nothing unverified without [VERIFY].`,
       MotionScriptSchema,
     ),
   );
+  return { ...motion, tone: brief.tone };
 }
+
+// "Traer la marca desde su web": the writer reads what the page uses and says, and proposes the brand kit.
+export function brandFromSite(facts: SiteFacts, seriesId: string): Promise<BrandSuggestion> {
+  return ask(
+    { ...EMPTY_BRIEF, series: seriesId },
+    false,
+    `This is the brand's own web page, read by the app (its colours and fonts come from its styles, most used first).
+
+Address: ${facts.url}
+Title: ${facts.title}
+Site name: ${facts.siteName || "(none)"}
+Description: ${facts.description || "(none)"}
+Theme colour: ${facts.themeColor || "(none)"}
+Colours: ${facts.colors.map((c) => `${c.hex}×${c.count}`).join(", ") || "(none found)"}
+Font families in its styles: ${facts.fonts.map((f) => `${f.family}×${f.count}`).join(", ") || "(none found)"}
+Google Fonts it loads: ${facts.googleFonts.join(", ") || "(none)"}
+Logo candidates: ${facts.logos.map((l, i) => `${i}. ${l.kind} ${l.url}`).join(" | ") || "(none)"}
+What the page says:
+${facts.text || "(no text found)"}
+
+Propose the brand kit for the series' motion graphics: a background, a text colour and ONE accent, taken from the page's colours (the most used light or dark one for the background; the brand's signature colour as the accent, never a grey); two Google Fonts families; the logo candidate that is really the logo. Then list what the page says the product does, as short plain claims: they will be marked [VERIFY] until the person confirms each one, so never add anything the page does not say.`,
+    BrandSuggestionSchema,
+  );
+}
+
+// Voice → pacing (PLAYBOOK §3.1): how many scenes, how long they hold, how they change and how much sounds.
+const TONE_PACE: Record<Brief["tone"], string> = {
+  dry: "3 to 5 scenes, one claim each, long holds and empty space; scenes change with hard cuts; very few sounds (the product and the logo). Played straight, never winking.",
+  warm: "4 to 5 scenes at a comfortable rhythm; soft pushes between scenes; a few gentle sounds, a soft one on the logo.",
+  absurdist: "6 to 8 scenes, some under 2 seconds; hard, fast changes; one comic accent at a time. The scale can be big, the claims stay what the brand does today.",
+};
 
 // The quality loop: the reviewer looks at the contact sheet(s) and the app's measurements, scores six things from 1
 // to 10 and turns the three worst problems into edits of the script.

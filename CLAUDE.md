@@ -100,9 +100,17 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   portada-*.jpg). `readingIssues` blocks rendering when a line stays on screen less than ~0.3 s per word. Effects
   come from `public/sfx` (CC0, credited in CREDITOS.md) or are synthesized; `soundHits` puts them at the start of
   each motion, first and last of a sequence only. The `type` template types the title into a field with key sounds.
-  3D-look characters are cut-out puppets (`src/lib/puppet.ts`): a cast character's `puppet.layers` (Grok Segments PNGs
-  of one picture, same canvas, roles body/head/armL/armR/mouth/eyes/extra; pivots found from the alpha box) or its
-  image as one piece. The `character` template poses it as a pure function of time (breath, seeded blink, gesture
+  The script's `tone` (from brief.tone) sets the cut (`cutPush`: dry hard cut, warm 0.38 s push, absurdist 0.2 s),
+  the effects (dry: no whoosh or pops) and the music bed (`TONE_BED`); its `caption` is the share text. The cuts into
+  the product and the logo go to `strongBeats` (the synth's bar starts, or the track's hardest low-end onsets) only
+  when `readingIssues` and `quietGaps` do not get worse. "Traer la marca desde su web" (`server/brandWeb.ts`,
+  `/api/brand/from-web`, localhost-only, public addresses only, checked on every redirect) proposes the brand kit;
+  page claims stay [VERIFY] until the person confirms them into "Lo que existe hoy".
+  3D-look characters are cut-out puppets (`src/lib/puppet.ts`): a cast character's `puppet.layers` (roles
+  body/head/armL/armR/mouth/eyes/extra; Carpeta de Segmentos splits the front figure into head and body on one canvas)
+  or its image as one piece. Grok's Segments crops each part to its own size, so a loose part has a `place` (x, y, w on
+  the body's canvas) set in "Armar a mano" (`PuppetArranger`, PATCH .../puppet) or a starting place by role
+  (`layerRects`); pivots come from the alpha box or are dragged. The `character` template poses it as a pure function of time (breath, seeded blink, gesture
   present/wave/point/cheer/surprise, mouth from `speechLevels` of the voice file or the line's rhythm). The sheet
   template "puppet" (`/api/sheet`) writes the 3D-look sheet and the "Para el títere" view; never a known character.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),

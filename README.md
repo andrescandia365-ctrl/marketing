@@ -38,18 +38,22 @@ Cada serie es una marca: qué es, **lo que existe hoy** (lo único que la IA pue
 En el brief, **Pieza → Explicativo (motion graphics)** y **Empezar un explicativo**. Sirve para explicar la app (software) o el producto del episodio (e-commerce).
 
 - **Marca de la serie** (Editar serie → Marca): logo, fondo, texto, un solo acento, fuente de títulos y fuente de interfaz (Google Fonts).
+  - **Traer la marca desde su web:** pegás la dirección de la web de la marca (y marcás que es la suya) y la app lee sus colores, sus fuentes, su logo y lo que dice. Te lo propone y no cambia nada hasta que tocás "Usar". Lo que dice la web queda como [VERIFY] hasta que toques "Lo confirmo", que lo pasa a "Lo que existe hoy". Solo lee webs públicas: nunca esta compu ni la red local, y solo desde la app abierta en esta compu.
 - **Duración:** automática (la IA la elige según el tema) o a mano (15 a 90 s).
 - **Personajes 3D:** un personaje del elenco puede presentar el explicativo. Se arma así:
   1. En Editar serie, **+ Personaje con hoja → Personaje 3D**: la IA escribe la hoja con look 3D estilizado (una persona adulta, una mascota o un objeto que habla) y la vista **«Para el títere»**: de frente, con los brazos separados y la boca cerrada.
   2. Hacés esa vista en Grok y la cortás con **Segmentos**: cabeza, cuerpo, cada brazo, boca y ojos. Después **Descargar todo**.
-  3. En la tarjeta del personaje, **Títere 3D → Subir capas**. La app reconoce cada parte por el nombre del archivo (se puede cambiar) y encuentra sola el cuello y los hombros. Una vista previa lo muestra presentando, saludando, señalando, festejando y sorprendido.
+  3. En la tarjeta del personaje, **Títere 3D → Carpeta de Segmentos**: la app toma la figura de frente y le separa la cabeza del cuerpo.
+  4. Para que muevan los brazos o la boca, **Partes sueltas** con esos recortes. Segmentos los corta cada uno a su tamaño y no dice dónde iban, así que se abre **Armar a mano**: arrastrás cada parte a su lugar, la agrandás o achicás desde la esquina roja y movés el punto azul donde gira (el hombro, el cuello). Las flechas del teclado la mueven de a poco. Una vista previa lo muestra presentando, saludando, señalando, festejando y sorprendido.
   - En la escena **Personaje 3D**, el personaje respira, parpadea, dice la línea de su escena con la boca siguiendo la voz y hace su gesto. Puede señalar o presentar una pantalla real o el producto.
   - Sin partes, usa su imagen entera como una sola pieza.
   - Siempre personajes inventados: nunca uno conocido ni "al estilo de" un estudio.
+- **Tono:** sale de la voz del brief y se cambia en el estudio. **Seco:** cortes secos, la música más baja y casi sin efectos (solo el producto y el logo). **Cálido:** pasa de escena con un empuje suave. **Absurdo:** empujes rápidos y todos los efectos. La IA también escribe el guion con ese ritmo.
+- **Texto para publicar:** la IA escribe 1 a 3 frases para pegar en X, LinkedIn o Instagram, en el tono de la pieza, con su propio problema y sin frases de manual. Se edita y se copia; si tiene un [VERIFY], la app avisa.
 - **Guion por escenas:** la IA arma el guion con plantillas: gancho, pantalla en el celular o la compu, zoom a una función, **texto que se tipea** (un buscador o un campo de la app: se escribe letra por letra con sonido de teclas, se toca el botón y aparece el resultado), rótulos, paso a paso, antes/después, producto con precio, número grande y cierre con logo. Usa las pantallas reales, el producto recortado, los personajes y las capas de Grok que subas. Cada escena se puede editar, mover o sacar.
 - **Sonido:**
   - Voz por escena: generada, grabada o subida.
-  - Música sintetizada en código (tres climas y tempo) o tu tema. Los cortes caen en los beats.
+  - Música sintetizada en código (tres climas y tempo) o tu tema. Los cortes caen en los beats, y la entrada del producto y del logo en los golpes más fuertes (el primer tiempo del compás, o los golpes más graves de tu tema), salvo que eso deje un texto sin tiempo para leerse.
   - **Efectos:** una biblioteca libre de dominio público (Kenney y sonidos de teclas, en `public/sfx/` con sus créditos), sintetizados, o ninguno. Cada efecto suena justo cuando empieza su movimiento; en los rótulos y pasos suenan el primero y el último.
   - El total queda a −14 LUFS.
 - **Reglas del estudio:**

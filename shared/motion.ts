@@ -74,6 +74,11 @@ export const MotionScriptSchema = z.object({
     bpm: z.number().describe("Tempo of the synthesized score, 80 to 130."),
   }),
   note: z.string().describe("In Spanish: anything to check (a screen that is missing, a claim to verify). Empty if nothing."),
+  caption: z
+    .string()
+    .describe(
+      "The share caption, in Spanish (Rioplatense), in the piece's tone: 1 to 3 sentences, postable as is on X, LinkedIn or Instagram, about this piece's own problem in its own words. Never 'estamos felices de compartir' or generic SaaS phrases. Nothing that is not on the series' working-today list; anything unverified is marked [VERIFY].",
+    ),
 });
 
 // A hand adjustment from the timeline: when the element enters (seconds from the scene's start, both formats), and
@@ -90,10 +95,22 @@ export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture"
   // By element key (see sceneElements). Empty or missing: the template's own timing and layout.
   tweaks?: Record<string, Tweak>;
 };
-export type MotionScript = Omit<z.infer<typeof MotionScriptSchema>, "scenes" | "music"> & {
+export type MotionScript = Omit<z.infer<typeof MotionScriptSchema>, "scenes" | "music" | "caption"> & {
   scenes: MotionScene[];
   music: { mood: MotionMood; bpm: number };
+  // Older saved scripts have neither: no caption, the warm tone.
+  caption?: string;
+  tone?: MotionTone;
 };
+
+// The brief's comic voice sets the explainer's pace (PLAYBOOK §3.1, voice → pacing): how a scene changes and how many
+// effects sound. Dry: hard cuts, only the big moments sound. Warm: a soft push. Absurdist: a fast push, every hit.
+export const MOTION_TONES = ["dry", "warm", "absurdist"] as const;
+export type MotionTone = (typeof MOTION_TONES)[number];
+export const MOTION_TONE_LABEL: Record<MotionTone, string> = { dry: "Seco", warm: "Cálido", absurdist: "Absurdo" };
+const TONE_CUT: Record<MotionTone, number> = { dry: 0, warm: 0.38, absurdist: 0.2 };
+// How long the change between two scenes lasts (0: a hard cut).
+export const cutPush = (tone?: MotionTone) => TONE_CUT[tone ?? "warm"];
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(x) ? x : lo));
 let nextId = 0;
@@ -138,18 +155,48 @@ export function timeScenes(scenes: MotionScene[]): TimedScene[] {
 
 // Moves each scene boundary onto the beat grid (the synthesized score's beats, or the measured beats of a track),
 // so scene changes and their hits land on the music. Every scene keeps at least 1.5 s.
-export function snapScenes(scenes: MotionScene[], beats: number[]): MotionScene[] {
+// The big moments of an explainer: the product and the logo arrive on the music's strongest hits (PLAYBOOK §3.1).
+export const BIG_MOMENTS: readonly MotionTemplate[] = ["product", "logo"];
+
+// Each cut into a big moment moves to a strong hit only when that does not leave a line too short to read or a still
+// stretch: reading wins over the beat (PLAYBOOK §3.1).
+export function snapScenes(scenes: MotionScene[], beats: number[], strong: number[] = []): MotionScene[] {
+  let best = snapWith(scenes, beats, strong, new Set());
+  if (!strong.length) return best;
+  let chosen = new Set<number>();
+  scenes.forEach((_, i) => {
+    if (!scenes[i + 1] || !BIG_MOMENTS.includes(scenes[i + 1].template)) return;
+    const tryOn = new Set([...chosen, i]);
+    const next = snapWith(scenes, beats, strong, tryOn);
+    if (readingIssues(next).length <= readingIssues(best).length && quietGaps(next).length <= quietGaps(best).length) {
+      best = next;
+      chosen = tryOn;
+    }
+  });
+  return best;
+}
+
+function snapWith(scenes: MotionScene[], beats: number[], strong: number[], bigCuts: Set<number>): MotionScene[] {
   if (beats.length < 2) return scenes;
   const out: MotionScene[] = [];
   let start = 0;
   let wanted = 0;
-  for (const s of scenes) {
+  const nearest = (list: number[], t: number) => list.reduce((best, b) => (Math.abs(b - t) < Math.abs(best - t) ? b : best), list[0]);
+  scenes.forEach((s, i) => {
     wanted += s.seconds;
-    const near = beats.reduce((best, b) => (Math.abs(b - wanted) < Math.abs(best - wanted) ? b : best), beats[0]);
-    const end = Math.abs(near - wanted) <= 0.6 && near - start >= 1.5 ? near : wanted;
+    let end = wanted;
+    // The cut into a big moment goes to a strong hit when one is within a second (both scenes keep 1.5 s).
+    const next = scenes[i + 1];
+    const big = next && bigCuts.has(i) && strong.length ? nearest(strong, wanted) : null;
+    if (big !== null && Math.abs(big - wanted) <= 1 && big - start >= 1.5 && next.seconds - (big - wanted) >= 1.5) end = big;
+    else {
+      const near = nearest(beats, wanted);
+      end = Math.abs(near - wanted) <= 0.6 && near - start >= 1.5 ? near : wanted;
+    }
     out.push({ ...s, seconds: Math.round((end - start) * 1000) / 1000 });
+    // Planned ends do not move: what this cut took or gave comes out of the next scene.
     start = end;
-  }
+  });
   return out;
 }
 
@@ -270,7 +317,7 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
 export const TYPE_CPS = 14;
 export const typingSeconds = (text: string) => text.length / TYPE_CPS;
 
-// The push between scenes lasts this long (the new scene slides in over the old one).
+// The push between scenes in the warm tone (the new scene slides in over the old one); see cutPush for the others.
 export const CUT_PUSH = 0.38;
 
 // When an element is fully on screen and still (its entrance done), from the scene's start.
@@ -328,7 +375,7 @@ export const readingKey = (i: ReadingIssue) => `lee:${i.sceneId}:${i.key}`;
 
 // The video's thumbnail is frame 0: the person's choice, the AI's, or the first scene's settled moment (the hook, all
 // its words in). Never in the middle of a cut.
-export function posterTime(scenes: MotionScene[], chosen?: { t: number } | null): number {
+export function posterTime(scenes: MotionScene[], chosen?: { t: number } | null, cut = CUT_PUSH): number {
   const timed = timeScenes(scenes);
   const total = timed.at(-1)?.end ?? 0;
   if (!timed.length) return 0;
@@ -340,7 +387,7 @@ export function posterTime(scenes: MotionScene[], chosen?: { t: number } | null)
     t = Math.min(first.end - 0.1, settled + 0.15);
   }
   const s = timed.find((x) => t >= x.start && t < x.end) ?? timed.at(-1)!;
-  if (s.index > 0 && t - s.start < CUT_PUSH + 0.05) t = Math.min(s.end - 0.05, s.start + CUT_PUSH + 0.1);
+  if (cut > 0 && s.index > 0 && t - s.start < cut + 0.05) t = Math.min(s.end - 0.05, s.start + cut + 0.1);
   return Math.max(0, Math.min(total - 0.04, t));
 }
 

@@ -3,7 +3,7 @@
 // never Math.random. The studio's banned defaults are not here: no centred title on a gradient, no
 // everything-fades-in, no corner labels or frame borders, no glow, no particle bursts.
 import { drawPuppet, puppetPose, type PuppetAsset } from "./puppet.ts";
-import { CUT_PUSH, TYPE_CPS, elementTimes, timeScenes, typingSeconds, type MotionScene, type MotionScript, type TimedScene } from "../../shared/motion.ts";
+import { TYPE_CPS, cutPush, elementTimes, timeScenes, typingSeconds, type MotionScene, type MotionScript, type TimedScene } from "../../shared/motion.ts";
 import type { Brand } from "../../shared/series.ts";
 
 // screen: a real screenshot of the app (shown inside a phone or laptop).
@@ -785,8 +785,6 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
   }
 }
 
-const PUSH = CUT_PUSH;
-
 export function sceneAt(scenes: TimedScene[], t: number): number {
   const i = scenes.findIndex((s) => t >= s.start && t < s.end);
   return i < 0 ? scenes.length - 1 : i;
@@ -810,8 +808,10 @@ export function drawMotionFrame(
   const i = sceneAt(scenes, t);
   const s = scenes[i];
   const lt = t - s.start;
-  if (i > 0 && lt < PUSH) {
-    const p = inOutCubic(lt / PUSH);
+  // The change between scenes follows the tone: a push (warm, fast when absurd) or a hard cut (dry).
+  const push = cutPush(script.tone);
+  if (i > 0 && lt < push) {
+    const p = inOutCubic(lt / push);
     const prev = scenes[i - 1];
     ctx.save();
     ctx.translate(-w * p, 0);
