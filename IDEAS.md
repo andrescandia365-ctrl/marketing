@@ -178,6 +178,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **B. Boceto con IA de imagen:** un prompt "storyboard sketch, lápiz, gris, sin detalle" por toma para Grok u otra herramienta, más barato de rehacer que la imagen final. **[NOT SURE]** si Grok cobra distinto un boceto que una imagen final.
   - Con cualquiera de los dos: aprobar el storyboard dibujado antes de pasar a Producción, y que los bocetos se vean en `pieza.md`.
 - **Recomendación:** empezar por A.
+- **Decidido (4 Oct 2026):** los dos, A y B.
 
 ### 38. Sonido de los clips de Grok (4 Oct 2026)
 - **Idea (tuya):** los videos de Grok pueden hablar y hacer sonidos.
@@ -189,6 +190,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - por toma, **qué suena dentro del clip**: diálogo, ambiente (el local, la calle), efectos (la persiana, el escáner) o nada. Va a la línea "Audio:" del prompt, en vez de que la escriba la IA sola;
   - en el render, por toma: **sonido del clip** (todo, solo ambiente bajo, o mudo), para que no choque con el narrador ni con la música;
   - aviso si el clip trae música: solo se usa si la herramienta da la licencia, como con las canciones.
+- **Decidido (4 Oct 2026):** se elige por toma.
 
 ### 39. Narrador hecho en ElevenLabs (4 Oct 2026)
 - **Idea (tuya):** hacer la voz del narrador en ElevenLabs y traerla a la app.
@@ -199,6 +201,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **C. ElevenLabs desde la app (más adelante):** como otra "Voz generada", con su clave (`ELEVENLABS_API_KEY`, en Modelos) y la voz elegida por personaje. **[NOT SURE]**: su API y sus precios de hoy.
 - **Reglas:** voces de la biblioteca de ElevenLabs con su licencia, o tu propia voz. Nunca la voz clonada de una persona real sin su permiso: es la misma regla que con las caras.
 - **Recomendación:** A y B primero, porque no necesitan otra clave.
+- **Decidido (4 Oct 2026):** A y B. C queda para después.
 
 ### 40. Piezas sin narrador (4 Oct 2026)
 - **Idea (tuya):** también tiene que haber videos sin narrador.
@@ -212,6 +215,8 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   2. ElevenLabs: ¿A y B (copiar el guion y subir un archivo), o también C (desde la app, con clave)?
   3. Sonido de Grok: ¿por toma, o una sola opción para toda la pieza?
   4. ¿Por cuál empezamos?
+- **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
+- **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
 
 ### 35. Videos de letra: traducir a cualquier idioma y avisar qué falta para sincronizar (4 Oct 2026) — **Construido (4 Oct 2026, "go 35")**
 - **Idea (tuya):** "Traducir al español con IA" tiene que poder traducir también al guaraní y a los demás idiomas.
