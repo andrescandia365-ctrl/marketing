@@ -162,6 +162,48 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 34. Anuncios estáticos: analizar una referencia y conceptos de imagen fija (4 Oct 2026)
+- **De dónde sale:** dos textos que pasaste:
+  - instrucciones de un proyecto, "Direct Response Creative Director", para copiar ("swipe") anuncios de la competencia;
+  - dos prompts para que Claude invente anuncios estáticos de e-commerce y escriba sus prompts para Nano Banana Pro.
+- **Qué sería en la app:** un tipo de pieza nuevo, **"Imagen fija"**, al lado de historia, explicativo y video de letra. Es una sola imagen: el Malo y el Bueno en un cuadro.
+- **Lo que sirve, de más a menos útil:**
+  1. **Analizar una referencia ("Analizar un anuncio que funciona").** Subís un anuncio que te gusta, de la competencia o de quien sea, y la IA que mira imágenes (ya la tenemos, idea 30) lo desarma:
+     - **jerarquía visual:** cómo está armado, qué se ve primero, qué después y qué al final;
+     - **diseño:** colores (en hex), tipo de letra (con serifa, sin serifa, a mano, condensada, gruesa), estilo de imagen (UGC, estudio, de vida diaria, solo producto, ilustración, minimalista), contraste, aire, encuadre;
+     - **texto:** todo lo que dice, separado en gancho, promesa y llamado a la acción;
+     - **el ángulo:** alivio de un dolor, miedo o urgencia, estatus o identidad, curiosidad, facilidad, autoridad.
+     - Sale una **ficha de estructura** que se guarda en la serie como "Referencias".
+  2. **Reusar la estructura, nunca el anuncio.** Es la misma regla que ya usamos con el Daily Show (§6 del playbook): se toma la forma (dónde va el gancho, el orden en que se lee, el tipo de promesa). Se cambia todo lo demás: la marca, el producto, las palabras, la imagen y las personas.
+     - La imagen de la competencia **no se manda al generador** como referencia, solo su ficha en texto.
+     - Su logo, su producto, sus fotos y sus frases nunca aparecen.
+  3. **Familias de conceptos** para el menú de temas de una imagen fija. Cada una se mapea a nuestro Malo/Bueno:
+     - **antes y después** (ya existe como plantilla `beforeAfter` en los explicativos);
+     - **la pesadilla:** el dolor llevado al absurdo, con humor y solo como el Malo, nunca vendiendo miedo;
+     - **comparación** y **nosotros contra ellos:** contra el problema o "la forma de antes", nunca contra una marca con nombre ni contra personas (§2.3, regla 3);
+     - **gran beneficio**, **razones por qué**, **funciones y beneficios:** solo con lo que está en "Lo que existe hoy";
+     - **humor**.
+  4. **Prompt con casilleros fijos.** Un orden fijo para el prompt: sujeto/acción → estilo → luz → cámara → composición → colores de la marca → cómo aparece el producto → texto exacto entre comillas, con su letra y su lugar → legibilidad → formato. Encaja con el `look` de la serie y con "un solo momento congelado" (idea 20).
+  5. **Mejor que pedirle el texto a la IA:** las IAs de imagen todavía escriben mal letras y acentos. La app puede pedir la imagen **sin texto** y poner el texto encima, con las fuentes y los colores del kit de marca, como ya hace el motor de explicativos. Así la ortografía queda perfecta y se cambia el texto sin volver a generar. La opción "que la IA escriba el texto" queda para quien la quiera.
+  6. **Paso 1 / paso 2 de sus prompts:** primero leer la marca y decir qué entendió, después proponer conceptos. Ya es nuestro flujo (serie → brief → menú). Lo que suma: los conceptos salen de la investigación emocional, es decir, de "Cómo se trabaja hoy" y de los dolores de la serie.
+  7. **Varias marcas:** si no está claro para qué marca es, preguntar. Ya lo resuelve el selector de serie del brief.
+- **Lo que no se usa (choca con las reglas del playbook):**
+  - **"No reinventes anuncios ganadores" en el sentido de calcar:** copiar la composición y el texto casi igual puede ser copia del trabajo de otro (derechos de autor y marca). Se usa la estructura, no el anuncio.
+  - **Prensa y "como se vio en":** solo si existe de verdad y con el link. Nunca una nota inventada.
+  - **Testimonios y reseñas:** solo de clientes reales, con permiso. Si no hay, el concepto lleva `[VERIFY]` y no sale.
+  - **Ofertas con urgencia o escasez inventada** ("últimas unidades", "termina hoy"): solo si la oferta es real (§5: no fabricar urgencia).
+  - **Miedo, culpa o vergüenza como lo que se vende:** solo como el dolor que el producto saca (Trabajo B).
+  - **Números, premios o promesas** que no estén en "Lo que existe hoy".
+- **Herramientas:**
+  - Ellos usan Nano Banana Pro (Google), Flux Pro, Midjourney v6 e Ideogram.
+  - Hoy tenemos perfiles de Grok y uno general. Para sumar una, va su perfil en `server/tools/` con cada línea marcada [DOCS], [NOT SURE] o [TESTED].
+  - **[NOT SURE]:** qué tan bien escribe texto cada una hoy, sus formatos (`--ar` es de Midjourney) y precios.
+- **Preguntas:**
+  1. ¿Querés el tipo de pieza "Imagen fija" (1 a 5), o solo el análisis de referencias para usarlo en historias y explicativos?
+  2. ¿El texto encima lo pone la app (recomendado) o lo escribe la IA de imagen?
+  3. ¿Qué herramienta de imagen usás para estáticos? ¿Nano Banana Pro?
+  4. ¿Para qué serie primero: IMAN o Máshogar?
+
 ### 33. Personajes 3D que funcionen con motion graphics (4 Oct 2026) — **A construido (4 Oct 2026, "decidí vos")**
 - **Decidido:**
   - camino A, el look 3D como títere;
