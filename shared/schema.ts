@@ -28,6 +28,9 @@ export const BriefSchema = z.object({
   takes: z.enum(["lines", "continuous"]).default("lines"),
   // story: Good vs Bad with a storyboard. explainer: a motion-graphics video that explains (software or one product).
   piece: z.enum(["story", "explainer"]).default("story"),
+  // with: a narrator may speak (a story character with the narrator role, the explainer's voice lines). without: the
+  // characters' own words, the action and the text on screen carry the piece.
+  narrator: z.enum(["with", "without"]).default("with"),
 });
 export type Brief = z.infer<typeof BriefSchema>;
 

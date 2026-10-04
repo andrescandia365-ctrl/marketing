@@ -60,6 +60,7 @@ import {
 } from "../lib/motionProject.ts";
 import type { RenderResult } from "../lib/render.ts";
 import { CopyButton } from "./ScriptView.tsx";
+import { NarrationImport } from "./NarrationImport.tsx";
 import { Recorder, audioDuration, type AudioFile } from "./Audio.tsx";
 import { Inspector, MotionTimeline, type Selection } from "./MotionTimeline.tsx";
 import { QualityPanel } from "./QualityPanel.tsx";
@@ -77,6 +78,8 @@ type Props = {
   projectsDir: string;
   // The final render (render.mjs) needs ffmpeg on this computer.
   ffmpeg: boolean;
+  // OpenAI's transcription is set up: a whole narration is cut by its words, not only its pauses.
+  autoSync: boolean;
   onSaveStatus: (status: "saving" | "saved" | "error") => void;
 };
 
@@ -103,9 +106,12 @@ ${timeScenes(scenes)
 `;
 }
 
-export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, onSaveStatus }: Props) {
+export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, autoSync, onSaveStatus }: Props) {
   const [piece, setPiece] = useState<MotionPiece>(() =>
-    initial ? { ...newMotionPiece(brief.format), ...initial.piece } : newMotionPiece(brief.format),
+    initial
+      ? { ...newMotionPiece(brief.format), ...initial.piece }
+      : // Without a narrator the piece starts with no voice.
+        { ...newMotionPiece(brief.format), ...(brief.narrator === "without" && { voice: "none" as const }) },
   );
   const [voices, setVoices] = useState<Record<string, AudioFile>>({});
   const [layers, setLayers] = useState<HTMLImageElement[]>([]);
@@ -953,6 +959,22 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               </div>
               {piece.voice === "generated" && !voiceAvailable && <p className="mt-1 text-xs text-muted">La voz generada necesita OPENAI_API_KEY.</p>}
             </Field>
+
+            {piece.voice !== "none" && (
+              <NarrationImport
+                lines={timeScenes(scenes).flatMap((s) =>
+                  s.voice.trim() ? [{ key: s.id, label: `Escena ${s.index + 1}`, speaker: "", text: s.voice, emotion: s.emotion }] : [],
+                )}
+                narratorKeys={[]}
+                language={brief.language}
+                autoSync={autoSync}
+                room={Object.fromEntries(scenes.map((s) => [s.id, s.seconds]))}
+                onParts={async (parts) => {
+                  for (const p of parts) await keepVoice(p.key, p.blob, `voz-${p.key}.wav`);
+                  set({ voice: "recorded" });
+                }}
+              />
+            )}
 
             <Field label="Tono" group hint="Sale de la voz del brief. Seco: cortes secos y casi sin efectos. Cálido: pasa de escena con un empuje suave. Absurdo: cortes rápidos y más efectos.">
               <Segmented

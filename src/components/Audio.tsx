@@ -1,9 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  CLIP_HEARS,
+  CLIP_HEAR_LABEL,
+  CLIP_LEVELS,
+  CLIP_LEVEL_LABEL,
   VOICE_MODES,
   VOICE_MODE_LABEL,
+  clipLevelOf,
+  clipSoundOf,
+  clipPrompt,
   speakingPrompt,
   voiceModeOf,
+  type ClipLevel,
+  type ClipSound,
   type AudioSettings,
   type CharacterVoice,
   type VoiceMode,
@@ -173,6 +182,9 @@ export type VoiceRowProps = {
   onRemove: (index: number, kind: "voice" | "sfx") => void;
   onSfx: (index: number, blob: Blob, name: string) => Promise<void>;
   onSeconds: (index: number, seconds: number) => void;
+  // What is heard inside Grok's clip, and how loud the clip plays in the video.
+  onClipSound: (index: number, sound: ClipSound) => void;
+  onClipLevel: (index: number, level: ClipLevel) => void;
 };
 
 // How this shot's line is heard, plus an optional sound effect.
@@ -184,6 +196,8 @@ export function VoiceRow(props: VoiceRowProps) {
   const own = speaker ? audio.characters[speaker.id] : undefined;
   const mode: VoiceMode = voiceModeOf(audio, shot, index);
   const tooLong = voice && voice.duration > shot.seconds - 0.2;
+  const clipSound = clipSoundOf(audio, shot, index);
+  const clipLevel = clipLevelOf(audio, index);
   const fits = voice ? SHOT_LENGTHS.find((l) => l >= voice.duration + 0.3) : undefined;
 
   async function act(work: () => Promise<void>) {
@@ -232,8 +246,8 @@ export function VoiceRow(props: VoiceRowProps) {
           <CopyPrompt
             text={
               shot.timeline?.length
-                ? shot.videoPrompt
-                : speakingPrompt(shot.videoPrompt, speaker?.name ?? "The character", line, own?.grokVoice ?? "", language)
+                ? clipPrompt(audio, shot, index)
+                : speakingPrompt(clipPrompt(audio, shot, index), speaker?.name ?? "The character", line, own?.grokVoice ?? "", language)
             }
           />
         </div>
@@ -274,6 +288,54 @@ export function VoiceRow(props: VoiceRowProps) {
           )}
         </p>
       )}
+
+      <div className="space-y-1 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold" title="Va a la línea Audio: del prompt de video">
+            Sonido dentro del clip
+          </span>
+          {CLIP_HEARS.map((h) => (
+            <label key={h} className="flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={clipSound.hear.includes(h)}
+                onChange={(e) =>
+                  props.onClipSound(index, {
+                    ...clipSound,
+                    hear: e.target.checked ? [...clipSound.hear, h] : clipSound.hear.filter((x) => x !== h),
+                  })
+                }
+              />
+              {CLIP_HEAR_LABEL[h]}
+            </label>
+          ))}
+          {!clipSound.hear.length && <span className="text-muted">nada: el clip sale mudo</span>}
+          {!audio.clipSound?.[index] && <span className="text-muted">(sin tocar: queda la línea Audio: que escribió la IA)</span>}
+        </div>
+        {(clipSound.hear.includes("effects") || clipSound.hear.includes("ambient")) && (
+          <input
+            className="w-full rounded border border-line bg-white px-1.5 py-0.5"
+            placeholder="Qué se oye: la persiana, el escáner, la calle (en inglés o castellano)"
+            aria-label="Qué se oye en el clip"
+            value={clipSound.detail}
+            maxLength={200}
+            onChange={(e) => props.onClipSound(index, { ...clipSound, detail: e.target.value })}
+          />
+        )}
+        {clipSound.hear.includes("dialogue") && mode !== "grok" && line && (
+          <p className="text-amber-700">Marcaste diálogo pero la línea no la dice Grok: va a sonar dos veces si también hay otra voz.</p>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold">El sonido del clip en el video</span>
+          {CLIP_LEVELS.map((l) => (
+            <label key={l} className="flex items-center gap-1">
+              <input type="radio" name={`clip-level-${index}`} checked={clipLevel === l} onChange={() => props.onClipLevel(index, l)} />
+              {CLIP_LEVEL_LABEL[l]}
+            </label>
+          ))}
+          <span className="text-muted">La música no se pide al clip: va aparte, con su licencia.</span>
+        </div>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="font-semibold">Efecto de sonido</span>

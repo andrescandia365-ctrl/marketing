@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { clipPrompt } from "../../shared/audio.ts";
 import { polishWords } from "../../shared/checks.ts";
 import { buildCopyPrompt } from "../../shared/prompt.ts";
 import { SHOT_LENGTHS, type Board, type Brief, type ImageReview, type SegmentEdit, type Setup, type Shot, type Story } from "../../shared/schema.ts";
@@ -623,7 +624,8 @@ function ShotCard(props: CardProps) {
               label="Prompt de video"
               hint={shot.kind === "transform" ? "el cambio de una imagen a la otra" : "anima la imagen"}
               value={shot.videoPrompt}
-              copy={shot.videoPrompt}
+              // What is heard inside the clip (the voice row's "Sonido dentro del clip") replaces its "Audio:" line.
+              copy={clipPrompt(voice.audio, shot, shot.index)}
               onChange={(v) => set("videoPrompt", v)}
             />
           )}

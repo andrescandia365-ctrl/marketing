@@ -1,6 +1,6 @@
 // The checks that gate each approval. The writer grades its own story and board; these turn that grading
 // into a list of problems. A problem blocks approval until it is fixed ("Arreglalo") or the person dismisses it.
-import type { Board, Story } from "./schema.ts";
+import type { Board, Brief, Story } from "./schema.ts";
 import { PRACTICES } from "./series.ts";
 
 export type Problem = {
@@ -12,8 +12,19 @@ export type Problem = {
   shot?: number;
 };
 
-export function storyProblems(story: Story): Problem[] {
+export function storyProblems(story: Story, brief?: Pick<Brief, "narrator">): Problem[] {
   const problems: Problem[] = [];
+  // A piece without a narrator: no line may be the narrator's.
+  if (brief?.narrator === "without") {
+    const narrators = new Set(story.characters.filter((c) => c.role === "narrator").map((c) => c.id));
+    const lines = story.topics.flatMap((t) => t.lines).filter((l) => narrators.has(l.speaker));
+    if (lines.length)
+      problems.push({
+        id: `sin-narrador:${lines.length}`,
+        label: "Sin narrador",
+        detail: `La pieza es sin narrador y el narrador dice ${lines.length === 1 ? "una línea" : `${lines.length} líneas`} ("${lines[0].text.slice(0, 60)}"). Que lo cuenten los personajes, la acción o el texto en pantalla.`,
+      });
+  }
   story.checklist.forEach((c, i) => {
     if (!c.pass) problems.push({ id: `check:${i}:${c.item}`, label: c.item, detail: c.note });
   });

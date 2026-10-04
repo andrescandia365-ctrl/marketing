@@ -323,7 +323,9 @@ export function demoMotion(brief: Brief, target: number | null): MotionScript {
       ? "El frío no entra por la ventana: entra por abajo de la puerta. Un burlete y la casa vuelve a ser casa."
       : "Son las 17:50 y el proveedor cierra a las 18. Así se arma el pedido sin contar la góndola a mano. [VERIFY]",
   });
-  return { ...motion, tone: brief.tone };
+  // Without a narrator the sample has no voice lines either.
+  const scenesOut = brief.narrator === "without" ? motion.scenes.map((s) => ({ ...s, voice: "", emotion: "" })) : motion.scenes;
+  return { ...motion, scenes: scenesOut, tone: brief.tone };
 }
 
 // Sample review: the first round finds the hook title small and makes it bigger; later rounds pass. It never looks

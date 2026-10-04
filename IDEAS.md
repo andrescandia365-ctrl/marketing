@@ -170,7 +170,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - Vercel, pasando el guardado a una base de datos y a almacenamiento.
 - Se retoma con "go".
 
-### 37. Storyboard dibujado antes de gastar en Grok (4 Oct 2026)
+### 37. Storyboard dibujado antes de gastar en Grok (4 Oct 2026) — **Construido (4 Oct 2026, "Todo en ese orden, GO")**
 - **Idea (tuya):** ver el storyboard antes de generar las imágenes o los videos con Grok.
 - **Ya existe:** el paso Storyboard viene antes de Producción. Cada toma tiene su claqueta, quién está en cuadro, el prompt y **▶ Ver la pieza**, que la pasa con su duración real, las líneas y la tarjeta de color.
 - **Lo que falta, un dibujo por toma:**
@@ -180,7 +180,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Recomendación:** empezar por A.
 - **Decidido (4 Oct 2026):** los dos, A y B.
 
-### 38. Sonido de los clips de Grok (4 Oct 2026)
+### 38. Sonido de los clips de Grok (4 Oct 2026) — **Construido (4 Oct 2026)**
 - **Idea (tuya):** los videos de Grok pueden hablar y hacer sonidos.
 - **Ya existe:**
   - la voz "La dice Grok" por toma: el prompt de video le pasa la línea, la voz y la emoción;
@@ -192,7 +192,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - aviso si el clip trae música: solo se usa si la herramienta da la licencia, como con las canciones.
 - **Decidido (4 Oct 2026):** se elige por toma.
 
-### 39. Narrador hecho en ElevenLabs (4 Oct 2026)
+### 39. Narrador hecho en ElevenLabs (4 Oct 2026) — **A y B construidos (4 Oct 2026); C queda**
 - **Idea (tuya):** hacer la voz del narrador en ElevenLabs y traerla a la app.
 - **Ya existe:** "Grabada o subida" por toma o escena: hoy podés subir cada parte por separado.
 - **Lo que falta:**
@@ -203,7 +203,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Recomendación:** A y B primero, porque no necesitan otra clave.
 - **Decidido (4 Oct 2026):** A y B. C queda para después.
 
-### 40. Piezas sin narrador (4 Oct 2026)
+### 40. Piezas sin narrador (4 Oct 2026) — **Construido (4 Oct 2026)**
 - **Idea (tuya):** también tiene que haber videos sin narrador.
 - **Ya existe:** el narrador es un rol más de la historia, y en los explicativos se puede elegir "Sin voz".
 - **Lo que falta:** en el brief, **Narrador: con / sin**.

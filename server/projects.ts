@@ -3,6 +3,7 @@
 // can open, copy or back up the folder like any other; the app autosaves into it.
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { SKETCH_BASE } from "../shared/prompt.ts";
 
 export const PROJECTS_DIR = resolve(process.env.PROJECTS_DIR || "proyectos");
 
@@ -206,8 +207,11 @@ const SHEETS: Record<number, string> = {
   302: "portada-9x16",
   303: "portada-16x9",
 };
+// Storyboard sketches made with an image tool (the drawn storyboard's "Boceto con IA") live in image slots 400 + shot.
 const slot = (index: number, kind: MediaKind) =>
-  (kind === "image" && SHEETS[index]) || `toma-${String(index + 1).padStart(2, "0")}-${SLOT_NAME[kind]}`;
+  (kind === "image" && SHEETS[index]) ||
+  (kind === "image" && index >= SKETCH_BASE && index < SKETCH_BASE + 100 && `boceto-${String(index - SKETCH_BASE + 1).padStart(2, "0")}`) ||
+  `toma-${String(index + 1).padStart(2, "0")}-${SLOT_NAME[kind]}`;
 
 export function saveMedia(
   id: string,

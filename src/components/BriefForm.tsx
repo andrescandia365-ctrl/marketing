@@ -160,6 +160,24 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
             ]}
           />
         </Field>
+        <Field
+          label="Narrador"
+          group
+          hint={
+            explainer
+              ? "Sin narrador: el explicativo no lleva voz; lo cuentan los títulos, los rótulos y el producto en uso, con música y efectos."
+              : "Sin narrador: la historia la cuentan los personajes con lo que dicen (Grok los hace hablar o van subtitulados), lo que hacen y el texto en pantalla."
+          }
+        >
+          <Segmented
+            value={brief.narrator ?? "with"}
+            onChange={(v) => set("narrator", v)}
+            options={[
+              { value: "with", label: "Con narrador" },
+              { value: "without", label: "Sin narrador" },
+            ]}
+          />
+        </Field>
         {!explainer && (
           <Field
             label="Tomas"

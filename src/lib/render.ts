@@ -21,6 +21,7 @@ import {
 import type { Board, Brief, Role } from "../../shared/schema.ts";
 import type { TextStyle } from "../../shared/series.ts";
 import { timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
+import { drawSketch, type SketchSetup } from "./sketch.ts";
 
 const FPS = 30;
 const FADE = 0.35;
@@ -51,6 +52,8 @@ export type RenderOptions = {
   // Show each still or clip whole, with no zoom or crop, so a tool's watermark stays visible.
   fullFrame: boolean;
   keepSound: boolean;
+  // Per shot (by index), how loud the clip's own sound plays: 1 whole, 0.3 low, 0 mute. Missing: whole.
+  clipGain?: Record<number, number>;
   speakers: Record<string, Speaker>;
   // The headline at the top of each shot (the shot's onScreenText). Off hides it in the whole video.
   headlines: boolean;
@@ -272,9 +275,13 @@ export function drawShot(
   img: HTMLImageElement | null,
   speakers: Record<string, Speaker>,
   t: number,
-  options: Pick<RenderOptions, "disclosure" | "fullFrame" | "headlines" | "style">,
+  options: Pick<RenderOptions, "disclosure" | "fullFrame" | "headlines" | "style"> & {
+    // The storyboard's drawn sketch: with no picture, the shot's setups as a pencil sketch instead of the colour card.
+    sketch?: SketchSetup[] | null;
+  },
 ) {
-  paintStill(ctx, img, shot, t, options.fullFrame);
+  if (!img && options.sketch) drawSketch(ctx, shot, options.sketch);
+  else paintStill(ctx, img, shot, t, options.fullFrame);
   drawOverlay(ctx, shot, speakers, t, options);
 }
 
@@ -408,12 +415,13 @@ async function mixSound(
       place(ctx, sfx, shot.start, shot.end, gain);
       any = true;
     }
-    if (!options.keepSound || !m.clip) continue;
+    const clipGain = options.clipGain?.[shot.index] ?? 1;
+    if (!options.keepSound || !m.clip || clipGain <= 0) continue;
     const input = new Input({ source: new BlobSource(m.clip), formats: ALL_FORMATS });
     try {
       const track = await input.getPrimaryAudioTrack();
       if (!track || !(await track.canDecode())) continue;
-      const level = voice ? 0.3 : 1;
+      const level = (voice ? 0.3 : 1) * clipGain;
       const gain = ctx.createGain();
       gain.connect(ctx.destination);
       gain.gain.setValueAtTime(0, shot.start);

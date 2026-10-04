@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_AUDIO, voiceModeOf, type AudioSettings, type CharacterVoice, type VoiceMode } from "../shared/audio.ts";
 import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/checks.ts";
-import { buildCopyPrompt } from "../shared/prompt.ts";
+import { SKETCH_BASE, buildCopyPrompt } from "../shared/prompt.ts";
 import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
 import { migrateBoard, migrateStory, type Board, type Brief, type Menu, type Setup, type Shot, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
 import { DEFAULT_TEXT_STYLE, castRef, hasLook, seriesId, type CastMember, type TextStyle } from "../shared/series.ts";
@@ -13,6 +13,7 @@ import { MenuPicker } from "./components/MenuPicker.tsx";
 import { LyricStudio, type LyricOpen } from "./components/LyricStudio.tsx";
 import { ModelsPanel } from "./components/ModelsPanel.tsx";
 import { MotionStudio, type MotionOpen } from "./components/MotionStudio.tsx";
+import { NarrationImport } from "./components/NarrationImport.tsx";
 import { ProductPanel } from "./components/ProductPanel.tsx";
 import { ProjectsPanel } from "./components/ProjectsPanel.tsx";
 import { SeriesEditor } from "./components/SeriesEditor.tsx";
@@ -222,7 +223,7 @@ export function App() {
         audio,
       };
       const markdown =
-        story && board ? pieceToMarkdown(pieceBrief, story, board, toolName, log) : story ? storyToMarkdown(story) : undefined;
+        story && board ? pieceToMarkdown(pieceBrief, story, board, toolName, log, audio) : story ? storyToMarkdown(story) : undefined;
       try {
         await api.saveProject(projectId, state, markdown);
         if (seq === saveSeq.current) {
@@ -589,8 +590,9 @@ export function App() {
       if (kind === "image" || kind === "clip") delete next.review;
       return { ...prev, [index]: next };
     });
-    const what = { image: "Imagen quitada", clip: "Clip quitado", voice: "Voz quitada", sfx: "Efecto quitado" }[kind];
-    addLog({ shot: index, text: what });
+    const sketch = kind === "image" && index >= SKETCH_BASE;
+    const what = sketch ? "Boceto quitado" : { image: "Imagen quitada", clip: "Clip quitado", voice: "Voz quitada", sfx: "Efecto quitado" }[kind];
+    addLog({ shot: sketch ? index - SKETCH_BASE : index, text: what });
     await keep(index, (id) => api.removeMedia(id, index, kind));
   }
 
@@ -768,7 +770,7 @@ export function App() {
   const realProviders = status?.imageProviders.filter((p) => p.available && p.id !== "placeholder") ?? [];
   const maxTopics = pieceBrief.length === "short" ? 1 : 4;
   const open = (p: Problem) => !dismissed.includes(p.id);
-  const storyIssues = story ? storyProblems(story) : [];
+  const storyIssues = story ? storyProblems(story, pieceBrief) : [];
   const boardIssues = board ? boardProblems(board) : [];
 
   const steps: { id: Step; label: string; enabled: boolean }[] = lyric
@@ -972,6 +974,7 @@ export function App() {
             defaultVoice={status?.voice.defaultVoice ?? ""}
             projectsDir={status?.projectsDir ?? "proyectos"}
             ffmpeg={status?.render?.ffmpeg ?? false}
+            autoSync={status?.lyrics.autoSync ?? false}
             onSaveStatus={setSaveStatus}
           />
         )}
@@ -1039,7 +1042,20 @@ export function App() {
             busy={busy === "reviseBoard" ? "revise" : busy === "fixBoard" ? "fix" : null}
             problems={boardIssues.filter(open)}
             dismissed={boardIssues.length - boardIssues.filter(open).length}
-            look={{ format: pieceBrief.format, style: pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE, images: shotImages }}
+            look={{
+              format: pieceBrief.format,
+              style: pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE,
+              images: shotImages,
+              sketches: Object.fromEntries(board.shots.map((_, i) => [i, media[SKETCH_BASE + i]?.image])),
+              castKinds: Object.fromEntries((pieceSeries?.cast ?? []).map((m) => [m.id, m.kind])),
+            }}
+            onSketch={async (index, file) => {
+              const image = await readImageFile(file);
+              setShotMedia(SKETCH_BASE + index, { image, error: undefined });
+              addLog({ shot: index, text: `Boceto subido: ${file.name}` });
+              await keep(SKETCH_BASE + index, (id) => api.uploadMedia(id, SKETCH_BASE + index, "image", file));
+            }}
+            onSketchRemove={(index) => void removeMedia(SKETCH_BASE + index, "image")}
             onRevise={(note, shotNotes) => reviseBoard(note, shotNotes)}
             onFix={() => reviseBoard(fixNote(boardIssues.filter(open)), [], "fixBoard")}
             onDismiss={dismiss}
@@ -1115,7 +1131,7 @@ export function App() {
                     className="ml-auto"
                     onClick={() =>
                       download(
-                        new Blob([pieceToMarkdown(pieceBrief, story, board, toolName, log)], { type: "text/markdown" }),
+                        new Blob([pieceToMarkdown(pieceBrief, story, board, toolName, log, audio)], { type: "text/markdown" }),
                         `${slug(story.problem || story.title)}.md`,
                       )
                     }
@@ -1129,6 +1145,40 @@ export function App() {
                 <b>En {toolName}, cada vez:</b> elegí el largo del clip (6, 10 o 15 s) y la forma en sus propios
                 controles; el prompt solo lo recuerda. Primero la imagen, después animala.
               </Notice>
+
+              <NarrationImport
+                lines={board.shots.flatMap((s, i) =>
+                  s.voiceover.trim()
+                    ? [
+                        {
+                          key: String(i),
+                          label: `Toma ${i + 1}`,
+                          speaker: story.characters.find((c) => c.id === s.speaker)?.name ?? s.speaker,
+                          text: s.voiceover,
+                          // The story line's emotion (a continuous take: its first spoken beat's).
+                          emotion:
+                            story.topics.flatMap((t) => t.lines).find((l) => l.text.trim() === s.voiceover.trim())?.emotion ??
+                            s.timeline?.find((b) => b.line.trim())?.emotion ??
+                            "",
+                        },
+                      ]
+                    : [],
+                )}
+                narratorKeys={board.shots.flatMap((s, i) =>
+                  story.characters.find((c) => c.id === s.speaker)?.role === "narrator" && s.voiceover.trim() ? [String(i)] : [],
+                )}
+                language={pieceBrief.language}
+                autoSync={status?.lyrics.autoSync ?? false}
+                room={Object.fromEntries(board.shots.map((s, i) => [String(i), s.seconds]))}
+                onParts={async (parts) => {
+                  for (const p of parts) {
+                    const i = Number(p.key);
+                    await addAudio(i, "voice", p.blob, `toma-${i + 1}-narracion.wav`);
+                    setVoiceMode(i, "recorded");
+                  }
+                  addLog({ text: `Narración en un archivo: ${parts.length} partes repartidas en sus tomas.` });
+                }}
+              />
 
               <ScriptView
                 brief={pieceBrief}
@@ -1167,6 +1217,8 @@ export function App() {
                   onGenerate: generateVoice,
                   onRemove: (i, kind) => removeMedia(i, kind),
                   onSfx: (i, blob, name) => addAudio(i, "sfx", blob, name),
+                  onClipSound: (i, sound) => setAudio((a) => ({ ...a, clipSound: { ...a.clipSound, [i]: sound } })),
+                  onClipLevel: (i, level) => setAudio((a) => ({ ...a, clipLevel: { ...a.clipLevel, [i]: level } })),
                   onSeconds: (i, seconds) => {
                     const shot = board.shots[i];
                     updateShot(i, { ...shot, seconds, toolSettings: shot.toolSettings.replace(/\d+(\.\d+)?\s*s\b/, `${seconds} s`) });

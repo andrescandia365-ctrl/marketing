@@ -49,6 +49,9 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   "Cómo se trabaja hoy": pains follow how people really work, never an invented habit) and board
   (issues); `shared/checks.ts` turns that into problems that block approval until fixed ("Arreglalo") or dismissed.
 - Every shot has a slate (`title`, `action`); its image prompt is one frozen moment, actions go in the video prompt.
+  The storyboard opens on "Bocetos": the app's pencil sketch of each shot (`lib/sketch.ts`, from its setups, the cast
+  kinds and the framing in its prompt; deterministic) or a sketch the person made with `sketchPrompt` and uploaded
+  (image slot `SKETCH_BASE` + shot, saved as boceto-NN).
 - A shot lists every setup in frame (`setups`, main first); a setup linked to the series cast has `castId` and is
   referenced in Grok as @ref. `kind` is single, transform (initial/middle/end frames) or screen (a real screenshot
   from the cast, never drawn by AI). `editFrom`/`editPrompt` reuse an earlier shot's image. Old saved boards go
@@ -114,7 +117,12 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   present/wave/point/cheer/surprise, mouth from `speechLevels` of the voice file or the line's rhythm). The sheet
   template "puppet" (`/api/sheet`) writes the 3D-look sheet and the "Para el títere" view; never a known character.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
-  a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Voices
+  a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Per shot,
+  `audio.clipSound` (dialogue/ambient/effects + what is heard) rewrites the video prompt's "Audio:" line only when the
+  person set it (`clipPrompt`; never music), and `audio.clipLevel` (full/low/mute) sets the clip's own sound in the
+  render. A narration made outside (ElevenLabs) comes in as one file (`NarrationImport`, `lib/narration.ts`): cut by
+  the words (whisper-1 via /api/lyrics/sync) or by the pauses, each cut on the quietest frame, one part per shot or
+  scene. `brief.narrator = "without"`: no narrator role in the story (a story check blocks it) and no explainer voice. Voices
   and sound effects are per-shot project media; one music track per piece ducks under speech and can pull the
   cuts onto its beats (`findBeats`/`alignCuts` in render.ts). Subtitles always stay.
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.

@@ -1,6 +1,7 @@
 // The piece as a Markdown file: story, storyboard with every prompt, and the direction log.
+import { clipPrompt, type AudioSettings } from "../../shared/audio.ts";
 import type { Board, Brief, Story } from "../../shared/schema.ts";
-import { buildCopyPrompt } from "../../shared/prompt.ts";
+import { buildCopyPrompt, sketchPrompt } from "../../shared/prompt.ts";
 import { BEAT_INFO, ROLE_LABEL, formatTime, timeShots, totalSeconds } from "../../shared/template.ts";
 
 export type LogEntry = { at: number; shot?: number; text: string; outcome?: string };
@@ -74,7 +75,7 @@ ${verify}
 `;
 }
 
-export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolName: string, log: LogEntry[]): string {
+export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolName: string, log: LogEntry[], audio?: AudioSettings): string {
   const cast = Object.fromEntries(story.characters.map((c) => [c.id, c]));
   const shots = timeShots(board.shots)
     .map((s) => {
@@ -97,7 +98,8 @@ export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolNa
         s.editFrom ? `- **Editar la imagen de la toma ${s.editFrom}:** ${s.editPrompt}` : "",
         s.kind === "transform" && s.middlePrompt ? `- **Imagen intermedia:** ${buildCopyPrompt(s.middlePrompt, brief.format)}` : "",
         s.kind === "transform" ? `- **Imagen final:** ${buildCopyPrompt(s.endPrompt, brief.format)}` : "",
-        s.videoPrompt ? `- **Prompt de video:** ${s.videoPrompt}` : "",
+        s.kind !== "screen" ? `- **Prompt de boceto:** ${sketchPrompt(s.visualPrompt, brief.format)}` : "",
+        s.videoPrompt ? `- **Prompt de video:** ${audio ? clipPrompt(audio, s, s.index) : s.videoPrompt}` : "",
       ]
         .filter(Boolean)
         .join("\n");

@@ -191,6 +191,9 @@ function describeBrief(brief: Brief): string {
     `Picture format: ${brief.format === "vertical" ? "vertical 9:16" : "horizontal 16:9"}`,
     `Real screens this piece may show (screen shots): ${screensFor(brief)}`,
     `Takes: ${brief.takes === "continuous" ? "CONTINUOUS — 15 s handheld takes, each a scene with timed beats (see the continuous-take rules)" : "one line per shot (6, 10 or 15 s)"}`,
+    brief.narrator === "without"
+      ? "Narrator: NONE. No character has the narrator role and nobody speaks from outside the scene. The characters' own words, what they do, and the text on screen carry the whole piece; every beat must be clear without a narrator. A shot may have no line at all (action only)."
+      : "Narrator: allowed (the narrator role may speak when it helps).",
   ];
   return lines.map((l) => `- ${l}`).join("\n");
 }
@@ -682,7 +685,7 @@ The studio's rules:
 - Voice lines in Rioplatense Spanish, each with its emotion, fitting its scene at about 2.5 words per second.
 - A character from the cast (a 3D puppet, or one with an image) can host with the character template: it says its scene's voice line (its mouth moves), makes one gesture (presenta, saluda, señala, festeja, se sorprende) and can point at or present a real screen or the product (assetB). Use it once or twice, to guide, never to replace showing the product.
 - The last scene is the logo with a soft call to action.
-- Pace for the brief's comic voice (${brief.tone}): ${TONE_PACE[brief.tone]}
+${brief.narrator === "without" ? "- No narrator: leave every scene's voice and emotion empty. Titles, labels, the typed text and the product in use carry the meaning; keep it readable without a voice.\n" : ""}- Pace for the brief's comic voice (${brief.tone}): ${TONE_PACE[brief.tone]}
 - The product and the logo are the big moments: they land on the music's strongest hits (the app moves their cuts there).
 - music: a mood (calm, drive or bright) and a tempo for the synthesized score.
 - caption: the text to post with the video, 1 to 3 sentences in the piece's tone, about this problem in its own words; never "excited to share" or generic SaaS language; nothing unverified without [VERIFY].`,
