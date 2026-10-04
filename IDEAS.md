@@ -162,6 +162,57 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 36. Deploy fuera de la compu (4 Oct 2026) — **en pausa ("pin al deploy")**
+- Hoy la app corre en tu compu. En Vercel no anda tal como está: el disco no guarda nada, corta los archivos de más de 4,5 MB, tiene un tiempo máximo por pedido, no puede correr el render final ni el Reloj, y la app no tiene contraseña.
+- Caminos, de menos a más trabajo:
+  - Tailscale para usarla desde el celular sin publicarla;
+  - un servidor con disco (Railway, Render, Fly.io o un VPS), con contraseña;
+  - Vercel, pasando el guardado a una base de datos y a almacenamiento.
+- Se retoma con "go".
+
+### 37. Storyboard dibujado antes de gastar en Grok (4 Oct 2026)
+- **Idea (tuya):** ver el storyboard antes de generar las imágenes o los videos con Grok.
+- **Ya existe:** el paso Storyboard viene antes de Producción. Cada toma tiene su claqueta, quién está en cuadro, el prompt y **▶ Ver la pieza**, que la pasa con su duración real, las líneas y la tarjeta de color.
+- **Lo que falta, un dibujo por toma:**
+  - **A. Boceto de la app (gratis, al instante):** la app dibuja cada toma como un boceto en gris: los personajes como siluetas en su lugar (`setups`), el encuadre (plano general, medio, primer plano), la cámara, la pantalla real si va una, y el texto en pantalla. Sale de lo que la toma ya dice; no gasta nada. "Ver la pieza" pasaría estos bocetos en vez de la tarjeta de color.
+  - **B. Boceto con IA de imagen:** un prompt "storyboard sketch, lápiz, gris, sin detalle" por toma para Grok u otra herramienta, más barato de rehacer que la imagen final. **[NOT SURE]** si Grok cobra distinto un boceto que una imagen final.
+  - Con cualquiera de los dos: aprobar el storyboard dibujado antes de pasar a Producción, y que los bocetos se vean en `pieza.md`.
+- **Recomendación:** empezar por A.
+
+### 38. Sonido de los clips de Grok (4 Oct 2026)
+- **Idea (tuya):** los videos de Grok pueden hablar y hacer sonidos.
+- **Ya existe:**
+  - la voz "La dice Grok" por toma: el prompt de video le pasa la línea, la voz y la emoción;
+  - el prompt de video termina con una línea "Audio: …";
+  - el render mezcla el sonido de cada clip.
+- **Lo que falta:**
+  - por toma, **qué suena dentro del clip**: diálogo, ambiente (el local, la calle), efectos (la persiana, el escáner) o nada. Va a la línea "Audio:" del prompt, en vez de que la escriba la IA sola;
+  - en el render, por toma: **sonido del clip** (todo, solo ambiente bajo, o mudo), para que no choque con el narrador ni con la música;
+  - aviso si el clip trae música: solo se usa si la herramienta da la licencia, como con las canciones.
+
+### 39. Narrador hecho en ElevenLabs (4 Oct 2026)
+- **Idea (tuya):** hacer la voz del narrador en ElevenLabs y traerla a la app.
+- **Ya existe:** "Grabada o subida" por toma o escena: hoy podés subir cada parte por separado.
+- **Lo que falta:**
+  - **A. Guion para ElevenLabs:** un botón "Copiar el guion del narrador" con todas sus líneas en orden, cada una con su emoción, listo para pegar.
+  - **B. Un solo archivo para toda la pieza:** subís el audio entero de ElevenLabs. La app lo transcribe con tiempos, como en los videos de letra, lo corta por línea y pone cada parte en su toma o escena. Si una parte no entra, avisa y propone alargar la toma.
+  - **C. ElevenLabs desde la app (más adelante):** como otra "Voz generada", con su clave (`ELEVENLABS_API_KEY`, en Modelos) y la voz elegida por personaje. **[NOT SURE]**: su API y sus precios de hoy.
+- **Reglas:** voces de la biblioteca de ElevenLabs con su licencia, o tu propia voz. Nunca la voz clonada de una persona real sin su permiso: es la misma regla que con las caras.
+- **Recomendación:** A y B primero, porque no necesitan otra clave.
+
+### 40. Piezas sin narrador (4 Oct 2026)
+- **Idea (tuya):** también tiene que haber videos sin narrador.
+- **Ya existe:** el narrador es un rol más de la historia, y en los explicativos se puede elegir "Sin voz".
+- **Lo que falta:** en el brief, **Narrador: con / sin**.
+  - **Sin narrador, en las historias:** la IA no usa el rol narrador. Todo se cuenta con lo que dicen los personajes (Grok los hace hablar, o van subtitulados), con la acción y con el texto en pantalla. Los subtítulos siguen para lo que se dice.
+  - **Sin narrador, en los explicativos:** la IA no escribe líneas de voz; el sentido va en los títulos, los rótulos y el producto en uso, con música y efectos.
+  - El check de la historia revisa que se entienda sin narrador.
+- **Preguntas para el "go":**
+  1. Storyboard dibujado: ¿A (boceto de la app), B (boceto con IA) o los dos?
+  2. ElevenLabs: ¿A y B (copiar el guion y subir un archivo), o también C (desde la app, con clave)?
+  3. Sonido de Grok: ¿por toma, o una sola opción para toda la pieza?
+  4. ¿Por cuál empezamos?
+
 ### 35. Videos de letra: traducir a cualquier idioma y avisar qué falta para sincronizar (4 Oct 2026) — **Construido (4 Oct 2026, "go 35")**
 - **Idea (tuya):** "Traducir al español con IA" tiene que poder traducir también al guaraní y a los demás idiomas.
   - Un selector de idioma destino al lado del botón: español, guaraní, inglés, portugués, japonés, coreano, u otro escrito a mano.
