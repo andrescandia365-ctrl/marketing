@@ -203,6 +203,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   2. ¿El texto encima lo pone la app (recomendado) o lo escribe la IA de imagen?
   3. ¿Qué herramienta de imagen usás para estáticos? ¿Nano Banana Pro?
   4. ¿Para qué serie primero: IMAN o Máshogar?
+- **Integrado al playbook (4 Oct 2026, "integralo"):** el análisis de referencias, "la estructura sí, el anuncio no", las familias de conceptos con su versión nuestra, los casilleros del prompt, el texto puesto por la app y lo que no se usa están en `PLAYBOOK.md` §3.2 y en `server/playbook.md`, así la IA ya escribe con ellos. El tipo de pieza "Imagen fija" (1 a 5) sigue esperando "go" y las 4 respuestas.
 
 ### 33. Personajes 3D que funcionen con motion graphics (4 Oct 2026) — **A construido (4 Oct 2026, "decidí vos")**
 - **Decidido:**

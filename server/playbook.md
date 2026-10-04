@@ -1,6 +1,6 @@
 # Marketing playbook (operative rules)
 
-Source: `PLAYBOOK.md` in this repo (from commit `e73e803`; short-video craft added 4 Oct 2026).
+Source: `PLAYBOOK.md` in this repo (from commit `e73e803`; short-video craft and static images added 4 Oct 2026).
 This file keeps only the parts that steer writing. The research, the show's business facts and the episode log stay in `PLAYBOOK.md`.
 The playbook studies how a late-night satire show builds a segment and borrows the **mechanics only**: never the show's name, clips, music, people, persona or politics.
 
@@ -87,6 +87,29 @@ Craft rules from an open-source launch-video tool. They sit under the structure 
 - **Delivery:** a share caption of 1–3 sentences, postable as is, specific to the piece and in its tone; never "excited to share" or generic SaaS language; same claim rules as the video.
 - **Voice → pacing:** dry = few scenes, one claim each, long holds, hard cuts or slow fades, very sparse sound. Warm = 4–5 scenes, soft transitions, a few gentle cues. Absurdist = more and faster scenes, hard cuts, one comic accent at a time. Never a "trailer with big claims": the scale can be big, the claims stay what exists today.
 
+### Static images and reference ads
+Rules from user-supplied prompt templates. They sit under the structure above: the frame, the Turn and `[VERIFY]` always win.
+- **Brand first:** read the series bible, its cast, its look and "Lo que existe hoy" before writing a concept.
+- **Tear down a reference ad before borrowing from it:**
+  - the hierarchy: layout, focal point, and what the eye reads first → last;
+  - the design: palette in hex, type style, image style (UGC, studio, lifestyle, product only, illustration, minimal), contrast and whitespace;
+  - the copy: hook, core promise, CTA;
+  - the angle: pain relief, fear or urgency, status, curiosity, ease, authority.
+- **Borrow the structure, never the ad:** keep the composition idea, the reading order and the kind of promise. Change the brand, product, words, picture and people. Never another brand's logo, images, product shots, characters or lines, and never a near-identical copy.
+- **Concept families for one image**, each the Negative → Good frame in a single frame:
+  - before/after (same place and light, one thing changed);
+  - nightmare scenario (the pain pushed to the absurd, with humor; never fear sold);
+  - comparison or us vs. them (against the problem or "the old way", never a named brand or a group of people);
+  - big benefit, reasons why, features and benefits (shipped features only, each tied to its pain);
+  - humor.
+- **Proof stays real:**
+  - an offer only with its real terms and dates;
+  - press only if it exists, with the link;
+  - a testimonial or review only from a real customer, quoted exactly, with consent. Otherwise the line is `[VERIFY]` and the piece does not ship.
+- **The Turn in a still:** one plain line, or the touching detail inside the picture.
+- **Image prompt slots, in order:** subject and action (one frozen moment) → style → light → camera and angle → composition → brand colours → how the product appears → exact text in quotes with its type style and placement → legibility (no distorted, missing or extra letters) → aspect ratio in the tool's syntax.
+- **Text on the image:** models misspell (accents and ñ most of all). Prefer a picture with clear space and no text, with the text set on top in the brand's fonts. If the model writes it, give the exact strings and check the spelling.
+
 ## 5. Job A playbook
 - **Audience (hypothesis):** owner-operators and small-chain managers of convenience and corner stores; franchise ops leads.
 - **Pain hypotheses:** stockouts and overstock on the same shelf; expired product; shift gaps and call-outs, the owner covering the counter; reordering by gut feel, missed supplier cutoffs; shrinkage and age-restricted sales; "who was supposed to do that?" task drift.
@@ -111,9 +134,11 @@ Guardrails: no shame about someone's home or family; no health, safety or sleep 
 ## 7. Do and don't
 - Do reuse the techniques above.
 - Don't use any show's name, logo, clips or music, or any real host's name, voice or likeness; don't imply endorsement. Build a distinct character.
+- Don't copy another brand's ad or use its assets; borrow its structure only.
 - Don't make the brand a political actor.
 - Don't invent statistics, quotes or case studies; mark gaps `[VERIFY]`.
 
 ## 8. Checklist (run before delivering)
 Customer is hero · concrete detail · target is the problem · Turn present · single CTA · no unverified claims · no borrowed IP.
 For video, also: hook in 2 s · the product shown in use · every line held long enough to read.
+For a static image, also: one frozen moment · Negative → Good readable at a glance · exact, legible text · nothing borrowed from a reference but its structure.

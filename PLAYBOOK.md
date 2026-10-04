@@ -11,6 +11,7 @@ This file tells Claude **why the show works** and **how to borrow its mechanics*
 - `[INF]` my analysis or inference. A hypothesis to test, not a fact.
 - `[EP]` user-supplied episode summary (§2.6). Not checked against the video.
 - `[TOOL]` a working rule from another team's open-source video tool (`latent-spaces/brag`, §3.1, §10), read in full. House practice, not measured evidence.
+- `[PRM]` a rule from a user-supplied prompt template written by someone else (§3.2), adapted to these rules. A practitioner's workflow, not evidence.
 
 ---
 
@@ -191,6 +192,62 @@ The tool also has a trailer-style preset built on "big motion, bigger claims": w
 
 ---
 
+### 3.2 Static images and reference ads `[PRM]`
+Rules from two user-supplied prompt templates (4 Oct 2026): a "Direct Response Creative Director" brief for adapting competitor ads, and a two-step prompt for static e-commerce ad concepts. They are one practitioner's workflow, not evidence, so they sit under §1–3: the Negative / Touching / Good frame, the Turn and `[VERIFY]` still win. We keep the teardown, the concept families and the prompt slots. We drop the copying and the invented proof (see the end of this section).
+
+**Read the brand first.** Before writing a concept, read the brand's material: in the app, the series bible, its cast, its look and "Lo que existe hoy". If it is unclear which brand a piece is for, ask.
+
+**Tear down a reference ad** (any ad that works, a competitor's or our own) before borrowing from it:
+- **Visual hierarchy:** the layout, the focal point, the secondary elements, and what the eye sees first, then next, then last.
+- **Design:** the palette (estimated hex codes), the type (serif, sans, handwritten, condensed; weight), the image style (UGC, studio, lifestyle, product only, illustration, minimal), and the use of contrast, whitespace, framing and overlays.
+- **Copy:** every visible line, split into hook, core promise and CTA.
+- **Angle:** pain relief · fear or urgency · status or identity · curiosity · ease · authority. Name it: the angle and the reading order are what is worth borrowing.
+
+**Borrow the structure, never the ad.** This is the same rule as with the show (§6). Keep the composition idea, the reading order and the kind of promise. Change the brand, the product, the words, the picture and the people.
+- The reference's picture never goes to an image generator as input; only its written teardown does.
+- Its logo, product shots, photos, characters and lines never appear in our work.
+- "Don't reinvent winning ads" means don't throw away what makes them work. It does not mean copying them.
+
+**Concept families for one image.** Each one is the Negative → Good frame inside a single frame:
+
+| Family | Our version |
+|---|---|
+| Before / after | The Negative and the Good side by side: same place, same light, one thing changed. |
+| Nightmare scenario | The pain pushed to the absurd, with humor. It is only the pain; fear is never what we sell. |
+| Comparison / us vs. them | Against the problem or "the old way", never against a named brand or a group of people (§3 rule 3). |
+| Big benefit | One promise, from what exists today, in concrete words. |
+| Reasons why / features and benefits | Each feature tied to the pain it removes; shipped features only. |
+| Offer | Only a real offer, with its real terms and dates. No invented scarcity or deadline. |
+| Press / "as seen in" | Only real coverage, with its link. |
+| Testimonial / review | Only a real customer, quoted exactly, with consent. Otherwise the line is `[VERIFY]` and the piece does not ship. |
+| Humor | Punch at the problem, never the person. |
+
+**The Turn in a still image:** one plain, sincere line, or the touching detail inside the picture (the one cleared surface, the person exhaling at the door).
+
+**Image prompt slots**, in this order:
+1. Subject and action (one frozen moment).
+2. Style or medium.
+3. Light and atmosphere.
+4. Camera and angle.
+5. Composition and layout.
+6. Brand colours.
+7. How the product appears.
+8. Exact text in quotes, with its type style and placement.
+9. Legibility: no distorted, missing or extra letters.
+10. Aspect ratio, in the tool's own syntax.
+
+**Text on the image** `[INF]`: image models still misspell, accents and ñ most of all.
+- Prefer generating the picture with no text, with clear space left where the text goes, and setting the text on top in the brand's fonts.
+- When the model writes the text, give it the exact strings and check the spelling before using the image.
+
+**Dropped, because it clashes with this playbook:**
+- Near-identical copies of another brand's ad (layout plus copy), and any use of its assets.
+- Invented press, testimonials, reviews, numbers or awards.
+- Manufactured urgency or scarcity (§5).
+- Fear, shame or guilt sold as the product (§1, Job B).
+
+---
+
 ## 4. Job A playbook — [PLANNER] / manager agent / convenience store
 
 **Audience hypotheses `[INF]` — validate with interviews before spending money:** owner-operators and small-chain managers of convenience/corner stores; franchise ops leads.
@@ -243,6 +300,7 @@ The tool also has a trailer-style preset built on "big motion, bigger claims": w
 - **Don't** make our brand a political actor by default (§3 rule 7).
 - **Don't** invent statistics, quotes, or case studies. Mark gaps `[VERIFY]` and ask the user.
 - **Don't** use music without a confirmed licence. A tool or a library shipping a track is not clearance (the `/brag` repo ships five tracks with no licence stated, §9).
+- **Don't** copy another brand's ad: no near-identical layout and copy, and never its images, logo, product shots, characters or lines. Borrow the structure only (§3.2). `[BK]` Close copies can raise copyright and trademark problems; get legal review before referencing a competitor by name.
 
 ---
 
@@ -251,7 +309,7 @@ The tool also has a trailer-style preset built on "big motion, bigger claims": w
 1. **Clarify inputs first** (ask the user): product name and tagline; target buyer; what is shipped vs. roadmap; price/offer; channels (YouTube, Shorts, email, landing page); tone limits.
 2. **Pick the job (A or B)** and the format (script / landing page / email / series plan / content calendar).
 3. **Draft hooks first** (5 variants), user picks, then write the piece with the §3 template.
-4. **Run the checklist** before delivering: customer is hero · concrete detail · target is the problem · Turn present · single CTA · no unverified claims · no borrowed IP. For video, also: hook in 2 s · the product shown in use · every line held long enough to read · poster and share caption.
+4. **Run the checklist** before delivering: customer is hero · concrete detail · target is the problem · Turn present · single CTA · no unverified claims · no borrowed IP. For video, also: hook in 2 s · the product shown in use · every line held long enough to read · poster and share caption. For a static image: one frozen moment · Negative → Good readable at a glance · exact, legible text · nothing borrowed from a reference but its structure.
 5. **Keep deliverables as Markdown** in this repo; propose folder names (e.g. `scripts/`, `campaigns/`) rather than assuming them. `[proposal]`
 6. **Re-verify** any `[V]` figure before it appears in public copy; numbers move (ratings, subscribers, contract status).
 7. **Log new episode breakdowns** from the user in §2.6 using the entry template, and fold any move that repeats across episodes into §2.5.
@@ -270,6 +328,7 @@ The tool also has a trailer-style preset built on "big motion, bigger claims": w
 - No episodes were watched and no YouTube analytics were available. Episode breakdowns (§2.6) are user-supplied summaries, not verified against the video; one episode is logged so far, which is too few to call any pattern a rule. Channel numbers are from a third-party snapshot, and the hook taxonomy in §2.5 is analysis, not an official description.
 - Convenience-store and home-product pain points are hypotheses, not research findings.
 - The short-video craft rules (§3.1) are one team's working practice, written for 15–25 s launch videos; they are not audience research. The reading-time numbers are rules of thumb. The `/brag` repo states no licence for its bundled music; its effects are CC0 (Kenney; keyboard set by unicae_games).
+- The static-image rules (§3.2) come from two user-supplied prompt templates with no author, date or results attached; the concept families and prompt slots are untested here. "Image models misspell" is an observation to re-check per tool.
 - A thorough pass would add: watching 15–20 episodes and clips and logging their hooks; reading Jones and Amarasingam in full; customer interviews for both jobs.
 
 ## 10. Sources
@@ -280,4 +339,5 @@ The tool also has a trailer-style preset built on "big motion, bigger claims": w
 - Public opinion: [CJR, "Inside Jokes"](https://www.cjr.org/the_research_report/inside_jokes.php) · [*The Stewart/Colbert Effect*](https://mcfarlandbooks.com/?p=14198) · [Jeffrey P. Jones](https://en.wikipedia.org/wiki/Jeffrey_P._Jones)
 - Stewart moments: [*Crossfire* 2004](https://en.wikipedia.org/wiki/Jon_Stewart%27s_2004_appearance_on_Crossfire) · [9/11 fund, 2019 (CBS)](https://www.cbsnews.com/news/jon-stewart-returns-to-the-daily-show-advocates-for-911-first-responders-zadroga-act/) · [On media trust (Fox News coverage of his MS NOW remarks)](https://www.foxnews.com/media/jon-stewart-admits-media-squandered-trust-trump-russia-collusion-hype-other-claims.print) · [*Weekly Show* launch (Rolling Stone)](https://www.rollingstone.com/tv-movies/tv-movie-news/jon-stewart-announces-weekly-show-podcast-comedy-central-1235017899/)
 - Short-video craft: [`latent-spaces/brag`](https://github.com/latent-spaces/brag) (MIT; skills `brag` and `brag-slim`, references `step-2-plan`, `step-4-deliver`, `audio`, `tones`), read 4 Oct 2026 · Effects: [Kenney](https://kenney.nl/) (CC0) · [Keyboard Soundpack #1](https://opengameart.org/content/keyboard-soundpack-1-typing-and-single-keystrokes) (CC0)
+- Static images: two user-supplied prompt templates (a "Direct Response Creative Director" project brief and a two-step static-ad prompt), received 4 Oct 2026; no author or link given.
 - Marketing frameworks: [Berger, *Contagious* / STEPPS](https://unruly.co/blog/article/2015/10/26/jonah-berger-6-key-stepps-to-creating-contagious-content/) · Heath & Heath, *Made to Stick* · [StoryBrand and pain points](https://www.chatterbuzzmedia.com/blog/customer-pain-points-storybrand/)
