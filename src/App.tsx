@@ -108,7 +108,24 @@ export function App() {
   >(null);
   const [error, setError] = useState("");
   // undefined: not editing; null: a new series; a string: that series.
-  const [editingSeries, setEditingSeries] = useState<string | null | undefined>(undefined);
+  // Kept for this tab, so a reload while a puppet upload is in flight comes back to Editar serie.
+  const [editingSeries, setEditingSeries] = useState<string | null | undefined>(() => {
+    try {
+      const saved = sessionStorage.getItem("playbook-editing-series");
+      if (saved === null) return undefined;
+      return saved === "" ? null : saved;
+    } catch {
+      return undefined;
+    }
+  });
+  useEffect(() => {
+    try {
+      if (editingSeries === undefined) sessionStorage.removeItem("playbook-editing-series");
+      else sessionStorage.setItem("playbook-editing-series", editingSeries ?? "");
+    } catch {
+      // The tab can refuse storage. The editor still works for this visit.
+    }
+  }, [editingSeries]);
 
   // The open lyric video, if this piece is one; `key` remounts it for another piece.
   const [lyric, setLyric] = useState<{ key: string; initial: LyricOpen | null } | null>(null);

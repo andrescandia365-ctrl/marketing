@@ -29,7 +29,16 @@ import {
 import { EMPTY_BRIEF } from "../shared/example.ts";
 import { MotionScriptSchema, normalizeMotion, type MotionScript } from "../shared/motion.ts";
 import { MotionReviewSchema, normalizeReview, type MotionReview } from "../shared/motionQuality.ts";
-import { BackgroundPromptsSchema, LyricIdeasSchema, SecondLinesSchema, type BackgroundPrompts, type LyricIdeas } from "../shared/lyrics.ts";
+import {
+  BackgroundPromptsSchema,
+  LyricElementsSchema,
+  LyricIdeasSchema,
+  SecondLinesSchema,
+  type BackgroundPrompts,
+  type LyricElements,
+  type LyricIdeas,
+  type SecondLanguage,
+} from "../shared/lyrics.ts";
 import { LENGTHS } from "../shared/template.ts";
 import { CAST, PRACTICES, WORKS_TODAY } from "../shared/series.ts";
 import { getSeries } from "./series.ts";
@@ -479,14 +488,42 @@ Suggest the background's three colours and pace from the song's feeling, and the
   );
 }
 
-// The smaller line under each lyric line: its romanization or a Spanish translation.
-export async function secondLines(series: string, lines: string[], mode: "romanize" | "translate"): Promise<{ lines: string[]; note: string }> {
+const TRANSLATE_INTO: Record<SecondLanguage, string> = {
+  es: "Spanish (Rioplatense), singable and plain",
+  gn: "Guaraní as spoken in Paraguay, in the Guaraní alphabet (tilde on nasal vowels ã ẽ ĩ õ ũ ỹ, and g̃). Plain enough to sing under the line",
+  ja: "natural Japanese",
+  ko: "natural Korean",
+  en: "plain English",
+};
+
+// The smaller line under each lyric line: its romanization, or a translation into the language asked for.
+export async function secondLines(
+  series: string,
+  lines: string[],
+  mode: "romanize" | "translate",
+  language: SecondLanguage = "es",
+): Promise<{ lines: string[]; note: string }> {
   const task =
     mode === "romanize"
       ? "Romanize each line: Japanese in Hepburn romaji (spaces between words), Korean in Revised Romanization, anything already in Latin letters (Spanish, Guaraní…) copied as is. Keep the meaning out; only the sound."
-      : "Translate each line into Spanish (Rioplatense), singable and plain, keeping the feeling. A line already in Spanish is copied as is.";
+      : `Translate each line into ${TRANSLATE_INTO[language]}. A line already in that language is copied unchanged. Keep names. One line per lyric line, in the same order.`;
   const result = await ask(lyricBrief(series), false, `Song lyrics, numbered from 0:\n${numbered(lines)}\n\n${task}`, SecondLinesSchema);
   return { lines: lines.map((_, i) => result.lines[i] ?? ""), note: result.note };
+}
+
+// A few graphics timed to lyric lines. The app draws the motif; the person can paste a picture later.
+export function lyricElements(series: string, title: string, artist: string, lines: string[]): Promise<LyricElements> {
+  return ask(
+    lyricBrief(series),
+    false,
+    `This is a lyric video. The app draws a few simple graphics over the moving background, each timed to one lyric line. It can draw only these motifs: word, circle, ring, star, heart, note. Motions: enter (it arrives), pulse (it beats in place), hold (it stays still), leave (it drifts away). Places: top, left, right. Do not describe scenes, people, cameras or HTML. No show names, no real people.
+
+Song: "${title || "sin título"}"${artist ? ` by ${artist}` : ""}. Lines may be in any language. Lines, numbered from 0:
+${numbered(lines)}
+
+Propose 3 to 6 graphics. For each: the line number, a label of one to three words copied exactly from that line, a motif, a motion, a place (vary the places), and seconds between 1.5 and 4. Not every line needs one.`,
+    LyricElementsSchema,
+  );
 }
 
 // Background clips for a lyric video, written for the image/video tool the person uses (its profile goes along).

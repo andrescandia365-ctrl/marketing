@@ -84,13 +84,15 @@ Una serie de tipo **Música** no escribe historias, sino videos de letra. Elegí
 
 1. **Canción y letra.**
    - Subís la canción y pegás la letra, en cualquier idioma: español, guaraní, japonés, coreano o romanizada.
-   - Si querés, cargás una **segunda línea** más chica con la romanización o la traducción. La podés escribir vos o pedírsela a la IA (**Romanizar con IA** o **Traducir al español con IA**); revisala, porque se puede equivocar.
+   - Si querés, cargás una **segunda línea** más chica con la romanización o la traducción. Elegís el idioma (español, guaraní, japonés, coreano o inglés) y la pedís con **Traducir con IA**, o **Romanizar con IA**. Revisala, porque se puede equivocar. Si la línea ya está en ese idioma, se copia.
    - Confirmás que la canción es tuya o tenés licencia.
 2. **Sincronizar.** Hay dos formas, y después podés ajustar cada línea:
    - **Automático:** OpenAI escucha la canción y le pone tiempo a cada palabra. Usa la misma `OPENAI_API_KEY`. El guaraní no lo conoce, así que escucha sin idioma.
    - **Tocando:** apretás **Ahora** o la barra espaciadora cuando empieza cada línea.
    - **Importar .lrc:** si ya la tenés sincronizada; si el archivo no coincide con tu letra, trae también la letra.
-3. **Estilo y video.**
+3. **Reloj.** Arma el reloj de la pieza en `sync/` dentro de la carpeta del proyecto. El kick (corte y acento) sale del stem de batería; la palabra sale del stem de voz y no se pega al beat. **Crítica** mira una tira de cuadros y anota los problemas.
+4. **Elementos.** Después de sincronizar, gráficos que entran con un verso. **Sugerir con IA** propone de 3 a 6 (forma, movimiento, lugar y segundos). También podés agregar uno a mano y pegar un PNG, un JPG o un SVG: entra entero, sin recortar.
+5. **Estilo y video.**
    - Fondo orgánico que se mueve y late con el ritmo, **capas de Grok** (cada una se mueve según su profundidad), tu foto, o hasta 4 videos que se pasan uno tras otro en loop. **Prompts para Grok** escribe los clips de fondo según la letra y los colores. Si el fondo lo hizo una IA, va el aviso al pie, y con **Cuadro completo** no se recorta.
    - Tipografía, tamaño, colores, karaoke, cómo entra cada línea y palabras clave más grandes. Tocás una palabra para marcarla, o le pedís ideas a la IA.
    - Vista previa en vivo, vertical u horizontal (o **los dos formatos de una vez**), desde y hasta qué segundo, y el crédito de la canción.

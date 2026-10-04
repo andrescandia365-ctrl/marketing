@@ -19,6 +19,7 @@ import {
   WriterError,
   backgroundPrompts,
   currentWriter,
+  lyricElements,
   lyricIdeas,
   motionScript,
   proposeMenu,
@@ -39,7 +40,10 @@ import {
 } from "./claude.ts";
 import { KimiError } from "./kimi.ts";
 import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
-import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, LyricStyleSchema, alignLyrics, cleanIdeas } from "../shared/lyrics.ts";
+import { ClockError } from "../shared/clock.ts";
+import { buildProjectSync, critiqueProject, loadSync } from "./sync.ts";
+import { BrandSchema, DEFAULT_BRAND } from "../shared/series.ts";
+import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, SECOND_LANGUAGES, LyricStyleSchema, alignLyrics, cleanElements, cleanIdeas } from "../shared/lyrics.ts";
 import { DEMO_BOARD, DEMO_MENU, DEMO_STORY, demoMotion, demoMotionReview } from "./demo.ts";
 import { RenderError, ffmpegAvailable, getFinal, startFinal } from "./finalRender.ts";
 import {
@@ -89,6 +93,7 @@ import {
   saveLyricStyle,
   saveSeriesFromApp,
   setPuppetLayer,
+  replacePuppetLayers,
   removePuppetLayer,
   setLogo,
   saveTextStyle,
@@ -105,6 +110,7 @@ app.onError((error, c) => {
     return c.json({ error: error.message }, 400);
   }
   if (error instanceof VoiceError || error instanceof LyricsError) return c.json({ error: error.message }, 502);
+  if (error instanceof ClockError) return c.json({ error: error.message }, 400);
   if (error instanceof z.ZodError) return c.json({ error: "Al pedido le faltaban datos." }, 400);
   console.error(error);
   return c.json({ error: error.message || "Algo salió mal." }, 500);
@@ -204,7 +210,40 @@ app.put("/api/series/:id/cast/:castId/puppet/:index", async (c) => {
   const data = Buffer.from(await c.req.arrayBuffer());
   if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
   const role = z.enum(PUPPET_ROLES).parse(c.req.query("role") ?? "extra");
-  const member = setPuppetLayer(c.req.param("id"), c.req.param("castId"), Number(c.req.param("index")), data, c.req.header("content-type") ?? "", role);
+  const name = (c.req.query("name") ?? "").slice(0, 80);
+  const member = setPuppetLayer(
+    c.req.param("id"),
+    c.req.param("castId"),
+    Number(c.req.param("index")),
+    data,
+    c.req.header("content-type") ?? "",
+    role,
+    name,
+  );
+  return c.json({ member, series: listSeries() });
+});
+
+// Replaces the whole puppet at once (the front figure, split into head and body).
+app.put("/api/series/:id/cast/:castId/puppet", async (c) => {
+  const body = z
+    .object({
+      layers: z
+        .array(
+          z.object({
+            role: z.enum(PUPPET_ROLES),
+            name: z.string().max(80).default(""),
+            png: z.string().max(12_000_000),
+          }),
+        )
+        .min(1)
+        .max(12),
+    })
+    .parse(await c.req.json());
+  const parts = body.layers.map((layer) => {
+    const raw = layer.png.replace(/^data:image\/\w+;base64,/, "").trim();
+    return { data: Buffer.from(raw, "base64"), role: layer.role, name: layer.name };
+  });
+  const member = replacePuppetLayers(c.req.param("id"), c.req.param("castId"), parts);
   return c.json({ member, series: listSeries() });
 });
 
@@ -528,6 +567,41 @@ app.get("/api/final/:job", (c) => {
   return job ? c.json({ job }) : c.json({ error: "Ese render ya no existe." }, 404);
 });
 
+// Lyric clock: drums stem (or Demucs on the master) for the kick, vocal stem for the words. Never the master peaks.
+app.post("/api/projects/:id/sync", async (c) => {
+  const form = await c.req.formData();
+  const lyrics = String(form.get("lyrics") ?? "");
+  const moves = String(form.get("moves") ?? "");
+  const fpsRaw = Number(form.get("fps") ?? 24);
+  const fps = Number.isFinite(fpsRaw) && fpsRaw >= 12 && fpsRaw <= 60 ? fpsRaw : 24;
+  const language = z.enum(LYRIC_LANGUAGES).parse(form.get("language") ?? "auto");
+  const file = async (value: FormDataEntryValue | null) =>
+    value instanceof Blob && value.size ? new Uint8Array(await value.arrayBuffer()) : null;
+  const built = await buildProjectSync(c.req.param("id"), {
+    lyrics,
+    moves,
+    fps,
+    language,
+    drums: await file(form.get("drums")),
+    vocals: await file(form.get("vocals")),
+    master: await file(form.get("master")),
+  });
+  return c.json({ sync: built.doc, qa: built.qa });
+});
+
+app.get("/api/projects/:id/sync", async (c) => {
+  const loaded = await loadSync(c.req.param("id"));
+  if (!loaded) return c.json({ error: "Todavía no hay reloj." }, 404);
+  return c.json({ sync: loaded.doc, qa: loaded.qa });
+});
+
+app.post("/api/projects/:id/sync/critique", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const brand = BrandSchema.parse({ ...DEFAULT_BRAND, ...((body as { brand?: unknown }).brand ?? {}) });
+  const result = await critiqueProject(c.req.param("id"), brand);
+  return c.json(result);
+});
+
 // Lyric videos. Automatic sync: the song (multipart "audio") is transcribed with word times and matched to the
 // lyric lines ("lines" and "seconds", JSON arrays).
 app.post("/api/lyrics/sync", async (c) => {
@@ -557,9 +631,33 @@ app.post("/api/lyrics/ideas", async (c) => {
 });
 
 app.post("/api/lyrics/second", async (c) => {
-  const { series, lines, mode } = LyricRequest.extend({ mode: z.enum(["romanize", "translate"]) }).parse(await c.req.json());
+  const { series, lines, mode, language } = LyricRequest.extend({
+    mode: z.enum(["romanize", "translate"]),
+    language: z.enum(SECOND_LANGUAGES).default("es"),
+  }).parse(await c.req.json());
   if (demo()) return c.json({ lines, note: "Modo de muestra: sin clave de IA, copié la letra tal cual.", demo: true });
-  return c.json({ ...(await secondLines(series, lines, mode)), demo: false });
+  return c.json({ ...(await secondLines(series, lines, mode, language)), demo: false });
+});
+
+app.post("/api/lyrics/elements", async (c) => {
+  const { series, title, artist, lines } = LyricRequest.parse(await c.req.json());
+  if (demo()) {
+    const motifs = ["heart", "note", "star", "circle"] as const;
+    const motions = ["pulse", "enter", "hold", "leave"] as const;
+    const places = ["top", "left", "right", "top"] as const;
+    const picked = lines.map((text, line) => ({ text, line })).filter((_, i) => i % 2 === 0).slice(0, 4);
+    const elements = picked.map(({ text, line }, n) => ({
+      label: text.split(/\s+/).slice(0, 2).join(" ").slice(0, 40) || "texto",
+      motif: motifs[n % motifs.length],
+      motion: motions[n % motions.length],
+      place: places[n % places.length],
+      line,
+      seconds: 3,
+    }));
+    return c.json({ elements: cleanElements({ elements }, lines.length), note: "Elementos de muestra: sin clave de IA.", demo: true });
+  }
+  const raw = await lyricElements(series, title, artist, lines);
+  return c.json({ elements: cleanElements(raw, lines.length), note: raw.note, demo: false });
 });
 
 app.post("/api/lyrics/backgrounds", async (c) => {
