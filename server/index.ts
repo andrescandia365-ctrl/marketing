@@ -65,7 +65,7 @@ import {
   type ProviderId,
 } from "./settings.ts";
 import { getProvider, listProviders } from "./images/index.ts";
-import { CastMemberSchema, PUPPET_ROLES, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
+import { CastMemberSchema, PUPPET_ROLES, PuppetPlaceSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
 import {
   PROJECTS_DIR,
   ProjectError,
@@ -94,6 +94,7 @@ import {
   saveSeriesFromApp,
   setPuppetLayer,
   replacePuppetLayers,
+  arrangePuppet,
   removePuppetLayer,
   setLogo,
   saveTextStyle,
@@ -244,6 +245,26 @@ app.put("/api/series/:id/cast/:castId/puppet", async (c) => {
     return { data: Buffer.from(raw, "base64"), role: layer.role, name: layer.name };
   });
   const member = replacePuppetLayers(c.req.param("id"), c.req.param("castId"), parts);
+  return c.json({ member, series: listSeries() });
+});
+
+// "Armar a mano": the place, part and turning point of each existing layer.
+app.patch("/api/series/:id/cast/:castId/puppet", async (c) => {
+  const { layers } = z
+    .object({
+      layers: z
+        .array(
+          z.object({
+            file: z.string().max(120),
+            role: z.enum(PUPPET_ROLES),
+            pivot: z.tuple([z.number().min(-2).max(3), z.number().min(-2).max(3)]).nullable(),
+            place: PuppetPlaceSchema.nullable(),
+          }),
+        )
+        .max(12),
+    })
+    .parse(await c.req.json());
+  const member = arrangePuppet(c.req.param("id"), c.req.param("castId"), layers);
   return c.json({ member, series: listSeries() });
 });
 

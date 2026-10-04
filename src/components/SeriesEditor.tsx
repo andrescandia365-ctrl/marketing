@@ -20,6 +20,7 @@ import {
   type SeriesLook,
 } from "../../shared/series.ts";
 import { ensureFont } from "../lib/fonts.ts";
+import { PuppetArranger } from "./PuppetArranger.tsx";
 import { PuppetPreview } from "./PuppetPreview.tsx";
 import { SheetBuilder } from "./SheetBuilder.tsx";
 import { CopyButton } from "./ScriptView.tsx";
@@ -58,14 +59,6 @@ function openFilePicker(input: HTMLInputElement | null) {
   window.addEventListener("focus", onFocus);
   safety = window.setTimeout(disarm, 180_000);
   input.click();
-}
-
-async function sameCanvas(files: File[]): Promise<boolean> {
-  const urls = files.map((f) => URL.createObjectURL(f));
-  const sizes = await Promise.all(urls.map(loadLayerSize));
-  for (const url of urls) URL.revokeObjectURL(url);
-  const known = sizes.filter((s): s is { w: number; h: number } => s !== null);
-  return known.length > 0 && known.every((s) => s.w === known[0].w && s.h === known[0].h);
 }
 
 // The head lives at the top of a full-length canvas, so a plain thumbnail looks empty. Fit the opaque part.
@@ -157,6 +150,7 @@ function CastCard({
   onPuppetFiles,
   onPuppetReplace,
   onPuppetRemove,
+  onPuppetArranged,
 }: {
   member: CastMember;
   seriesId: string | null;
@@ -167,6 +161,7 @@ function CastCard({
   onPuppetFiles: (files: File[]) => Promise<void>;
   onPuppetReplace: (layers: { role: PuppetRole; name: string; png: string }[]) => Promise<void>;
   onPuppetRemove: (index: number) => Promise<void>;
+  onPuppetArranged: (member: CastMember) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -177,6 +172,8 @@ function CastCard({
   const [figures, setFigures] = useState<FigureFile[]>([]);
   const figuresRef = useRef<FigureFile[]>([]);
   const [mixed, setMixed] = useState(false);
+  // "Armar a mano" open: the parts laid out to drag into place.
+  const [arranging, setArranging] = useState(false);
   const screen = member.kind === "screen";
   const url = seriesId && member.image ? libraryFileUrl(seriesId, member.image, version) : undefined;
   const set = <K extends keyof CastMember>(key: K, value: CastMember[K]) => onChange({ ...member, [key]: value });
@@ -209,7 +206,8 @@ function CastCard({
     Promise.all(member.puppet.layers.map((l) => loadLayerSize(libraryFileUrl(seriesId, l.file)))).then((sizes) => {
       if (!alive) return;
       const known = sizes.filter((s): s is { w: number; h: number } => s !== null);
-      setMixed(known.length > 1 && known.some((s) => s.w !== known[0].w || s.h !== known[0].h));
+      // Loose crops that nobody placed yet sit where the app guessed: worth a look in Armar a mano.
+      setMixed(member.puppet.layers.some((l, i) => !l.place && sizes[i] && known.length > 1 && (sizes[i]!.w !== known[0].w || sizes[i]!.h !== known[0].h)));
     });
     return () => {
       alive = false;
@@ -351,16 +349,27 @@ function CastCard({
             <div className="mt-1.5 space-y-2">
               <p className="text-muted">
                 En Grok: Segmentos → Descargar todo. Eso baja una carpeta por cosa (la persona, la campera, el pelo) y cada
-                archivo es un recorte de una vista, sin decir dónde va. Si se suben sueltos, se estiran uno encima del otro y
-                el personaje se desarma. Elegí la carpeta <b>segments</b> entera: se usa la figura de frente y se le separa la
-                cabeza. Las otras vistas y los recortes no se apilan.
+                archivo es un recorte, sin decir dónde va. <b>Carpeta de Segmentos</b> toma la figura de frente y le separa la
+                cabeza del cuerpo. Para que muevan los brazos o la boca, sumá esos recortes con <b>Partes sueltas</b> y
+                ponelos en su lugar con <b>Armar a mano</b>.
               </p>
-              {mixed && (
+              {mixed && !arranging && (
                 <p className="text-neg">
-                  Estas partes tienen distinto tamaño y se estiran una encima de la otra. Por eso se ve mal. Subí la carpeta de
-                  Segmentos para armar la figura de frente.
+                  Hay partes sueltas que la app ubicó a ojo. Revisalas en Armar a mano: arrastralas a su lugar y guardá.
                 </p>
               )}
+              {arranging && seriesId ? (
+                <PuppetArranger
+                  seriesId={seriesId}
+                  member={member}
+                  onClose={() => setArranging(false)}
+                  onSaved={(next) => {
+                    onPuppetArranged(next);
+                    setArranging(false);
+                    setStatus("Armado guardado.");
+                  }}
+                />
+              ) : (
               <div className="flex flex-wrap items-start gap-3">
                 {seriesId && <PuppetPreview seriesId={seriesId} puppet={member.puppet} />}
                 <ul className="min-w-[220px] flex-1 space-y-1">
@@ -406,6 +415,7 @@ function CastCard({
                   ))}
                 </ul>
               </div>
+              )}
               <div className={`flex flex-wrap gap-2 ${seriesId ? "" : "opacity-50"}`}>
                 <Button
                   type="button"
@@ -422,8 +432,13 @@ function CastCard({
                   disabled={!seriesId || busy}
                   onClick={() => openFilePicker(looseInput.current)}
                 >
-                  Capas del mismo cuadro
+                  Partes sueltas
                 </Button>
+                {member.puppet.layers.length > 0 && !arranging && (
+                  <Button type="button" variant="secondary" className="px-3 py-1 text-xs" disabled={!seriesId || busy} onClick={() => setArranging(true)}>
+                    Armar a mano
+                  </Button>
+                )}
               </div>
               <input
                 ref={folderInput}
@@ -454,10 +469,12 @@ function CastCard({
                   setBusy(true);
                   setError("");
                   setStatus("");
-                  sameCanvas(files)
-                    .then((same) => {
-                      if (!same) throw new Error("Esas imágenes no son del mismo cuadro: Grok las recortó y no se pueden apilar. Usá Carpeta de Segmentos.");
-                      return onPuppetFiles(files);
+                  setArranging(false);
+                  onPuppetFiles(files)
+                    .then(() => {
+                      // Loose crops do not say where they go: open the layout so the person puts them in place.
+                      setStatus("Partes agregadas. Ponelas en su lugar y guardá.");
+                      setArranging(true);
                     })
                     .catch((err) => setError(err instanceof Error ? err.message : String(err)))
                     .finally(() => setBusy(false));
@@ -750,6 +767,11 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
     setVersion(Date.now());
   }
 
+  // "Armar a mano" saved: the server's answer is the member's puppet now.
+  function memberPuppetArranged(next: CastMember) {
+    setFields((f) => (f ? { ...f, cast: f.cast.map((m) => (m.id === next.id ? { ...m, puppet: next.puppet } : m)) } : f));
+  }
+
   async function memberPuppetRemove(member: CastMember, index: number) {
     if (!id) return;
     const { member: next } = await api.removePuppetLayer(id, member.id, index);
@@ -891,6 +913,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
                       onPuppetFiles={(files) => memberPuppetFiles(m, files)}
                       onPuppetReplace={(layers) => memberPuppetReplace(m, layers)}
                       onPuppetRemove={(index) => memberPuppetRemove(m, index)}
+                      onPuppetArranged={(next) => memberPuppetArranged(next)}
                     />
                   ))}
               </ul>
@@ -948,6 +971,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
                     onPuppetFiles={(files) => memberPuppetFiles(m, files)}
                     onPuppetReplace={(layers) => memberPuppetReplace(m, layers)}
                     onPuppetRemove={(index) => memberPuppetRemove(m, index)}
+                    onPuppetArranged={(next) => memberPuppetArranged(next)}
                   />
                 ))}
             </ul>

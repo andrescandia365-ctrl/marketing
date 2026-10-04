@@ -10,6 +10,7 @@ import {
   seriesId,
   seriesToMarkdown,
   type CastMember,
+  type PuppetPlace,
   type PuppetRole,
   type SeriesFields,
   type TextStyle,
@@ -161,7 +162,7 @@ export function setPuppetLayer(
   const old = layers[index]?.file;
   writeFileSync(join(dir, file), data);
   if (old) rmSync(join(dir, old), { force: true });
-  layers[index] = { file, role, pivot: null, name: name.slice(0, 80) };
+  layers[index] = { file, role, pivot: null, name: name.slice(0, 80), place: null };
   member.puppet = { layers };
   saveSeries(id, fields);
   return member;
@@ -186,9 +187,28 @@ export function replacePuppetLayers(
     if (part.data.length < 8 || part.data[0] !== 0x89) throw new SeriesError("La capa no es un PNG.");
     const file = puppetFile(castId, index, "png");
     writeFileSync(join(dir, file), part.data);
-    return { file, role: part.role, pivot: null, name: part.name.slice(0, 80) };
+    return { file, role: part.role, pivot: null, name: part.name.slice(0, 80), place: null };
   });
   member.puppet = { layers };
+  saveSeries(id, fields);
+  return member;
+}
+
+// "Armar a mano": where each existing part sits, what it is and where it turns. The files stay the server's: the list
+// has to name the same parts, in the same order (nothing is added or dropped here).
+export function arrangePuppet(
+  id: string,
+  castId: string,
+  layers: { file: string; role: PuppetRole; pivot: [number, number] | null; place: PuppetPlace | null }[],
+): CastMember {
+  const fields = getSeriesFields(id);
+  const member = fields.cast.find((m) => m.id === castId);
+  if (!member) throw new SeriesError("Ese integrante del elenco no existe.");
+  const now = member.puppet.layers;
+  if (layers.length !== now.length || layers.some((l, i) => l.file !== now[i].file)) {
+    throw new SeriesError("Las partes del títere cambiaron mientras lo armabas. Volvé a abrir Armar a mano.");
+  }
+  member.puppet = { layers: now.map((l, i) => ({ ...l, role: layers[i].role, pivot: layers[i].pivot, place: layers[i].place })) };
   saveSeries(id, fields);
   return member;
 }

@@ -3,16 +3,26 @@
 // is a pure function of time, like the rest of the engine: breathing, a seeded blink, the gesture, and the mouth
 // following the voice.
 import type { MotionGesture } from "../../shared/motion.ts";
-import type { Puppet, PuppetRole } from "../../shared/series.ts";
+import type { Puppet, PuppetPlace, PuppetRole } from "../../shared/series.ts";
 import { mulberry32, noise } from "./motion.ts";
 
 type Box = { x: number; y: number; w: number; h: number };
-export type PuppetPart = { role: PuppetRole; image: CanvasImageSource; box: Box; pivot: [number, number] };
-// Coordinates are in the reference canvas (the first layer's size); bounds is where the character is.
+// rect: where the picture is drawn on the reference canvas; box: its opaque part there; pivot: where it turns.
+export type PuppetPart = { role: PuppetRole; image: CanvasImageSource; rect: Box; box: Box; pivot: [number, number] };
+// Coordinates are in the reference canvas (the body's size, or the first layer's); bounds is where the character is.
 export type PuppetAsset = { width: number; height: number; parts: PuppetPart[]; bounds: Box };
 
-// Where a layer is not transparent.
+// Where a layer is not transparent, in the picture's own pixels. Kept per picture: the editor asks on every drag.
+const boxes = new WeakMap<HTMLImageElement, Box>();
 function alphaBox(img: HTMLImageElement, width: number, height: number): Box {
+  const known = boxes.get(img);
+  if (known && img.naturalWidth === width && img.naturalHeight === height) return known;
+  const found = measureAlpha(img, width, height);
+  if (img.naturalWidth === width && img.naturalHeight === height) boxes.set(img, found);
+  return found;
+}
+
+function measureAlpha(img: HTMLImageElement, width: number, height: number): Box {
   const scale = Math.min(1, 512 / Math.max(width, height));
   const w = Math.max(1, Math.round(width * scale));
   const h = Math.max(1, Math.round(height * scale));
@@ -60,20 +70,114 @@ function autoPivot(role: PuppetRole, box: Box, body: Box | null): [number, numbe
   }
 }
 
-export function buildPuppet(puppet: Puppet, images: (HTMLImageElement | null)[]): PuppetAsset | null {
-  const loaded = puppet.layers.map((l, i) => ({ layer: l, img: images[i] })).filter((x): x is { layer: (typeof puppet.layers)[number]; img: HTMLImageElement } => Boolean(x.img));
-  if (!loaded.length) return null;
-  const width = loaded[0].img.naturalWidth;
-  const height = loaded[0].img.naturalHeight;
-  // Every layer is fitted to the first one's canvas (they come from the same picture).
-  const parts = loaded.map(({ layer, img }) => {
-    const box = alphaBox(img, width, height);
-    return { role: layer.role, image: img as CanvasImageSource, box, pivotShare: layer.pivot };
+// A loose crop (Grok's Segments cut each thing to its own size) gets a starting place from what it is, next to the
+// body and the head; "Armar a mano" moves it from there. Shares of the reference canvas, like PuppetPlace.
+export function startingPlace(
+  role: PuppetRole,
+  aspect: number,
+  ref: { width: number; height: number },
+  body: Box,
+  head: Box | null,
+): PuppetPlace {
+  const fit = (cx: number, top: number, w: number): PuppetPlace => ({ x: (cx - w / 2) / ref.width, y: top / ref.height, w: w / ref.width });
+  const bodyCx = body.x + body.w / 2;
+  // Without a head layer the head is painted on the body (a whole figure): its top fifth is the face.
+  const face = head ?? { x: bodyCx - body.w * 0.3, y: body.y, w: body.w * 0.6, h: body.h * 0.2 };
+  const faceCx = face.x + face.w / 2;
+  const shoulders = head ? body.y : body.y + body.h * 0.22;
+  switch (role) {
+    case "head": {
+      const w = body.w * 0.6;
+      return fit(bodyCx, body.y - w * aspect * 0.85, w);
+    }
+    case "armL": {
+      const w = body.w * 0.3;
+      return fit(body.x + w * 0.2, shoulders + body.h * 0.02, w);
+    }
+    case "armR": {
+      const w = body.w * 0.3;
+      return fit(body.x + body.w - w * 0.2, shoulders + body.h * 0.02, w);
+    }
+    case "mouth": {
+      const w = face.w * 0.3;
+      return fit(faceCx, face.y + face.h * 0.7 - (w * aspect) / 2, w);
+    }
+    case "eyes": {
+      const w = face.w * 0.6;
+      return fit(faceCx, face.y + face.h * 0.42 - (w * aspect) / 2, w);
+    }
+    default:
+      return fit(bodyCx, body.y, body.w);
+  }
+}
+
+// The reference canvas: the body's picture (or the first layer's). Layers of that same size sit on it as they are.
+function referenceIndex(puppet: Puppet, images: (HTMLImageElement | null)[]): number {
+  const body = puppet.layers.findIndex((l, i) => l.role === "body" && images[i]);
+  return body >= 0 ? body : images.findIndex(Boolean);
+}
+
+const sameSize = (img: HTMLImageElement, w: number, h: number) =>
+  Math.abs(img.naturalWidth - w) <= w * 0.01 && Math.abs(img.naturalHeight - h) <= h * 0.01;
+
+// Where every layer goes on the reference canvas: its hand-set place, the whole canvas for a layer of the same size,
+// or a starting place for a loose crop. Shared by the puppet and the "Armar a mano" editor so both match.
+export function layerRects(puppet: Puppet, images: (HTMLImageElement | null)[]): { width: number; height: number; rects: (Box | null)[] } | null {
+  const r = referenceIndex(puppet, images);
+  if (r < 0) return null;
+  const ref = images[r]!;
+  const width = ref.naturalWidth;
+  const height = ref.naturalHeight;
+  const toRect = (p: PuppetPlace, img: HTMLImageElement): Box => {
+    const w = p.w * width;
+    return { x: p.x * width, y: p.y * height, w, h: (w * img.naturalHeight) / Math.max(1, img.naturalWidth) };
+  };
+  const rects: (Box | null)[] = puppet.layers.map((l, i) => {
+    const img = images[i];
+    if (!img) return null;
+    if (l.place) return toRect(l.place, img);
+    return i === r || sameSize(img, width, height) ? { x: 0, y: 0, w: width, h: height } : null;
   });
+  // Opaque boxes of what is already placed, to start the loose crops next to them.
+  const boxOf = (i: number) => {
+    const img = images[i]!;
+    const rect = rects[i]!;
+    const a = alphaBox(img, img.naturalWidth, img.naturalHeight);
+    const kx = rect.w / img.naturalWidth;
+    const ky = rect.h / img.naturalHeight;
+    return { x: rect.x + a.x * kx, y: rect.y + a.y * ky, w: a.w * kx, h: a.h * ky };
+  };
+  const body = boxOf(r);
+  const headIndex = puppet.layers.findIndex((l, i) => l.role === "head" && rects[i]);
+  const head = headIndex >= 0 ? boxOf(headIndex) : null;
+  puppet.layers.forEach((l, i) => {
+    const img = images[i];
+    if (rects[i] || !img) return;
+    rects[i] = toRect(startingPlace(l.role, img.naturalHeight / Math.max(1, img.naturalWidth), { width, height }, body, head), img);
+  });
+  return { width, height, rects };
+}
+
+export function buildPuppet(puppet: Puppet, images: (HTMLImageElement | null)[]): PuppetAsset | null {
+  const placed = layerRects(puppet, images);
+  if (!placed) return null;
+  const { width, height, rects } = placed;
+  const parts = puppet.layers.flatMap((layer, i) => {
+    const img = images[i];
+    const rect = rects[i];
+    if (!img || !rect) return [];
+    const a = alphaBox(img, img.naturalWidth, img.naturalHeight);
+    const kx = rect.w / img.naturalWidth;
+    const ky = rect.h / img.naturalHeight;
+    const box = { x: rect.x + a.x * kx, y: rect.y + a.y * ky, w: a.w * kx, h: a.h * ky };
+    return [{ role: layer.role, image: img as CanvasImageSource, rect, box, pivotShare: layer.pivot }];
+  });
+  if (!parts.length) return null;
   const body = parts.find((p) => p.role === "body")?.box ?? null;
   const done: PuppetPart[] = parts.map((p) => ({
     role: p.role,
     image: p.image,
+    rect: p.rect,
     box: p.box,
     pivot: p.pivotShare ? [p.pivotShare[0] * width, p.pivotShare[1] * height] : autoPivot(p.role, p.box, body),
   }));
@@ -89,7 +193,7 @@ export function singlePuppet(img: HTMLImageElement): PuppetAsset {
   const width = img.naturalWidth;
   const height = img.naturalHeight;
   const box = alphaBox(img, width, height);
-  return { width, height, parts: [{ role: "body", image: img, box, pivot: [box.x + box.w / 2, box.y + box.h] }], bounds: box };
+  return { width, height, parts: [{ role: "body", image: img, rect: { x: 0, y: 0, w: width, h: height }, box, pivot: [box.x + box.w / 2, box.y + box.h] }], bounds: box };
 }
 
 // ── The pose at a moment ─────────────────────────────────────────────────────────
@@ -219,7 +323,7 @@ export function drawPuppet(ctx: CanvasRenderingContext2D, puppet: PuppetAsset, c
     ctx.rotate(rot);
     if (sy !== 1) ctx.scale(1 + (1 - sy) * 0.15, sy);
     ctx.translate(-p.pivot[0], -p.pivot[1]);
-    ctx.drawImage(p.image, 0, 0, puppet.width, puppet.height);
+    ctx.drawImage(p.image, p.rect.x, p.rect.y, p.rect.w, p.rect.h);
     ctx.restore();
   };
 

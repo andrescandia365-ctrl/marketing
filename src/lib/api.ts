@@ -19,7 +19,7 @@ import type { MotionScript } from "../../shared/motion.ts";
 import type { MotionReview } from "../../shared/motionQuality.ts";
 import type { BackgroundPrompts, LyricElement, LyricLanguage, LyricLine, LyricStyle, SecondLanguage } from "../../shared/lyrics.ts";
 import type { SyncDoc } from "../../shared/clock.ts";
-import type { Brand, CastMember, SeriesFields, TextStyle } from "../../shared/series.ts";
+import type { Brand, CastMember, PuppetLayer, SeriesFields, TextStyle } from "../../shared/series.ts";
 
 export type ProjectSummary = {
   id: string;
@@ -57,7 +57,7 @@ export const libraryFileUrl = (seriesId: string, file: string, version = 0) =>
   `/api/series/${enc(seriesId)}/files/${enc(file)}${version ? `?v=${version}` : ""}`;
 export const projectFileUrl = (id: string, file: string) => `/api/projects/${enc(id)}/files/${enc(file)}`;
 
-async function call<T>(path: string, body?: unknown, method?: "PUT" | "DELETE"): Promise<T> {
+async function call<T>(path: string, body?: unknown, method?: "PUT" | "PATCH" | "DELETE"): Promise<T> {
   const res = await fetch(path, {
     method: method ?? (body === undefined ? "GET" : "POST"),
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
@@ -101,6 +101,8 @@ export const api = {
     ),
   replacePuppet: (seriesId: string, castId: string, layers: { role: string; name: string; png: string }[]) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PUT"),
+  arrangePuppet: (seriesId: string, castId: string, layers: Pick<PuppetLayer, "file" | "role" | "pivot" | "place">[]) =>
+    call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PATCH"),
   removePuppetLayer: (seriesId: string, castId: string, index: number) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}`, undefined, "DELETE"),
   uploadCastImage: (seriesId: string, castId: string, image: Blob) =>
