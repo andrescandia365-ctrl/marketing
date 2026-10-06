@@ -89,6 +89,7 @@ import {
   saveLyricStyle,
   saveSeriesFromApp,
   setPuppetLayer,
+  setRigFile,
   removePuppetLayer,
   setLogo,
   saveTextStyle,
@@ -210,6 +211,14 @@ app.put("/api/series/:id/cast/:castId/puppet/:index", async (c) => {
 
 app.delete("/api/series/:id/cast/:castId/puppet/:index", (c) => {
   const member = removePuppetLayer(c.req.param("id"), c.req.param("castId"), Number(c.req.param("index")));
+  return c.json({ member, series: listSeries() });
+});
+
+// The rigged humanoid (GLB with clips). Mesh2Motion or a Mixamo FBX converted to GLB. Playback is local.
+app.put("/api/series/:id/cast/:castId/rig", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
+  const member = setRigFile(c.req.param("id"), c.req.param("castId"), data);
   return c.json({ member, series: listSeries() });
 });
 

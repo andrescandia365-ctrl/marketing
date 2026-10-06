@@ -90,6 +90,12 @@ export function saveLyricStyle(id: string, lyricStyle: LyricStyle) {
 
 // The puppet's files are the server's (they change only by uploading or removing a part): what the app sends may
 // change roles and pivots, but never brings a file back or drops one.
+function keepRig(old: CastMember | undefined, next: CastMember): CastMember["rig"] {
+  const file = next.rig?.file || old?.rig?.file || "";
+  const clips = { ...{ idle: "", walk: "", turnL: "", turnR: "", point: "" }, ...old?.rig?.clips, ...next.rig?.clips };
+  return { file, clips };
+}
+
 function keepPuppet(old: CastMember | undefined, next: CastMember): CastMember["puppet"] {
   const files = new Map((old?.puppet.layers ?? []).map((l) => [l.file, l]));
   if (!files.size) return { layers: [] };
@@ -101,14 +107,14 @@ function keepPuppet(old: CastMember | undefined, next: CastMember): CastMember["
 // The series as the app saves it from "Editar serie", with each character's puppet kept.
 export function saveSeriesFromApp(id: string, fields: SeriesFields) {
   const old = getSeriesFields(id).cast;
-  saveSeries(id, { ...fields, cast: fields.cast.map((m) => ({ ...m, puppet: keepPuppet(old.find((o) => o.id === m.id), m) })) });
+  saveSeries(id, { ...fields, cast: fields.cast.map((m) => ({ ...m, puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m) })) });
 }
 
 // Adds a cast member to the series, or replaces the one with the same id (keeping its image if none is given).
 export function upsertCastMember(id: string, member: CastMember) {
   const fields = getSeriesFields(id);
   const old = fields.cast.find((m) => m.id === member.id);
-  const next = { ...member, image: member.image || old?.image || "", puppet: keepPuppet(old, member) };
+  const next = { ...member, image: member.image || old?.image || "", puppet: keepPuppet(old, member), rig: keepRig(old, member) };
   fields.cast = old ? fields.cast.map((m) => (m.id === member.id ? next : m)) : [...fields.cast, next];
   saveSeries(id, fields);
 }
@@ -155,6 +161,22 @@ export function setPuppetLayer(id: string, castId: string, index: number, data: 
   return member;
 }
 
+export function setRigFile(id: string, castId: string, data: Buffer): CastMember {
+  const fields = getSeriesFields(id);
+  const member = fields.cast.find((m) => m.id === castId);
+  if (!member) throw new SeriesError("Ese integrante del elenco no existe.");
+  if (member.kind !== "character") throw new SeriesError("Solo los personajes tienen un rig.");
+  if (data.length < 20 || data.subarray(0, 4).toString() !== "glTF") throw new SeriesError("El rig tiene que ser un GLB (glTF binario), el que exporta Mesh2Motion o Mixamo pasado a GLB.");
+  const dir = join(LIBRARY_DIR, id);
+  mkdirSync(dir, { recursive: true });
+  const file = `${castId.slice(0, 24)}-rig-${Date.now().toString(36)}.glb`;
+  writeFileSync(join(dir, file), data);
+  if (member.rig?.file && member.rig.file !== file) rmSync(join(dir, member.rig.file), { force: true });
+  member.rig = { file, clips: member.rig?.clips ?? { idle: "", walk: "", turnL: "", turnR: "", point: "" } };
+  saveSeries(id, fields);
+  return member;
+}
+
 export function removePuppetLayer(id: string, castId: string, index: number): CastMember {
   const fields = getSeriesFields(id);
   const member = fields.cast.find((m) => m.id === castId);
@@ -180,8 +202,8 @@ export function setLogo(id: string, data: Buffer, type: string): string {
 }
 
 export function readLibraryFile(id: string, name: string): { data: Buffer; type: string } {
-  if (!ID.test(id) || !/^[a-z0-9-]{1,60}\.(png|jpg|webp|gif)$/.test(name)) throw new SeriesError("Ese archivo no existe.");
-  const type = Object.entries(IMAGE_EXT).find(([, e]) => name.endsWith(`.${e}`))?.[0] ?? "application/octet-stream";
+  if (!ID.test(id) || !/^[a-z0-9-]{1,60}\.(png|jpg|webp|gif|glb)$/.test(name)) throw new SeriesError("Ese archivo no existe.");
+  const type = name.endsWith(".glb") ? "model/gltf-binary" : Object.entries(IMAGE_EXT).find(([, e]) => name.endsWith(`.${e}`))?.[0] ?? "application/octet-stream";
   try {
     return { data: readFileSync(join(LIBRARY_DIR, id, name)), type };
   } catch {

@@ -3,6 +3,7 @@
 // never Math.random. The studio's banned defaults are not here: no centred title on a gradient, no
 // everything-fades-in, no corner labels or frame borders, no glow, no particle bursts.
 import { drawPuppet, puppetPose, type PuppetAsset } from "./puppet.ts";
+import type { ActorAsset } from "./actor.ts";
 import { CUT_PUSH, TYPE_CPS, elementTimes, timeScenes, typingSeconds, type MotionScene, type MotionScript, type TimedScene } from "../../shared/motion.ts";
 import type { Brand } from "../../shared/series.ts";
 
@@ -18,6 +19,8 @@ export type MotionWorld = {
   disclosure: string;
   // Characters' 3D-look puppets, by cast id (a character with an image but no parts is a puppet of one piece).
   puppets?: Record<string, PuppetAsset>;
+  // Rigged humanoids (GLB) by cast id. When present, the character scene walks and turns instead of using the puppet.
+  actors?: Record<string, ActorAsset>;
   // How loud the voices are, `rate` values a second over the whole piece (0..1), and the scenes that have a voice
   // file; other scenes with a line move the mouth to the rhythm of the words.
   speech?: { rate: number; data: Float32Array; scenes: string[] };
@@ -412,6 +415,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
     case "character": {
       // A 3D-look puppet says the line (its mouth follows the voice) and makes its gesture; it can point at or
       // present a real screen or the product (assetB).
+      const actor = s.asset ? world.actors?.[s.asset] : undefined;
       const puppet = s.asset ? world.puppets?.[s.asset] : undefined;
       const prop = s.assetB ? world.assets[s.assetB] : undefined;
       const hasProp = Boolean(s.assetB);
@@ -435,6 +439,9 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         });
       }
       put("media", cx, bottom, () => {
+        if (actor) {
+          return actor.draw(ctx, cx, bottom, height, Math.max(0, lt - at("media")), s.seconds, s.move ?? "walk", talkLevel(world, s, f.t, lt));
+        }
         if (!puppet) {
           placeholder(f, cx - height * 0.3, bottom - height, height * 0.6, height, s.asset ? `Falta el personaje: ${s.asset}` : "Elegí un personaje");
           return { x: cx - height * 0.3, y: bottom - height, w: height * 0.6, h: height };

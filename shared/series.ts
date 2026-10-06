@@ -131,6 +131,41 @@ export const PuppetSchema = z.object({ layers: z.array(PuppetLayerSchema).max(12
 export type PuppetLayer = z.infer<typeof PuppetLayerSchema>;
 export type Puppet = z.infer<typeof PuppetSchema>;
 
+// A rigged humanoid for explainers that actually walk and turn. The mesh is made outside (Meshy, Tripo, Blender);
+// Mixamo or Mesh2Motion puts the skeleton and the clips on it. `clips` maps each move to an animation name in the
+// GLB. Root motion (hip travel and yaw) is what makes the walk and the turn real.
+export const RIG_MOVES = ["idle", "walk", "turnL", "turnR", "point"] as const;
+export type RigMove = (typeof RIG_MOVES)[number];
+export const RIG_MOVE_LABEL: Record<RigMove, string> = {
+  idle: "Quieto",
+  walk: "Camina",
+  turnL: "Gira a la izquierda",
+  turnR: "Gira a la derecha",
+  point: "Señala",
+};
+export const RigClipsSchema = z.object({
+  idle: z.string().max(80).default(""),
+  walk: z.string().max(80).default(""),
+  turnL: z.string().max(80).default(""),
+  turnR: z.string().max(80).default(""),
+  point: z.string().max(80).default(""),
+});
+export const RigSchema = z.object({
+  file: z.string().max(120).default(""),
+  clips: RigClipsSchema.default({ idle: "", walk: "", turnL: "", turnR: "", point: "" }),
+});
+export type Rig = z.infer<typeof RigSchema>;
+
+export function guessClip(name: string): RigMove | null {
+  const n = name.toLowerCase();
+  if (/turn/.test(n) && /left|izq|_l\b/.test(n)) return "turnL";
+  if (/turn|gir/.test(n) && /right|der|_r\b/.test(n)) return "turnR";
+  if (/point|wave|señal|senal|gesture/.test(n)) return "point";
+  if (/walk|camin|run|locomot/.test(n)) return "walk";
+  if (/idle|breath|stand|t-?pose|wait/.test(n)) return "idle";
+  return null;
+}
+
 // The part a layer probably is, from its file name (Grok names segments by what they are).
 export function guessRole(name: string): PuppetRole {
   const n = name.toLowerCase();
@@ -157,6 +192,8 @@ export const CastMemberSchema = z.object({
   sheet: z.string().max(6000).default(""),
   // Characters only: the puppet for motion graphics (empty: none).
   puppet: PuppetSchema.default({ layers: [] }),
+  // Characters only: a rigged GLB that walks and turns (empty file: none).
+  rig: RigSchema.default({ file: "", clips: { idle: "", walk: "", turnL: "", turnR: "", point: "" } }),
 });
 export type CastMember = z.infer<typeof CastMemberSchema>;
 
