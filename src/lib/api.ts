@@ -18,9 +18,10 @@ import type {
 } from "../../shared/schema.ts";
 import type { MotionScript } from "../../shared/motion.ts";
 import type { MotionReview } from "../../shared/motionQuality.ts";
-import type { BackgroundPrompts, LyricElement, LyricLanguage, LyricLine, LyricStyle, SecondLanguage } from "../../shared/lyrics.ts";
+import type { BackgroundPrompts, LyricElement, LyricLanguage, LyricLine, LyricPlate, LyricStyle, SecondLanguage } from "../../shared/lyrics.ts";
 import type { SyncDoc } from "../../shared/clock.ts";
 import type { Brand, CastMember, PuppetLayer, SeriesFields, TextStyle } from "../../shared/series.ts";
+import type { RoomCard } from "../../shared/room.ts";
 
 export type ProjectSummary = {
   id: string;
@@ -74,9 +75,12 @@ type Demo = { demo: boolean };
 export const api = {
   status: () => call<Status>("/api/status"),
   menu: (brief: Brief) => call<Menu & Demo>("/api/menu", { brief }),
-  story: (brief: Brief, topics: TopicIdea[]) => call<{ story: Story } & Demo>("/api/story", { brief, topics }),
-  reviseStory: (brief: Brief, story: Story, note: string) =>
-    call<{ story: Story } & Demo>("/api/story/revise", { brief, story, note }),
+  room: (series: string, except = "") =>
+    call<{ cards: RoomCard[] }>(`/api/room?series=${encodeURIComponent(series)}&except=${encodeURIComponent(except)}`),
+  story: (brief: Brief, topics: TopicIdea[], note = "", projectId = "") =>
+    call<{ story: Story } & Demo>("/api/story", { brief, topics, note, projectId }),
+  reviseStory: (brief: Brief, story: Story, note: string, projectId = "") =>
+    call<{ story: Story } & Demo>("/api/story/revise", { brief, story, note, projectId }),
   board: (brief: Brief, story: Story) => call<{ board: Board } & Demo>("/api/board", { brief, story }),
   reviseBoard: (brief: Brief, story: Story, board: Board, note: string, shotNotes: { index: number; note: string }[]) =>
     call<{ board: Board } & Demo>("/api/board/revise", { brief, story, board, note, shotNotes }),
@@ -107,6 +111,8 @@ export const api = {
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PATCH"),
   removePuppetLayer: (seriesId: string, castId: string, index: number) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}`, undefined, "DELETE"),
+  uploadRig: (seriesId: string, castId: string, file: Blob) =>
+    upload<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/rig`, file, "model/gltf-binary"),
   uploadCastImage: (seriesId: string, castId: string, image: Blob) =>
     upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/image`, image, image.type),
 
@@ -226,6 +232,15 @@ export const api = {
       title,
       artist,
       lines,
+    }),
+  lyricPlates: (series: string, title: string, artist: string, lines: string[], note: string, plates: LyricPlate[]) =>
+    call<{ plates: LyricPlate[]; idea: string; note: string } & Demo>("/api/lyrics/plates", {
+      series,
+      title,
+      artist,
+      lines,
+      note,
+      plates,
     }),
   lyricBackgrounds: (
     series: string,

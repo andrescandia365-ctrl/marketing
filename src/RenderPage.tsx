@@ -60,7 +60,7 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       const snapped = { ...script, scenes };
       const notice = piece.disclosure && usesAiImages(scenes, series);
       const speech = await speechLevels(snapped, piece, media.voices);
-      const world = makeWorld(series.brand, { ...images.cast, ...layerAssets(media.layers) }, images.logo, beats, notice, { puppets: images.puppets, speech });
+      const world = makeWorld(series.brand, { ...images.cast, ...layerAssets(media.layers) }, images.logo, beats, notice, { puppets: images.puppets, actors: images.actors, speech });
       const ctx = canvasRef.current!.getContext("2d")!;
       const seek = (t: number) => drawMotionFrame(ctx, w, h, t, snapped, world);
       seek(0);

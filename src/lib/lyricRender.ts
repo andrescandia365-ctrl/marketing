@@ -16,7 +16,8 @@ import {
   getFirstEncodableAudioCodec,
   getFirstEncodableVideoCodec,
 } from "mediabunny";
-import { LYRIC_FONT_FAMILY, elementWindow, type LyricElement, type LyricMotif, type LyricPiece } from "../../shared/lyrics.ts";
+import { LYRIC_FONT_FAMILY, elementWindow, type LyricElement, type LyricLine, type LyricMotif, type LyricPiece } from "../../shared/lyrics.ts";
+import { drawPlateFrame } from "./plateDraw.ts";
 import { drawLayers, type MotionAsset } from "./motion.ts";
 import { findBeats, type RenderResult } from "./render.ts";
 
@@ -135,7 +136,7 @@ function wrap(
 }
 
 // How a graphic moves across its own window. Pure function of t.
-function elementPose(motion: LyricElement["motion"], t: number, start: number, end: number): { alpha: number; scale: number; dy: number } {
+function elementPose(motion: LyricElement["motion"], t: number, start: number, end: number, beats: number[]): { alpha: number; scale: number; dy: number } {
   const dur = Math.max(0.4, end - start);
   const u = clamp((t - start) / dur);
   const edge = Math.min(clamp(u / 0.18), clamp((1 - u) / 0.18));
@@ -144,6 +145,11 @@ function elementPose(motion: LyricElement["motion"], t: number, start: number, e
     return { alpha: edge, scale: 0.62 + 0.38 * p, dy: (1 - p) * 0.35 };
   }
   if (motion === "pulse") return { alpha: edge, scale: 1 + 0.07 * Math.sin(t * 6.2), dy: 0 };
+  // Same beat list the background swells on. The hit is a pop, not a fade-in, and the words stay on their own times.
+  if (motion === "beat") {
+    const hit = beatEnvelope(beats, t);
+    return { alpha: Math.max(edge, hit > 0.15 ? 1 : edge), scale: 1 + 0.42 * hit, dy: -0.22 * hit };
+  }
   if (motion === "leave") {
     const p = easeOut(clamp((u - 0.5) / 0.5));
     return { alpha: edge, scale: 1, dy: -p * 0.45 };
@@ -179,6 +185,14 @@ function traceMotif(ctx: CanvasRenderingContext2D, motif: LyricMotif, s: number)
     ctx.bezierCurveTo(s * 0.22, -s * 0.42, s * 0.46, -s * 0.22, 0, s * 0.28);
     return;
   }
+  if (motif === "diamond") {
+    ctx.moveTo(0, -s * 0.4);
+    ctx.lineTo(s * 0.34, 0);
+    ctx.lineTo(0, s * 0.4);
+    ctx.lineTo(-s * 0.34, 0);
+    ctx.closePath();
+    return;
+  }
   if (motif === "note") {
     ctx.ellipse(-s * 0.08, s * 0.14, s * 0.2, s * 0.15, -0.5, 0, Math.PI * 2);
     ctx.fill();
@@ -194,6 +208,24 @@ function traceMotif(ctx: CanvasRenderingContext2D, motif: LyricMotif, s: number)
   }
 }
 
+// Where a graphic sits. Same place means a row along that edge, outside the lyric block, so twelve of them
+// do not pile through the words. The index is stable (every mate, not only the ones on screen now).
+function elementSpot(place: LyricElement["place"], index: number, count: number, w: number, h: number): { x: number; y: number } {
+  const n = Math.max(1, count);
+  const i = Math.min(Math.max(0, index), n - 1);
+  if (place === "top") {
+    const gap = (w * 0.86) / n;
+    return { x: w * 0.07 + gap * (i + 0.5), y: h * 0.12 };
+  }
+  const above = i % 2 === 0;
+  const slot = Math.floor(i / 2);
+  const slots = Math.ceil(n / 2);
+  const bandTop = above ? h * 0.2 : h * 0.7;
+  const bandBot = above ? h * 0.36 : h * 0.9;
+  const y = bandTop + ((bandBot - bandTop) / slots) * (slot + 0.5);
+  return { x: place === "left" ? w * 0.12 : w * 0.88, y };
+}
+
 function drawOneElement(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -201,22 +233,22 @@ function drawOneElement(
   t: number,
   piece: LyricPiece,
   element: LyricElement,
-  stack: number,
   glyph: ElementGlyph | undefined,
+  beats: number[],
 ) {
   const win = elementWindow(element, piece.lines);
   if (!win || t < win.start || t >= win.end) return;
-  const pose = elementPose(element.motion, t, win.start, win.end);
+  const pose = elementPose(element.motion, t, win.start, win.end, beats);
   if (pose.alpha <= 0.01) return;
+  const mates = (piece.elements ?? []).filter((e) => e.place === element.place);
+  const count = Math.max(1, mates.length);
+  const index = Math.max(0, mates.findIndex((e) => e.id === element.id));
   const unit = Math.min(w, h);
-  const box = unit * (element.motif === "word" ? 0.22 : 0.2);
-  const anchor = {
-    top: [w * 0.5, h * 0.16],
-    left: [w * 0.2, h * 0.3],
-    right: [w * 0.8, h * 0.3],
-  }[element.place];
-  const x = anchor[0];
-  const y = anchor[1] + stack * box * 1.15 + pose.dy * box;
+  const crowd = count > 6 ? 0.62 : count > 3 ? 0.8 : 1;
+  const box = unit * (element.motif === "word" ? 0.16 : 0.14) * crowd;
+  const spot = elementSpot(element.place, index, count, w, h);
+  const x = spot.x;
+  const y = spot.y + pose.dy * box;
   const family = LYRIC_FONT_FAMILY[piece.style.font];
   const label = element.label.replace(/\s+/g, " ").trim().slice(0, 22);
 
@@ -240,7 +272,7 @@ function drawOneElement(
     if (element.motif === "ring") ctx.stroke();
     else if (element.motif !== "note") ctx.fill();
   }
-  if (label && (element.motif === "word" || !glyph)) {
+  if (label && !glyph && (element.motif === "word" || count <= 3)) {
     const size = unit * (element.motif === "word" ? 0.055 : 0.03);
     ctx.font = `600 ${size}px ${family}`;
     ctx.textAlign = "center";
@@ -258,15 +290,121 @@ function drawElements(
   t: number,
   piece: LyricPiece,
   glyphs: Record<number, ElementGlyph>,
+  beats: number[],
 ) {
-  const stacks: Record<string, number> = {};
   for (const element of piece.elements ?? []) {
     const win = elementWindow(element, piece.lines);
     if (!win || t < win.start || t >= win.end) continue;
-    const n = stacks[element.place] ?? 0;
-    stacks[element.place] = n + 1;
-    drawOneElement(ctx, w, h, t, piece, element, n, element.slot ? glyphs[element.slot] : undefined);
+    drawOneElement(ctx, w, h, t, piece, element, element.slot ? glyphs[element.slot] : undefined, beats);
   }
+}
+
+type LineLook = { alpha: number; dy: number; dx: number; clip: number; scale: number };
+
+// How a lyric line arrives and leaves. Cut, rise, wipe and the default slide stay opaque on the way in:
+// the move is the transition. Fundido is the one that fades.
+function lyricLook(entrance: LyricPiece["style"]["entrance"], t: number, line: LyricLine, unit: number): LineLook | null {
+  const enter = easeOut(clamp((t - line.start) / ENTER));
+  const past = t > line.end;
+  const exit = past ? 1 - clamp((t - line.end) / EXIT) : 1;
+  const still: LineLook = { alpha: 1, dy: 0, dx: 0, clip: 1, scale: 1 };
+  if (entrance === "cut") {
+    if (t < line.start || t >= line.end) return null;
+    return still;
+  }
+  if (entrance === "rise") {
+    if (t < line.start || t >= line.end) return null;
+    return { ...still, dy: (1 - enter) * unit * 0.2 };
+  }
+  if (t < line.start || exit <= 0) return null;
+  if (entrance === "wipe") return { ...still, alpha: past ? exit : 1, dx: (1 - enter) * -unit * 0.08, clip: enter };
+  if (entrance === "pop") {
+    return { ...still, alpha: past ? exit : Math.min(1, clamp((t - line.start) / 0.08)), scale: 0.7 + 0.3 * easeOutBack(clamp((t - line.start) / ENTER)) };
+  }
+  if (entrance === "fade") return { ...still, alpha: Math.min(enter, exit) };
+  return { ...still, alpha: past ? exit : 1, dy: (1 - enter) * unit * 0.08 };
+}
+
+function paintLyricLine(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  t: number,
+  piece: LyricPiece,
+  line: LyricLine,
+  font: (size: number) => string,
+  look: LineLook,
+) {
+  if (look.alpha <= 0.01) return;
+  const style = piece.style;
+  const unit = Math.min(w, h);
+  const base = unit * 0.075 * (style.size / 100);
+  const rows = wrap(
+    ctx,
+    line.words.map((word) => ({ ...word, size: style.keywords && word.key ? base * 1.4 : base })),
+    font,
+    w * 0.84,
+  );
+  const secondSize = base * 0.5;
+  ctx.font = font(secondSize);
+  const second = line.second.trim()
+    ? wrap(ctx, line.second.split(/\s+/).map((text) => ({ text, gap: true, size: secondSize, start: 0, end: 0, key: false })), font, w * 0.84)
+    : [];
+  const rowHeights = rows.map((r) => r.size * 1.18);
+  const blockHeight = rowHeights.reduce((a, b) => a + b, 0) + second.length * secondSize * 1.4 + (second.length ? secondSize * 0.6 : 0);
+  const centerY = style.position === "center" ? h * 0.5 : h * (w < h ? 0.72 : 0.74);
+  let y = centerY - blockHeight / 2;
+
+  ctx.save();
+  if (look.clip < 1) {
+    ctx.beginPath();
+    ctx.rect(0, 0, w * look.clip, h);
+    ctx.clip();
+  }
+  ctx.globalAlpha = look.alpha;
+  ctx.translate(look.dx, look.dy);
+  if (look.scale !== 1) {
+    ctx.translate(w / 2, centerY);
+    ctx.scale(look.scale, look.scale);
+    ctx.translate(-w / 2, -centerY);
+  }
+  ctx.textBaseline = "alphabetic";
+  ctx.shadowColor = "rgba(0,0,0,0.45)";
+  rows.forEach((row, r) => {
+    const baseline = y + rowHeights[r] * 0.82;
+    const left = (w - row.width) / 2;
+    for (const word of row.words) {
+      ctx.font = font(word.size);
+      ctx.shadowBlur = word.size * 0.25;
+      const x = left + word.x;
+      const lit = style.karaoke ? clamp((t - word.start) / Math.max(word.end - word.start, 0.05)) : style.keywords && word.key ? 1 : 0;
+      ctx.fillStyle = style.textColor;
+      if (lit < 1) ctx.fillText(word.text, x, baseline);
+      if (lit > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x - word.size * 0.1, baseline - word.size * 1.2, (word.width + word.size * 0.2) * lit, word.size * 1.6);
+        ctx.clip();
+        ctx.fillStyle = style.highlightColor;
+        ctx.fillText(word.text, x, baseline);
+        ctx.restore();
+      }
+    }
+    y += rowHeights[r];
+  });
+  if (second.length) {
+    y += secondSize * 0.6;
+    ctx.font = font(secondSize);
+    ctx.shadowBlur = secondSize * 0.3;
+    ctx.fillStyle = style.textColor;
+    ctx.globalAlpha *= 0.8;
+    for (const row of second) {
+      const left = (w - row.width) / 2;
+      for (const word of row.words) ctx.fillText(word.text, left + word.x, y + secondSize * 1.1);
+      y += secondSize * 1.4;
+    }
+  }
+  ctx.restore();
 }
 
 export function drawLyricFrame(
@@ -279,7 +417,13 @@ export function drawLyricFrame(
   beats: number[],
   layers: MotionAsset[] = [],
   glyphs: Record<number, ElementGlyph> = {},
+  // Downbeats from the Reloj. Empty means a plate cuts on its first word.
+  cuts: number[] = [],
 ) {
+  if (piece.plateOn && piece.plates?.length) {
+    drawPlateFrame(ctx, w, h, t, piece, cuts);
+    return;
+  }
   const style = piece.style;
   if (style.background === "layers" && layers.length) {
     ctx.fillStyle = "#000";
@@ -290,14 +434,14 @@ export function drawLyricFrame(
   } else if (style.background === "media" && bg) drawBackdrop(ctx, w, h, bg, piece.fullFrame);
   else drawOrganic(ctx, w, h, t, piece, beats);
 
-  drawElements(ctx, w, h, t, piece, glyphs);
+  drawElements(ctx, w, h, t, piece, glyphs, beats);
 
   const unit = Math.min(w, h);
   const family = LYRIC_FONT_FAMILY[style.font];
   const weight = style.font === "display" ? 400 : 600;
   const font = (size: number) => `${weight} ${size}px ${family}`;
 
-  // The line on screen: the last one that started, until a moment after it ends.
+  // The line on screen: the last one that started. Rise also keeps the previous line for the handoff.
   let index = -1;
   for (let k = piece.lines.length - 1; k >= 0; k--) {
     if (t >= piece.lines[k].start) {
@@ -306,71 +450,12 @@ export function drawLyricFrame(
     }
   }
   const line = piece.lines[index];
-  if (line && t < line.end + EXIT) {
-    const enter = easeOut(clamp((t - line.start) / ENTER));
-    const exit = t > line.end ? 1 - clamp((t - line.end) / EXIT) : 1;
-    const base = unit * 0.075 * (style.size / 100);
-    const rows = wrap(
-      ctx,
-      line.words.map((word) => ({ ...word, size: style.keywords && word.key ? base * 1.4 : base })),
-      font,
-      w * 0.84,
-    );
-    const secondSize = base * 0.5;
-    ctx.font = font(secondSize);
-    const second = line.second.trim() ? wrap(ctx, line.second.split(/\s+/).map((text) => ({ text, gap: true, size: secondSize, start: 0, end: 0, key: false })), font, w * 0.84) : [];
-    const rowHeights = rows.map((r) => r.size * 1.18);
-    const blockHeight = rowHeights.reduce((a, b) => a + b, 0) + second.length * secondSize * 1.4 + (second.length ? secondSize * 0.6 : 0);
-    const centerY = style.position === "center" ? h * 0.5 : h * (w < h ? 0.72 : 0.74);
-    let y = centerY - blockHeight / 2;
-
-    ctx.save();
-    ctx.globalAlpha = Math.min(style.entrance === "pop" ? clamp((t - line.start) / 0.12) : enter, exit);
-    if (style.entrance === "slide") ctx.translate(0, (1 - enter) * unit * 0.04);
-    if (style.entrance === "pop") {
-      const s = 0.82 + 0.18 * easeOutBack(clamp((t - line.start) / ENTER));
-      ctx.translate(w / 2, centerY);
-      ctx.scale(s, s);
-      ctx.translate(-w / 2, -centerY);
-    }
-    ctx.textBaseline = "alphabetic";
-    ctx.shadowColor = "rgba(0,0,0,0.45)";
-    rows.forEach((row, r) => {
-      const baseline = y + rowHeights[r] * 0.82;
-      const left = (w - row.width) / 2;
-      for (const word of row.words) {
-        ctx.font = font(word.size);
-        ctx.shadowBlur = word.size * 0.25;
-        const x = left + word.x;
-        const lit = style.karaoke ? clamp((t - word.start) / Math.max(word.end - word.start, 0.05)) : style.keywords && word.key ? 1 : 0;
-        ctx.fillStyle = style.textColor;
-        if (lit < 1) ctx.fillText(word.text, x, baseline);
-        if (lit > 0) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(x - word.size * 0.1, baseline - word.size * 1.2, (word.width + word.size * 0.2) * lit, word.size * 1.6);
-          ctx.clip();
-          ctx.fillStyle = style.highlightColor;
-          ctx.fillText(word.text, x, baseline);
-          ctx.restore();
-        }
-      }
-      y += rowHeights[r];
-    });
-    if (second.length) {
-      y += secondSize * 0.6;
-      ctx.font = font(secondSize);
-      ctx.shadowBlur = secondSize * 0.3;
-      ctx.fillStyle = style.textColor;
-      ctx.globalAlpha *= 0.8;
-      for (const row of second) {
-        const left = (w - row.width) / 2;
-        for (const word of row.words) ctx.fillText(word.text, left + word.x, y + secondSize * 1.1);
-        y += secondSize * 1.4;
-      }
-    }
-    ctx.restore();
+  if (style.entrance === "rise" && line && index > 0) {
+    const u = clamp((t - line.start) / ENTER);
+    if (u > 0 && u < 1) paintLyricLine(ctx, w, h, t, piece, piece.lines[index - 1], font, { alpha: 1 - u, dy: -u * unit * 0.2, dx: 0, clip: 1, scale: 1 });
   }
+  const look = line ? lyricLook(style.entrance, t, line, unit) : null;
+  if (line && look) paintLyricLine(ctx, w, h, t, piece, line, font, look);
 
   // The song's credit, and the AI notice when the own background was made with AI.
   const notes = [
@@ -436,6 +521,7 @@ export async function renderLyricVideo(
   background: { image?: HTMLImageElement; clips?: Blob[]; layers?: HTMLImageElement[]; elements?: Record<number, HTMLImageElement> },
   piece: LyricPiece,
   onProgress: (fraction: number) => void,
+  cuts: number[] = [],
 ): Promise<RenderResult> {
   if (typeof VideoEncoder === "undefined") {
     throw new Error("Este navegador no puede generar video. Usá una versión reciente de Chrome, Edge o Safari.");
@@ -450,7 +536,7 @@ export async function renderLyricVideo(
   const from = Math.min(Math.max(0, piece.from), full.duration - 1);
   const to = piece.to > from ? Math.min(piece.to, full.duration) : full.duration;
   const sound = cutSong(full, from, to);
-  const beats = piece.style.pulse ? songBeats(full) : [];
+  const beats = songBeats(full);
   await loadLyricFonts(piece);
   onProgress(0.03);
 
@@ -522,7 +608,7 @@ export async function renderLyricVideo(
         const next = await readers[order[f]].next();
         if (!next.done && next.value) bg = { source: next.value.canvas, width: w, height: h };
       }
-      drawLyricFrame(ctx, w, h, t, piece, bg, beats, layerAssets, glyphs);
+      drawLyricFrame(ctx, w, h, t, piece, bg, beats, layerAssets, glyphs, cuts);
       await video.add(f / FPS, 1 / FPS);
       if (f % 15 === 0) onProgress(0.03 + 0.97 * (f / frames));
     }

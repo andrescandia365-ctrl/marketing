@@ -1,5 +1,6 @@
 // Graphics timed to a lyric line: an app-drawn motif, or a pasted PNG, JPG or SVG.
 import {
+  LYRIC_ELEMENT_MAX,
   LYRIC_MOTIFS,
   LYRIC_MOTIF_LABEL,
   LYRIC_MOTIONS,
@@ -33,14 +34,14 @@ export function LyricElements({ piece, busy, suggesting, images, onSuggest, onAd
     <div className="space-y-4">
       <p className="text-sm text-muted">
         Gráficos que entran con un verso. La app dibuja la forma, o pegás un PNG, un JPG o un SVG (el SVG pasa a PNG, entero,
-        sin recortar). La IA propone de 3 a 6; después los acomodás.
+        sin recortar). Hasta {LYRIC_ELEMENT_MAX} gráficos. La IA propone de 3 a 6; después los acomodás.
       </p>
       {!ready && <Notice tone="warn">Sincronizá la letra primero. Cada elemento se prende cuando empieza su verso.</Notice>}
       <div className="flex flex-wrap gap-2">
         <Button onClick={onSuggest} disabled={!ready || busy}>
           {suggesting ? "Pensando…" : "Sugerir con IA"}
         </Button>
-        <Button variant="secondary" onClick={onAdd} disabled={!ready || busy || piece.elements.length >= 6}>
+        <Button variant="secondary" onClick={onAdd} disabled={!ready || busy || piece.elements.length >= LYRIC_ELEMENT_MAX}>
           Agregar uno
         </Button>
       </div>

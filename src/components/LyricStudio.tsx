@@ -1,9 +1,12 @@
 // Lyric videos (series of type music): the song and its lyrics, the sync (automatic or tapping), and the look with a
 // live preview and the final video. Autosaves into the project folder like a story piece.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
+  LYRIC_ELEMENT_MAX,
   LYRIC_ELEMENT_SLOT,
   LYRIC_ELEMENT_SLOTS,
+  LYRIC_ENTRANCES,
+  LYRIC_ENTRANCE_LABEL,
   LYRIC_FONT_LABEL,
   LYRIC_FONTS,
   LYRIC_LANGUAGE_LABEL,
@@ -25,6 +28,7 @@ import {
   type LyricStyle,
   type SecondLanguage,
 } from "../../shared/lyrics.ts";
+import { buildPlates } from "../../shared/plates.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { api, projectFileUrl, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
 import { blobToDataUrl } from "../lib/files.ts";
@@ -33,6 +37,7 @@ import { decodeSong, drawLyricFrame, loadLyricFonts, renderLyricVideo, songBeats
 import { rasterSvg } from "../lib/svgSanitize.ts";
 import { ClockPanel } from "./ClockPanel.tsx";
 import { LyricElements } from "./LyricElements.tsx";
+import { LyricPlates } from "./LyricPlates.tsx";
 import { download, slug } from "../lib/markdown.ts";
 import { CopyButton } from "./ScriptView.tsx";
 import type { RenderResult } from "../lib/render.ts";
@@ -42,7 +47,8 @@ import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx"
 export type LyricOpen = { piece: LyricPiece; music: MediaFileRecord | null; media: Record<string, MediaRecord> };
 // Background clips (Grok's or the person's own) play one after the other; each sits in a media slot of the project.
 type BgClip = { slot: number; url: string; blob: Blob; name: string };
-const MAX_CLIPS = 4;
+const MAX_CLIPS = 8;
+const FRAME = 1 / 30;
 const LAYER_BASE = 200;
 
 type Props = {
@@ -56,7 +62,7 @@ type Props = {
   onSeries: (series: SeriesInfo[]) => void;
 };
 
-type Tab = "song" | "sync" | "clock" | "elements" | "video";
+type Tab = "song" | "sync" | "clock" | "plates" | "elements" | "video";
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 // inputClass without its full width, for the small time fields.
 const smallInput = inputClass.replace("w-full", "");
@@ -67,7 +73,7 @@ function pieceMarkdown(piece: LyricPiece): string {
 
 Video de letra · ${LYRIC_LANGUAGE_LABEL[piece.language]} · ${piece.format === "vertical" ? "vertical 9:16" : "horizontal 16:9"}
 
-${piece.elements.length ? `## Elementos\n\n${piece.elements.map((e) => `- verso ${e.line + 1} · ${e.label} · ${e.seconds}s`).join("\n")}\n\n` : ""}## Letra sincronizada (.lrc)
+${piece.plateOn && piece.plates.length ? `## Placas\n\n${piece.plates.map((p) => `- ${p.title}: ${p.motif}`).join("\n")}\n\n` : ""}${piece.elements.length ? `## Elementos\n\n${piece.elements.map((e) => `- verso ${e.line + 1} · ${e.label} · ${e.seconds}s`).join("\n")}\n\n` : ""}## Letra sincronizada (.lrc)
 
 \`\`\`
 ${toLrc(piece)}
@@ -79,7 +85,15 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
   const [piece, setPiece] = useState<LyricPiece>(() => {
     const base = initial ? { ...newLyricPiece(series.lyricStyle, brief.format), ...initial.piece } : newLyricPiece(series.lyricStyle, brief.format);
     const secondLanguage: SecondLanguage = (SECOND_LANGUAGES as readonly string[]).includes(base.secondLanguage) ? base.secondLanguage : "es";
-    return { ...base, elements: base.elements ?? [], secondLanguage, secondOther: base.secondOther ?? "" };
+    return {
+      ...base,
+      elements: base.elements ?? [],
+      plates: base.plates ?? [],
+      plateOn: base.plateOn ?? false,
+      plateNote: base.plateNote ?? "",
+      secondLanguage,
+      secondOther: base.secondOther ?? "",
+    };
   });
   const [tab, setTab] = useState<Tab>(initial?.piece.lines.length ? "video" : "song");
   const [song, setSong] = useState<AudioFile | null>(null);
@@ -89,9 +103,13 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
   const [layers, setLayers] = useState<HTMLImageElement[]>([]);
   const [elementImages, setElementImages] = useState<Record<number, HTMLImageElement>>({});
   const [bgClips, setBgClips] = useState<BgClip[]>([]);
-  const [busy, setBusy] = useState<null | "sync" | "ideas" | "second" | "elements" | "render" | "upload" | "style" | "prompts" | "lrc">(null);
+  const [busy, setBusy] = useState<null | "sync" | "ideas" | "second" | "elements" | "plates" | "render" | "upload" | "style" | "prompts" | "lrc">(null);
+  // Downbeats from the Reloj. Plate cuts use these, and never peaks off the master.
+  const [cuts, setCuts] = useState<number[]>([]);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  // How far "Correr toda la letra" has moved this visit. It lives here so a tab change does not reset the slider.
+  const [nudge, setNudge] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(null);
   const urls = useRef<string[]>([]);
 
@@ -175,6 +193,23 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
       .catch((e) => setError(message(e)));
   }, [song]);
 
+  // Plate cuts read the Reloj. Opening Placas or the video picks up a grid that was just written.
+  useEffect(() => {
+    if (!projectId || (tab !== "plates" && tab !== "video")) return;
+    let cancel = false;
+    api
+      .readClock(projectId)
+      .then((found) => {
+        if (cancel) return;
+        const grid = found?.sync.grid;
+        setCuts(grid?.usable && grid.downbeats.length ? grid.downbeats : []);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancel = true;
+    };
+  }, [projectId, tab]);
+
   // Autosave.
   useEffect(() => {
     if (!projectId) return;
@@ -214,7 +249,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
     });
   }
 
-  // A photo replaces everything; videos add up (up to four) and play in order.
+  // A photo replaces everything; videos add up (up to MAX_CLIPS) and play in order.
   async function addBackground(files: File[]) {
     await work("upload", async () => {
       const image = files.find((f) => f.type.startsWith("image/"));
@@ -292,6 +327,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
     const result = await work("sync", () => api.syncLyrics(song.blob, song.name, texts, seconds, piece.language));
     if (!result) return;
     set({ lines: result.lines, synced: "auto" });
+    setNudge(0);
     setNote(`Sincronizado: la transcripción escuchó ${result.heard} palabras. Revisá los tiempos abajo.`);
   }
 
@@ -316,6 +352,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
       lines: tapLines(lineTexts, lineSeconds, lrc.starts, end),
       synced: "lrc",
     }));
+    setNudge(0);
     setNote(
       same
         ? `Importado: los tiempos de ${file.name} sobre tu letra.`
@@ -379,15 +416,51 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
     setNote([result.note, "Revisá el verso y el texto de cada uno."].filter(Boolean).join(" "));
   }
 
+  function armPlates() {
+    if (!piece.lines.length) return;
+    if (piece.plates.length && !confirm("Esto reemplaza las placas que ya armaste.")) return;
+    set({ plates: buildPlates(piece.text, piece.lines.map((line) => line.text)), plateOn: true });
+  }
+
+  async function aiPlates() {
+    if (!piece.lines.length) return;
+    if (piece.plates.length && !confirm("Esto reemplaza las placas que ya armaste.")) return;
+    const result = await work("plates", () =>
+      api.lyricPlates(
+        series.id,
+        piece.title,
+        piece.artist,
+        piece.lines.map((line) => line.text),
+        piece.plateNote,
+        piece.plates,
+      ),
+    );
+    if (!result) return;
+    set({ plates: result.plates, plateOn: true, plateNote: piece.plateNote || result.idea });
+    setNote([result.idea, result.note, "Revisá el motivo de cada placa."].filter(Boolean).join(" "));
+  }
+
   function addElement() {
     const line = 0;
     const words = piece.lines[line]?.text.split(/\s+/).slice(0, 2).join(" ") || "texto";
     setPiece((p) => ({
       ...p,
-      elements: [
-        ...p.elements,
-        { id: newElementId(), label: words.slice(0, 40), motif: "heart", motion: "enter", place: "top", line, seconds: 3, slot: 0 },
-      ],
+      elements:
+        p.elements.length >= LYRIC_ELEMENT_MAX
+          ? p.elements
+          : [
+              ...p.elements,
+              {
+                id: newElementId(),
+                label: words.slice(0, 40),
+                motif: "heart",
+                motion: "beat",
+                place: (["top", "left", "right"] as const)[p.elements.length % 3],
+                line,
+                seconds: 3,
+                slot: 0,
+              },
+            ],
     }));
   }
 
@@ -457,6 +530,19 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
     });
   }
 
+  // Moves every line by the same amount. Words keep their place inside the line.
+  function shiftLines(delta: number) {
+    if (!Number.isFinite(delta) || delta === 0) return;
+    setPiece((p) => ({
+      ...p,
+      lines: p.lines.map((line) => {
+        const start = Math.max(0, line.start + delta);
+        const end = Math.max(start + 0.2, line.end + (start - line.start));
+        return retimeLine(line, start, end);
+      }),
+    }));
+  }
+
   function toggleKey(i: number, w: number) {
     setPiece((p) => ({
       ...p,
@@ -475,6 +561,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
     { id: "song", label: "Canción y letra" },
     { id: "sync", label: "Sincronizar" },
     { id: "clock", label: "Reloj" },
+    { id: "plates", label: "Placas" },
     { id: "elements", label: "Elementos" },
     { id: "video", label: "Estilo y video" },
   ];
@@ -493,7 +580,10 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
             <button
               key={t.id}
               type="button"
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                setError("");
+                setTab(t.id);
+              }}
               className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === t.id ? "bg-ink text-white" : "text-muted hover:text-ink"}`}
             >
               {t.label}
@@ -647,6 +737,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
                   audio={audioRef}
                   onDone={(starts) => {
                     set({ lines: tapLines(texts, seconds, starts, song.duration), synced: "tap" });
+                    setNudge(0);
                     setNote("Sincronizado tocando. Ajustá cualquier línea abajo.");
                   }}
                 />
@@ -671,7 +762,16 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
               </div>
               {stale && <Notice tone="warn">La letra cambió después de sincronizar: volvé a sincronizar.</Notice>}
               {piece.lines.length > 0 && (
-                <LineEditor lines={piece.lines} onStart={setLineStart} onKey={toggleKey} onPlay={playFrom} />
+                <LineEditor
+                  lines={piece.lines}
+                  duration={Math.max(song.duration || 0, 1)}
+                  nudge={nudge}
+                  onNudge={setNudge}
+                  onStart={setLineStart}
+                  onShift={shiftLines}
+                  onKey={toggleKey}
+                  onPlay={playFrom}
+                />
               )}
               {piece.lines.length > 0 && (
                 <Button onClick={() => setTab("elements")}>Seguir → elementos</Button>
@@ -688,6 +788,21 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
           language={piece.language}
           song={song}
           brand={series.brand}
+        />
+      )}
+
+      {tab === "plates" && (
+        <LyricPlates
+          piece={piece}
+          cuts={cuts}
+          busy={busy !== null}
+          suggesting={busy === "plates"}
+          onChange={(plates) => set({ plates })}
+          onNote={(plateNote) => set({ plateNote })}
+          onToggle={(plateOn) => set({ plateOn })}
+          onBuild={armPlates}
+          onAsk={() => void aiPlates()}
+          onSeek={playFrom}
         />
       )}
 
@@ -712,6 +827,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
           piece={piece}
           song={song}
           beats={beats}
+          cuts={cuts}
           audio={audioRef}
           bgImage={bgImage}
           bgClips={bgClips}
@@ -835,52 +951,181 @@ function TapSync({
   );
 }
 
+function stamp(t: number) {
+  const s = Math.max(0, t);
+  const m = Math.floor(s / 60);
+  return `${m}:${(s - m * 60).toFixed(2).padStart(5, "0")}`;
+}
+
+// One lane per line that overlaps another, so a long song does not stack every block on the same pixel.
+function lineLanes(lines: { start: number; end: number }[]): number[] {
+  const laneEnd: number[] = [];
+  return lines.map((l) => {
+    let lane = laneEnd.findIndex((end) => end <= l.start + 0.02);
+    if (lane < 0) {
+      lane = laneEnd.length;
+      laneEnd.push(l.end);
+    } else laneEnd[lane] = l.end;
+    return lane;
+  });
+}
+
 function LineEditor({
   lines,
+  duration,
+  nudge,
+  onNudge,
   onStart,
+  onShift,
   onKey,
   onPlay,
 }: {
   lines: LyricLine[];
+  duration: number;
+  nudge: number;
+  onNudge: (n: number) => void;
   onStart: (i: number, start: number) => void;
+  onShift: (delta: number) => void;
   onKey: (line: number, word: number) => void;
   onPlay: (t: number) => void;
 }) {
+  const [picked, setPicked] = useState(0);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const i = Math.min(picked, Math.max(0, lines.length - 1));
+  const line = lines[i];
+  const span = Math.max(duration, ...lines.map((l) => l.end), 1);
+  const lanes = lineLanes(lines);
+  const rows = lanes.length ? Math.max(...lanes) + 1 : 1;
+  const px = 96;
+
+  useEffect(() => {
+    trackRef.current?.querySelector(`[data-line="${i}"]`)?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [i]);
+
+  // The slider and the buttons share one offset, clamped to ±4 s, so they cannot drift apart.
+  function applyNudge(next: number) {
+    const clamped = Math.max(-4, Math.min(4, Math.round(next * 1000) / 1000));
+    const delta = Math.round((clamped - nudge) * 1000) / 1000;
+    onNudge(clamped);
+    if (delta !== 0) onShift(delta);
+  }
+
+  function dragLine(index: number, event: ReactPointerEvent<HTMLButtonElement>) {
+    const track = event.currentTarget.parentElement;
+    if (!track) return;
+    const originX = event.clientX;
+    const origin = lines[index].start;
+    const width = track.getBoundingClientRect().width || 1;
+    setPicked(index);
+    const move = (ev: PointerEvent) => onStart(index, Math.max(0, Math.min(span, origin + ((ev.clientX - originX) / width) * span)));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
   return (
-    <div className="rounded-xl border border-line bg-white">
-      <p className="border-b border-line px-4 py-2 text-xs text-muted">
-        Ajustá cuándo empieza cada línea. Tocá una palabra para que salga más grande (palabra clave).
-      </p>
-      <ol className="divide-y divide-line">
-        {lines.map((l, i) => (
-          <li key={i} className="flex flex-wrap items-center gap-3 px-4 py-2">
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" className="px-2 py-1 text-xs" title="Escuchar desde acá" onClick={() => onPlay(l.start - 0.5)}>
-                ▶
-              </Button>
-              <Button variant="ghost" className="px-1.5 py-1 text-xs" onClick={() => onStart(i, l.start - 0.1)}>
-                −
-              </Button>
-              <input
-                type="number"
-                step={0.1}
-                min={0}
-                aria-label={`Empieza la línea ${i + 1}`}
-                className={`${smallInput} w-20 px-2 py-1 font-mono text-xs`}
-                value={Number(l.start.toFixed(2))}
-                onChange={(e) => onStart(i, Number(e.target.value))}
-              />
-              <Button variant="ghost" className="px-1.5 py-1 text-xs" onClick={() => onStart(i, l.start + 0.1)}>
-                +
-              </Button>
-            </div>
+    <div className="space-y-3 rounded-xl border border-line bg-white p-4">
+      <div>
+        <div className="mb-1 flex items-baseline justify-between gap-2">
+          <p className="text-sm font-semibold">Correr toda la letra</p>
+          <p className="font-mono text-xs text-muted">{nudge >= 0 ? "+" : ""}{nudge.toFixed(2)} s</p>
+        </div>
+        <input
+          type="range"
+          min={-4}
+          max={4}
+          step={FRAME}
+          aria-label="Correr toda la letra"
+          className="h-10 w-full cursor-ew-resize accent-ink"
+          value={nudge}
+          onChange={(e) => applyNudge(Number(e.target.value))}
+        />
+        <div className="mt-1 flex flex-wrap gap-1">
+          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => applyNudge(nudge - 0.5)}>−0.5 s</Button>
+          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => applyNudge(nudge - 0.1)}>−0.1 s</Button>
+          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => applyNudge(nudge - FRAME)}>−1 cuadro</Button>
+          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => applyNudge(nudge + FRAME)}>+1 cuadro</Button>
+          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => applyNudge(nudge + 0.1)}>+0.1 s</Button>
+          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => applyNudge(nudge + 0.5)}>+0.5 s</Button>
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-1 text-xs text-muted">Arrastrá una línea en la canción. El slider de abajo afina la que está elegida, de a un cuadro.</p>
+        <div ref={trackRef} className="overflow-x-auto rounded-lg bg-paper">
+          <div className="relative" style={{ width: Math.max(span * px, 280), height: rows * 40 + 8 }}>
+            {lines.map((l, n) => (
+              <button
+                key={n}
+                type="button"
+                data-line={n}
+                title={`${n + 1}. ${l.text}`}
+                aria-label={`Mover la línea ${n + 1}`}
+                className={`absolute truncate rounded px-1.5 text-left text-[11px] leading-8 ${n === i ? "z-10 bg-ink text-white" : "bg-ink/15 text-ink hover:bg-ink/25"}`}
+                style={{ left: l.start * px, width: Math.max(44, (l.end - l.start) * px), top: 4 + lanes[n] * 40, height: 32 }}
+                onPointerDown={(e) => dragLine(n, e)}
+              >
+                {n + 1}. {l.text}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {line && (
+        <div className="space-y-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="min-w-0 truncate text-sm font-semibold">Línea {i + 1} · {line.text}</p>
+            <p className="shrink-0 font-mono text-xs text-muted">{stamp(line.start)}</p>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={span}
+            step={FRAME}
+            aria-label={`Empieza la línea ${i + 1}`}
+            className="h-12 w-full cursor-ew-resize accent-ink"
+            value={Math.min(span, line.start)}
+            onChange={(e) => onStart(i, Number(e.target.value))}
+          />
+          <div className="flex flex-wrap items-center gap-1">
+            <Button variant="ghost" className="px-2 py-1 text-xs" title="Escuchar desde acá" onClick={() => onPlay(Math.max(0, line.start - 0.4))}>▶</Button>
+            <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onStart(i, line.start - FRAME)}>−1 cuadro</Button>
+            <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onStart(i, line.start - 0.1)}>−0.1</Button>
+            <input
+              type="number"
+              step={0.01}
+              min={0}
+              aria-label={`Segundos de la línea ${i + 1}`}
+              className={`${smallInput} w-24 px-2 py-1 font-mono text-xs`}
+              value={Number(line.start.toFixed(2))}
+              onChange={(e) => onStart(i, Number(e.target.value))}
+            />
+            <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onStart(i, line.start + 0.1)}>+0.1</Button>
+            <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onStart(i, line.start + FRAME)}>+1 cuadro</Button>
+          </div>
+        </div>
+      )}
+
+      <ol className="divide-y divide-line border-t border-line">
+        {lines.map((l, n) => (
+          <li key={n} className={`flex flex-wrap items-center gap-3 py-2 ${n === i ? "bg-paper/80" : ""}`}>
+            <button type="button" className="w-16 shrink-0 text-left font-mono text-xs text-muted" onClick={() => setPicked(n)}>
+              {stamp(l.start)}
+            </button>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap gap-1">
                 {l.words.map((w, wi) => (
                   <button
                     key={wi}
                     type="button"
-                    onClick={() => onKey(i, wi)}
+                    onClick={() => {
+                      setPicked(n);
+                      onKey(n, wi);
+                    }}
                     aria-pressed={w.key}
                     className={`rounded px-1 text-sm ${w.key ? "bg-touch-soft font-bold text-touch" : "hover:bg-black/5"}`}
                   >
@@ -893,6 +1138,7 @@ function LineEditor({
           </li>
         ))}
       </ol>
+      <p className="text-xs text-muted">Tocá una palabra para que salga más grande. Un cuadro es 1/30 de segundo.</p>
     </div>
   );
 }
@@ -901,6 +1147,7 @@ type VideoTabProps = {
   piece: LyricPiece;
   song: AudioFile | null;
   beats: number[];
+  cuts: number[];
   audio: React.RefObject<HTMLAudioElement | null>;
   bgImage: HTMLImageElement | null;
   bgClips: BgClip[];
@@ -924,7 +1171,7 @@ type VideoTabProps = {
 };
 
 function VideoTab(props: VideoTabProps) {
-  const { piece, song, beats, audio, bgImage, bgClips, layers, elementImages, busy, set, setStyle } = props;
+  const { piece, song, beats, cuts, audio, bgImage, bgClips, layers, elementImages, busy, set, setStyle } = props;
   const layerAssets: MotionAsset[] = useMemo(
     () => layers.map((img, k) => ({ image: img, width: img.naturalWidth, height: img.naturalHeight, name: `layer:${k}` })),
     [layers],
@@ -968,13 +1215,13 @@ function VideoTab(props: VideoTabProps) {
         let bg: Backdrop = null;
         if (video && video.readyState >= 2) bg = { source: video, width: video.videoWidth, height: video.videoHeight };
         else if (bgImage) bg = { source: bgImage, width: bgImage.naturalWidth, height: bgImage.naturalHeight };
-        drawLyricFrame(ctx, canvas.width, canvas.height, t, pieceRef.current, bg, beats, layerAssets, glyphs);
+        drawLyricFrame(ctx, canvas.width, canvas.height, t, pieceRef.current, bg, beats, layerAssets, glyphs, cuts);
       }
       frame = requestAnimationFrame(draw);
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
-  }, [audio, bgImage, beats, layerAssets, glyphs]);
+  }, [audio, bgImage, beats, cuts, layerAssets, glyphs]);
 
   // One format, or both one after the other; each is saved in the project as video-vertical / video-horizontal.
   async function render(formats: LyricPiece["format"][]) {
@@ -990,6 +1237,7 @@ function VideoTab(props: VideoTabProps) {
           { image: bgImage ?? undefined, clips: bgClips.map((c) => c.blob), layers, elements: elementImages },
           { ...piece, format },
           (f) => setProgress((n + f) / formats.length),
+          cuts,
         );
         let saved = "";
         if (props.projectId) {
@@ -1229,15 +1477,21 @@ function VideoTab(props: VideoTabProps) {
                 { value: "lower", label: "Abajo" },
               ]}
             />
-            <Segmented
-              value={style.entrance}
-              onChange={(entrance) => setStyle({ entrance })}
-              options={[
-                { value: "fade", label: "Aparece" },
-                { value: "slide", label: "Sube" },
-                { value: "pop", label: "Salta" },
-              ]}
-            />
+            <div>
+              <p className="mb-1 text-sm">Entrada de la letra</p>
+              <div className="grid grid-cols-3 gap-1">
+                {LYRIC_ENTRANCES.map((entrance) => (
+                  <button
+                    key={entrance}
+                    type="button"
+                    onClick={() => setStyle({ entrance })}
+                    className={`rounded-md px-2 py-1.5 text-sm font-medium ${style.entrance === entrance ? "bg-ink text-white" : "border border-line bg-white text-muted hover:text-ink"}`}
+                  >
+                    {LYRIC_ENTRANCE_LABEL[entrance]}
+                  </button>
+                ))}
+              </div>
+            </div>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={style.karaoke} onChange={(e) => setStyle({ karaoke: e.target.checked })} />
               Karaoke: se ilumina la palabra que suena

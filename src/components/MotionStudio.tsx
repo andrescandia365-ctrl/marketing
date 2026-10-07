@@ -5,8 +5,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   DURATIONS,
+  MOTION_CAMERAS,
+  MOTION_CAMERA_LABEL,
   MOTION_GESTURES,
-  MOTION_GESTURE_LABEL,
+  MOTION_GESTURE_LABEL, MOTION_MOVES, MOTION_MOVE_LABEL,
   MOTION_MOODS,
   MOTION_MOOD_LABEL,
   MOTION_TEMPLATES,
@@ -37,6 +39,7 @@ import { encodeFrames } from "../lib/encode.ts";
 import { ensureFont } from "../lib/fonts.ts";
 import { download, slug } from "../lib/markdown.ts";
 import type { PuppetAsset } from "../lib/puppet.ts";
+import type { ActorAsset } from "../lib/actor.ts";
 import { drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
 import { toWav, TARGET_LUFS } from "../lib/motionAudio.ts";
 import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
@@ -119,6 +122,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [castImages, setCastImages] = useState<Record<string, MotionAsset>>({});
   const [logo, setLogo] = useState<MotionAsset | null>(null);
   const [puppets, setPuppets] = useState<Record<string, PuppetAsset>>({});
+  const [actors, setActors] = useState<Record<string, ActorAsset>>({});
   const [speech, setSpeech] = useState<MotionWorld["speech"]>(undefined);
   const [busy, setBusy] = useState<null | "write" | "sound" | "render" | "voice" | "upload" | "review" | "final">(null);
   const [error, setError] = useState("");
@@ -209,11 +213,12 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   }, [brand.displayFont, brand.uiFont]);
   useEffect(() => {
     let alive = true;
-    loadSeriesImages(series).then(({ cast, logo, puppets }) => {
+    loadSeriesImages(series).then(({ cast, logo, puppets, actors }) => {
       if (!alive) return;
       setCastImages(cast);
       setLogo(logo);
       setPuppets(puppets);
+      setActors(actors);
     });
     return () => {
       alive = false;
@@ -250,8 +255,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const assets: Record<string, MotionAsset> = useMemo(() => ({ ...castImages, ...layerAssets(layers) }), [castImages, layers]);
   const usesAi = usesAiImages(scenes, series);
   const world: MotionWorld = useMemo(
-    () => makeWorld(brand, assets, logo, beats, piece.disclosure && usesAi, { puppets, speech }),
-    [brand, assets, logo, beats, piece.disclosure, usesAi, puppets, speech],
+    () => makeWorld(brand, assets, logo, beats, piece.disclosure && usesAi, { puppets, actors, speech }),
+    [brand, assets, logo, beats, piece.disclosure, usesAi, puppets, actors, speech],
   );
 
   const gaps = quietGaps(scenes);
@@ -567,7 +572,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         const roundBeats = motionBeats(working, piece.music, track?.buffer ?? null);
         const roundScenes = arrangeScenes(working, roundBeats, snap, piece.music, track?.buffer ?? null);
         const played = { ...working, scenes: roundScenes };
-        const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), { puppets, speech });
+        const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), { puppets, actors, speech });
         const made = formats.map((format) => ({ format, ...contactSheet(played, roundWorld, format) }));
         const blobs = await Promise.all(made.map((m) => new Promise<Blob | null>((done) => m.canvas.toBlob(done, "image/jpeg", 0.85))));
         setSheets(made.map((m, k) => ({ format: m.format, url: blobs[k] ? objectUrl(blobs[k]!) : "" })));
@@ -650,7 +655,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   function playable(next: MotionScript) {
     const b = motionBeats(next, piece.music, track?.buffer ?? null);
     const sc = arrangeScenes(next, b, snap, piece.music, track?.buffer ?? null);
-    return { played: { ...next, scenes: sc }, beats: b, world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series), { puppets, speech }) };
+    return { played: { ...next, scenes: sc }, beats: b, world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series), { puppets, actors, speech }) };
   }
 
   async function finalRender(formats: SheetFormat[]) {
@@ -718,10 +723,10 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const vertical = piece.format === "vertical";
   const assetOptions = [
     ...series.cast
-      .filter((m) => m.kind !== "character" || m.image || m.puppet?.layers.length)
+      .filter((m) => m.kind !== "character" || m.image || m.puppet?.layers.length || m.rig?.file)
       .map((m) => ({
         value: m.id,
-        label: `${m.name} (${m.kind === "screen" ? "pantalla" : m.kind === "product" ? "producto" : m.kind === "place" ? "lugar" : m.puppet?.layers.length ? "personaje · títere 3D" : "personaje"})${m.image || m.puppet?.layers.length ? "" : " · sin imagen"}`,
+        label: `${m.name} (${m.kind === "screen" ? "pantalla" : m.kind === "product" ? "producto" : m.kind === "place" ? "lugar" : m.rig?.file ? "personaje · camina" : m.puppet?.layers.length ? "personaje · títere 3D" : "personaje"})${m.image || m.puppet?.layers.length || m.rig?.file ? "" : " · sin imagen"}`,
       })),
     ...layers.map((_, k) => ({ value: `layer:${k}`, label: `Capa ${k + 1} (Grok)` })),
   ];
@@ -1245,6 +1250,18 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                         </option>
                       ))}
                     </select>
+                    <select
+                      className={`${smallInput} py-1 text-xs`}
+                      value={raw.camera ?? "hold"}
+                      aria-label="Cámara"
+                      onChange={(e) => updateScene(s.id, { camera: e.target.value as (typeof MOTION_CAMERAS)[number] })}
+                    >
+                      {MOTION_CAMERAS.map((c) => (
+                        <option key={c} value={c}>
+                          Cámara: {MOTION_CAMERA_LABEL[c]}
+                        </option>
+                      ))}
+                    </select>
                     <label className="flex items-center gap-1 text-xs">
                       <input
                         type="number"
@@ -1319,20 +1336,38 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                                 </option>
                               ))}
                           </select>
-                          <select
-                            className={`${inputClass} py-1 text-xs`}
-                            value={raw.gesture ?? "present"}
-                            aria-label="Gesto"
-                            onChange={(e) => updateScene(s.id, { gesture: e.target.value as MotionGesture })}
-                          >
-                            {MOTION_GESTURES.map((g) => (
-                              <option key={g} value={g}>
-                                Gesto: {MOTION_GESTURE_LABEL[g]}
-                              </option>
-                            ))}
-                          </select>
-                          {raw.asset && !puppets[raw.asset] && (
-                            <p className="text-[11px] text-neg">Este personaje no tiene imagen ni títere: subilos en Editar serie.</p>
+                          {actors[raw.asset] ? (
+                            <select
+                              className={`${inputClass} py-1 text-xs`}
+                              value={raw.move ?? "walk"}
+                              aria-label="Tramo"
+                              onChange={(e) => updateScene(s.id, { move: e.target.value as (typeof MOTION_MOVES)[number] })}
+                            >
+                              {MOTION_MOVES.map((g) => (
+                                <option key={g} value={g}>
+                                  Tramo: {MOTION_MOVE_LABEL[g]}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <select
+                              className={`${inputClass} py-1 text-xs`}
+                              value={raw.gesture ?? "present"}
+                              aria-label="Gesto"
+                              onChange={(e) => updateScene(s.id, { gesture: e.target.value as MotionGesture })}
+                            >
+                              {MOTION_GESTURES.map((g) => (
+                                <option key={g} value={g}>
+                                  Gesto: {MOTION_GESTURE_LABEL[g]}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          {raw.asset && actors[raw.asset] && raw.move && actors[raw.asset].root[raw.move] === false && (
+                            <p className="text-[11px] text-muted">Ese clip no trae root motion: el personaje se desplaza, pero no es el paso del clip.</p>
+                          )}
+                          {raw.asset && !puppets[raw.asset] && !actors[raw.asset] && (
+                            <p className="text-[11px] text-neg">Este personaje no tiene imagen, títere ni GLB: subilos en Editar serie.</p>
                           )}
                         </>
                       )}

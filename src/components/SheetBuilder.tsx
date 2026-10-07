@@ -58,6 +58,7 @@ export function SheetBuilder({ seriesId, place, cast, onAdd, onClose }: Props) {
       image: "",
       sheet: sheet.sheetPrompt.slice(0, 6000),
       puppet: { layers: [] },
+      rig: { file: "", clips: { idle: "", walk: "", turnL: "", turnR: "", point: "" } },
     });
     onClose();
   }

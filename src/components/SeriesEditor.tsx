@@ -5,7 +5,11 @@ import {
   PUPPET_ROLES,
   PUPPET_ROLE_LABEL,
   guessRole,
+  guessClip,
+  RIG_MOVES,
+  RIG_MOVE_LABEL,
   type PuppetRole,
+  type RigMove,
   DISPLAY_FONTS,
   EMPTY_LOOK,
   UI_FONTS,
@@ -26,6 +30,7 @@ import { PuppetPreview } from "./PuppetPreview.tsx";
 import { SheetBuilder } from "./SheetBuilder.tsx";
 import { CopyButton } from "./ScriptView.tsx";
 import { api, libraryFileUrl } from "../lib/api.ts";
+import { loadActor } from "../lib/actor.ts";
 import { canvasPng, findFullFigures, revokeFigures, splitFigure, type FigureFile } from "../lib/segmentAssemble.ts";
 import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
 
@@ -152,6 +157,7 @@ function CastCard({
   onPuppetReplace,
   onPuppetRemove,
   onPuppetArranged,
+  onRigFile,
 }: {
   member: CastMember;
   seriesId: string | null;
@@ -163,12 +169,15 @@ function CastCard({
   onPuppetReplace: (layers: { role: PuppetRole; name: string; png: string }[]) => Promise<void>;
   onPuppetRemove: (index: number) => Promise<void>;
   onPuppetArranged: (member: CastMember) => void;
+  onRigFile: (file: File) => Promise<CastMember>;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const looseInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
+  const [clipNames, setClipNames] = useState<string[]>([]);
+  const [rootless, setRootless] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [figures, setFigures] = useState<FigureFile[]>([]);
   const figuresRef = useRef<FigureFile[]>([]);
@@ -178,6 +187,23 @@ function CastCard({
   const screen = member.kind === "screen";
   const url = seriesId && member.image ? libraryFileUrl(seriesId, member.image, version) : undefined;
   const set = <K extends keyof CastMember>(key: K, value: CastMember[K]) => onChange({ ...member, [key]: value });
+
+  useEffect(() => {
+    if (!seriesId || !member.rig?.file) {
+      setClipNames([]);
+      setRootless([]);
+      return;
+    }
+    let cancel = false;
+    loadActor(libraryFileUrl(seriesId, member.rig.file, version), member.rig).then((actor) => {
+      if (cancel || !actor) return;
+      setClipNames(actor.names);
+      setRootless(RIG_MOVES.filter((m) => member.rig.clips[m] && actor.root[m] === false));
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [seriesId, member.rig?.file, version]);
 
   async function upload(file: File) {
     setBusy(true);
@@ -343,6 +369,7 @@ function CastCard({
           onChange={(e) => set("note", e.target.value)}
         />
         {member.kind === "character" && (
+          <>
           <details className="text-xs" open={member.puppet.layers.length > 0 || undefined}>
             <summary className="cursor-pointer font-semibold text-muted">
               Títere 3D para los explicativos {member.puppet.layers.length ? `(${member.puppet.layers.length} partes)` : ""}
@@ -509,6 +536,73 @@ function CastCard({
               )}
             </div>
           </details>
+          <details className="text-xs" open={member.rig?.file ? true : undefined}>
+            <summary className="cursor-pointer font-semibold text-muted">
+              Camina y gira {member.rig?.file ? "(GLB listo)" : "(GLB)"}
+            </summary>
+            <div className="mt-1.5 space-y-2">
+              <p className="text-muted">
+                El mesh se hace afuera. Mesh2Motion o Mixamo le ponen el esqueleto y los clips, y exportás un GLB. Acá se asigna cada tramo. Caminar y girar usan el root motion de la cadera; si el clip no lo trae, la escena igual se mueve, pero es un desliz.
+              </p>
+              <label className={`inline-flex items-center gap-2 ${seriesId ? "" : "opacity-50"}`}>
+                <span className="rounded-lg border border-line bg-white px-2.5 py-1 font-semibold hover:border-ink">{busy ? "Subiendo…" : member.rig?.file ? "Cambiar GLB" : "Subir GLB"}</span>
+                <input
+                  type="file"
+                  accept=".glb,model/gltf-binary"
+                  disabled={!seriesId || busy}
+                  className="hidden"
+                  aria-label={`Subir GLB de ${member.name}`}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    setBusy(true);
+                    setError("");
+                    try {
+                      const next = await onRigFile(file);
+                      const actor = seriesId ? await loadActor(libraryFileUrl(seriesId, next.rig.file), next.rig) : null;
+                      const clips = { ...next.rig.clips };
+                      for (const name of actor?.names ?? []) {
+                        const move = guessClip(name);
+                        if (move && !clips[move]) clips[move] = name;
+                      }
+                      onChange({ ...next, rig: { ...next.rig, clips } });
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : String(err));
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                />
+              </label>
+              {member.rig?.file && (
+                <div className="grid gap-1">
+                  {RIG_MOVES.map((move) => (
+                    <label key={move} className="flex items-center gap-2">
+                      <span className="w-36">{RIG_MOVE_LABEL[move]}</span>
+                      <select
+                        className={`${inputClass} w-auto py-0.5 text-xs`}
+                        value={member.rig.clips[move]}
+                        aria-label={RIG_MOVE_LABEL[move]}
+                        onChange={(e) => set("rig", { ...member.rig, clips: { ...member.rig.clips, [move]: e.target.value } })}
+                      >
+                        <option value="">Sin clip</option>
+                        {clipNames.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                  {rootless.length > 0 && (
+                    <p className="text-muted">Sin root motion: {rootless.map((m) => RIG_MOVE_LABEL[m as RigMove]).join(", ")}.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </details>
+          </>
         )}
         {member.sheet && (
           <details className="text-xs">
@@ -753,7 +847,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
     const base = { character: "personaje", place: "lugar", product: "producto", screen: "pantalla" }[kind];
     while (fields.cast.some((m) => m.id === `${base}-${n}`)) n++;
     const name = `${CAST_KIND_LABEL[kind]} ${n}`;
-    set("cast", [...fields.cast, { id: `${base}-${n}`, name, ref: castRef(name), kind, identity: "", note: "", image: "", sheet: "", puppet: { layers: [] } }]);
+    set("cast", [...fields.cast, { id: `${base}-${n}`, name, ref: castRef(name), kind, identity: "", note: "", image: "", sheet: "", puppet: { layers: [] }, rig: { file: "", clips: { idle: "", walk: "", turnL: "", turnR: "", point: "" } } }]);
   }
 
   // Puppet parts go straight to the series library, in order; each answer brings the member as the server has it.
@@ -780,6 +874,14 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
   // "Armar a mano" saved: the server's answer is the member's puppet now.
   function memberPuppetArranged(next: CastMember) {
     setFields((f) => (f ? { ...f, cast: f.cast.map((m) => (m.id === next.id ? { ...m, puppet: next.puppet } : m)) } : f));
+  }
+
+  async function memberRigFile(member: CastMember, file: File): Promise<CastMember> {
+    if (!id) throw new Error("Guardá la serie primero.");
+    await api.upsertCast(id, member);
+    const { member: next } = await api.uploadRig(id, member.id, file);
+    setFields((f) => (f ? { ...f, cast: f.cast.map((m) => (m.id === member.id ? { ...m, rig: next.rig } : m)) } : f));
+    return { ...member, rig: next.rig };
   }
 
   async function memberPuppetRemove(member: CastMember, index: number) {
@@ -927,6 +1029,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
                       onPuppetReplace={(layers) => memberPuppetReplace(m, layers)}
                       onPuppetRemove={(index) => memberPuppetRemove(m, index)}
                       onPuppetArranged={(next) => memberPuppetArranged(next)}
+                      onRigFile={(file) => memberRigFile(m, file)}
                     />
                   ))}
               </ul>
@@ -985,6 +1088,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
                     onPuppetReplace={(layers) => memberPuppetReplace(m, layers)}
                     onPuppetRemove={(index) => memberPuppetRemove(m, index)}
                     onPuppetArranged={(next) => memberPuppetArranged(next)}
+                    onRigFile={(file) => memberRigFile(m, file)}
                   />
                 ))}
             </ul>

@@ -4,6 +4,7 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { SKETCH_BASE } from "../shared/prompt.ts";
+import { storyCard, type RoomCard } from "../shared/room.ts";
 
 export const PROJECTS_DIR = resolve(process.env.PROJECTS_DIR || "proyectos");
 
@@ -184,6 +185,30 @@ export async function listProjects(): Promise<ProjectSummary[]> {
 
 export function getProject(id: string): Promise<ProjectFile> {
   return read(id);
+}
+
+// What earlier pieces of a series left on the writers' room board. The open piece is left out.
+export async function listRoom(seriesId: string, except = ""): Promise<RoomCard[]> {
+  let names: string[];
+  try {
+    names = await readdir(PROJECTS_DIR);
+  } catch {
+    return [];
+  }
+  const cards: RoomCard[] = [];
+  for (const name of names) {
+    if (!ID.test(name) || name === except) continue;
+    try {
+      const p = await read(name);
+      const state = p.state as { pieceBrief?: { series?: string }; story?: Parameters<typeof storyCard>[2] };
+      if (state.pieceBrief?.series !== seriesId) continue;
+      const card = storyCard(p.id, p.updatedAt, state.story);
+      if (card) cards.push(card);
+    } catch {
+      // A folder without a readable project.json is not a piece.
+    }
+  }
+  return cards.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export function saveState(id: string, state: Record<string, unknown>, markdown: string | undefined) {

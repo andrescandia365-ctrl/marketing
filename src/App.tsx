@@ -29,6 +29,8 @@ import {
   type MediaState,
 } from "./components/ScriptView.tsx";
 import { StoryView } from "./components/StoryView.tsx";
+import { WritersRoom } from "./components/WritersRoom.tsx";
+import type { RoomCard } from "../shared/room.ts";
 import { VideoPanel } from "./components/VideoPanel.tsx";
 import { Button, Notice, PieceTitle, Spinner } from "./components/ui.tsx";
 import { api, libraryFileUrl, projectFileUrl, type ProjectSummary } from "./lib/api.ts";
@@ -134,6 +136,10 @@ export function App() {
   // The project folder this piece autosaves into.
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  // The writers' room: other pieces of this series, and the note this piece will pick up.
+  const [room, setRoom] = useState<RoomCard[]>([]);
+  const [roomNotes, setRoomNotes] = useState<string[]>([]);
+  const [seed, setSeed] = useState<{ id: number; text: string; on: boolean } | null>(null);
   // Bumped when an approved image is replaced, so the browser shows the new file under the same name.
   const [libraryVersion, setLibraryVersion] = useState(Date.now());
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -177,6 +183,31 @@ export function App() {
   useEffect(() => {
     if (step === "brief") refreshProjects();
   }, [step]);
+
+  // The board reads the other saved pieces of the series. The open piece stays off it.
+  useEffect(() => {
+    const seriesId = step === "brief" ? brief.series : pieceBrief.series;
+    const info = status?.series.find((s) => s.id === seriesId);
+    const visible =
+      !!info &&
+      info.type !== "music" &&
+      !lyric &&
+      !motion &&
+      (step === "menu" || step === "story" || step === "board" || (step === "brief" && brief.piece === "story" && editingSeries === undefined));
+    if (!visible) return;
+    let cancel = false;
+    api
+      .room(seriesId, projectId ?? "")
+      .then((r) => {
+        if (!cancel) setRoom(r.cards);
+      })
+      .catch(() => {
+        if (!cancel) setRoom([]);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [step, brief.series, brief.piece, pieceBrief.series, projectId, lyric, motion, status, editingSeries]);
 
   // Warn before closing the tab while a save or an upload is still on its way.
   useEffect(() => {
@@ -291,6 +322,8 @@ export function App() {
     setMusic(null);
     setLyric(null);
     setMotion(null);
+    setRoomNotes([]);
+    setSeed(null);
     logStart.current = Date.now();
   }
 
@@ -420,22 +453,35 @@ export function App() {
   }
 
   // Step 2 → story
+  function retake(text: string) {
+    const has = roomNotes.includes(text);
+    setRoomNotes(has ? roomNotes.filter((n) => n !== text) : [...roomNotes, text]);
+    if (step === "story") setSeed({ id: Date.now(), text, on: !has });
+  }
+
   async function writeStory(topics: TopicIdea[]) {
-    const result = await run("story", () => api.story(pieceBrief, topics));
+    const note = roomNotes.join("\n");
+    const result = await run("story", () => api.story(pieceBrief, topics, note, projectId ?? ""));
     if (!result) return;
     setStory(result.story);
     setStoryRound(1);
     setBoard(null);
     setBoardApproved(false);
     setDemo(result.demo);
-    addLog({ text: `Temas elegidos: ${topics.map((t) => `“${t.title}”`).join(", ")}`, outcome: "historia, ronda 1" });
+    addLog({
+      text: `Temas elegidos: ${topics.map((t) => `“${t.title}”`).join(", ")}`,
+      outcome: note ? `historia, ronda 1 · la sala: “${note.slice(0, 160)}”` : "historia, ronda 1",
+    });
+    setSeed(note ? { id: Date.now(), text: note, on: true } : null);
     setStep("story");
   }
 
   async function reviseStory(note: string, kind: "revise" | "fixStory" = "revise"): Promise<boolean> {
     if (!story) return false;
-    const result = await run(kind, () => api.reviseStory(pieceBrief, story, note));
+    const result = await run(kind, () => api.reviseStory(pieceBrief, story, note, projectId ?? ""));
     if (!result) return false;
+    setSeed(null);
+    setRoomNotes([]);
     setStory(result.story);
     setStoryRound((r) => r + 1);
     addLog({
@@ -687,6 +733,7 @@ export function App() {
         image: "",
         sheet: "",
         puppet: { layers: [] },
+        rig: { file: "", clips: { idle: "", walk: "", turnL: "", turnR: "", point: "" } },
       });
       setStatus((s) => (s ? { ...s, series } : s));
       const linked = castId;
@@ -770,8 +817,28 @@ export function App() {
   const realProviders = status?.imageProviders.filter((p) => p.available && p.id !== "placeholder") ?? [];
   const maxTopics = pieceBrief.length === "short" ? 1 : 4;
   const open = (p: Problem) => !dismissed.includes(p.id);
-  const storyIssues = story ? storyProblems(story, pieceBrief) : [];
+  const usedRunners = room.flatMap((c) => (c.runner ? [{ bit: c.runner, problem: c.problem }] : []));
+  const storyIssues = story ? storyProblems(story, pieceBrief, usedRunners) : [];
   const boardIssues = board ? boardProblems(board) : [];
+  const roomSeriesId = step === "brief" ? brief.series : pieceBrief.series;
+  const roomSeriesInfo = status?.series.find((s) => s.id === roomSeriesId);
+  const showRoom =
+    !!roomSeriesInfo &&
+    roomSeriesInfo.type !== "music" &&
+    !lyric &&
+    !motion &&
+    (step === "menu" || step === "story" || step === "board" || (step === "brief" && brief.piece === "story" && editingSeries === undefined));
+  const roomEl = showRoom ? (
+    <WritersRoom
+      seriesName={roomSeriesInfo.name}
+      cards={room}
+      notes={roomNotes}
+      showBanner={step === "brief" || step === "menu"}
+      busy={busy !== null}
+      onRetake={step === "board" ? undefined : retake}
+      onClear={() => setRoomNotes([])}
+    />
+  ) : null;
 
   const steps: { id: Step; label: string; enabled: boolean }[] = lyric
     ? [
@@ -796,7 +863,7 @@ export function App() {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Playbook Studio</h1>
-          <p className="text-sm text-muted">Contenido con historia: el Bueno contra el Malo, temas, puentes y callbacks.</p>
+          <p className="text-sm text-muted">Contenido con historia: el Bueno contra el Malo, temas, puentes, callbacks y la pizarra de la serie.</p>
         </div>
         {status && (
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -894,6 +961,7 @@ export function App() {
 
         {step === "brief" && editingSeries === undefined && (
           <section className="space-y-6">
+            {roomEl}
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="secondary"
@@ -994,7 +1062,8 @@ export function App() {
         )}
 
         {step === "menu" && menu && (
-          <section>
+          <section className="space-y-6">
+            {roomEl}
             {demo && <p className="mb-2 text-sm text-muted">(Menú de muestra.)</p>}
             <MenuPicker
               ideas={menu.ideas}
@@ -1007,6 +1076,8 @@ export function App() {
         )}
 
         {step === "story" && story && (
+          <div className="space-y-6">
+            {roomEl}
           <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
             <StoryView
               story={story}
@@ -1015,6 +1086,8 @@ export function App() {
               busy={busy === "revise" ? "revise" : busy === "fixStory" ? "fix" : busy === "board" ? "board" : null}
               problems={storyIssues.filter(open)}
               dismissed={storyIssues.length - storyIssues.filter(open).length}
+              seed={seed}
+              usedRunners={usedRunners}
               onRevise={(note) => reviseStory(note)}
               onFix={() => reviseStory(fixNote(storyIssues.filter(open)), "fixStory")}
               onDismiss={dismiss}
@@ -1032,9 +1105,12 @@ export function App() {
               <StoryNotes story={story} />
             </aside>
           </section>
+          </div>
         )}
 
         {step === "board" && story && board && (
+          <div className="space-y-6">
+            {roomEl}
           <BoardView
             story={story}
             board={board}
@@ -1061,6 +1137,7 @@ export function App() {
             onDismiss={dismiss}
             onApprove={approveBoard}
           />
+          </div>
         )}
 
         {step === "production" && story && board && (

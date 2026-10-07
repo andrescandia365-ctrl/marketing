@@ -28,6 +28,11 @@ export function storyToMarkdown(story: Story): string {
     })
     .join("\n\n");
   const callbacks = story.callbacks.map((c) => `- ${c.planted} → ${c.payoff}`).join("\n") || "- Ninguno.";
+  const runner = story.runner?.bit
+    ? `## El corredor\n\n**${story.runner.bit}**\n\n- Arranque: ${story.runner.open}\n- Medio: ${story.runner.middle}\n- Cierre: ${story.runner.tag}\n`
+    : "";
+  const tease = story.tease?.trim() ? `## Para el próximo\n\n${story.tease}\n` : "";
+  const canon = story.canon?.length ? `## Quedó en el mundo\n\n${story.canon.map((c) => `- ${c.fact}`).join("\n")}\n` : "";
   const checklist = story.checklist.map((c) => `- [${c.pass ? "x" : " "}] **${c.item}**: ${c.note}`).join("\n");
   const loops =
     story.loops.map((l) => `- [${l.closed ? "x" : " "}] **${l.question}** · se abre: ${l.opens} · se cierra: ${l.closes || "nunca"}`).join("\n") ||
@@ -60,6 +65,7 @@ ${topics}
 ## Callbacks
 
 ${callbacks}
+${runner}${tease}${canon}
 
 ## Checklist
 

@@ -42,6 +42,7 @@ import {
   type LyricIdeas,
   type SecondLanguage,
 } from "../shared/lyrics.ts";
+import { LyricPlatesSchema, type LyricPlatesDraft } from "../shared/plates.ts";
 import { LENGTHS } from "../shared/template.ts";
 import { CAST, PRACTICES, WORKS_TODAY } from "../shared/series.ts";
 import { getSeries } from "./series.ts";
@@ -318,7 +319,7 @@ Propose six topic ideas for this piece, each built on a different concrete pain 
 }
 
 // Step 2: the story, written as a Good-vs-Bad script with topics, bridges and callbacks.
-export async function writeStory(brief: Brief, topics: TopicIdea[]): Promise<Story> {
+export async function writeStory(brief: Brief, topics: TopicIdea[], room = "", askNote = ""): Promise<Story> {
   const len = LENGTHS[brief.length];
   return normalizeStory(
     await ask(
@@ -332,13 +333,18 @@ ${ideasText(topics)}
 
 Write the story. Its problem is the chosen topic's problem (for several topics, the one problem they share). Cast the Good, the Bad (named and personified for this piece) and any human characters. Each topic gets a concrete bridge in and its lines in Negative → Touching → Good order, with the Negative escalating in three beats and one sincere Touching line. Plant callbacks and pay them off; the last line calls back to the first. Give every line its emotion: how it is said, not just the words. Spoken lines should add up to ${len.min}–${len.max} seconds at about 2.5 words per second.
 
+${ROOM_CRAFT}
+${brief.length === "episode" ? "This is an episode: give it a runner." : "This is a short: a runner is optional."}
+${room ? `Writers' room. Other saved pieces of this series; the audience already lived them. Pay a hanging tease or an open loop only when it serves this episode's problem. Do not repeat a runner already used. Treat canon as already true.\n${room}` : "No earlier piece of this series is saved."}
+${askNote ? `The room asked this episode to do this, without dropping the episode's own problem: "${askNote}"` : ""}
+
 ${STORY_CHECKS}`,
       StoryWireSchema,
     ),
   );
 }
 
-export async function reviseStory(brief: Brief, story: Story, note: string): Promise<Story> {
+export async function reviseStory(brief: Brief, story: Story, note: string, room = ""): Promise<Story> {
   return normalizeStory(
     await ask(
       brief,
@@ -349,19 +355,27 @@ ${describeBrief(brief)}
 The current draft:
 ${JSON.stringify(story, null, 2)}
 
+${room ? `Writers' room, other saved pieces. Do not contradict canon and do not repeat a runner already used.\n${room}\n` : ""}
 The director's notes on this draft: "${note}"
 
-Rewrite the story to answer the notes. Keep everything the notes don't touch; don't add what they don't ask for.
+Rewrite the story to answer the notes. Keep everything the notes don't touch; don't add what they don't ask for. If the notes ask you to pick up a tease or an open loop, do that. Keep the runner's three landings unless the notes change them. If the draft has an empty runner and the notes don't forbid one, you may add one.
 
+${ROOM_CRAFT}
 ${STORY_CHECKS}`,
       StoryWireSchema,
     ),
   );
 }
 
+// What a writers' room keeps across episodes, on top of the callbacks inside this one.
+const ROOM_CRAFT = `Like a series writers' room, also fill:
+- runner: one concrete bit (an object, a short phrase or a gesture) that lands in the opening, again in the middle and in the tag. Each landing changes the bit. open, middle and tag each quote, inside «», a few words that are spoken in a line, and the three quotes are different.
+- tease: one concrete thing left hanging for a later episode, or an empty string if this piece should close clean. Do not put the tease in loops and do not pay it off here.
+- canon: up to three facts this episode makes true for later episodes (an object, a relationship, a rule of the place). Not a product claim. Empty if the world did not change.`;
+
 // The checks the writer runs on its own story; the app blocks approval on any that fail.
 const STORY_CHECKS = `Then check the story like a strict critic who did not write it. A pass you cannot point to in the text is a fail.
-- checklist: Gancho (the first 3 seconds stop the scroll with a concrete pain or a question), Retención (open questions and tension keep people watching; the escalation grows), Recompensa (every open loop pays off), Bueno contra Malo, Momento emotivo, Detalle concreto, Puentes, Callbacks, Continuidad (each line follows from the one before), Lo que existe hoy, El chiste es el problema.
+- checklist: Gancho (the first 3 seconds stop the scroll with a concrete pain or a question), Retención (open questions and tension keep people watching; the escalation grows), Recompensa (every open loop pays off), Bueno contra Malo, Momento emotivo, Detalle concreto, Puentes, Callbacks, Continuidad (each line follows from the one before), Lo que existe hoy, El chiste es el problema. The runner's three «quotes» are three different phrases, each one said in the story. The tease is not listed as a loop.
 - loops: every open loop (the hook's question, each tension, each planted callback), where it opens and where it pays off. One that never pays off is not closed.
 - seriesLoop: walk the series loop from the bible step by step: does the piece show it, and if so, does it show the pain, the step doing its job and the result?
 - claims: everything the brand or product is shown doing, each checked against "${WORKS_TODAY}". A thing that is not on the list is only allowed as a clearly labelled concept; the same goes for anything that could break a law or the brand's rules (for example, selling an expired product).
@@ -381,6 +395,7 @@ const BOARD_RULES = `Shot rules:
 - The spoken lines and captions are added on top later, so video prompts never ask anyone to speak or sing, and ask for no music (continuous takes are the exception: their dialogue is spoken in the clip).
 - Continuous takes, only when the brief asks for them: each shot is ONE continuous handheld take of exactly 15 s, holding the consecutive lines of one scene (one topic or part of it), kind "single". speaker is the first one who speaks and voiceover all its lines in order. timeline lists every beat from 0 to 15 s: who speaks, the exact line, its emotion, and what the bodies and the camera do, including real camera mistakes (a pan that arrives late and clips a face, autofocus hunting, auto-exposure rolling between inside and outside, a laugh that shakes the frame). visualPrompt is the hero still, frame 0 of the take: exact camera, exact flaws, exact light, everyone in place. videoPrompt is the director's prompt: first a reference map (the initial frame = the hero still; each character = its cast @ref; the place = its cast @ref, environment only; "these images are law"), then "one continuous handheld take, no cuts", then the timed spine with emotion and camera mistakes, then the hard rules: skin never smooth (visible pores, freckles, peach fuzz); grain the whole time; no stabilization, no grade, no music, no text, no digital zoom, no punch-in, no slow motion; brightness changes only from auto-exposure, the light never changes; each line spoken once, exactly as written, in Rioplatense Spanish, with the emotion given; raw phone-mic audio (room tone, handling noise, no denoising). One-line shots have an empty timeline.
 - disclosure: "concept" or "simulation" for anything the brand is shown doing that is not in the series' "${WORKS_TODAY}" list.
+- If the story has a runner, three shots show it: the opening landing, the changed middle landing and the tag. Do not pay the tease off on this board.
 - issues: after writing the board, check it like a strict critic: a shot whose action does not follow the previous one (continuity), the brand shown doing something not on its list without a label (reality), people working in a way the series' "${PRACTICES}" list and the brief don't confirm (practice), an image prompt with more than one moment (image), an open loop never paid off (loop). List every problem you still see; empty only if there are none.`;
 
 // Step 3: the storyboard.
@@ -535,6 +550,39 @@ ${numbered(lines)}
 
 Propose 3 to 6 graphics. For each: the line number, a label of one to three words copied exactly from that line, a motif, a motion, a place (vary the places), and seconds between 1.5 and 4. Not every line needs one.`,
     LyricElementsSchema,
+  );
+}
+
+// The director's pass: plates for a code-drawn lyric video. Not a finished frame, and not one picture per line.
+export function lyricPlates(
+  series: string,
+  title: string,
+  artist: string,
+  lines: string[],
+  note: string,
+  current: { title: string; from: number; to: number; look: string; motif: string }[],
+): Promise<LyricPlatesDraft> {
+  return ask(
+    lyricBrief(series),
+    false,
+    `Plan the plates of a code-drawn music video. You are directing the edit. The app draws each plate: flat colours already chosen, maximalist type, the lyric lighting up on the sung word. You do not write shaders, prompts or image descriptions.
+
+Constraints:
+- One motif per plate: a concrete thing, two or three words. It lives inside that plate and leaves with it. Not a readout that stays on screen for the whole song.
+- Do not illustrate every line. A plate holds several lines and one idea.
+- Choruses that repeat share a motif and change it: bigger, broken, or later.
+- Cover every line from 0 to ${lines.length - 1} exactly once, in order, no gaps, no overlaps.
+- A plate is 2 to 6 lines. A one-line intro is allowed. At most 8 plates.
+- look is one of: type (one huge word), stack (the lines piled, a rule that fills as words are sung), margin (the line on one side, a giant letter of the motif on the other), count (a number of words sung so far, as the scene), stamp (the motif stamped across the frame, the line over a flat bar).
+- Titles and motifs in the language of the lyrics. idea and note in Rioplatense Spanish.
+- If the person wrote a note, follow it. Keep a plate they did not ask to change.
+
+Song: "${title || "sin título"}"${artist ? ` by ${artist}` : ""}. Lines, numbered from 0:
+${numbered(lines)}
+
+The person's note: ${note.trim() || "(none)"}
+Plates already there: ${current.length ? current.map((plate) => `${plate.from}-${plate.to} ${plate.look} “${plate.motif}” (${plate.title})`).join(" | ") : "(none)"}`,
+    LyricPlatesSchema,
   );
 }
 

@@ -121,6 +121,9 @@ export const DEMO_STORY: Story = {
     },
   ],
   close: "Vos andá a esconderle el pan a otro.",
+  runner: { bit: "", open: "", middle: "", tag: "" },
+  tease: "El Desorden se fue a otro local. No se vio a cuál.",
+  canon: [{ fact: "Marta aparta lo que vence antes de que lo vea el cliente." }],
   checklist: [
     { item: "Bueno contra Malo", pass: true, note: "El Desorden habla y se queda sin trabajo; IMAN gana mostrando el loop." },
     { item: "Tres tiempos", pass: true, note: "Tres golpes negativos, un momento emotivo, el loop resolviendo." },

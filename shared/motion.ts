@@ -31,6 +31,26 @@ export const MOTION_GESTURE_LABEL: Record<MotionGesture, string> = {
   surprise: "Se sorprende",
 };
 
+export const MOTION_MOVES = ["idle", "walk", "turnL", "turnR", "point"] as const;
+export type MotionMove = (typeof MOTION_MOVES)[number];
+export const MOTION_MOVE_LABEL: Record<MotionMove, string> = {
+  idle: "Quieto",
+  walk: "Camina",
+  turnL: "Gira a la izquierda",
+  turnR: "Gira a la derecha",
+  point: "Señala",
+};
+
+export function pickMove(value: string | undefined): MotionMove {
+  const v = (value ?? "").toLowerCase();
+  if (/turnl|izquierda|left/.test(v)) return "turnL";
+  if (/turnr|derecha|right/.test(v)) return "turnR";
+  if (/point|señal|senal|apunt/.test(v)) return "point";
+  if (/idle|quiet|still|present/.test(v)) return "idle";
+  if (/walk|camin/.test(v)) return "walk";
+  return "walk";
+}
+
 export function pickGesture(value: string | undefined): MotionGesture {
   const v = (value ?? "").toLowerCase();
   if (/salud|wave|hola/.test(v)) return "wave";
@@ -57,6 +77,7 @@ const SceneWire = z.object({
   asset: z.string().describe("The id of a cast member to show (a real screen, the product, a character, a place), 'layer:N' for an uploaded layer, or empty."),
   assetB: z.string().describe("beforeAfter: the 'after' image id. character: what it points at or presents (a real screen or the product id), or empty. Else empty."),
   gesture: z.string().describe("character only: presenta, saluda, señala, festeja or se sorprende. Else empty."),
+  move: z.string().optional().describe("character with a rigged GLB: idle, walk, turnL, turnR or point. Else empty."),
   focusX: z.number().describe("zoom only: the feature's position across the image, 0 to 1."),
   focusY: z.number().describe("zoom only: the feature's position down the image, 0 to 1."),
   zoom: z.number().describe("zoom only: how much to zoom in, 1.5 to 3."),
@@ -92,6 +113,10 @@ export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture"
   template: MotionTemplate;
   // Character scenes only (older saved scenes have none: "present").
   gesture?: MotionGesture;
+  // Rigged humanoid only. Older scenes have none: the renderer uses "walk".
+  move?: MotionMove;
+  // Older scenes have none: the camera stays still.
+  camera?: MotionCamera;
   // By element key (see sceneElements). Empty or missing: the template's own timing and layout.
   tweaks?: Record<string, Tweak>;
 };
@@ -112,12 +137,34 @@ const TONE_CUT: Record<MotionTone, number> = { dry: 0, warm: 0.38, absurdist: 0.
 // How long the change between two scenes lasts (0: a hard cut).
 export const cutPush = (tone?: MotionTone) => TONE_CUT[tone ?? "warm"];
 
+// A camera move inside one explainer scene. Hold is the default so older scenes stay put.
+// x and y are fractions of the frame; z is scale. u is 0 at the scene start and 1 at its end.
+export const MOTION_CAMERAS = ["hold", "push", "pull", "pan", "drift"] as const;
+export type MotionCamera = (typeof MOTION_CAMERAS)[number];
+export const MOTION_CAMERA_LABEL: Record<MotionCamera, string> = {
+  hold: "Quieta",
+  push: "Se acerca",
+  pull: "Se aleja",
+  pan: "Paneo",
+  drift: "Deriva",
+};
+export function cameraAt(camera: MotionCamera | undefined, u: number): { z: number; x: number; y: number } {
+  const raw = Math.min(1, Math.max(0, Number.isFinite(u) ? u : 0));
+  const t = raw * raw * (3 - 2 * raw);
+  // z stays high enough that the shift never uncovers the edge: |x| and |y| stay under (z - 1) / 2.
+  if (camera === "push") return { z: 1 + 0.14 * t, x: 0, y: 0 };
+  if (camera === "pull") return { z: 1.14 - 0.14 * t, x: 0, y: 0 };
+  if (camera === "pan") return { z: 1.16, x: (t - 0.5) * 0.12, y: 0 };
+  if (camera === "drift") return { z: 1.12, x: Math.sin(raw * Math.PI) * 0.045, y: (0.5 - raw) * 0.035 };
+  return { z: 1, x: 0, y: 0 };
+}
+
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(x) ? x : lo));
 let nextId = 0;
 export const sceneId = () => `s${Date.now().toString(36)}${(nextId++).toString(36)}`;
 
 export function blankScene(template: MotionTemplate = "screen"): MotionScene {
-  return { id: sceneId(), template, seconds: 3, title: "", text: "", items: [], asset: "", assetB: "", gesture: "present", focusX: 0.5, focusY: 0.5, zoom: 2, voice: "", emotion: "" };
+  return { id: sceneId(), template, seconds: 3, title: "", text: "", items: [], asset: "", assetB: "", gesture: "present", move: "walk", camera: "hold", focusX: 0.5, focusY: 0.5, zoom: 2, voice: "", emotion: "" };
 }
 
 export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>): MotionScript {
@@ -132,6 +179,7 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>): Motio
       id: sceneId(),
       template: pick(s.template, MOTION_TEMPLATES, "screen"),
       gesture: pickGesture(s.gesture),
+      move: pickMove(s.move),
       seconds: Math.round(clamp(s.seconds, 2, 8) * 2) / 2,
       items: s.items.map((i) => i.trim()).filter(Boolean).slice(0, 5),
       focusX: clamp(s.focusX, 0, 1),

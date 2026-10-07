@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { actionWords, type Problem } from "../../shared/checks.ts";
+import { actionWords, runnerLandings, type Problem } from "../../shared/checks.ts";
 import { sketchPrompt } from "../../shared/prompt.ts";
 import type { Board, Brief, Setup, Story } from "../../shared/schema.ts";
 import type { TextStyle } from "../../shared/series.ts";
@@ -278,6 +278,20 @@ function Playback({
 }
 
 // Step 3: the whole board as the finished piece will look, with a note box on every shot, before an image is made.
+function RunnerMark({ story }: { story: Story }) {
+  const lands = runnerLandings(story);
+  if (!lands.length) return null;
+  const missed = lands.filter((land) => !land.hit || land.quotes.length === 0).length;
+  const same = lands.some((land) => land.same);
+  if (missed === 0 && !same) return <b className="text-good"> · las tres caen</b>;
+  return (
+    <b className="text-neg">
+      {missed > 0 ? ` · ${missed} ${missed === 1 ? "caída" : "caídas"} sin línea` : ""}
+      {same ? " · una caída se repite" : ""}
+    </b>
+  );
+}
+
 export function BoardView({ story, board, round, busy, problems, dismissed, look, onRevise, onFix, onDismiss, onApprove, onSketch, onSketchRemove }: Props) {
   // Bocetos: the drawn storyboard (uploaded sketches, else the app's pencil sketch). Imágenes: the pictures so far.
   const [view, setView] = useState<"sketch" | "image">("sketch");
@@ -403,6 +417,23 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
             <b className="text-ink">Callbacks: </b>
             {story.callbacks.map((c) => `${c.planted} → ${c.payoff}`).join(" · ")}
           </p>
+        )}
+        {(story.runner?.bit || story.tease?.trim()) && (
+          <div className="space-y-1 rounded-lg border border-line bg-paper px-2.5 py-1.5">
+            {story.runner?.bit && (
+              <p className="text-xs text-muted">
+                <b className="text-ink">Corredor ({story.runner.bit}): </b>
+                {story.runner.open} · {story.runner.middle} · {story.runner.tag}
+                <RunnerMark story={story} />
+              </p>
+            )}
+            {story.tease?.trim() && (
+              <p className="text-xs text-muted">
+                <b className="text-ink">Para el próximo: </b>
+                {story.tease}
+              </p>
+            )}
+          </div>
         )}
       </div>
 

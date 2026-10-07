@@ -106,6 +106,36 @@ export const StoryWireSchema = z.object({
     .array(z.object({ planted: z.string(), payoff: z.string() }))
     .describe("Each callback: the line planted and where and how it pays off."),
   close: z.string().describe("The last line of the piece; it calls back to the first. A soft close, not a pitch."),
+  runner: z
+    .object({
+      bit: z
+        .string()
+        .describe("One concrete bit — an object, a short phrase or a gesture — that this piece hits three times. Spanish. Empty if the piece has no runner."),
+      open: z
+        .string()
+        .describe("The opening landing. Quote a few spoken words inside «». Spanish. Empty if there is no runner."),
+      middle: z
+        .string()
+        .describe("The middle landing. The bit has changed. Quote different spoken words inside «». Spanish."),
+      tag: z
+        .string()
+        .describe("The tag landing, tied to the close. The bit has changed again. Quote different spoken words inside «». Spanish."),
+    })
+    .describe("The runner: one bit, three landings, each one changed."),
+  tease: z
+    .string()
+    .describe(
+      "One concrete thing left hanging for a later episode. Not an open loop of this piece: do not list it in loops and do not pay it off here. Empty if the piece closes clean. Spanish.",
+    ),
+  canon: z
+    .array(
+      z.object({
+        fact: z
+          .string()
+          .describe("A fact this episode makes true for later ones: an object that now exists, a relationship that changed, or a rule of the place. Not a product claim. Spanish."),
+      }),
+    )
+    .describe("Up to three facts later episodes treat as already true. Empty if the world did not change."),
   checklist: z
     .array(ChecklistItemSchema)
     .describe(
@@ -317,12 +347,21 @@ function pick<T extends string>(value: string, options: readonly T[], fallback: 
   return options.find((o) => v.includes(o)) ?? fallback;
 }
 
-// Stories saved before the problem title and the practices check.
+// Stories saved before the problem title, the practices check, or the writers' room (runner, tease, canon).
 export function migrateStory(story: Story): Story {
+  const old = story as Story & { runner?: Partial<Story["runner"]>; tease?: string; canon?: Story["canon"] };
   return {
     ...story,
     problem: story.problem ?? "",
     practices: story.practices ?? [],
+    runner: {
+      bit: old.runner?.bit ?? "",
+      open: old.runner?.open ?? "",
+      middle: old.runner?.middle ?? "",
+      tag: old.runner?.tag ?? "",
+    },
+    tease: old.tease ?? "",
+    canon: old.canon ?? [],
     topics: story.topics.map((t) => ({ ...t, lines: t.lines.map((l) => ({ ...l, emotion: l.emotion ?? "" })) })),
   };
 }

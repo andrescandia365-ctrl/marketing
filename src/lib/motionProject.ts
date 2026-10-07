@@ -6,6 +6,7 @@ import type { SeriesInfo } from "../../shared/schema.ts";
 import type { Brand } from "../../shared/series.ts";
 import { libraryFileUrl, projectFileUrl, type MediaFileRecord, type MediaRecord } from "./api.ts";
 import { buildPuppet, singlePuppet, type PuppetAsset } from "./puppet.ts";
+import { loadActor, type ActorAsset } from "./actor.ts";
 import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "./motion.ts";
 import { buildSound, nearBeat, type HitKind, type SoundPlan } from "./motionAudio.ts";
 import { findBeats } from "./render.ts";
@@ -38,7 +39,7 @@ export function decodeAudio(blob: Blob): Promise<AudioBuffer> {
 // one piece).
 export async function loadSeriesImages(
   series: SeriesInfo,
-): Promise<{ cast: Record<string, MotionAsset>; logo: MotionAsset | null; puppets: Record<string, PuppetAsset> }> {
+): Promise<{ cast: Record<string, MotionAsset>; logo: MotionAsset | null; puppets: Record<string, PuppetAsset>; actors: Record<string, ActorAsset> }> {
   const list = await Promise.all(
     series.cast.filter((m) => m.image).map(async (m) => [m, await loadImage(libraryFileUrl(series.id, m.image))] as const),
   );
@@ -58,7 +59,12 @@ export async function loadSeriesImages(
       if (img) puppets[m.id] = singlePuppet(img);
     }
   }
-  return { cast, logo: logoImg ? asAsset(logoImg, "logo") : null, puppets };
+  const actors: Record<string, ActorAsset> = {};
+  for (const m of series.cast.filter((x) => x.kind === "character" && x.rig?.file)) {
+    const actor = await loadActor(libraryFileUrl(series.id, m.rig.file), m.rig);
+    if (actor) actors[m.id] = actor;
+  }
+  return { cast, logo: logoImg ? asAsset(logoImg, "logo") : null, puppets, actors };
 }
 
 // How loud the voices are along the piece (60 values a second, 0..1), for the characters' mouths.
@@ -212,7 +218,7 @@ export function makeWorld(
   logo: MotionAsset | null,
   beats: number[],
   notice: boolean,
-  extra: Pick<MotionWorld, "puppets" | "speech"> = {},
+  extra: Pick<MotionWorld, "puppets" | "speech" | "actors"> = {},
 ): MotionWorld {
   return { brand, assets, logo, beats, seed: MOTION_SEED, disclosure: notice ? AI_NOTICE : "", ...extra };
 }

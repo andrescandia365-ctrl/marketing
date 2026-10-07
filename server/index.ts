@@ -23,6 +23,7 @@ import {
   currentWriter,
   lyricElements,
   lyricIdeas,
+  lyricPlates,
   motionScript,
   brandFromSite,
   proposeMenu,
@@ -46,9 +47,11 @@ import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
 import { BrandWebError, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.ts";
 import { EMPTY_BRIEF } from "../shared/example.ts";
 import { ClockError } from "../shared/clock.ts";
+import { roomBrief } from "../shared/room.ts";
 import { buildProjectSync, critiqueProject, loadSync } from "./sync.ts";
 import { BrandSchema, DEFAULT_BRAND } from "../shared/series.ts";
 import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, SECOND_LANGUAGES, LyricStyleSchema, alignLyrics, cleanElements, cleanIdeas } from "../shared/lyrics.ts";
+import { buildPlates, cleanPlates } from "../shared/plates.ts";
 import { DEMO_BOARD, DEMO_MENU, DEMO_STORY, demoMotion, demoMotionReview } from "./demo.ts";
 import { RenderError, ffmpegAvailable, getFinal, startFinal } from "./finalRender.ts";
 import {
@@ -79,6 +82,7 @@ import {
   deleteProject,
   getProject,
   listProjects,
+  listRoom,
   readProjectFile,
   removeMedia,
   removeMusic,
@@ -100,6 +104,7 @@ import {
   setPuppetLayer,
   replacePuppetLayers,
   arrangePuppet,
+  setRigFile,
   removePuppetLayer,
   setLogo,
   saveTextStyle,
@@ -124,7 +129,7 @@ app.onError((error, c) => {
 
 // Story and board come back from the browser; parse them with the same shapes the writer returns.
 // Pieces saved before a field existed get its empty value: problem and practices, each line's emotion, each shot's
-// timeline.
+// timeline, and (for the writers' room) an empty runner, tease and canon.
 type Loose = Record<string, unknown> & { topics?: { lines?: Record<string, unknown>[] }[]; shots?: Record<string, unknown>[] };
 function fillOld(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
@@ -135,11 +140,31 @@ function fillOld(value: unknown): unknown {
     ...(v.shots && { shots: v.shots.map((s) => ({ timeline: [], ...s })) }),
   };
 }
+function fillStory(value: unknown): unknown {
+  const filled = fillOld(value);
+  if (!filled || typeof filled !== "object") return filled;
+  const v = filled as Record<string, unknown> & { runner?: Record<string, unknown> };
+  const raw = v.runner;
+  return {
+    ...v,
+    runner: {
+      bit: typeof raw?.bit === "string" ? raw.bit : "",
+      open: typeof raw?.open === "string" ? raw.open : "",
+      middle: typeof raw?.middle === "string" ? raw.middle : "",
+      tag: typeof raw?.tag === "string" ? raw.tag : "",
+    },
+    tease: typeof v.tease === "string" ? v.tease : "",
+    canon: Array.isArray(v.canon) ? v.canon : [],
+  };
+}
 const StoryInput = z.preprocess(
-  fillOld,
+  fillStory,
   StoryWireSchema.extend({
     problem: z.string().default(""),
     practices: StoryWireSchema.shape.practices.default([]),
+    runner: StoryWireSchema.shape.runner.default({ bit: "", open: "", middle: "", tag: "" }),
+    tease: z.string().default(""),
+    canon: StoryWireSchema.shape.canon.default([]),
   }),
 ).transform(normalizeStory);
 const TopicInput = TopicIdeaSchema.extend({ problem: z.string().default("") });
@@ -278,6 +303,14 @@ app.delete("/api/series/:id/cast/:castId/puppet/:index", (c) => {
   return c.json({ member, series: listSeries() });
 });
 
+// The rigged humanoid (GLB with clips). Mesh2Motion or a Mixamo FBX converted to GLB. Playback is local.
+app.put("/api/series/:id/cast/:castId/rig", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
+  const member = setRigFile(c.req.param("id"), c.req.param("castId"), data);
+  return c.json({ member, series: listSeries() });
+});
+
 app.get("/api/series/:id/files/:name", (c) => {
   const { data, type } = readLibraryFile(c.req.param("id"), c.req.param("name"));
   return c.body(new Uint8Array(data), 200, { "Content-Type": type, "Cache-Control": "no-cache" });
@@ -285,6 +318,13 @@ app.get("/api/series/:id/files/:name", (c) => {
 
 // Projects: one folder per piece on this computer (see projects.ts).
 app.get("/api/projects", async (c) => c.json({ projects: await listProjects() }));
+
+// The writers' room: plants, unpaid loops and canon from the other saved pieces of a series.
+app.get("/api/room", async (c) => {
+  const series = z.string().min(1).max(80).parse(c.req.query("series"));
+  const except = z.string().max(80).parse(c.req.query("except") ?? "");
+  return c.json({ cards: await listRoom(series, except) });
+});
 
 app.post("/api/projects", async (c) => {
   const { series } = z.object({ series: z.string() }).parse(await c.req.json());
@@ -745,6 +785,26 @@ app.post("/api/lyrics/elements", async (c) => {
   return c.json({ elements: cleanElements(raw, lines.length), note: raw.note, demo: false });
 });
 
+app.post("/api/lyrics/plates", async (c) => {
+  const { series, title, artist, lines, note, plates } = LyricRequest.extend({
+    note: z.string().max(2000).default(""),
+    plates: z
+      .array(z.object({ title: z.string(), from: z.number(), to: z.number(), look: z.string(), motif: z.string() }))
+      .max(12)
+      .default([]),
+  }).parse(await c.req.json());
+  if (demo()) {
+    return c.json({
+      plates: buildPlates("", lines),
+      idea: "Dirección de muestra: sin clave de IA, una placa cada cuatro líneas.",
+      note: "",
+      demo: true,
+    });
+  }
+  const raw = await lyricPlates(series, title, artist, lines, note, plates);
+  return c.json({ plates: cleanPlates(raw.plates, lines), idea: raw.idea, note: raw.note, demo: false });
+});
+
 app.post("/api/lyrics/backgrounds", async (c) => {
   const { series, title, lines, tool, palette, mood, format } = LyricRequest.extend({
     tool: z.string(),
@@ -791,19 +851,31 @@ app.post("/api/menu", async (c) => {
 });
 
 app.post("/api/story", async (c) => {
-  const { brief, topics } = z
-    .object({ brief: BriefSchema, topics: z.array(TopicInput).min(1).max(4) })
+  const { brief, topics, note, projectId } = z
+    .object({
+      brief: BriefSchema,
+      topics: z.array(TopicInput).min(1).max(4),
+      note: z.string().max(4000).default(""),
+      projectId: z.string().max(80).default(""),
+    })
     .parse(await c.req.json());
   if (demo()) return c.json({ story: DEMO_STORY, demo: true });
-  return c.json({ story: await writeStory(brief, topics), demo: false });
+  const room = roomBrief(await listRoom(brief.series, projectId));
+  return c.json({ story: await writeStory(brief, topics, room, note), demo: false });
 });
 
 app.post("/api/story/revise", async (c) => {
-  const { brief, story, note } = z
-    .object({ brief: BriefSchema, story: StoryInput, note: z.string().min(1) })
+  const { brief, story, note, projectId } = z
+    .object({
+      brief: BriefSchema,
+      story: StoryInput,
+      note: z.string().min(1),
+      projectId: z.string().max(80).default(""),
+    })
     .parse(await c.req.json());
   if (demo()) return c.json({ story, demo: true });
-  return c.json({ story: await reviseStory(brief, story, note), demo: false });
+  const room = roomBrief(await listRoom(brief.series, projectId));
+  return c.json({ story: await reviseStory(brief, story, note, room), demo: false });
 });
 
 app.post("/api/board", async (c) => {
