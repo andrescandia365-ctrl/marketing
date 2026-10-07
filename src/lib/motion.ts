@@ -4,7 +4,7 @@
 // everything-fades-in, no corner labels or frame borders, no glow, no particle bursts.
 import { drawPuppet, puppetPose, type PuppetAsset } from "./puppet.ts";
 import type { ActorAsset } from "./actor.ts";
-import { CUT_PUSH, TYPE_CPS, elementTimes, timeScenes, typingSeconds, type MotionScene, type MotionScript, type TimedScene } from "../../shared/motion.ts";
+import { TYPE_CPS, cameraAt, cutPush, elementTimes, timeScenes, typingSeconds, type MotionScene, type MotionScript, type TimedScene } from "../../shared/motion.ts";
 import type { Brand } from "../../shared/series.ts";
 
 // screen: a real screenshot of the app (shown inside a phone or laptop).
@@ -792,8 +792,6 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
   }
 }
 
-const PUSH = CUT_PUSH;
-
 export function sceneAt(scenes: TimedScene[], t: number): number {
   const i = scenes.findIndex((s) => t >= s.start && t < s.end);
   return i < 0 ? scenes.length - 1 : i;
@@ -811,26 +809,54 @@ export function drawMotionFrame(
   probe?: Probe,
 ) {
   const scenes = timeScenes(script.scenes);
-  const f: Frame = { ctx, w, h, unit: Math.min(w, h), vertical: h > w, world, t };
+  const f: Frame = { ctx, w, h, unit: Math.min(w, h), vertical: h > w, world, t, probe };
   backdrop(f);
   if (!scenes.length) return;
   const i = sceneAt(scenes, t);
   const s = scenes[i];
   const lt = t - s.start;
-  if (i > 0 && lt < PUSH) {
-    const p = inOutCubic(lt / PUSH);
+  // The change between scenes follows the tone: a push (warm, fast when absurd) or a hard cut (dry).
+  const push = cutPush(script.tone);
+  // moveSet redraws the backdrop inside the camera, so a push or a pan moves the set and not only the type.
+  // During a scene change the backdrop stays put, the same as before the camera existed.
+  const drawShot = (scene: TimedScene, sceneTime: number, hit: boolean, moveSet: boolean) => {
+    const cam = cameraAt(scene.camera, sceneTime / Math.max(0.2, scene.seconds));
+    ctx.save();
+    ctx.translate(w / 2 + cam.x * w, h / 2 + cam.y * h);
+    ctx.scale(cam.z, cam.z);
+    ctx.translate(-w / 2, -h / 2);
+    const shot: Frame = {
+      ...f,
+      probe:
+        hit && probe
+          ? (id, key, box) => {
+              probe(id, key, {
+                x: w / 2 + cam.x * w + (box.x - w / 2) * cam.z,
+                y: h / 2 + cam.y * h + (box.y - h / 2) * cam.z,
+                w: box.w * cam.z,
+                h: box.h * cam.z,
+              });
+            }
+          : undefined,
+    };
+    if (moveSet) backdrop(shot);
+    drawScene(shot, scene, sceneTime);
+    ctx.restore();
+  };
+  if (i > 0 && lt < push) {
+    const p = inOutCubic(lt / push);
     const prev = scenes[i - 1];
     ctx.save();
     ctx.translate(-w * p, 0);
-    drawScene(f, prev, prev.seconds - 0.001);
+    drawShot(prev, prev.seconds - 0.001, false, false);
     ctx.restore();
     ctx.save();
     ctx.translate(w * (1 - p), 0);
-    drawScene(f, s, lt);
+    drawShot(s, lt, false, false);
     ctx.restore();
     ctx.fillStyle = world.brand.accent;
     ctx.fillRect(w * (1 - p) - f.unit * 0.02, 0, f.unit * 0.02, h);
-  } else drawScene({ ...f, probe }, s, lt);
+  } else drawShot(s, lt, true, true);
   subtitle(f, s.voice);
   footer(f);
 }

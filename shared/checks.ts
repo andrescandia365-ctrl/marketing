@@ -1,6 +1,6 @@
 // The checks that gate each approval. The writer grades its own story and board; these turn that grading
 // into a list of problems. A problem blocks approval until it is fixed ("Arreglalo") or the person dismisses it.
-import type { Board, Story } from "./schema.ts";
+import type { Board, Brief, Story } from "./schema.ts";
 import { PRACTICES } from "./series.ts";
 
 export type Problem = {
@@ -12,8 +12,75 @@ export type Problem = {
   shot?: number;
 };
 
-export function storyProblems(story: Story): Problem[] {
+// Words a runner landing claims are spoken. «», “” and straight quotes all count.
+function quoted(text: string): string[] {
+  const out: string[] = [];
+  const re = /«([^»]{2,})»|“([^”]{2,})”|"([^"]{2,})"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const q = (m[1] || m[2] || m[3] || "").replace(/\s+/g, " ").trim();
+    if (q) out.push(q);
+  }
+  return out;
+}
+
+export type RunnerLanding = {
+  where: "Arranque" | "Medio" | "Cierre";
+  text: string;
+  quotes: string[];
+  // A quoted phrase from this landing is in a spoken line.
+  hit: boolean;
+  // The same quoted phrase is also another landing.
+  same: boolean;
+};
+
+export function runnerInUse(story: Pick<Story, "runner">): boolean {
+  const runner = story.runner;
+  return Boolean(runner && [runner.bit, runner.open, runner.middle, runner.tag].some((s) => (s ?? "").trim()));
+}
+
+// The three landings, and whether each one is actually said. Empty when the piece has no runner.
+export function runnerLandings(story: Pick<Story, "runner" | "topics">): RunnerLanding[] {
+  const runner = story.runner;
+  if (!runner || !runnerInUse(story)) return [];
+  const said = (story.topics ?? [])
+    .flatMap((t) => t.lines.map((l) => l.text))
+    .join("\n")
+    .toLowerCase();
+  const raw = [
+    ["Arranque", runner.open],
+    ["Medio", runner.middle],
+    ["Cierre", runner.tag],
+  ] as const;
+  const quotes = raw.map(([, text]) => quoted(text ?? ""));
+  const keys = quotes.map((qs) => qs.map((q) => q.toLowerCase()).sort().join("|"));
+  return raw.map(([where, text], i) => ({
+    where,
+    text: text ?? "",
+    quotes: quotes[i],
+    hit: quotes[i].some((q) => said.includes(q.toLowerCase())),
+    same: Boolean(keys[i]) && keys.some((key, j) => j !== i && key === keys[i]),
+  }));
+}
+
+export function storyProblems(
+  story: Story,
+  brief?: Pick<Brief, "narrator">,
+  // Runners already used by other pieces of the series. The open piece is not in this list.
+  usedRunners: { bit: string; problem: string }[] = [],
+): Problem[] {
   const problems: Problem[] = [];
+  // A piece without a narrator: no line may be the narrator's.
+  if (brief?.narrator === "without") {
+    const narrators = new Set(story.characters.filter((c) => c.role === "narrator").map((c) => c.id));
+    const lines = story.topics.flatMap((t) => t.lines).filter((l) => narrators.has(l.speaker));
+    if (lines.length)
+      problems.push({
+        id: `sin-narrador:${lines.length}`,
+        label: "Sin narrador",
+        detail: `La pieza es sin narrador y el narrador dice ${lines.length === 1 ? "una línea" : `${lines.length} líneas`} ("${lines[0].text.slice(0, 60)}"). Que lo cuenten los personajes, la acción o el texto en pantalla.`,
+      });
+  }
   story.checklist.forEach((c, i) => {
     if (!c.pass) problems.push({ id: `check:${i}:${c.item}`, label: c.item, detail: c.note });
   });
@@ -25,6 +92,51 @@ export function storyProblems(story: Story): Problem[] {
         detail: `${l.question} (se abre en ${l.opens}; nunca se cierra)`,
       });
   });
+  // A runner lands three times, and each landing quotes words that are actually said. An empty runner is allowed.
+  const runner = story.runner;
+  if (runner && runnerInUse(story)) {
+    if (!(runner.bit ?? "").trim()) {
+      problems.push({
+        id: "corredor:bit",
+        label: "El corredor",
+        detail: "Tiene caídas y no tiene bit. Nombrá el objeto, la frase o el gesto que vuelve.",
+      });
+    }
+    const lands = runnerLandings(story);
+    for (const land of lands) {
+      if (!land.text.trim() || land.quotes.length === 0) {
+        problems.push({
+          id: `corredor:${land.where}`,
+          label: "El corredor",
+          detail: `${land.where} no cita, entre «», palabras que alguien dice. El corredor cae en una línea.`,
+        });
+        continue;
+      }
+      if (!land.hit) {
+        problems.push({
+          id: `corredor:${land.where}:${land.quotes[0]}`,
+          label: "El corredor",
+          detail: `${land.where} cita “${land.quotes[0]}” y esa frase no está en ninguna línea.`,
+        });
+      }
+    }
+    if (lands.some((land) => land.same)) {
+      problems.push({
+        id: "corredor:igual",
+        label: "El corredor",
+        detail: "Cae igual más de una vez. Cada caída cambia el bit.",
+      });
+    }
+    const bit = (runner.bit ?? "").trim().toLowerCase();
+    const prior = bit ? usedRunners.filter((u) => u.bit.trim().toLowerCase() === bit) : [];
+    if (prior.length) {
+      problems.push({
+        id: `corredor:repetido:${bit}`,
+        label: "El corredor",
+        detail: `“${(runner.bit ?? "").trim()}” ya lo usó ${prior.map((p) => `“${p.problem}”`).join(", ")}. Esta pieza lleva otro bit.`,
+      });
+    }
+  }
   story.seriesLoop.forEach((s, i) => {
     if (s.appears && !s.complete)
       problems.push({

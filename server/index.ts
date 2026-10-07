@@ -12,6 +12,8 @@ import {
   normalizeBoard,
   normalizeShot,
   normalizeStory,
+  type BrandFromWeb,
+  type BrandSuggestion,
   type SettingsView,
   type Status,
 } from "../shared/schema.ts";
@@ -19,8 +21,11 @@ import {
   WriterError,
   backgroundPrompts,
   currentWriter,
+  lyricElements,
   lyricIdeas,
+  lyricPlates,
   motionScript,
+  brandFromSite,
   proposeMenu,
   productShot,
   reviewMotion,
@@ -39,7 +44,14 @@ import {
 } from "./claude.ts";
 import { KimiError } from "./kimi.ts";
 import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
-import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, LyricStyleSchema, alignLyrics, cleanIdeas } from "../shared/lyrics.ts";
+import { BrandWebError, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.ts";
+import { EMPTY_BRIEF } from "../shared/example.ts";
+import { ClockError } from "../shared/clock.ts";
+import { roomBrief } from "../shared/room.ts";
+import { buildProjectSync, critiqueProject, loadSync } from "./sync.ts";
+import { BrandSchema, DEFAULT_BRAND } from "../shared/series.ts";
+import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, SECOND_LANGUAGES, LyricStyleSchema, alignLyrics, cleanElements, cleanIdeas } from "../shared/lyrics.ts";
+import { buildPlates, cleanPlates } from "../shared/plates.ts";
 import { DEMO_BOARD, DEMO_MENU, DEMO_STORY, demoMotion, demoMotionReview } from "./demo.ts";
 import { RenderError, ffmpegAvailable, getFinal, startFinal } from "./finalRender.ts";
 import {
@@ -61,7 +73,7 @@ import {
   type ProviderId,
 } from "./settings.ts";
 import { getProvider, listProviders } from "./images/index.ts";
-import { CastMemberSchema, PUPPET_ROLES, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
+import { CastMemberSchema, PUPPET_ROLES, PuppetPlaceSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
 import {
   PROJECTS_DIR,
   ProjectError,
@@ -70,6 +82,7 @@ import {
   deleteProject,
   getProject,
   listProjects,
+  listRoom,
   readProjectFile,
   removeMedia,
   removeMusic,
@@ -89,6 +102,8 @@ import {
   saveLyricStyle,
   saveSeriesFromApp,
   setPuppetLayer,
+  replacePuppetLayers,
+  arrangePuppet,
   setRigFile,
   removePuppetLayer,
   setLogo,
@@ -106,6 +121,7 @@ app.onError((error, c) => {
     return c.json({ error: error.message }, 400);
   }
   if (error instanceof VoiceError || error instanceof LyricsError) return c.json({ error: error.message }, 502);
+  if (error instanceof ClockError || error instanceof BrandWebError) return c.json({ error: error.message }, 400);
   if (error instanceof z.ZodError) return c.json({ error: "Al pedido le faltaban datos." }, 400);
   console.error(error);
   return c.json({ error: error.message || "Algo salió mal." }, 500);
@@ -113,7 +129,7 @@ app.onError((error, c) => {
 
 // Story and board come back from the browser; parse them with the same shapes the writer returns.
 // Pieces saved before a field existed get its empty value: problem and practices, each line's emotion, each shot's
-// timeline.
+// timeline, and (for the writers' room) an empty runner, tease and canon.
 type Loose = Record<string, unknown> & { topics?: { lines?: Record<string, unknown>[] }[]; shots?: Record<string, unknown>[] };
 function fillOld(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
@@ -124,11 +140,31 @@ function fillOld(value: unknown): unknown {
     ...(v.shots && { shots: v.shots.map((s) => ({ timeline: [], ...s })) }),
   };
 }
+function fillStory(value: unknown): unknown {
+  const filled = fillOld(value);
+  if (!filled || typeof filled !== "object") return filled;
+  const v = filled as Record<string, unknown> & { runner?: Record<string, unknown> };
+  const raw = v.runner;
+  return {
+    ...v,
+    runner: {
+      bit: typeof raw?.bit === "string" ? raw.bit : "",
+      open: typeof raw?.open === "string" ? raw.open : "",
+      middle: typeof raw?.middle === "string" ? raw.middle : "",
+      tag: typeof raw?.tag === "string" ? raw.tag : "",
+    },
+    tease: typeof v.tease === "string" ? v.tease : "",
+    canon: Array.isArray(v.canon) ? v.canon : [],
+  };
+}
 const StoryInput = z.preprocess(
-  fillOld,
+  fillStory,
   StoryWireSchema.extend({
     problem: z.string().default(""),
     practices: StoryWireSchema.shape.practices.default([]),
+    runner: StoryWireSchema.shape.runner.default({ bit: "", open: "", middle: "", tag: "" }),
+    tease: z.string().default(""),
+    canon: StoryWireSchema.shape.canon.default([]),
   }),
 ).transform(normalizeStory);
 const TopicInput = TopicIdeaSchema.extend({ problem: z.string().default("") });
@@ -205,7 +241,60 @@ app.put("/api/series/:id/cast/:castId/puppet/:index", async (c) => {
   const data = Buffer.from(await c.req.arrayBuffer());
   if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
   const role = z.enum(PUPPET_ROLES).parse(c.req.query("role") ?? "extra");
-  const member = setPuppetLayer(c.req.param("id"), c.req.param("castId"), Number(c.req.param("index")), data, c.req.header("content-type") ?? "", role);
+  const name = (c.req.query("name") ?? "").slice(0, 80);
+  const member = setPuppetLayer(
+    c.req.param("id"),
+    c.req.param("castId"),
+    Number(c.req.param("index")),
+    data,
+    c.req.header("content-type") ?? "",
+    role,
+    name,
+  );
+  return c.json({ member, series: listSeries() });
+});
+
+// Replaces the whole puppet at once (the front figure, split into head and body).
+app.put("/api/series/:id/cast/:castId/puppet", async (c) => {
+  const body = z
+    .object({
+      layers: z
+        .array(
+          z.object({
+            role: z.enum(PUPPET_ROLES),
+            name: z.string().max(80).default(""),
+            png: z.string().max(12_000_000),
+          }),
+        )
+        .min(1)
+        .max(12),
+    })
+    .parse(await c.req.json());
+  const parts = body.layers.map((layer) => {
+    const raw = layer.png.replace(/^data:image\/\w+;base64,/, "").trim();
+    return { data: Buffer.from(raw, "base64"), role: layer.role, name: layer.name };
+  });
+  const member = replacePuppetLayers(c.req.param("id"), c.req.param("castId"), parts);
+  return c.json({ member, series: listSeries() });
+});
+
+// "Armar a mano": the place, part and turning point of each existing layer.
+app.patch("/api/series/:id/cast/:castId/puppet", async (c) => {
+  const { layers } = z
+    .object({
+      layers: z
+        .array(
+          z.object({
+            file: z.string().max(120),
+            role: z.enum(PUPPET_ROLES),
+            pivot: z.tuple([z.number().min(-2).max(3), z.number().min(-2).max(3)]).nullable(),
+            place: PuppetPlaceSchema.nullable(),
+          }),
+        )
+        .max(12),
+    })
+    .parse(await c.req.json());
+  const member = arrangePuppet(c.req.param("id"), c.req.param("castId"), layers);
   return c.json({ member, series: listSeries() });
 });
 
@@ -229,6 +318,13 @@ app.get("/api/series/:id/files/:name", (c) => {
 
 // Projects: one folder per piece on this computer (see projects.ts).
 app.get("/api/projects", async (c) => c.json({ projects: await listProjects() }));
+
+// The writers' room: plants, unpaid loops and canon from the other saved pieces of a series.
+app.get("/api/room", async (c) => {
+  const series = z.string().min(1).max(80).parse(c.req.query("series"));
+  const except = z.string().max(80).parse(c.req.query("except") ?? "");
+  return c.json({ cards: await listRoom(series, except) });
+});
 
 app.post("/api/projects", async (c) => {
   const { series } = z.object({ series: z.string() }).parse(await c.req.json());
@@ -414,17 +510,75 @@ app.post("/api/review", async (c) => {
 const LOOPBACK = /^(127\.|::1$|::ffff:127\.)/;
 const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/;
 const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/;
-const localOnly = async (c: Context, next: () => Promise<void>) => {
+// Only the app open on this computer: a loopback address, a localhost Host and Origin, and a JSON body.
+const onlyHere = (refusal: string) => async (c: Context, next: () => Promise<void>) => {
   const address = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress ?? "";
   const origin = c.req.header("origin");
   const json = (c.req.header("content-type") ?? "").includes("application/json");
   if (!LOOPBACK.test(address) || !LOCAL_HOST.test(c.req.header("host") ?? "") || (origin && !LOCAL_ORIGIN.test(origin)) || (c.req.method !== "GET" && !json)) {
-    return c.json({ error: "Las claves y los modelos se cambian solo desde la app en esta compu." }, 403);
+    return c.json({ error: refusal }, 403);
   }
   await next();
 };
+const localOnly = onlyHere("Las claves y los modelos se cambian solo desde la app en esta compu.");
 app.use("/api/settings", localOnly);
 app.use("/api/settings/*", localOnly);
+
+// "Traer la marca desde su web": the server opens a public page for the person, so only from the app on this computer
+// (another machine on the network could otherwise make it fetch for them).
+app.use("/api/brand/*", onlyHere("La marca se trae de la web solo desde la app en esta compu."));
+const HEX = /^#[0-9a-f]{6}$/i;
+app.post("/api/brand/from-web", async (c) => {
+  const { url, series } = z
+    .object({
+      url: z.string().trim().min(4).max(500),
+      series: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(),
+      own: z.literal(true, { message: "Confirmá que es la web de la marca." }),
+    })
+    .parse(await c.req.json());
+  const facts = await readBrandSite(/^https?:\/\//i.test(url) ? url : `https://${url}`);
+  const guess = guessBrand(facts);
+  const firstLine = (s: string) => s.split(/(?<=[.!?])\s/)[0]?.slice(0, 120) ?? "";
+  const raw: BrandSuggestion = demo()
+    ? {
+        name: facts.siteName || facts.title.split(/\s[|–—-]\s/)[0].trim(),
+        tagline: firstLine(facts.description),
+        ...guess,
+        fontNote: facts.googleFonts.length ? "" : `La web usa ${facts.fonts[0]?.family ?? "fuentes del sistema"}, que no está en Google Fonts: quedan las de siempre.`,
+        logo: facts.logos.length ? 0 : -1,
+        claims: facts.text.split("\n").filter((l) => l.length > 25 && l.length < 160).slice(0, 5),
+        note: "Propuesta de muestra: sin clave de IA, salió de contar colores y leer los títulos.",
+      }
+    : await brandFromSite(facts, series ?? EMPTY_BRIEF.series);
+  const suggestion: BrandSuggestion = {
+    ...raw,
+    name: raw.name.trim().slice(0, 60),
+    tagline: raw.tagline.trim().slice(0, 200),
+    bg: HEX.test(raw.bg) ? raw.bg.toLowerCase() : guess.bg,
+    text: HEX.test(raw.text) ? raw.text.toLowerCase() : guess.text,
+    accent: HEX.test(raw.accent) ? raw.accent.toLowerCase() : guess.accent,
+    displayFont: raw.displayFont.trim().slice(0, 60) || guess.displayFont,
+    uiFont: raw.uiFont.trim().slice(0, 60) || guess.uiFont,
+    claims: raw.claims.map((x) => x.trim().slice(0, 300)).filter(Boolean).slice(0, 8),
+  };
+  // The chosen logo, or the next candidate that loads.
+  const order = [suggestion.logo, ...facts.logos.map((_, i) => i)].filter((i, k, all) => i >= 0 && i < facts.logos.length && all.indexOf(i) === k);
+  let logo = "";
+  for (const i of order) {
+    logo = await fetchLogo(facts.logos[i].url).catch(() => "");
+    if (logo) break;
+  }
+  const result: BrandFromWeb = {
+    url: facts.url,
+    title: facts.title,
+    colors: facts.colors.map((x) => x.hex).slice(0, 12),
+    fonts: [...new Set([...facts.googleFonts, ...facts.fonts.map((f) => f.family)])].slice(0, 8),
+    suggestion,
+    logo,
+    demo: demo(),
+  };
+  return c.json(result);
+});
 
 const ProviderParam = z.string().refine((p) => (providerIds() as string[]).includes(p), "Ese proveedor no existe.");
 const ModelName = z.string().trim().regex(/^[\w.\-/:@+]{1,120}$/, "Ese nombre de modelo no es válido.");
@@ -537,6 +691,41 @@ app.get("/api/final/:job", (c) => {
   return job ? c.json({ job }) : c.json({ error: "Ese render ya no existe." }, 404);
 });
 
+// Lyric clock: drums stem (or Demucs on the master) for the kick, vocal stem for the words. Never the master peaks.
+app.post("/api/projects/:id/sync", async (c) => {
+  const form = await c.req.formData();
+  const lyrics = String(form.get("lyrics") ?? "");
+  const moves = String(form.get("moves") ?? "");
+  const fpsRaw = Number(form.get("fps") ?? 24);
+  const fps = Number.isFinite(fpsRaw) && fpsRaw >= 12 && fpsRaw <= 60 ? fpsRaw : 24;
+  const language = z.enum(LYRIC_LANGUAGES).parse(form.get("language") ?? "auto");
+  const file = async (value: FormDataEntryValue | null) =>
+    value instanceof Blob && value.size ? new Uint8Array(await value.arrayBuffer()) : null;
+  const built = await buildProjectSync(c.req.param("id"), {
+    lyrics,
+    moves,
+    fps,
+    language,
+    drums: await file(form.get("drums")),
+    vocals: await file(form.get("vocals")),
+    master: await file(form.get("master")),
+  });
+  return c.json({ sync: built.doc, qa: built.qa });
+});
+
+app.get("/api/projects/:id/sync", async (c) => {
+  const loaded = await loadSync(c.req.param("id"));
+  if (!loaded) return c.json({ error: "Todavía no hay reloj." }, 404);
+  return c.json({ sync: loaded.doc, qa: loaded.qa });
+});
+
+app.post("/api/projects/:id/sync/critique", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const brand = BrandSchema.parse({ ...DEFAULT_BRAND, ...((body as { brand?: unknown }).brand ?? {}) });
+  const result = await critiqueProject(c.req.param("id"), brand);
+  return c.json(result);
+});
+
 // Lyric videos. Automatic sync: the song (multipart "audio") is transcribed with word times and matched to the
 // lyric lines ("lines" and "seconds", JSON arrays).
 app.post("/api/lyrics/sync", async (c) => {
@@ -566,9 +755,54 @@ app.post("/api/lyrics/ideas", async (c) => {
 });
 
 app.post("/api/lyrics/second", async (c) => {
-  const { series, lines, mode } = LyricRequest.extend({ mode: z.enum(["romanize", "translate"]) }).parse(await c.req.json());
+  const { series, lines, mode, language, other } = LyricRequest.extend({
+    mode: z.enum(["romanize", "translate"]),
+    language: z.enum(SECOND_LANGUAGES).default("es"),
+    other: z.string().trim().max(40).default(""),
+  }).parse(await c.req.json());
   if (demo()) return c.json({ lines, note: "Modo de muestra: sin clave de IA, copié la letra tal cual.", demo: true });
-  return c.json({ ...(await secondLines(series, lines, mode)), demo: false });
+  return c.json({ ...(await secondLines(series, lines, mode, language, other)), demo: false });
+});
+
+app.post("/api/lyrics/elements", async (c) => {
+  const { series, title, artist, lines } = LyricRequest.parse(await c.req.json());
+  if (demo()) {
+    const motifs = ["heart", "note", "star", "circle"] as const;
+    const motions = ["pulse", "enter", "hold", "leave"] as const;
+    const places = ["top", "left", "right", "top"] as const;
+    const picked = lines.map((text, line) => ({ text, line })).filter((_, i) => i % 2 === 0).slice(0, 4);
+    const elements = picked.map(({ text, line }, n) => ({
+      label: text.split(/\s+/).slice(0, 2).join(" ").slice(0, 40) || "texto",
+      motif: motifs[n % motifs.length],
+      motion: motions[n % motions.length],
+      place: places[n % places.length],
+      line,
+      seconds: 3,
+    }));
+    return c.json({ elements: cleanElements({ elements }, lines.length), note: "Elementos de muestra: sin clave de IA.", demo: true });
+  }
+  const raw = await lyricElements(series, title, artist, lines);
+  return c.json({ elements: cleanElements(raw, lines.length), note: raw.note, demo: false });
+});
+
+app.post("/api/lyrics/plates", async (c) => {
+  const { series, title, artist, lines, note, plates } = LyricRequest.extend({
+    note: z.string().max(2000).default(""),
+    plates: z
+      .array(z.object({ title: z.string(), from: z.number(), to: z.number(), look: z.string(), motif: z.string() }))
+      .max(12)
+      .default([]),
+  }).parse(await c.req.json());
+  if (demo()) {
+    return c.json({
+      plates: buildPlates("", lines),
+      idea: "Dirección de muestra: sin clave de IA, una placa cada cuatro líneas.",
+      note: "",
+      demo: true,
+    });
+  }
+  const raw = await lyricPlates(series, title, artist, lines, note, plates);
+  return c.json({ plates: cleanPlates(raw.plates, lines), idea: raw.idea, note: raw.note, demo: false });
 });
 
 app.post("/api/lyrics/backgrounds", async (c) => {
@@ -617,19 +851,31 @@ app.post("/api/menu", async (c) => {
 });
 
 app.post("/api/story", async (c) => {
-  const { brief, topics } = z
-    .object({ brief: BriefSchema, topics: z.array(TopicInput).min(1).max(4) })
+  const { brief, topics, note, projectId } = z
+    .object({
+      brief: BriefSchema,
+      topics: z.array(TopicInput).min(1).max(4),
+      note: z.string().max(4000).default(""),
+      projectId: z.string().max(80).default(""),
+    })
     .parse(await c.req.json());
   if (demo()) return c.json({ story: DEMO_STORY, demo: true });
-  return c.json({ story: await writeStory(brief, topics), demo: false });
+  const room = roomBrief(await listRoom(brief.series, projectId));
+  return c.json({ story: await writeStory(brief, topics, room, note), demo: false });
 });
 
 app.post("/api/story/revise", async (c) => {
-  const { brief, story, note } = z
-    .object({ brief: BriefSchema, story: StoryInput, note: z.string().min(1) })
+  const { brief, story, note, projectId } = z
+    .object({
+      brief: BriefSchema,
+      story: StoryInput,
+      note: z.string().min(1),
+      projectId: z.string().max(80).default(""),
+    })
     .parse(await c.req.json());
   if (demo()) return c.json({ story, demo: true });
-  return c.json({ story: await reviseStory(brief, story, note), demo: false });
+  const room = roomBrief(await listRoom(brief.series, projectId));
+  return c.json({ story: await reviseStory(brief, story, note, room), demo: false });
 });
 
 app.post("/api/board", async (c) => {

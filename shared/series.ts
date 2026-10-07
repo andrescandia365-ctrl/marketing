@@ -122,10 +122,24 @@ export const PUPPET_ROLE_LABEL: Record<PuppetRole, string> = {
   eyes: "Ojos",
   extra: "Otra (atrás)",
 };
+export const PuppetPlaceSchema = z.object({
+  x: z.number().min(-2).max(3),
+  y: z.number().min(-2).max(3),
+  w: z.number().min(0.01).max(4),
+});
+export type PuppetPlace = z.infer<typeof PuppetPlaceSchema>;
+
 export const PuppetLayerSchema = z.object({
   file: z.string().max(120),
   role: z.enum(PUPPET_ROLES),
-  pivot: z.tuple([z.number().min(0).max(1), z.number().min(0).max(1)]).nullable().default(null),
+  // Where the part turns, as shares of the reference canvas (outside it when the part sticks out).
+  pivot: z.tuple([z.number().min(-2).max(3), z.number().min(-2).max(3)]).nullable().default(null),
+  // The file the person uploaded, so the list can say which piece it is.
+  name: z.string().max(80).default(""),
+  // Where the part sits on the puppet, set by hand in "Armar a mano": its top-left corner and width as shares of the
+  // reference canvas (the body's), height from the picture's own shape. null: a layer of the same canvas sits as is;
+  // a loose crop of another size gets a starting place from its role.
+  place: PuppetPlaceSchema.nullable().default(null),
 });
 export const PuppetSchema = z.object({ layers: z.array(PuppetLayerSchema).max(12).default([]) });
 export type PuppetLayer = z.infer<typeof PuppetLayerSchema>;
@@ -169,11 +183,11 @@ export function guessClip(name: string): RigMove | null {
 // The part a layer probably is, from its file name (Grok names segments by what they are).
 export function guessRole(name: string): PuppetRole {
   const n = name.toLowerCase();
-  if (/cabeza|head|cara|face/.test(n)) return "head";
   if (/boca|mouth|lips|labio/.test(n)) return "mouth";
   if (/ojo|eye/.test(n)) return "eyes";
   if (/brazo|arm|mano|hand/.test(n)) return /izq|left|_l\b|-l\b/.test(n) ? "armL" : "armR";
-  if (/cuerpo|body|torso|tronco/.test(n)) return "body";
+  if (/cabeza|head|cara|face|hair|pelo|cabello/.test(n)) return "head";
+  if (/cuerpo|body|torso|tronco|jacket|campera|remera|shirt|jean|pantal|sneaker|zapati|shoe|hoodie|falda|skirt/.test(n)) return "body";
   return "extra";
 }
 

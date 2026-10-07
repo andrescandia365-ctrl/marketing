@@ -5,13 +5,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   DURATIONS,
+  MOTION_CAMERAS,
+  MOTION_CAMERA_LABEL,
   MOTION_GESTURES,
   MOTION_GESTURE_LABEL, MOTION_MOVES, MOTION_MOVE_LABEL,
   MOTION_MOODS,
   MOTION_MOOD_LABEL,
   MOTION_TEMPLATES,
   MOTION_TEMPLATE_LABEL,
+  MOTION_TONES,
+  MOTION_TONE_LABEL,
   blankScene,
+  cutPush,
   elementTimes,
   posterTime,
   readingIssues,
@@ -57,6 +62,8 @@ import {
   usesAiImages,
 } from "../lib/motionProject.ts";
 import type { RenderResult } from "../lib/render.ts";
+import { CopyButton } from "./ScriptView.tsx";
+import { NarrationImport } from "./NarrationImport.tsx";
 import { Recorder, audioDuration, type AudioFile } from "./Audio.tsx";
 import { Inspector, MotionTimeline, type Selection } from "./MotionTimeline.tsx";
 import { QualityPanel } from "./QualityPanel.tsx";
@@ -74,6 +81,8 @@ type Props = {
   projectsDir: string;
   // The final render (render.mjs) needs ffmpeg on this computer.
   ffmpeg: boolean;
+  // OpenAI's transcription is set up: a whole narration is cut by its words, not only its pauses.
+  autoSync: boolean;
   onSaveStatus: (status: "saving" | "saved" | "error") => void;
 };
 
@@ -87,6 +96,10 @@ function pieceMarkdown(piece: MotionPiece, scenes: MotionScene[]): string {
 
 **${s.title}** · ${scenes.reduce((n, x) => n + x.seconds, 0).toFixed(1)} s · música: ${piece.music === "synth" ? `sintetizada (${MOTION_MOOD_LABEL[s.music.mood]}, ${s.music.bpm} bpm)` : piece.music === "track" ? "tema propio" : "sin música"}
 
+${s.caption ? `**Texto para publicar:** ${s.caption}
+
+` : ""}**Tono:** ${MOTION_TONE_LABEL[s.tone ?? "warm"]}
+
 ${timeScenes(scenes)
   .map(
     (x) =>
@@ -96,9 +109,12 @@ ${timeScenes(scenes)
 `;
 }
 
-export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, onSaveStatus }: Props) {
+export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, autoSync, onSaveStatus }: Props) {
   const [piece, setPiece] = useState<MotionPiece>(() =>
-    initial ? { ...newMotionPiece(brief.format), ...initial.piece } : newMotionPiece(brief.format),
+    initial
+      ? { ...newMotionPiece(brief.format), ...initial.piece }
+      : // Without a narrator the piece starts with no voice.
+        { ...newMotionPiece(brief.format), ...(brief.narrator === "without" && { voice: "none" as const }) },
   );
   const [voices, setVoices] = useState<Record<string, AudioFile>>({});
   const [layers, setLayers] = useState<HTMLImageElement[]>([]);
@@ -232,7 +248,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     [script?.music.bpm, piece.music, track, duration, Boolean(script)],
   );
   const snap = piece.snap !== false;
-  const scenes = useMemo(() => arrangeScenes(script, beats, snap), [script, beats, snap]);
+  const scenes = useMemo(() => arrangeScenes(script, beats, snap, piece.music, track?.buffer ?? null), [script, beats, snap, piece.music, track]);
   const snapped: MotionScript | null = script ? { ...script, scenes } : null;
   const total = scenes.reduce((n, s) => n + s.seconds, 0);
 
@@ -250,7 +266,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const openReading = readingIssues(scenes).filter((r) => !(piece.readingOk ?? []).includes(readingKey(r)));
   const blocked = openGaps.length > 0 || openReading.length > 0;
   // The thumbnail: frame 0 of every render.
-  const posterT = posterTime(scenes, piece.poster);
+  const posterT = posterTime(scenes, piece.poster, cutPush(script?.tone));
   const posterRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const c = posterRef.current;
@@ -554,7 +570,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       for (let round = 1; round <= MAX_ROUNDS; round++) {
         setReviewing(`Ronda ${round} de ${MAX_ROUNDS}: armando la hoja de contactos…`);
         const roundBeats = motionBeats(working, piece.music, track?.buffer ?? null);
-        const roundScenes = arrangeScenes(working, roundBeats, snap);
+        const roundScenes = arrangeScenes(working, roundBeats, snap, piece.music, track?.buffer ?? null);
         const played = { ...working, scenes: roundScenes };
         const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), { puppets, actors, speech });
         const made = formats.map((format) => ({ format, ...contactSheet(played, roundWorld, format) }));
@@ -608,7 +624,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     }
     const finalBeats = motionBeats(working, piece.music, track?.buffer ?? null);
     const state: QualityState = {
-      key: qualityKey(arrangeScenes(working, finalBeats, snap), working, qualityExtra),
+      key: qualityKey(arrangeScenes(working, finalBeats, snap, piece.music, track?.buffer ?? null), working, qualityExtra),
       formats,
       passed,
       accepted: false,
@@ -638,7 +654,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   // The scenes, beats and world for a script that may be newer than this render's state.
   function playable(next: MotionScript) {
     const b = motionBeats(next, piece.music, track?.buffer ?? null);
-    const sc = arrangeScenes(next, b, snap);
+    const sc = arrangeScenes(next, b, snap, piece.music, track?.buffer ?? null);
     return { played: { ...next, scenes: sc }, beats: b, world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series), { puppets, actors, speech }) };
   }
 
@@ -669,7 +685,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     const ok = await ensureReviewed(formats);
     if (!ok) return;
     const { played, beats: playedBeats, world: playedWorld } = playable(ok.script);
-    const cover = posterTime(played.scenes, ok.poster !== undefined ? ok.poster : piece.poster);
+    const cover = posterTime(played.scenes, ok.poster !== undefined ? ok.poster : piece.poster, cutPush(played.tone));
     setError("");
     setBusy("render");
     setResults([]);
@@ -949,6 +965,47 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               {piece.voice === "generated" && !voiceAvailable && <p className="mt-1 text-xs text-muted">La voz generada necesita OPENAI_API_KEY.</p>}
             </Field>
 
+            {piece.voice !== "none" && (
+              <NarrationImport
+                lines={timeScenes(scenes).flatMap((s) =>
+                  s.voice.trim() ? [{ key: s.id, label: `Escena ${s.index + 1}`, speaker: "", text: s.voice, emotion: s.emotion }] : [],
+                )}
+                narratorKeys={[]}
+                language={brief.language}
+                autoSync={autoSync}
+                room={Object.fromEntries(scenes.map((s) => [s.id, s.seconds]))}
+                onParts={async (parts) => {
+                  for (const p of parts) await keepVoice(p.key, p.blob, `voz-${p.key}.wav`);
+                  set({ voice: "recorded" });
+                }}
+              />
+            )}
+
+            <Field label="Tono" group hint="Sale de la voz del brief. Seco: cortes secos y casi sin efectos. Cálido: pasa de escena con un empuje suave. Absurdo: cortes rápidos y más efectos.">
+              <Segmented
+                value={script.tone ?? "warm"}
+                onChange={(tone) => setScript({ ...script, tone })}
+                options={MOTION_TONES.map((t) => ({ value: t, label: MOTION_TONE_LABEL[t] }))}
+              />
+            </Field>
+
+            <Field
+              label="Texto para publicar"
+              hint="De 1 a 3 frases para pegar en X, LinkedIn o Instagram, en el tono de la pieza. Lo que no esté confirmado va con [VERIFY]."
+            >
+              <textarea
+                className={`${inputClass} text-sm`}
+                rows={3}
+                aria-label="Texto para publicar"
+                value={script.caption ?? ""}
+                onChange={(e) => setScript({ ...script, caption: e.target.value })}
+              />
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <CopyButton text={script.caption ?? ""} idle="Copiar el texto" variant="secondary" />
+                {/\[VERIFY\]/.test(script.caption ?? "") && <span className="text-xs text-neg">Tiene datos sin confirmar: sacá el [VERIFY] solo cuando lo confirmes.</span>}
+              </div>
+            </Field>
+
             <Field label="Efectos de sonido" group hint="La biblioteca libre (dominio público, Kenney y teclas) o sintetizados. Suenan al empezar cada movimiento.">
               <Segmented
                 value={piece.effects ?? "library"}
@@ -961,7 +1018,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               />
             </Field>
 
-            <Field label="Música" group hint="Sintetizada en código, o tu tema (los cortes caen en sus beats).">
+            <Field label="Música" group hint="Sintetizada en código, o tu tema: los cortes caen en sus beats, y el producto y el logo en los golpes más fuertes.">
               <div className="space-y-2">
                 <Segmented
                   value={piece.music}
@@ -1190,6 +1247,18 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                       {MOTION_TEMPLATES.map((t) => (
                         <option key={t} value={t}>
                           {MOTION_TEMPLATE_LABEL[t]}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className={`${smallInput} py-1 text-xs`}
+                      value={raw.camera ?? "hold"}
+                      aria-label="Cámara"
+                      onChange={(e) => updateScene(s.id, { camera: e.target.value as (typeof MOTION_CAMERAS)[number] })}
+                    >
+                      {MOTION_CAMERAS.map((c) => (
+                        <option key={c} value={c}>
+                          Cámara: {MOTION_CAMERA_LABEL[c]}
                         </option>
                       ))}
                     </select>

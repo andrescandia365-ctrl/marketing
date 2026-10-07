@@ -1,6 +1,7 @@
 // The piece as a Markdown file: story, storyboard with every prompt, and the direction log.
+import { clipPrompt, type AudioSettings } from "../../shared/audio.ts";
 import type { Board, Brief, Story } from "../../shared/schema.ts";
-import { buildCopyPrompt } from "../../shared/prompt.ts";
+import { buildCopyPrompt, sketchPrompt } from "../../shared/prompt.ts";
 import { BEAT_INFO, ROLE_LABEL, formatTime, timeShots, totalSeconds } from "../../shared/template.ts";
 
 export type LogEntry = { at: number; shot?: number; text: string; outcome?: string };
@@ -27,6 +28,11 @@ export function storyToMarkdown(story: Story): string {
     })
     .join("\n\n");
   const callbacks = story.callbacks.map((c) => `- ${c.planted} → ${c.payoff}`).join("\n") || "- Ninguno.";
+  const runner = story.runner?.bit
+    ? `## El corredor\n\n**${story.runner.bit}**\n\n- Arranque: ${story.runner.open}\n- Medio: ${story.runner.middle}\n- Cierre: ${story.runner.tag}\n`
+    : "";
+  const tease = story.tease?.trim() ? `## Para el próximo\n\n${story.tease}\n` : "";
+  const canon = story.canon?.length ? `## Quedó en el mundo\n\n${story.canon.map((c) => `- ${c.fact}`).join("\n")}\n` : "";
   const checklist = story.checklist.map((c) => `- [${c.pass ? "x" : " "}] **${c.item}**: ${c.note}`).join("\n");
   const loops =
     story.loops.map((l) => `- [${l.closed ? "x" : " "}] **${l.question}** · se abre: ${l.opens} · se cierra: ${l.closes || "nunca"}`).join("\n") ||
@@ -59,6 +65,7 @@ ${topics}
 ## Callbacks
 
 ${callbacks}
+${runner}${tease}${canon}
 
 ## Checklist
 
@@ -74,7 +81,7 @@ ${verify}
 `;
 }
 
-export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolName: string, log: LogEntry[]): string {
+export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolName: string, log: LogEntry[], audio?: AudioSettings): string {
   const cast = Object.fromEntries(story.characters.map((c) => [c.id, c]));
   const shots = timeShots(board.shots)
     .map((s) => {
@@ -97,7 +104,8 @@ export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolNa
         s.editFrom ? `- **Editar la imagen de la toma ${s.editFrom}:** ${s.editPrompt}` : "",
         s.kind === "transform" && s.middlePrompt ? `- **Imagen intermedia:** ${buildCopyPrompt(s.middlePrompt, brief.format)}` : "",
         s.kind === "transform" ? `- **Imagen final:** ${buildCopyPrompt(s.endPrompt, brief.format)}` : "",
-        s.videoPrompt ? `- **Prompt de video:** ${s.videoPrompt}` : "",
+        s.kind !== "screen" ? `- **Prompt de boceto:** ${sketchPrompt(s.visualPrompt, brief.format)}` : "",
+        s.videoPrompt ? `- **Prompt de video:** ${audio ? clipPrompt(audio, s, s.index) : s.videoPrompt}` : "",
       ]
         .filter(Boolean)
         .join("\n");

@@ -24,12 +24,126 @@ import {
   type SeriesLook,
 } from "../../shared/series.ts";
 import { ensureFont } from "../lib/fonts.ts";
+import { BrandFromWeb } from "./BrandFromWeb.tsx";
+import { PuppetArranger } from "./PuppetArranger.tsx";
 import { PuppetPreview } from "./PuppetPreview.tsx";
 import { SheetBuilder } from "./SheetBuilder.tsx";
 import { CopyButton } from "./ScriptView.tsx";
 import { api, libraryFileUrl } from "../lib/api.ts";
 import { loadActor } from "../lib/actor.ts";
+import { canvasPng, findFullFigures, revokeFigures, splitFigure, type FigureFile } from "../lib/segmentAssemble.ts";
 import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
+
+// The file dialog's click can land on the page when it closes (Cancelar, and Editar serie se va).
+// The shield stays down until the window loses focus, so it never cancels the click that opens the dialog.
+function openFilePicker(input: HTMLInputElement | null) {
+  if (!input) return;
+  let swallow = false;
+  let safety = 0;
+  const stop = (e: Event) => {
+    if (!swallow) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const disarm = () => {
+    window.clearTimeout(safety);
+    document.removeEventListener("click", stop, true);
+    document.removeEventListener("mouseup", stop, true);
+    window.removeEventListener("blur", onBlur);
+    window.removeEventListener("focus", onFocus);
+  };
+  const onBlur = () => {
+    swallow = true;
+  };
+  const onFocus = () => {
+    swallow = true;
+    window.setTimeout(disarm, 400);
+  };
+  document.addEventListener("click", stop, true);
+  document.addEventListener("mouseup", stop, true);
+  window.addEventListener("blur", onBlur);
+  window.addEventListener("focus", onFocus);
+  safety = window.setTimeout(disarm, 180_000);
+  input.click();
+}
+
+// The head lives at the top of a full-length canvas, so a plain thumbnail looks empty. Fit the opaque part.
+function LayerThumb({ url }: { url: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    let alive = true;
+    const img = new Image();
+    img.onload = () => {
+      const canvas = ref.current;
+      if (!alive || !canvas) return;
+      const probe = document.createElement("canvas");
+      const down = Math.min(1, 160 / Math.max(img.naturalWidth, img.naturalHeight));
+      probe.width = Math.max(1, Math.round(img.naturalWidth * down));
+      probe.height = Math.max(1, Math.round(img.naturalHeight * down));
+      const read = probe.getContext("2d", { willReadFrequently: true });
+      const ctx = canvas.getContext("2d");
+      if (!read || !ctx) return;
+      read.drawImage(img, 0, 0, probe.width, probe.height);
+      const data = read.getImageData(0, 0, probe.width, probe.height).data;
+      let x0 = probe.width;
+      let y0 = probe.height;
+      let x1 = -1;
+      let y1 = -1;
+      for (let y = 0; y < probe.height; y++) {
+        for (let x = 0; x < probe.width; x++) {
+          if (data[(y * probe.width + x) * 4 + 3] > 24) {
+            if (x < x0) x0 = x;
+            if (x > x1) x1 = x;
+            if (y < y0) y0 = y;
+            if (y > y1) y1 = y;
+          }
+        }
+      }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (x1 < 0) return;
+      const sx = x0 / down;
+      const sy = y0 / down;
+      const sw = (x1 - x0 + 1) / down;
+      const sh = (y1 - y0 + 1) / down;
+      const fit = Math.min(canvas.width / sw, canvas.height / sh);
+      const dw = sw * fit;
+      const dh = sh * fit;
+      ctx.drawImage(img, sx, sy, sw, sh, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
+    };
+    img.src = url;
+    return () => {
+      alive = false;
+    };
+  }, [url]);
+  return <canvas ref={ref} width={36} height={48} className="rounded border border-line bg-paper" aria-hidden />;
+}
+
+function loadLayerSize(url: string): Promise<{ w: number; h: number } | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+async function splitLayers(figure: FigureFile): Promise<{ role: PuppetRole; name: string; png: string }[]> {
+  const { body, head } = splitFigure(figure.img, figure.img.naturalWidth, figure.img.naturalHeight);
+  return [
+    { role: "body", name: `${figure.name} · cuerpo`, png: await blobPng(await canvasPng(body)) },
+    { role: "head", name: `${figure.name} · cabeza`, png: await blobPng(await canvasPng(head)) },
+  ];
+}
+
+function blobPng(blob: Blob): Promise<string> {
+  return blob.arrayBuffer().then((buf) => {
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    const step = 0x8000;
+    for (let i = 0; i < bytes.length; i += step) binary += String.fromCharCode(...bytes.subarray(i, i + step));
+    return `data:image/png;base64,${btoa(binary)}`;
+  });
+}
 
 // One member of the fixed cast: name, @ reference, description and approved image.
 function CastCard({
@@ -40,7 +154,9 @@ function CastCard({
   onRemove,
   onImage,
   onPuppetFiles,
+  onPuppetReplace,
   onPuppetRemove,
+  onPuppetArranged,
   onRigFile,
 }: {
   member: CastMember;
@@ -50,14 +166,24 @@ function CastCard({
   onRemove: () => void;
   onImage: (file: File) => Promise<void>;
   onPuppetFiles: (files: File[]) => Promise<void>;
+  onPuppetReplace: (layers: { role: PuppetRole; name: string; png: string }[]) => Promise<void>;
   onPuppetRemove: (index: number) => Promise<void>;
+  onPuppetArranged: (member: CastMember) => void;
   onRigFile: (file: File) => Promise<CastMember>;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
+  const looseInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
   const [clipNames, setClipNames] = useState<string[]>([]);
   const [rootless, setRootless] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [figures, setFigures] = useState<FigureFile[]>([]);
+  const figuresRef = useRef<FigureFile[]>([]);
+  const [mixed, setMixed] = useState(false);
+  // "Armar a mano" open: the parts laid out to drag into place.
+  const [arranging, setArranging] = useState(false);
   const screen = member.kind === "screen";
   const url = seriesId && member.image ? libraryFileUrl(seriesId, member.image, version) : undefined;
   const set = <K extends keyof CastMember>(key: K, value: CastMember[K]) => onChange({ ...member, [key]: value });
@@ -86,6 +212,86 @@ function CastCard({
       await onImage(file);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    folderInput.current?.setAttribute("webkitdirectory", "");
+    folderInput.current?.setAttribute("directory", "");
+    return () => revokeFigures(figuresRef.current);
+  }, []);
+
+  // Layers Grok cropped to each object are different sizes. Stacking them stretches one over the other.
+  useEffect(() => {
+    if (!seriesId || member.puppet.layers.length < 2) {
+      setMixed(false);
+      return;
+    }
+    let alive = true;
+    Promise.all(member.puppet.layers.map((l) => loadLayerSize(libraryFileUrl(seriesId, l.file)))).then((sizes) => {
+      if (!alive) return;
+      const known = sizes.filter((s): s is { w: number; h: number } => s !== null);
+      // Loose crops that nobody placed yet sit where the app guessed: worth a look in Armar a mano.
+      setMixed(member.puppet.layers.some((l, i) => !l.place && sizes[i] && known.length > 1 && (sizes[i]!.w !== known[0].w || sizes[i]!.h !== known[0].h)));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [seriesId, member.puppet.layers]);
+
+  function remember(next: FigureFile[]) {
+    revokeFigures(figuresRef.current);
+    figuresRef.current = next;
+    setFigures(next);
+  }
+
+  async function useFigure(figure: FigureFile, whole: boolean) {
+    setBusy(true);
+    setError("");
+    setStatus(whole ? "Guardando la figura entera…" : "Separando la cabeza del cuerpo…");
+    try {
+      const layers = whole
+        ? [{ role: "body" as const, name: figure.name, png: await blobPng(figure.file) }]
+        : await splitLayers(figure);
+      await onPuppetReplace(layers);
+      setStatus(whole ? "Figura entera. La cabeza no gira sola." : `Cabeza y cuerpo a partir de ${figure.name}.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function fromFolder(files: File[]) {
+    setBusy(true);
+    setError("");
+    setStatus(`Leyendo ${files.length} archivos…`);
+    try {
+      const found = await findFullFigures(files);
+      if (!found.figures.length) {
+        setError(
+          found.crops
+            ? "Esos archivos son recortes (la campera, el pelo, una cara) y no dicen dónde van. Elegí la carpeta segments entera: adentro está la figura de cuerpo entero."
+            : "En esa carpeta no hay imágenes PNG.",
+        );
+        setStatus("");
+        return;
+      }
+      remember(found.figures);
+      const layers = await splitLayers(found.figures[0]);
+      await onPuppetReplace(layers);
+      const extra = found.crops ? ` ${found.crops} recortes quedaron afuera.` : "";
+      setStatus(
+        found.figures.length > 1
+          ? `Armado con ${found.figures[0].name}. Si esa no es la de frente, elegí otra abajo.${extra}`
+          : `Armado con ${found.figures[0].name}.${extra}`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setStatus("");
     } finally {
       setBusy(false);
     }
@@ -170,30 +376,51 @@ function CastCard({
             </summary>
             <div className="mt-1.5 space-y-2">
               <p className="text-muted">
-                Hacé la vista «Para el títere» (de frente, brazos separados, boca cerrada; la escribe «+ Personaje con hoja» → Personaje 3D). En Grok:
-                Segmentos → cabeza, cuerpo, cada brazo, boca y ojos → Descargar todo. Subí esas capas acá (PNG con fondo transparente, todas del mismo
-                cuadro, así encajan solas). Sin partes, el personaje usa su imagen entera.
+                En Grok: Segmentos → Descargar todo. Eso baja una carpeta por cosa (la persona, la campera, el pelo) y cada
+                archivo es un recorte, sin decir dónde va. <b>Carpeta de Segmentos</b> toma la figura de frente y le separa la
+                cabeza del cuerpo. Para que muevan los brazos o la boca, sumá esos recortes con <b>Partes sueltas</b> y
+                ponelos en su lugar con <b>Armar a mano</b>.
               </p>
+              {mixed && !arranging && (
+                <p className="text-neg">
+                  Hay partes sueltas que la app ubicó a ojo. Revisalas en Armar a mano: arrastralas a su lugar y guardá.
+                </p>
+              )}
+              {arranging && seriesId ? (
+                <PuppetArranger
+                  seriesId={seriesId}
+                  member={member}
+                  onClose={() => setArranging(false)}
+                  onSaved={(next) => {
+                    onPuppetArranged(next);
+                    setArranging(false);
+                    setStatus("Armado guardado.");
+                  }}
+                />
+              ) : (
               <div className="flex flex-wrap items-start gap-3">
                 {seriesId && <PuppetPreview seriesId={seriesId} puppet={member.puppet} />}
-                <ul className="min-w-0 flex-1 space-y-1">
+                <ul className="min-w-[220px] flex-1 space-y-1">
                   {member.puppet.layers.map((l, i) => (
                     <li key={l.file} className="flex items-center gap-2">
-                      {seriesId && <img src={libraryFileUrl(seriesId, l.file)} alt="" className="size-9 rounded border border-line bg-paper object-contain" />}
-                      <select
-                        className={`${inputClass} w-auto py-0.5 text-xs`}
-                        value={l.role}
-                        aria-label={`Parte ${i + 1}`}
-                        onChange={(e) =>
-                          set("puppet", { layers: member.puppet.layers.map((x, k) => (k === i ? { ...x, role: e.target.value as PuppetRole, pivot: null } : x)) })
-                        }
-                      >
-                        {PUPPET_ROLES.map((r) => (
-                          <option key={r} value={r}>
-                            {PUPPET_ROLE_LABEL[r]}
-                          </option>
-                        ))}
-                      </select>
+                      {seriesId && <LayerThumb url={libraryFileUrl(seriesId, l.file)} />}
+                      <div className="min-w-0 flex-1">
+                        <select
+                          className={`${inputClass} w-full py-0.5 text-xs`}
+                          value={l.role}
+                          aria-label={`Parte ${i + 1}`}
+                          onChange={(e) =>
+                            set("puppet", { layers: member.puppet.layers.map((x, k) => (k === i ? { ...x, role: e.target.value as PuppetRole, pivot: null } : x)) })
+                          }
+                        >
+                          {PUPPET_ROLES.map((r) => (
+                            <option key={r} value={r}>
+                              {PUPPET_ROLE_LABEL[r]}
+                            </option>
+                          ))}
+                        </select>
+                        {l.name && <p className="truncate text-[10px] text-muted">{l.name}</p>}
+                      </div>
                       <button
                         type="button"
                         className="text-xs font-semibold text-muted hover:text-neg"
@@ -216,31 +443,94 @@ function CastCard({
                   ))}
                 </ul>
               </div>
-              <label className={`inline-flex items-center gap-2 ${seriesId ? "" : "opacity-50"}`}>
-                <span className="rounded-lg border border-line bg-white px-2.5 py-1 font-semibold hover:border-ink">{busy ? "Subiendo…" : "Subir capas"}</span>
-                <input
-                  type="file"
-                  accept="image/png,image/webp"
-                  multiple
+              )}
+              <div className={`flex flex-wrap gap-2 ${seriesId ? "" : "opacity-50"}`}>
+                <Button
+                  type="button"
+                  className="px-3 py-1 text-xs"
                   disabled={!seriesId || busy}
-                  className="hidden"
-                  aria-label={`Subir capas del títere de ${member.name}`}
-                  onChange={async (e) => {
-                    const files = [...(e.target.files ?? [])];
-                    e.target.value = "";
-                    if (!files.length) return;
-                    setBusy(true);
-                    setError("");
-                    try {
-                      await onPuppetFiles(files);
-                    } catch (err) {
-                      setError(err instanceof Error ? err.message : String(err));
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                />
-              </label>
+                  onClick={() => openFilePicker(folderInput.current)}
+                >
+                  {busy ? "Trabajando…" : "Carpeta de Segmentos"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="px-3 py-1 text-xs"
+                  disabled={!seriesId || busy}
+                  onClick={() => openFilePicker(looseInput.current)}
+                >
+                  Partes sueltas
+                </Button>
+                {member.puppet.layers.length > 0 && !arranging && (
+                  <Button type="button" variant="secondary" className="px-3 py-1 text-xs" disabled={!seriesId || busy} onClick={() => setArranging(true)}>
+                    Armar a mano
+                  </Button>
+                )}
+              </div>
+              <input
+                ref={folderInput}
+                type="file"
+                accept="image/png,image/webp"
+                multiple
+                disabled={!seriesId || busy}
+                className="hidden"
+                aria-label={`Carpeta de segmentos de ${member.name}`}
+                onChange={(e) => {
+                  const files = [...(e.target.files ?? [])];
+                  e.target.value = "";
+                  if (files.length) void fromFolder(files);
+                }}
+              />
+              <input
+                ref={looseInput}
+                type="file"
+                accept="image/png,image/webp"
+                multiple
+                disabled={!seriesId || busy}
+                className="hidden"
+                aria-label={`Capas sueltas del títere de ${member.name}`}
+                onChange={(e) => {
+                  const files = [...(e.target.files ?? [])];
+                  e.target.value = "";
+                  if (!files.length) return;
+                  setBusy(true);
+                  setError("");
+                  setStatus("");
+                  setArranging(false);
+                  onPuppetFiles(files)
+                    .then(() => {
+                      // Loose crops do not say where they go: open the layout so the person puts them in place.
+                      setStatus("Partes agregadas. Ponelas en su lugar y guardá.");
+                      setArranging(true);
+                    })
+                    .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+                    .finally(() => setBusy(false));
+                }}
+              />
+              {figures.length > 1 && (
+                <div className="space-y-1">
+                  <p className="text-muted">Otras figuras enteras de la hoja. Tocá la de frente si no era la primera.</p>
+                  <div className="flex gap-2 overflow-x-auto">
+                    {figures.map((f) => (
+                      <button
+                        key={f.url}
+                        type="button"
+                        disabled={busy}
+                        className="w-16 shrink-0 text-left"
+                        onClick={() => void useFigure(f, false)}
+                      >
+                        <img src={f.url} alt="" className="h-20 w-full rounded border border-line bg-paper object-contain" />
+                        <span className="block truncate text-[10px] text-muted">{f.name.replace(/\.[a-z0-9]+$/i, "")}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <button type="button" className="text-xs font-semibold text-muted hover:text-ink" disabled={busy} onClick={() => void useFigure(figures[0], true)}>
+                    Usar {figures[0].name} entera, sin separar la cabeza
+                  </button>
+                </div>
+              )}
+              {status && <p className="text-muted">{status}</p>}
               {member.puppet.layers.length > 0 && !member.puppet.layers.some((l) => l.role === "head") && (
                 <p className="text-neg">Falta la cabeza: marcá qué capa es (sin cabeza no gira ni habla).</p>
               )}
@@ -334,12 +624,18 @@ function BrandSection({
   version,
   onChange,
   onLogo,
+  works,
+  onName,
+  onConfirm,
 }: {
   brand: Brand;
   seriesId: string | null;
   version: number;
   onChange: (brand: Brand) => void;
   onLogo: (file: File) => Promise<void>;
+  works: string;
+  onName: (name: string, tagline: string) => void;
+  onConfirm: (claim: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -401,7 +697,7 @@ function BrandSection({
             <label className="block text-xs">
               <span className="font-semibold">Fuente de títulos</span>
               <select className={`${inputClass} mt-0.5 py-1`} value={brand.displayFont} onChange={(e) => onChange({ ...brand, displayFont: e.target.value })}>
-                {DISPLAY_FONTS.map((f) => (
+                {[...new Set([...DISPLAY_FONTS, brand.displayFont])].map((f) => (
                   <option key={f}>{f}</option>
                 ))}
               </select>
@@ -409,7 +705,7 @@ function BrandSection({
             <label className="block text-xs">
               <span className="font-semibold">Fuente de interfaz</span>
               <select className={`${inputClass} mt-0.5 py-1`} value={brand.uiFont} onChange={(e) => onChange({ ...brand, uiFont: e.target.value })}>
-                {UI_FONTS.map((f) => (
+                {[...new Set([...UI_FONTS, brand.uiFont])].map((f) => (
                   <option key={f}>{f}</option>
                 ))}
               </select>
@@ -422,6 +718,9 @@ function BrandSection({
             <p style={{ fontFamily: `"${brand.uiFont}"`, fontSize: 13, opacity: 0.85 }}>Así se ven los títulos y el texto.</p>
           </div>
         </div>
+      </div>
+      <div className="mt-3">
+        <BrandFromWeb brand={brand} seriesId={seriesId} works={works} onBrand={onChange} onLogo={onLogo} onName={onName} onConfirm={onConfirm} />
       </div>
     </Field>
   );
@@ -557,11 +856,24 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
     await api.upsertCast(id, member);
     let current = member;
     for (const file of files) {
-      const { member: next } = await api.uploadPuppetLayer(id, member.id, current.puppet.layers.length, file, guessRole(file.name));
+      const { member: next } = await api.uploadPuppetLayer(id, member.id, current.puppet.layers.length, file, guessRole(file.name), file.name);
       current = { ...current, puppet: next.puppet };
       const updated = current;
       setFields((f) => (f ? { ...f, cast: f.cast.map((m) => (m.id === member.id ? updated : m)) } : f));
     }
+  }
+
+  async function memberPuppetReplace(member: CastMember, layers: { role: PuppetRole; name: string; png: string }[]) {
+    if (!id || !fields) return;
+    await api.upsertCast(id, member);
+    const { member: next } = await api.replacePuppet(id, member.id, layers);
+    setFields((f) => (f ? { ...f, cast: f.cast.map((m) => (m.id === member.id ? { ...m, puppet: next.puppet } : m)) } : f));
+    setVersion(Date.now());
+  }
+
+  // "Armar a mano" saved: the server's answer is the member's puppet now.
+  function memberPuppetArranged(next: CastMember) {
+    setFields((f) => (f ? { ...f, cast: f.cast.map((m) => (m.id === next.id ? { ...m, puppet: next.puppet } : m)) } : f));
   }
 
   async function memberRigFile(member: CastMember, file: File): Promise<CastMember> {
@@ -660,6 +972,9 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
           setVersion(Date.now());
           onLogoSaved?.(series);
         }}
+        works={works}
+        onName={(name, tagline) => setFields((f) => (f ? { ...f, name: name || f.name, tagline: tagline || f.tagline } : f))}
+        onConfirm={(claim) => setWorks((w) => (w.trim() ? `${w.replace(/\s+$/, "")}\n${claim}` : claim))}
       />
 
       {!music && <LookSection look={fields.look} onChange={(look) => set("look", look)} />}
@@ -711,7 +1026,9 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
                       onRemove={() => set("cast", fields.cast.filter((x) => x.id !== m.id))}
                       onImage={(file) => memberImage(m, file)}
                       onPuppetFiles={(files) => memberPuppetFiles(m, files)}
+                      onPuppetReplace={(layers) => memberPuppetReplace(m, layers)}
                       onPuppetRemove={(index) => memberPuppetRemove(m, index)}
+                      onPuppetArranged={(next) => memberPuppetArranged(next)}
                       onRigFile={(file) => memberRigFile(m, file)}
                     />
                   ))}
@@ -768,7 +1085,9 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
                     onRemove={() => set("cast", fields.cast.filter((x) => x.id !== m.id))}
                     onImage={(file) => memberImage(m, file)}
                     onPuppetFiles={(files) => memberPuppetFiles(m, files)}
+                    onPuppetReplace={(layers) => memberPuppetReplace(m, layers)}
                     onPuppetRemove={(index) => memberPuppetRemove(m, index)}
+                    onPuppetArranged={(next) => memberPuppetArranged(next)}
                     onRigFile={(file) => memberRigFile(m, file)}
                   />
                 ))}

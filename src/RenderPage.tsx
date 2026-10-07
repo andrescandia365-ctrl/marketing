@@ -2,7 +2,7 @@
 // fonts, voices and track, then exposes window.seek(t), which paints frame t at full size, and the finished mix.
 // Nothing here moves on its own: every frame comes from seek(t).
 import { useEffect, useRef, useState } from "react";
-import { newMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
+import { cutPush, newMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
 import type { Brief } from "../shared/schema.ts";
 import { api } from "./lib/api.ts";
 import { ensureFont } from "./lib/fonts.ts";
@@ -56,7 +56,7 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       const [images, media] = await Promise.all([loadSeriesImages(series), loadPieceMedia(projectId, piece, project.media, project.music)]);
       const script = piece.script!;
       const beats = motionBeats(script, piece.music, media.track?.buffer ?? null);
-      const scenes = arrangeScenes(script, beats, piece.snap !== false);
+      const scenes = arrangeScenes(script, beats, piece.snap !== false, piece.music, media.track?.buffer ?? null);
       const snapped = { ...script, scenes };
       const notice = piece.disclosure && usesAiImages(scenes, series);
       const speech = await speechLevels(snapped, piece, media.voices);
@@ -71,7 +71,7 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
         fps: 30,
         duration: scriptDuration(snapped),
         notice: notice ? world.disclosure : "",
-        poster: posterTime(scenes, piece.poster),
+        poster: posterTime(scenes, piece.poster, cutPush(script.tone)),
         seek,
         sound: async () => {
           const { buffer } = await motionSound(snapped, piece, beats, media.voices, media.track?.buffer ?? null);

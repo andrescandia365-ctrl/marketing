@@ -13,7 +13,7 @@ const EACH = 3.2;
 export function PuppetPreview({ seriesId, puppet }: { seriesId: string; puppet: Puppet }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [asset, setAsset] = useState<PuppetAsset | null>(null);
-  const files = puppet.layers.map((l) => `${l.file}:${l.role}:${l.pivot?.join(",") ?? ""}`).join("|");
+  const files = puppet.layers.map((l) => `${l.file}:${l.role}:${l.pivot?.join(",") ?? ""}:${l.place ? `${l.place.x},${l.place.y},${l.place.w}` : ""}`).join("|");
 
   useEffect(() => {
     let alive = true;
@@ -21,7 +21,7 @@ export function PuppetPreview({ seriesId, puppet }: { seriesId: string; puppet: 
     return () => {
       alive = false;
     };
-    // The layers' files and roles decide it.
+    // The layers' files, roles, turning points and places decide it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seriesId, files]);
 

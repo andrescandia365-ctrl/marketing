@@ -8,7 +8,8 @@ export const LYRIC_FONTS = ["sans", "serif", "display"] as const;
 export type LyricFont = (typeof LYRIC_FONTS)[number];
 export const LYRIC_FONT_LABEL: Record<LyricFont, string> = { sans: "Sans", serif: "Serif", display: "Display" };
 // Noto Sans JP/KR come after each font so Japanese and Korean always have glyphs.
-const CJK = `"Noto Sans JP", "Noto Sans KR", "Hiragino Sans", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
+// Noto Sans fills Latin gaps (Guaraní's ã, g̃) when the display face lacks them. JP/KR follow for those scripts.
+const CJK = `"Noto Sans", "Noto Sans JP", "Noto Sans KR", "Hiragino Sans", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
 export const LYRIC_FONT_FAMILY: Record<LyricFont, string> = {
   sans: `"IBM Plex Sans", ${CJK}`,
   serif: `"Fraunces", Georgia, "Noto Serif JP", ${CJK}`,
@@ -31,7 +32,7 @@ export const LyricStyleSchema = z.object({
   position: z.enum(["center", "lower"]),
   // The word being sung lights up.
   karaoke: z.boolean(),
-  entrance: z.enum(["fade", "slide", "pop"]),
+  entrance: z.enum(["cut", "slide", "rise", "wipe", "pop", "fade"]),
   // Words marked as key are drawn bigger, in the highlight colour.
   keywords: z.boolean(),
 });
@@ -65,6 +66,100 @@ export const LYRIC_LANGUAGE_LABEL: Record<LyricLanguage, string> = {
   auto: "Otro / mezcla",
 };
 
+// Where a translation of the second line can land. "auto" stays a source-lyric option only; "otro" is a language the
+// person types (`secondOther`).
+export const SECOND_LANGUAGES = ["es", "gn", "en", "pt", "ja", "ko", "fr", "it", "otro"] as const;
+export type SecondLanguage = (typeof SECOND_LANGUAGES)[number];
+export const SECOND_LANGUAGE_LABEL: Record<SecondLanguage, string> = {
+  es: "Español",
+  gn: "Guaraní",
+  en: "Inglés",
+  pt: "Portugués",
+  ja: "Japonés",
+  ko: "Coreano",
+  fr: "Francés",
+  it: "Italiano",
+  otro: "Otro…",
+};
+
+// Graphics on a lyric line. The app draws the motif; a pasted picture replaces it (same canvas, never cropped).
+export const LYRIC_MOTIFS = ["word", "circle", "ring", "star", "heart", "note", "diamond"] as const;
+export type LyricMotif = (typeof LYRIC_MOTIFS)[number];
+export const LYRIC_MOTIF_LABEL: Record<LyricMotif, string> = {
+  word: "Palabra",
+  circle: "Círculo",
+  ring: "Aro",
+  star: "Estrella",
+  heart: "Corazón",
+  note: "Nota",
+  diamond: "Rombo",
+};
+export const LYRIC_MOTIONS = ["enter", "pulse", "beat", "hold", "leave"] as const;
+export type LyricMotion = (typeof LYRIC_MOTIONS)[number];
+export const LYRIC_MOTION_LABEL: Record<LyricMotion, string> = {
+  enter: "Entra",
+  pulse: "Late",
+  beat: "Marca el beat",
+  hold: "Se queda",
+  leave: "Se va",
+};
+export const LYRIC_ENTRANCES = ["cut", "slide", "rise", "wipe", "pop", "fade"] as const;
+export type LyricEntrance = (typeof LYRIC_ENTRANCES)[number];
+export const LYRIC_ENTRANCE_LABEL: Record<LyricEntrance, string> = {
+  cut: "Corte",
+  slide: "Sube",
+  rise: "Empuje",
+  wipe: "Barrido",
+  pop: "Salta",
+  fade: "Fundido",
+};
+export const LYRIC_PLACES = ["top", "left", "right"] as const;
+export type LyricPlace = (typeof LYRIC_PLACES)[number];
+export const LYRIC_PLACE_LABEL: Record<LyricPlace, string> = {
+  top: "Arriba",
+  left: "Izquierda",
+  right: "Derecha",
+};
+// Project media slots for pasted pictures. Background clips use 0–7 and Grok's layers use 200+.
+export const LYRIC_ELEMENT_SLOT = 300;
+export const LYRIC_ELEMENT_SLOTS = 12;
+// How many graphics one lyric video can hold. The writer still proposes at most six.
+export const LYRIC_ELEMENT_MAX = 12;
+
+// One stretch of a code-drawn lyric video. The lyric stays on the word; the cut can sit on a downbeat.
+export const PLATE_LOOKS = ["type", "stack", "margin", "count", "stamp"] as const;
+export type PlateLook = (typeof PLATE_LOOKS)[number];
+export const PLATE_LOOK_LABEL: Record<PlateLook, string> = {
+  type: "La palabra",
+  stack: "La pila",
+  margin: "El margen",
+  count: "La cuenta",
+  stamp: "El sello",
+};
+
+export type LyricPlate = {
+  id: string;
+  title: string;
+  // Sung lines, inclusive, numbered from 0.
+  from: number;
+  to: number;
+  look: PlateLook;
+  // One concrete thing for the whole plate. It is part of the scene, and it leaves with the plate.
+  motif: string;
+};
+
+export type LyricElement = {
+  id: string;
+  label: string;
+  motif: LyricMotif;
+  motion: LyricMotion;
+  place: LyricPlace;
+  line: number;
+  seconds: number;
+  // 0 until a picture is pasted; then a slot at LYRIC_ELEMENT_SLOT or above.
+  slot: number;
+};
+
 export type LyricWord = { text: string; start: number; end: number; key: boolean; gap: boolean };
 export type LyricLine = {
   text: string;
@@ -85,7 +180,13 @@ export type LyricPiece = {
   text: string;
   // The romanization or translation as pasted, line by line with the lyrics.
   secondText: string;
+  // Language the translation button writes into.
+  secondLanguage: SecondLanguage;
+  // The language typed when secondLanguage is "otro".
+  secondOther: string;
   lines: LyricLine[];
+  // Graphics timed to a line. Empty on pieces saved before the Elementos tab.
+  elements: LyricElement[];
   synced: "none" | "auto" | "tap" | "lrc";
   style: LyricStyle;
   format: "vertical" | "horizontal";
@@ -99,6 +200,11 @@ export type LyricPiece = {
   aiBackground: boolean;
   // How many of Grok's layers the piece has (project media slots 200 + n), back to front.
   layers: number;
+  // Code-drawn plates. Empty on pieces saved before the Placas tab. Off until the person turns them on.
+  plates: LyricPlate[];
+  plateOn: boolean;
+  // The director's note for the next pass.
+  plateNote: string;
 };
 
 export function newLyricPiece(style: LyricStyle, format: "vertical" | "horizontal"): LyricPiece {
@@ -109,7 +215,10 @@ export function newLyricPiece(style: LyricStyle, format: "vertical" | "horizonta
     language: "es",
     text: "",
     secondText: "",
+    secondLanguage: "es",
+    secondOther: "",
     lines: [],
+    elements: [],
     synced: "none",
     style,
     format,
@@ -119,15 +228,63 @@ export function newLyricPiece(style: LyricStyle, format: "vertical" | "horizonta
     fullFrame: true,
     aiBackground: true,
     layers: 0,
+    plates: [],
+    plateOn: false,
+    plateNote: "",
   };
 }
 
-// Lyric lines without blanks or section labels like [Estribillo].
+// A section header as lyric sites write it: "Chorus (Hatsune Miku):", "Verse 2", "Estribillo:". Only the label, a
+// number and who sings it, so a sung line that starts with one of these words ("Bridge over the river") stays.
+const SECTION =
+  /^(?:pre-?|post-?)?(?:chorus|verse|bridge|refrain|interlude|intro|outro|hook|break|breakdown|drop|coda|instrumental|ad-?libs?|estribillo|coro|precoro|verso|estrofa|puente|interludio|introducci[oó]n|final|parte)(?:\s*\d+)?(?:\s*[-–]\s*[^:()]{1,30})?(?:\s*\([^)]*\))?\s*:?$/i;
+
+// Not sung: a blank line, a label like [Estribillo] or (repeated four times), or a section header like "Chorus:".
+function skipped(line: string): boolean {
+  return !line || /^\[[^\]]*\]$/.test(line) || /^\([^)]*\)$/.test(line) || SECTION.test(line);
+}
+
+// Lyric lines without blanks, labels or section headers.
 export function splitLyrics(text: string): string[] {
   return text
     .split("\n")
     .map((l) => l.trim())
-    .filter((l) => l && !/^\[[^\]]*\]$/.test(l) && !/^\([^)]*\)$/.test(l));
+    .filter((l) => !skipped(l));
+}
+
+// How many section headers ("Chorus (…):", "Verse 1") the lyrics have, so the studio can say it left them out.
+export function sectionHeaders(text: string): number {
+  return text.split("\n").filter((l) => SECTION.test(l.trim())).length;
+}
+
+export type LyricBlock = { title: string; lines: number[] };
+
+// Sung lines grouped by the section headers in the pasted lyrics. A header is not a sung line.
+export function lyricBlocks(text: string): LyricBlock[] {
+  const blocks: LyricBlock[] = [];
+  let sung = 0;
+  let current: LyricBlock | null = null;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (SECTION.test(line)) {
+      const title = line
+        .replace(/:\s*$/, "")
+        .replace(/\s*\([^)]*\)\s*$/, "")
+        .trim();
+      current = { title, lines: [] };
+      blocks.push(current);
+      continue;
+    }
+    if (skipped(line)) continue;
+    if (!current) {
+      current = { title: "", lines: [] };
+      blocks.push(current);
+    }
+    current.lines.push(sung);
+    sung += 1;
+  }
+  return blocks.filter((block) => block.lines.length > 0);
 }
 
 const NO_SPACES = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
@@ -348,6 +505,60 @@ export const SecondLinesSchema = z.object({
   lines: z.array(z.string()).describe("One per lyric line, in the same order; the same count as the lyrics."),
   note: z.string().describe("In Spanish: anything the person should check (readings, words with more than one meaning). Empty if none."),
 });
+
+// What the writer proposes for the Elementos tab. Motif and motion arrive as plain strings and are coerced.
+export const LyricElementsSchema = z.object({
+  elements: z
+    .array(
+      z.object({
+        label: z.string().describe("One to three words copied exactly from that lyric line."),
+        motif: z.string().describe("word, circle, ring, star, heart, note or diamond."),
+        motion: z.string().describe("enter, pulse, beat, hold or leave. beat hits the song's beats."),
+        place: z.string().describe("top, left or right."),
+        line: z.number().describe("Line number, from 0."),
+        seconds: z.number().describe("How long it stays, between 1.5 and 4."),
+      }),
+    )
+    .describe("Three to six graphics. Not every line."),
+  note: z.string().describe("One sentence in Spanish (Rioplatense) on why these."),
+});
+export type LyricElements = z.infer<typeof LyricElementsSchema>;
+
+function pick<T extends string>(value: string, allowed: readonly T[], fallback: T): T {
+  const v = value.trim().toLowerCase();
+  if ((allowed as readonly string[]).includes(v)) return v as T;
+  const word = allowed.find((a) => v.split(/[^a-z]+/).includes(a));
+  return word ?? fallback;
+}
+
+// Drops graphics that point at no line, and keeps at most six.
+export function cleanElements(raw: { elements: { label: string; motif: string; motion: string; place: string; line: number; seconds: number }[] }, lineCount: number): Omit<LyricElement, "id" | "slot">[] {
+  const out: Omit<LyricElement, "id" | "slot">[] = [];
+  for (const e of raw.elements ?? []) {
+    if (out.length >= 6) break;
+    const line = Math.round(e.line);
+    if (!Number.isFinite(line) || line < 0 || line >= lineCount) continue;
+    const seconds = Number.isFinite(e.seconds) ? Math.min(6, Math.max(0.8, e.seconds)) : 2.5;
+    const label = e.label.replace(/\s+/g, " ").trim().slice(0, 40);
+    out.push({
+      label: label || "texto",
+      motif: pick(e.motif, LYRIC_MOTIFS, "word"),
+      motion: pick(e.motion, LYRIC_MOTIONS, "enter"),
+      place: pick(e.place, LYRIC_PLACES, "top"),
+      line,
+      seconds,
+    });
+  }
+  return out;
+}
+
+// When a graphic is on screen: from the start of its line, for its own length.
+export function elementWindow(element: LyricElement, lines: { start: number }[]): { start: number; end: number } | null {
+  const line = lines[element.line];
+  if (!line || !Number.isFinite(line.start)) return null;
+  const seconds = Math.min(8, Math.max(0.4, element.seconds));
+  return { start: line.start, end: line.start + seconds };
+}
 
 export function cleanIdeas(ideas: LyricIdeas, fallback: LyricStyle): Pick<LyricStyle, "palette" | "mood"> {
   const palette = ideas.palette.filter((c) => /^#[0-9a-fA-F]{6}$/.test(c)).slice(0, 3);

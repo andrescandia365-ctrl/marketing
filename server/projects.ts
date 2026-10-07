@@ -3,6 +3,8 @@
 // can open, copy or back up the folder like any other; the app autosaves into it.
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { SKETCH_BASE } from "../shared/prompt.ts";
+import { storyCard, type RoomCard } from "../shared/room.ts";
 
 export const PROJECTS_DIR = resolve(process.env.PROJECTS_DIR || "proyectos");
 
@@ -185,6 +187,30 @@ export function getProject(id: string): Promise<ProjectFile> {
   return read(id);
 }
 
+// What earlier pieces of a series left on the writers' room board. The open piece is left out.
+export async function listRoom(seriesId: string, except = ""): Promise<RoomCard[]> {
+  let names: string[];
+  try {
+    names = await readdir(PROJECTS_DIR);
+  } catch {
+    return [];
+  }
+  const cards: RoomCard[] = [];
+  for (const name of names) {
+    if (!ID.test(name) || name === except) continue;
+    try {
+      const p = await read(name);
+      const state = p.state as { pieceBrief?: { series?: string }; story?: Parameters<typeof storyCard>[2] };
+      if (state.pieceBrief?.series !== seriesId) continue;
+      const card = storyCard(p.id, p.updatedAt, state.story);
+      if (card) cards.push(card);
+    } catch {
+      // A folder without a readable project.json is not a piece.
+    }
+  }
+  return cards.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
 export function saveState(id: string, state: Record<string, unknown>, markdown: string | undefined) {
   if (JSON.stringify(state).length > MAX_STATE) throw new ProjectError("El proyecto es demasiado grande para guardarlo.");
   return locked(id, async () => {
@@ -206,8 +232,11 @@ const SHEETS: Record<number, string> = {
   302: "portada-9x16",
   303: "portada-16x9",
 };
+// Storyboard sketches made with an image tool (the drawn storyboard's "Boceto con IA") live in image slots 400 + shot.
 const slot = (index: number, kind: MediaKind) =>
-  (kind === "image" && SHEETS[index]) || `toma-${String(index + 1).padStart(2, "0")}-${SLOT_NAME[kind]}`;
+  (kind === "image" && SHEETS[index]) ||
+  (kind === "image" && index >= SKETCH_BASE && index < SKETCH_BASE + 100 && `boceto-${String(index - SKETCH_BASE + 1).padStart(2, "0")}`) ||
+  `toma-${String(index + 1).padStart(2, "0")}-${SLOT_NAME[kind]}`;
 
 export function saveMedia(
   id: string,

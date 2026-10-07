@@ -1,5 +1,6 @@
 import type {
   Board,
+  BrandFromWeb,
   Brief,
   ImageReview,
   Menu,
@@ -17,8 +18,10 @@ import type {
 } from "../../shared/schema.ts";
 import type { MotionScript } from "../../shared/motion.ts";
 import type { MotionReview } from "../../shared/motionQuality.ts";
-import type { BackgroundPrompts, LyricLanguage, LyricLine, LyricStyle } from "../../shared/lyrics.ts";
-import type { CastMember, SeriesFields, TextStyle } from "../../shared/series.ts";
+import type { BackgroundPrompts, LyricElement, LyricLanguage, LyricLine, LyricPlate, LyricStyle, SecondLanguage } from "../../shared/lyrics.ts";
+import type { SyncDoc } from "../../shared/clock.ts";
+import type { Brand, CastMember, PuppetLayer, SeriesFields, TextStyle } from "../../shared/series.ts";
+import type { RoomCard } from "../../shared/room.ts";
 
 export type ProjectSummary = {
   id: string;
@@ -56,7 +59,7 @@ export const libraryFileUrl = (seriesId: string, file: string, version = 0) =>
   `/api/series/${enc(seriesId)}/files/${enc(file)}${version ? `?v=${version}` : ""}`;
 export const projectFileUrl = (id: string, file: string) => `/api/projects/${enc(id)}/files/${enc(file)}`;
 
-async function call<T>(path: string, body?: unknown, method?: "PUT" | "DELETE"): Promise<T> {
+async function call<T>(path: string, body?: unknown, method?: "PUT" | "PATCH" | "DELETE"): Promise<T> {
   const res = await fetch(path, {
     method: method ?? (body === undefined ? "GET" : "POST"),
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
@@ -72,9 +75,12 @@ type Demo = { demo: boolean };
 export const api = {
   status: () => call<Status>("/api/status"),
   menu: (brief: Brief) => call<Menu & Demo>("/api/menu", { brief }),
-  story: (brief: Brief, topics: TopicIdea[]) => call<{ story: Story } & Demo>("/api/story", { brief, topics }),
-  reviseStory: (brief: Brief, story: Story, note: string) =>
-    call<{ story: Story } & Demo>("/api/story/revise", { brief, story, note }),
+  room: (series: string, except = "") =>
+    call<{ cards: RoomCard[] }>(`/api/room?series=${encodeURIComponent(series)}&except=${encodeURIComponent(except)}`),
+  story: (brief: Brief, topics: TopicIdea[], note = "", projectId = "") =>
+    call<{ story: Story } & Demo>("/api/story", { brief, topics, note, projectId }),
+  reviseStory: (brief: Brief, story: Story, note: string, projectId = "") =>
+    call<{ story: Story } & Demo>("/api/story/revise", { brief, story, note, projectId }),
   board: (brief: Brief, story: Story) => call<{ board: Board } & Demo>("/api/board", { brief, story }),
   reviseBoard: (brief: Brief, story: Story, board: Board, note: string, shotNotes: { index: number; note: string }[]) =>
     call<{ board: Board } & Demo>("/api/board/revise", { brief, story, board, note, shotNotes }),
@@ -92,12 +98,17 @@ export const api = {
 
   upsertCast: (seriesId: string, member: CastMember) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(member.id)}`, member, "PUT"),
-  uploadPuppetLayer: (seriesId: string, castId: string, index: number, image: Blob, role: string) =>
+  uploadPuppetLayer: (seriesId: string, castId: string, index: number, image: Blob, role: string, name = "") =>
     upload<{ member: CastMember; series: SeriesInfo[] }>(
-      `/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}?role=${enc(role)}`,
+      `/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}?role=${enc(role)}&name=${enc(name)}`,
       image,
       image.type,
     ),
+  replacePuppet: (seriesId: string, castId: string, layers: { role: string; name: string; png: string }[]) =>
+    call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PUT"),
+  brandFromWeb: (url: string, series: string | null) => call<BrandFromWeb>("/api/brand/from-web", { url, series: series ?? undefined, own: true }),
+  arrangePuppet: (seriesId: string, castId: string, layers: Pick<PuppetLayer, "file" | "role" | "pivot" | "place">[]) =>
+    call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PATCH"),
   removePuppetLayer: (seriesId: string, castId: string, index: number) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}`, undefined, "DELETE"),
   uploadRig: (seriesId: string, castId: string, file: Blob) =>
@@ -165,6 +176,38 @@ export const api = {
   saveLyricStyle: (id: string, lyricStyle: LyricStyle) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${enc(id)}/lyric-style`, { lyricStyle }, "PUT"),
   // Automatic sync: the song is transcribed with word times and matched to the lines.
+  readClock: async (id: string) => {
+    const res = await fetch(`/api/projects/${enc(id)}/sync`);
+    if (res.status === 404) return null;
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    return data as { sync: SyncDoc; qa: string };
+  },
+  buildClock: async (
+    id: string,
+    input: { lyrics: string; moves: string; language: LyricLanguage; master: Blob | null; drums: Blob | null; vocals: Blob | null },
+  ) => {
+    const form = new FormData();
+    form.append("lyrics", input.lyrics);
+    form.append("moves", input.moves);
+    form.append("language", input.language);
+    form.append("fps", "24");
+    if (input.master) form.append("master", input.master, "master.wav");
+    if (input.drums) form.append("drums", input.drums, "drums.wav");
+    if (input.vocals) form.append("vocals", input.vocals, "vocals.wav");
+    const res = await fetch(`/api/projects/${enc(id)}/sync`, { method: "POST", body: form });
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    return data as { sync: SyncDoc; qa: string };
+  },
+  critiqueClock: (id: string, brand: Brand) =>
+    call<{
+      score: number;
+      passed: boolean;
+      worst: { t: number; problem: string; fix: string }[];
+      applied: SyncDoc;
+      qa: string;
+    }>(`/api/projects/${enc(id)}/sync/critique`, { brand }),
   syncLyrics: async (song: Blob, name: string, lines: string[], seconds: string[], language: LyricLanguage) => {
     const form = new FormData();
     form.append("audio", song, name);
@@ -181,8 +224,24 @@ export const api = {
       "/api/lyrics/ideas",
       { series, title, artist, lines },
     ),
-  secondLines: (series: string, lines: string[], mode: "romanize" | "translate") =>
-    call<{ lines: string[]; note: string } & Demo>("/api/lyrics/second", { series, lines, mode }),
+  secondLines: (series: string, lines: string[], mode: "romanize" | "translate", language: SecondLanguage = "es", other = "") =>
+    call<{ lines: string[]; note: string } & Demo>("/api/lyrics/second", { series, lines, mode, language, other }),
+  lyricElements: (series: string, title: string, artist: string, lines: string[]) =>
+    call<{ elements: Omit<LyricElement, "id" | "slot">[]; note: string } & Demo>("/api/lyrics/elements", {
+      series,
+      title,
+      artist,
+      lines,
+    }),
+  lyricPlates: (series: string, title: string, artist: string, lines: string[], note: string, plates: LyricPlate[]) =>
+    call<{ plates: LyricPlate[]; idea: string; note: string } & Demo>("/api/lyrics/plates", {
+      series,
+      title,
+      artist,
+      lines,
+      note,
+      plates,
+    }),
   lyricBackgrounds: (
     series: string,
     tool: string,

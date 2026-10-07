@@ -16,7 +16,8 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   Markdown to form fields and back); `tools/` holds one Markdown profile per image/video tool, read at startup; `images/` holds one file
   per image generator API; `demo.ts` is the sample output used when no model key is set. The writer is Claude
   (Anthropic SDK) or Kimi (`kimi.ts`, OpenAI-compatible Chat Completions, streamed, strict `json_schema` with a
-  JSON-mode fallback and one retry on a schema mismatch). The "Modelos" panel (`ModelsPanel`, `server/settings.ts`,
+  JSON-mode fallback and one retry on a schema mismatch; the schema also goes in the prompt, since some providers
+  ignore `json_schema`, and `<think>` blocks or a wrapper around the object are tolerated). The "Modelos" panel (`ModelsPanel`, `server/settings.ts`,
   `/api/settings/*`, localhost-only) picks the writer (Claude, Moonshot, NVIDIA, OpenRouter, or a legacy KIMI_BASE_URL
   gateway), an optional vision model for picture requests, Claude's effort, and saves keys to `.env` (mode 600;
   only the last 4 characters are ever sent back). Claude options follow the Models API capabilities (adaptive
@@ -25,7 +26,8 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   the browser autosaves into it. Each series has a type (software / e-commerce) and a fixed cast (characters,
   places, products, real screens) stored as JSON in its Markdown; approved images live in `biblioteca/<series>/`.
   `voice.ts` makes "Voz generada" with OpenAI's speech API (same `OPENAI_API_KEY`). `lyrics.ts` transcribes a
-  song with word times (OpenAI, whisper-1) for lyric videos.
+  song with word times (OpenAI, whisper-1) for lyric videos. `sync.ts` (with `shared/clock.ts`) writes the lyric
+  clock into `proyectos/<id>/sync/`: kick grid from the drums stem, word times from the vocal stem.
 - `src/` — React 19 + Tailwind v4 UI, all copy in Spanish (Rioplatense). `MenuPicker`, `StoryView`, `BoardView`
   and `ScriptView` are the steps. `lib/render.ts` plays each shot's uploaded clip (or still, or colour card), mixes
   the clips' sound, draws the speaker and line on top and encodes with WebCodecs via mediabunny; its `drawShot` also
@@ -47,15 +49,34 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   "Cómo se trabaja hoy": pains follow how people really work, never an invented habit) and board
   (issues); `shared/checks.ts` turns that into problems that block approval until fixed ("Arreglalo") or dismissed.
 - Every shot has a slate (`title`, `action`); its image prompt is one frozen moment, actions go in the video prompt.
+  The storyboard opens on "Bocetos": the app's pencil sketch of each shot (`lib/sketch.ts`, from its setups, the cast
+  kinds and the framing in its prompt; deterministic) or a sketch the person made with `sketchPrompt` and uploaded
+  (image slot `SKETCH_BASE` + shot, saved as boceto-NN).
 - A shot lists every setup in frame (`setups`, main first); a setup linked to the series cast has `castId` and is
   referenced in Grok as @ref. `kind` is single, transform (initial/middle/end frames) or screen (a real screenshot
   from the cast, never drawn by AI). `editFrom`/`editPrompt` reuse an earlier shot's image. Old saved boards go
   through `migrateBoard()`.
 - Series of type music make lyric videos instead of stories (`LyricStudio`): song + lyrics in any language
-  (Spanish, Guaraní, Japanese, Korean, romanized) with an optional second line (romanization or translation),
-  synced automatically (`alignLyrics` matches the transcription letter by letter) or by tapping, drawn by
-  `lib/lyricRender.ts` on an organic background or the piece's own photo/video. The person confirms the song's
+  (Spanish, Guaraní, Japanese, Korean, romanized) with an optional second line (romanization, or a translation
+  into Spanish, Guaraní, English, Portuguese, Japanese, Korean, French, Italian or a language the person types;
+  `piece.secondLanguage`/`secondOther`; section headers like "Chorus (X):" are skipped by `splitLyrics`), synced
+  automatically (`alignLyrics` matches the transcription letter by letter) or by tapping, drawn by `lib/lyricRender.ts`
+  on an organic background or the piece's own photo/video. After sync, the Elementos tab times up to six graphics to a
+  line (an app-drawn motif, or a pasted PNG, JPG or SVG rasterized with scripts removed, drawn whole). The person confirms the song's
   rights before rendering; the credit and the "Fondo hecho con IA" notice are on by default.
+  The Reloj tab is the timing contract on top of that renderer (`ClockPanel`, `POST /api/projects/:id/sync`).
+- Lyric and motion timing has two clocks and no third (`shared/clock.ts`, `shared/syncDraw.ts`). Cuts, clicks and
+  body accents sit on the kick, measured on the drums stem only (low-pass ~150 Hz, hat onsets dropped). If Demucs
+  and a drums stem are both missing, the clock stops: it never reads peaks off the master. Lyrics sit on the word,
+  aligned on the vocal stem (WhisperX, stable-ts, or whisper-1 on that stem), and are never snapped to the beat.
+  A missing vocal time stays missing. Dance is written onto the kick, not extracted from audio or a pose detector.
+  Every frame of the mute preview is a pure function of t (`drawSyncFrame`: no timers, no Math.random, no state
+  between frames). Colour and type come from the series brand. Banned default: centred text, a gradient, a fade-in,
+  an end logo. A big cut lands on a downbeat. An accent lands on a kick. Before a shot is accepted, critique
+  (`POST .../sync/critique`, or `npx tsx server/clock-cli.ts critique --project ID`) renders a contact sheet
+  (start, middle, end, and 12 frames on the hit), names the worst problems and applies one pass. A failed pass
+  is not "nothing to fix". It is not done while the lyric gate is short of N/N or a hit sits outside one frame.
+  `findBeats` on the master stays the story-cut helper only.
 - Realism: a series can have a `look` (camera, flash, grain, focus, light, flaws) that goes into every prompt; prompts
   ask for flaws, never "cinematic" (`polishWords` warns). Cast members can carry a reference `sheet` (character girl/boy,
   always invented adults, or a six-panel place) written by `/api/sheet`. With `brief.takes = "continuous"` each shot is
@@ -82,13 +103,26 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   portada-*.jpg). `readingIssues` blocks rendering when a line stays on screen less than ~0.3 s per word. Effects
   come from `public/sfx` (CC0, credited in CREDITOS.md) or are synthesized; `soundHits` puts them at the start of
   each motion, first and last of a sequence only. The `type` template types the title into a field with key sounds.
-  3D-look characters are cut-out puppets (`src/lib/puppet.ts`): a cast character's `puppet.layers` (Grok Segments PNGs
-  of one picture, same canvas, roles body/head/armL/armR/mouth/eyes/extra; pivots found from the alpha box) or its
-  image as one piece. The `character` template poses it as a pure function of time (breath, seeded blink, gesture
+  The script's `tone` (from brief.tone) sets the cut (`cutPush`: dry hard cut, warm 0.38 s push, absurdist 0.2 s),
+  the effects (dry: no whoosh or pops) and the music bed (`TONE_BED`); its `caption` is the share text. The cuts into
+  the product and the logo go to `strongBeats` (the synth's bar starts, or the track's hardest low-end onsets) only
+  when `readingIssues` and `quietGaps` do not get worse. "Traer la marca desde su web" (`server/brandWeb.ts`,
+  `/api/brand/from-web`, localhost-only, public addresses only, checked on every redirect) proposes the brand kit;
+  page claims stay [VERIFY] until the person confirms them into "Lo que existe hoy".
+  3D-look characters are cut-out puppets (`src/lib/puppet.ts`): a cast character's `puppet.layers` (roles
+  body/head/armL/armR/mouth/eyes/extra; Carpeta de Segmentos splits the front figure into head and body on one canvas)
+  or its image as one piece. Grok's Segments crops each part to its own size, so a loose part has a `place` (x, y, w on
+  the body's canvas) set in "Armar a mano" (`PuppetArranger`, PATCH .../puppet) or a starting place by role
+  (`layerRects`); pivots come from the alpha box or are dragged. The `character` template poses it as a pure function of time (breath, seeded blink, gesture
   present/wave/point/cheer/surprise, mouth from `speechLevels` of the voice file or the line's rhythm). The sheet
   template "puppet" (`/api/sheet`) writes the 3D-look sheet and the "Para el títere" view; never a known character.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
-  a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Voices
+  a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Per shot,
+  `audio.clipSound` (dialogue/ambient/effects + what is heard) rewrites the video prompt's "Audio:" line only when the
+  person set it (`clipPrompt`; never music), and `audio.clipLevel` (full/low/mute) sets the clip's own sound in the
+  render. A narration made outside (ElevenLabs) comes in as one file (`NarrationImport`, `lib/narration.ts`): cut by
+  the words (whisper-1 via /api/lyrics/sync) or by the pauses, each cut on the quietest frame, one part per shot or
+  scene. `brief.narrator = "without"`: no narrator role in the story (a story check blocks it) and no explainer voice. Voices
   and sound effects are per-shot project media; one music track per piece ducks under speech and can pull the
   cuts onto its beats (`findBeats`/`alignCuts` in render.ts). Subtitles always stay.
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.
@@ -101,5 +135,7 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
 ## Commands
 - `npm run dev` — API on 8787 + Vite on 5173 (proxied `/api`).
 - `npm run typecheck`, `npm run build`, `npm start`.
+- `npx tsx server/clock-check.ts` — lyric clock harness (kick grid, lyric gate, frames 100 and 400).
+- `npx tsx server/clock-cli.ts sync|critique --project ID` — write or critique `proyectos/<id>/sync/`.
 
 @PLAYBOOK.md

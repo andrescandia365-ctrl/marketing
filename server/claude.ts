@@ -4,6 +4,7 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import {
   BoardWireSchema,
+  BrandSuggestionSchema,
   ImageReviewSchema,
   MenuSchema,
   ProductShotSchema,
@@ -25,11 +26,23 @@ import {
   type Shot,
   type Story,
   type TopicIdea,
+  type BrandSuggestion,
 } from "../shared/schema.ts";
 import { EMPTY_BRIEF } from "../shared/example.ts";
+import type { SiteFacts } from "./brandWeb.ts";
 import { MotionScriptSchema, normalizeMotion, type MotionScript } from "../shared/motion.ts";
 import { MotionReviewSchema, normalizeReview, type MotionReview } from "../shared/motionQuality.ts";
-import { BackgroundPromptsSchema, LyricIdeasSchema, SecondLinesSchema, type BackgroundPrompts, type LyricIdeas } from "../shared/lyrics.ts";
+import {
+  BackgroundPromptsSchema,
+  LyricElementsSchema,
+  LyricIdeasSchema,
+  SecondLinesSchema,
+  type BackgroundPrompts,
+  type LyricElements,
+  type LyricIdeas,
+  type SecondLanguage,
+} from "../shared/lyrics.ts";
+import { LyricPlatesSchema, type LyricPlatesDraft } from "../shared/plates.ts";
 import { LENGTHS } from "../shared/template.ts";
 import { CAST, PRACTICES, WORKS_TODAY } from "../shared/series.ts";
 import { getSeries } from "./series.ts";
@@ -179,6 +192,9 @@ function describeBrief(brief: Brief): string {
     `Picture format: ${brief.format === "vertical" ? "vertical 9:16" : "horizontal 16:9"}`,
     `Real screens this piece may show (screen shots): ${screensFor(brief)}`,
     `Takes: ${brief.takes === "continuous" ? "CONTINUOUS — 15 s handheld takes, each a scene with timed beats (see the continuous-take rules)" : "one line per shot (6, 10 or 15 s)"}`,
+    brief.narrator === "without"
+      ? "Narrator: NONE. No character has the narrator role and nobody speaks from outside the scene. The characters' own words, what they do, and the text on screen carry the whole piece; every beat must be clear without a narrator. A shot may have no line at all (action only)."
+      : "Narrator: allowed (the narrator role may speak when it helps).",
   ];
   return lines.map((l) => `- ${l}`).join("\n");
 }
@@ -303,7 +319,7 @@ Propose six topic ideas for this piece, each built on a different concrete pain 
 }
 
 // Step 2: the story, written as a Good-vs-Bad script with topics, bridges and callbacks.
-export async function writeStory(brief: Brief, topics: TopicIdea[]): Promise<Story> {
+export async function writeStory(brief: Brief, topics: TopicIdea[], room = "", askNote = ""): Promise<Story> {
   const len = LENGTHS[brief.length];
   return normalizeStory(
     await ask(
@@ -317,13 +333,18 @@ ${ideasText(topics)}
 
 Write the story. Its problem is the chosen topic's problem (for several topics, the one problem they share). Cast the Good, the Bad (named and personified for this piece) and any human characters. Each topic gets a concrete bridge in and its lines in Negative → Touching → Good order, with the Negative escalating in three beats and one sincere Touching line. Plant callbacks and pay them off; the last line calls back to the first. Give every line its emotion: how it is said, not just the words. Spoken lines should add up to ${len.min}–${len.max} seconds at about 2.5 words per second.
 
+${ROOM_CRAFT}
+${brief.length === "episode" ? "This is an episode: give it a runner." : "This is a short: a runner is optional."}
+${room ? `Writers' room. Other saved pieces of this series; the audience already lived them. Pay a hanging tease or an open loop only when it serves this episode's problem. Do not repeat a runner already used. Treat canon as already true.\n${room}` : "No earlier piece of this series is saved."}
+${askNote ? `The room asked this episode to do this, without dropping the episode's own problem: "${askNote}"` : ""}
+
 ${STORY_CHECKS}`,
       StoryWireSchema,
     ),
   );
 }
 
-export async function reviseStory(brief: Brief, story: Story, note: string): Promise<Story> {
+export async function reviseStory(brief: Brief, story: Story, note: string, room = ""): Promise<Story> {
   return normalizeStory(
     await ask(
       brief,
@@ -334,19 +355,27 @@ ${describeBrief(brief)}
 The current draft:
 ${JSON.stringify(story, null, 2)}
 
+${room ? `Writers' room, other saved pieces. Do not contradict canon and do not repeat a runner already used.\n${room}\n` : ""}
 The director's notes on this draft: "${note}"
 
-Rewrite the story to answer the notes. Keep everything the notes don't touch; don't add what they don't ask for.
+Rewrite the story to answer the notes. Keep everything the notes don't touch; don't add what they don't ask for. If the notes ask you to pick up a tease or an open loop, do that. Keep the runner's three landings unless the notes change them. If the draft has an empty runner and the notes don't forbid one, you may add one.
 
+${ROOM_CRAFT}
 ${STORY_CHECKS}`,
       StoryWireSchema,
     ),
   );
 }
 
+// What a writers' room keeps across episodes, on top of the callbacks inside this one.
+const ROOM_CRAFT = `Like a series writers' room, also fill:
+- runner: one concrete bit (an object, a short phrase or a gesture) that lands in the opening, again in the middle and in the tag. Each landing changes the bit. open, middle and tag each quote, inside «», a few words that are spoken in a line, and the three quotes are different.
+- tease: one concrete thing left hanging for a later episode, or an empty string if this piece should close clean. Do not put the tease in loops and do not pay it off here.
+- canon: up to three facts this episode makes true for later episodes (an object, a relationship, a rule of the place). Not a product claim. Empty if the world did not change.`;
+
 // The checks the writer runs on its own story; the app blocks approval on any that fail.
 const STORY_CHECKS = `Then check the story like a strict critic who did not write it. A pass you cannot point to in the text is a fail.
-- checklist: Gancho (the first 3 seconds stop the scroll with a concrete pain or a question), Retención (open questions and tension keep people watching; the escalation grows), Recompensa (every open loop pays off), Bueno contra Malo, Momento emotivo, Detalle concreto, Puentes, Callbacks, Continuidad (each line follows from the one before), Lo que existe hoy, El chiste es el problema.
+- checklist: Gancho (the first 3 seconds stop the scroll with a concrete pain or a question), Retención (open questions and tension keep people watching; the escalation grows), Recompensa (every open loop pays off), Bueno contra Malo, Momento emotivo, Detalle concreto, Puentes, Callbacks, Continuidad (each line follows from the one before), Lo que existe hoy, El chiste es el problema. The runner's three «quotes» are three different phrases, each one said in the story. The tease is not listed as a loop.
 - loops: every open loop (the hook's question, each tension, each planted callback), where it opens and where it pays off. One that never pays off is not closed.
 - seriesLoop: walk the series loop from the bible step by step: does the piece show it, and if so, does it show the pain, the step doing its job and the result?
 - claims: everything the brand or product is shown doing, each checked against "${WORKS_TODAY}". A thing that is not on the list is only allowed as a clearly labelled concept; the same goes for anything that could break a law or the brand's rules (for example, selling an expired product).
@@ -366,6 +395,7 @@ const BOARD_RULES = `Shot rules:
 - The spoken lines and captions are added on top later, so video prompts never ask anyone to speak or sing, and ask for no music (continuous takes are the exception: their dialogue is spoken in the clip).
 - Continuous takes, only when the brief asks for them: each shot is ONE continuous handheld take of exactly 15 s, holding the consecutive lines of one scene (one topic or part of it), kind "single". speaker is the first one who speaks and voiceover all its lines in order. timeline lists every beat from 0 to 15 s: who speaks, the exact line, its emotion, and what the bodies and the camera do, including real camera mistakes (a pan that arrives late and clips a face, autofocus hunting, auto-exposure rolling between inside and outside, a laugh that shakes the frame). visualPrompt is the hero still, frame 0 of the take: exact camera, exact flaws, exact light, everyone in place. videoPrompt is the director's prompt: first a reference map (the initial frame = the hero still; each character = its cast @ref; the place = its cast @ref, environment only; "these images are law"), then "one continuous handheld take, no cuts", then the timed spine with emotion and camera mistakes, then the hard rules: skin never smooth (visible pores, freckles, peach fuzz); grain the whole time; no stabilization, no grade, no music, no text, no digital zoom, no punch-in, no slow motion; brightness changes only from auto-exposure, the light never changes; each line spoken once, exactly as written, in Rioplatense Spanish, with the emotion given; raw phone-mic audio (room tone, handling noise, no denoising). One-line shots have an empty timeline.
 - disclosure: "concept" or "simulation" for anything the brand is shown doing that is not in the series' "${WORKS_TODAY}" list.
+- If the story has a runner, three shots show it: the opening landing, the changed middle landing and the tag. Do not pay the tease off on this board.
 - issues: after writing the board, check it like a strict critic: a shot whose action does not follow the previous one (continuity), the brand shown doing something not on its list without a label (reality), people working in a way the series' "${PRACTICES}" list and the brief don't confirm (practice), an image prompt with more than one moment (image), an open loop never paid off (loop). List every problem you still see; empty only if there are none.`;
 
 // Step 3: the storyboard.
@@ -479,14 +509,81 @@ Suggest the background's three colours and pace from the song's feeling, and the
   );
 }
 
-// The smaller line under each lyric line: its romanization or a Spanish translation.
-export async function secondLines(series: string, lines: string[], mode: "romanize" | "translate"): Promise<{ lines: string[]; note: string }> {
+const TRANSLATE_INTO: Record<Exclude<SecondLanguage, "otro">, string> = {
+  es: "Spanish (Rioplatense), singable and plain",
+  gn: "Guaraní as spoken in Paraguay, in the Guaraní alphabet (tilde on nasal vowels ã ẽ ĩ õ ũ ỹ, and g̃). Plain enough to sing under the line",
+  en: "plain English",
+  pt: "Brazilian Portuguese, plain and singable",
+  ja: "natural Japanese",
+  ko: "natural Korean",
+  fr: "plain French",
+  it: "plain Italian",
+};
+
+// The smaller line under each lyric line: its romanization, or a translation into the language asked for ("otro":
+// the one the person typed).
+export async function secondLines(
+  series: string,
+  lines: string[],
+  mode: "romanize" | "translate",
+  language: SecondLanguage = "es",
+  other = "",
+): Promise<{ lines: string[]; note: string }> {
+  const into = language === "otro" ? other.trim() || "Spanish" : TRANSLATE_INTO[language];
   const task =
     mode === "romanize"
       ? "Romanize each line: Japanese in Hepburn romaji (spaces between words), Korean in Revised Romanization, anything already in Latin letters (Spanish, Guaraní…) copied as is. Keep the meaning out; only the sound."
-      : "Translate each line into Spanish (Rioplatense), singable and plain, keeping the feeling. A line already in Spanish is copied as is.";
+      : `Translate each line into ${into}. A line already in that language is copied unchanged. Keep names and the feeling. One line per lyric line, in the same order. In the note, in Spanish, name the lines you are least sure of.`;
   const result = await ask(lyricBrief(series), false, `Song lyrics, numbered from 0:\n${numbered(lines)}\n\n${task}`, SecondLinesSchema);
   return { lines: lines.map((_, i) => result.lines[i] ?? ""), note: result.note };
+}
+
+// A few graphics timed to lyric lines. The app draws the motif; the person can paste a picture later.
+export function lyricElements(series: string, title: string, artist: string, lines: string[]): Promise<LyricElements> {
+  return ask(
+    lyricBrief(series),
+    false,
+    `This is a lyric video. The app draws a few simple graphics over the moving background, each timed to one lyric line. It can draw only these motifs: word, circle, ring, star, heart, note. Motions: enter (it arrives), pulse (it beats in place), hold (it stays still), leave (it drifts away). Places: top, left, right. Do not describe scenes, people, cameras or HTML. No show names, no real people.
+
+Song: "${title || "sin título"}"${artist ? ` by ${artist}` : ""}. Lines may be in any language. Lines, numbered from 0:
+${numbered(lines)}
+
+Propose 3 to 6 graphics. For each: the line number, a label of one to three words copied exactly from that line, a motif, a motion, a place (vary the places), and seconds between 1.5 and 4. Not every line needs one.`,
+    LyricElementsSchema,
+  );
+}
+
+// The director's pass: plates for a code-drawn lyric video. Not a finished frame, and not one picture per line.
+export function lyricPlates(
+  series: string,
+  title: string,
+  artist: string,
+  lines: string[],
+  note: string,
+  current: { title: string; from: number; to: number; look: string; motif: string }[],
+): Promise<LyricPlatesDraft> {
+  return ask(
+    lyricBrief(series),
+    false,
+    `Plan the plates of a code-drawn music video. You are directing the edit. The app draws each plate: flat colours already chosen, maximalist type, the lyric lighting up on the sung word. You do not write shaders, prompts or image descriptions.
+
+Constraints:
+- One motif per plate: a concrete thing, two or three words. It lives inside that plate and leaves with it. Not a readout that stays on screen for the whole song.
+- Do not illustrate every line. A plate holds several lines and one idea.
+- Choruses that repeat share a motif and change it: bigger, broken, or later.
+- Cover every line from 0 to ${lines.length - 1} exactly once, in order, no gaps, no overlaps.
+- A plate is 2 to 6 lines. A one-line intro is allowed. At most 8 plates.
+- look is one of: type (one huge word), stack (the lines piled, a rule that fills as words are sung), margin (the line on one side, a giant letter of the motif on the other), count (a number of words sung so far, as the scene), stamp (the motif stamped across the frame, the line over a flat bar).
+- Titles and motifs in the language of the lyrics. idea and note in Rioplatense Spanish.
+- If the person wrote a note, follow it. Keep a plate they did not ask to change.
+
+Song: "${title || "sin título"}"${artist ? ` by ${artist}` : ""}. Lines, numbered from 0:
+${numbered(lines)}
+
+The person's note: ${note.trim() || "(none)"}
+Plates already there: ${current.length ? current.map((plate) => `${plate.from}-${plate.to} ${plate.look} “${plate.motif}” (${plate.title})`).join(" | ") : "(none)"}`,
+    LyricPlatesSchema,
+  );
 }
 
 // Background clips for a lyric video, written for the image/video tool the person uses (its profile goes along).
@@ -612,7 +709,7 @@ export async function motionScript(brief: Brief, target: number | null, layers: 
   const cast = (series?.cast ?? [])
     .map((m) => `- ${m.id} (${m.kind}${m.image ? ", has image" : ", no image yet"}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}): ${m.name}. ${m.identity}`)
     .join("\n");
-  return normalizeMotion(
+  const motion = normalizeMotion(
     await ask(
       brief,
       false,
@@ -636,11 +733,46 @@ The studio's rules:
 - Voice lines in Rioplatense Spanish, each with its emotion, fitting its scene at about 2.5 words per second.
 - A character from the cast (a 3D puppet, or one with an image) can host with the character template: it says its scene's voice line (its mouth moves), makes one gesture (presenta, saluda, señala, festeja, se sorprende) and can point at or present a real screen or the product (assetB). Use it once or twice, to guide, never to replace showing the product.
 - The last scene is the logo with a soft call to action.
-- music: a mood (calm, drive or bright) and a tempo for the synthesized score.`,
+${brief.narrator === "without" ? "- No narrator: leave every scene's voice and emotion empty. Titles, labels, the typed text and the product in use carry the meaning; keep it readable without a voice.\n" : ""}- Pace for the brief's comic voice (${brief.tone}): ${TONE_PACE[brief.tone]}
+- The product and the logo are the big moments: they land on the music's strongest hits (the app moves their cuts there).
+- music: a mood (calm, drive or bright) and a tempo for the synthesized score.
+- caption: the text to post with the video, 1 to 3 sentences in the piece's tone, about this problem in its own words; never "excited to share" or generic SaaS language; nothing unverified without [VERIFY].`,
       MotionScriptSchema,
     ),
   );
+  return { ...motion, tone: brief.tone };
 }
+
+// "Traer la marca desde su web": the writer reads what the page uses and says, and proposes the brand kit.
+export function brandFromSite(facts: SiteFacts, seriesId: string): Promise<BrandSuggestion> {
+  return ask(
+    { ...EMPTY_BRIEF, series: seriesId },
+    false,
+    `This is the brand's own web page, read by the app (its colours and fonts come from its styles, most used first).
+
+Address: ${facts.url}
+Title: ${facts.title}
+Site name: ${facts.siteName || "(none)"}
+Description: ${facts.description || "(none)"}
+Theme colour: ${facts.themeColor || "(none)"}
+Colours: ${facts.colors.map((c) => `${c.hex}×${c.count}`).join(", ") || "(none found)"}
+Font families in its styles: ${facts.fonts.map((f) => `${f.family}×${f.count}`).join(", ") || "(none found)"}
+Google Fonts it loads: ${facts.googleFonts.join(", ") || "(none)"}
+Logo candidates: ${facts.logos.map((l, i) => `${i}. ${l.kind} ${l.url}`).join(" | ") || "(none)"}
+What the page says:
+${facts.text || "(no text found)"}
+
+Propose the brand kit for the series' motion graphics: a background, a text colour and ONE accent, taken from the page's colours (the most used light or dark one for the background; the brand's signature colour as the accent, never a grey); two Google Fonts families; the logo candidate that is really the logo. Then list what the page says the product does, as short plain claims: they will be marked [VERIFY] until the person confirms each one, so never add anything the page does not say.`,
+    BrandSuggestionSchema,
+  );
+}
+
+// Voice → pacing (PLAYBOOK §3.1): how many scenes, how long they hold, how they change and how much sounds.
+const TONE_PACE: Record<Brief["tone"], string> = {
+  dry: "3 to 5 scenes, one claim each, long holds and empty space; scenes change with hard cuts; very few sounds (the product and the logo). Played straight, never winking.",
+  warm: "4 to 5 scenes at a comfortable rhythm; soft pushes between scenes; a few gentle sounds, a soft one on the logo.",
+  absurdist: "6 to 8 scenes, some under 2 seconds; hard, fast changes; one comic accent at a time. The scale can be big, the claims stay what the brand does today.",
+};
 
 // The quality loop: the reviewer looks at the contact sheet(s) and the app's measurements, scores six things from 1
 // to 10 and turns the three worst problems into edits of the script.

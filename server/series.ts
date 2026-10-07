@@ -10,6 +10,7 @@ import {
   seriesId,
   seriesToMarkdown,
   type CastMember,
+  type PuppetPlace,
   type PuppetRole,
   type SeriesFields,
   type TextStyle,
@@ -139,7 +140,20 @@ export function setCastImage(id: string, castId: string, data: Buffer, type: str
 
 // A puppet layer (characters only): a transparent PNG or WebP from Grok's Segments, saved as <castId>-p<n>.<ext>.
 // Index n replaces that layer; one past the end adds one.
-export function setPuppetLayer(id: string, castId: string, index: number, data: Buffer, type: string, role: PuppetRole): CastMember {
+function puppetFile(castId: string, index: number, ext: string): string {
+  // A new name each time, so the browser never shows an old part from its cache.
+  return `${castId.slice(0, 30)}-p${index}-${Date.now().toString(36)}.${ext}`;
+}
+
+export function setPuppetLayer(
+  id: string,
+  castId: string,
+  index: number,
+  data: Buffer,
+  type: string,
+  role: PuppetRole,
+  name = "",
+): CastMember {
   const fields = getSeriesFields(id);
   const member = fields.cast.find((m) => m.id === castId);
   if (!member) throw new SeriesError("Ese integrante del elenco no existe.");
@@ -150,13 +164,57 @@ export function setPuppetLayer(id: string, castId: string, index: number, data: 
   if (!Number.isInteger(index) || index < 0 || index > layers.length || index >= 12) throw new SeriesError("Esa parte no existe.");
   const dir = join(LIBRARY_DIR, id);
   mkdirSync(dir, { recursive: true });
-  // A new name each time, so the browser never shows an old part from its cache.
-  const file = `${castId.slice(0, 30)}-p${index}-${Date.now().toString(36)}.${ext}`;
+  const file = puppetFile(castId, index, ext);
   const old = layers[index]?.file;
   writeFileSync(join(dir, file), data);
   if (old) rmSync(join(dir, old), { force: true });
-  layers[index] = { file, role, pivot: null };
+  layers[index] = { file, role, pivot: null, name: name.slice(0, 80), place: null };
   member.puppet = { layers };
+  saveSeries(id, fields);
+  return member;
+}
+
+// Replaces every part in one write. Used when the app builds the puppet from a Grok folder, so a
+// half-uploaded set never stays behind and the file is saved once.
+export function replacePuppetLayers(
+  id: string,
+  castId: string,
+  parts: { data: Buffer; role: PuppetRole; name: string }[],
+): CastMember {
+  const fields = getSeriesFields(id);
+  const member = fields.cast.find((m) => m.id === castId);
+  if (!member) throw new SeriesError("Ese integrante del elenco no existe.");
+  if (member.kind !== "character") throw new SeriesError("Solo los personajes tienen títere.");
+  if (!parts.length || parts.length > 12) throw new SeriesError("El títere lleva entre 1 y 12 partes.");
+  const dir = join(LIBRARY_DIR, id);
+  mkdirSync(dir, { recursive: true });
+  for (const old of member.puppet.layers) rmSync(join(dir, old.file), { force: true });
+  const layers = parts.map((part, index) => {
+    if (part.data.length < 8 || part.data[0] !== 0x89) throw new SeriesError("La capa no es un PNG.");
+    const file = puppetFile(castId, index, "png");
+    writeFileSync(join(dir, file), part.data);
+    return { file, role: part.role, pivot: null, name: part.name.slice(0, 80), place: null };
+  });
+  member.puppet = { layers };
+  saveSeries(id, fields);
+  return member;
+}
+
+// "Armar a mano": where each existing part sits, what it is and where it turns. The files stay the server's: the list
+// has to name the same parts, in the same order (nothing is added or dropped here).
+export function arrangePuppet(
+  id: string,
+  castId: string,
+  layers: { file: string; role: PuppetRole; pivot: [number, number] | null; place: PuppetPlace | null }[],
+): CastMember {
+  const fields = getSeriesFields(id);
+  const member = fields.cast.find((m) => m.id === castId);
+  if (!member) throw new SeriesError("Ese integrante del elenco no existe.");
+  const now = member.puppet.layers;
+  if (layers.length !== now.length || layers.some((l, i) => l.file !== now[i].file)) {
+    throw new SeriesError("Las partes del títere cambiaron mientras lo armabas. Volvé a abrir Armar a mano.");
+  }
+  member.puppet = { layers: now.map((l, i) => ({ ...l, role: layers[i].role, pivot: layers[i].pivot, place: layers[i].place })) };
   saveSeries(id, fields);
   return member;
 }

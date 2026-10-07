@@ -21,6 +21,8 @@ export type SoundPlan = {
   effects: "library" | "synth" | "none";
   // The library's sounds by kind (loaded by motionProject.ts); a kind without one is synthesized.
   samples?: Partial<Record<HitKind, AudioBuffer[]>>;
+  // The music bed's level against the voice and effects (the tone's: lower for a dry piece). 1 when missing.
+  bed?: number;
 };
 
 export type HitKind = "whoosh" | "pop" | "reveal" | "logo" | "tap" | "key";
@@ -290,7 +292,8 @@ export async function buildSound(plan: SoundPlan): Promise<{ buffer: AudioBuffer
   const music = ctx.createGain();
   const sfx = ctx.createGain();
   const voice = ctx.createGain();
-  music.gain.value = plan.music === "track" ? 0.8 : 0.55;
+  const bedLevel = (plan.music === "track" ? 0.8 : 0.55) * (plan.bed ?? 1);
+  music.gain.value = bedLevel;
   sfx.gain.value = 0.55;
   voice.gain.value = 1;
   for (const bus of [music, sfx, voice]) bus.connect(ctx.destination);
@@ -301,7 +304,7 @@ export async function buildSound(plan: SoundPlan): Promise<{ buffer: AudioBuffer
     src.buffer = plan.track;
     src.connect(music);
     src.start(0, 0, plan.duration);
-    music.gain.setValueAtTime(0.8, Math.max(0, plan.duration - 1.5));
+    music.gain.setValueAtTime(bedLevel, Math.max(0, plan.duration - 1.5));
     music.gain.linearRampToValueAtTime(0, plan.duration);
   }
   addHits(ctx, sfx, plan);
@@ -313,7 +316,7 @@ export async function buildSound(plan: SoundPlan): Promise<{ buffer: AudioBuffer
     src.start(v.at);
     const end = v.at + v.buffer.duration;
     music.gain.setTargetAtTime(music.gain.value * 0.32, Math.max(0, v.at - 0.12), 0.05);
-    music.gain.setTargetAtTime(plan.music === "track" ? 0.8 : 0.55, end + 0.05, 0.2);
+    music.gain.setTargetAtTime(bedLevel, end + 0.05, 0.2);
   }
   const buffer = await ctx.startRendering();
   const { lufs } = await normalize(buffer);

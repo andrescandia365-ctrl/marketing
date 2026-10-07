@@ -3,6 +3,7 @@
 Frase: Números claros. Local que crece.
 Tipo: Software (SaaS)
 Estilo de texto: {"subtitleSize":100,"headlineSize":100,"textColor":"#ffffff","headlineColor":"#ffffff","backing":"shadow","backingColor":"#000000"}
+Marca (logo, colores y fuentes para motion graphics): {"bg":"#111418","text":"#f4f1ea","accent":"#ff5a36","displayFont":"Space Grotesk","uiFont":"Inter","logo":""}
 
 ## Qué es
 Una app de caja y gestión para kioscos y almacenes de Argentina. Se vende como un lector láser de código de barras más una licencia (12, 24 o 36 meses).
@@ -43,3 +44,48 @@ El loop mismo: tranquilo, confiable, la voz cuerda en el local caótico. No es u
 
 ## Quién mira
 Dueños y empleados de kioscos y almacenes de Argentina.
+
+## Elenco fijo (personajes, lugares, productos y pantallas con imagen aprobada)
+```json
+[
+ {
+  "id": "pantalla-1",
+  "name": "Pantalla real 1",
+  "ref": "PantallaReal1",
+  "kind": "screen",
+  "identity": "",
+  "note": "",
+  "image": "",
+  "sheet": "",
+  "puppet": {
+   "layers": []
+  }
+ },
+ {
+  "id": "mica",
+  "name": "Mica",
+  "ref": "Mica",
+  "kind": "character",
+  "identity": "24-year-old woman with light brown skin, dark brown eyes, black wavy hair tied back, medium build, wearing navy work jacket over gray shirt, dark blue jeans, simple silver stud earrings",
+  "note": "",
+  "image": "mica.png",
+  "sheet": "16:9 reference sheet, plain flat mid-grey background, no text, no labels, no floor shadow, stylized 3D render soft rounded shapes matte clay texture gentle studio light from upper left, brand accent orange #ff5a36 details, readable at phone size. 24-year-old woman with light brown skin, dark brown eyes, black wavy hair tied back, medium build, wearing navy work jacket over gray shirt, dark blue jeans, simple silver stud earrings. Top row: full body front, three-quarter, side profile, back. Bottom row: face neutral, happy, surprised, worried and mouth shapes closed, A, O, E. Identical shapes and colours in every panel.",
+  "puppet": {
+   "layers": [
+    {
+     "file": "mica-p0-muthhio2.png",
+     "role": "body",
+     "pivot": null,
+     "name": "young-woman-character-1.png · cuerpo"
+    },
+    {
+     "file": "mica-p1-muthhio2.png",
+     "role": "head",
+     "pivot": null,
+     "name": "young-woman-character-1.png · cabeza"
+    }
+   ]
+  }
+ }
+]
+```

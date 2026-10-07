@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { actionWords, type Problem } from "../../shared/checks.ts";
-import type { Board, Brief, Story } from "../../shared/schema.ts";
+import { actionWords, runnerLandings, type Problem } from "../../shared/checks.ts";
+import { sketchPrompt } from "../../shared/prompt.ts";
+import type { Board, Brief, Setup, Story } from "../../shared/schema.ts";
 import type { TextStyle } from "../../shared/series.ts";
 import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 import { drawShot, loadImage, type Speaker } from "../lib/render.ts";
+import type { SketchSetup } from "../lib/sketch.ts";
+import { copyText } from "../lib/files.ts";
 import { ChecksPanel } from "./Checks.tsx";
-import { Button, PieceTitle, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
+import { Button, PieceTitle, ROLE_TEXT, Segmented, Spinner, inputClass } from "./ui.tsx";
 
 type Props = {
   story: Story;
@@ -20,6 +23,9 @@ type Props = {
   onFix: () => void;
   onDismiss: (problem: Problem) => void;
   onApprove: () => void;
+  // "Boceto con IA": a sketch made with an image tool, uploaded for one shot, or removed.
+  onSketch: (index: number, file: File) => Promise<void>;
+  onSketchRemove: (index: number) => void;
 };
 
 const BAR = { negative: "bg-neg", touching: "bg-touch", good: "bg-good" };
@@ -36,7 +42,82 @@ export function ActionWarning({ prompt }: { prompt: string }) {
   );
 }
 
-type Look = { format: Brief["format"]; style: TextStyle; images: Record<number, string | undefined> };
+type Look = {
+  format: Brief["format"];
+  style: TextStyle;
+  images: Record<number, string | undefined>;
+  // The drawn storyboard: sketches made with an image tool, by shot, and the kind of each cast member (to draw it).
+  sketches: Record<number, string | undefined>;
+  castKinds: Record<string, string>;
+};
+
+// What a shot's setups are, for its sketch: the cast says it; a new setup that sounds like a place is drawn as one.
+function sketchSetups(shot: TimedShot, setups: Record<string, Setup>, castKinds: Record<string, string>): SketchSetup[] {
+  const list: SketchSetup[] = shot.setups.flatMap((id) => {
+    const s = setups[id];
+    if (!s) return [];
+    const known = s.castId ? castKinds[s.castId] : undefined;
+    // A person first (an owner "of a corner store" is still a person), then a place, else a thing or someone unnamed.
+    const person = /\b(man|woman|person|owner|girl|boy|guy|lady|kid|child|he|she|his|her|years? old|\d{2}s)\b/i.test(s.identity);
+    const place = /\b(store|shop|kiosk|room|kitchen|street|office|counter|aisle|house|living)\b/i.test(s.identity);
+    const kind = (["character", "place", "product", "screen"].includes(known ?? "") ? known : person ? "character" : place ? "place" : "other") as SketchSetup["kind"];
+    return [{ name: s.name, kind }];
+  });
+  if (shot.kind === "screen" && !list.some((s) => s.kind === "screen")) list.push({ name: "Pantalla real", kind: "screen" });
+  return list;
+}
+
+// "Boceto con IA" for one shot: copy the sketch prompt for Grok (or any image tool), then upload what it made.
+function SketchTools({ prompt, uploaded, onFile, onRemove }: { prompt: string; uploaded: boolean; onFile: (file: File) => Promise<void>; onRemove: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+      <button
+        type="button"
+        className="font-semibold text-muted hover:text-ink"
+        title={prompt}
+        onClick={async () => {
+          await copyText(prompt);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+      >
+        {copied ? "Copiado" : "Prompt de boceto"}
+      </button>
+      <label className="cursor-pointer font-semibold text-muted hover:text-ink">
+        {busy ? <Spinner /> : uploaded ? "Cambiar boceto" : "Subir boceto"}
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          aria-label="Subir boceto"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (!file) return;
+            setBusy(true);
+            setError("");
+            try {
+              await onFile(file);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+      </label>
+      {uploaded && (
+        <button type="button" className="font-semibold text-muted hover:text-neg" onClick={onRemove}>
+          Quitar boceto
+        </button>
+      )}
+      {error && <span className="text-neg">{error}</span>}
+    </div>
+  );
+}
 
 const ICON_TITLE = { transform: "Transformación (imagen inicial y final)", screen: "Pantalla real (captura de la app)" };
 
@@ -45,12 +126,15 @@ const ICON_TITLE = { transform: "Transformación (imagen inicial y final)", scre
 function ShotFrame({
   shot,
   image,
+  sketch,
   speakers,
   look,
   className = "",
 }: {
   shot: TimedShot;
   image: HTMLImageElement | null;
+  // With no picture, the shot is drawn as a pencil sketch of these setups.
+  sketch: SketchSetup[] | null;
   speakers: Record<string, Speaker>;
   look: Look;
   className?: string;
@@ -63,11 +147,11 @@ function ShotFrame({
     if (!ctx) return;
     // A continuous take shows its first line; a one-line shot, the middle of its line.
     const t = shot.timeline.length ? shot.start + (shot.timeline.find((b) => b.line)?.from ?? 0) + 0.01 : (shot.start + shot.end) / 2;
-    const draw = () => drawShot(ctx, shot, image, speakers, t, { disclosure: "", fullFrame: false, headlines: true, style: look.style });
+    const draw = () => drawShot(ctx, shot, image, speakers, t, { disclosure: "", fullFrame: false, headlines: true, style: look.style, sketch });
     draw();
     // Canvas text needs the web font; draw again once it is there.
     document.fonts?.load(`600 24px "IBM Plex Sans"`).then(draw, () => undefined);
-  }, [shot, image, speakers, look.format, look.style]);
+  }, [shot, image, sketch, speakers, look.format, look.style]);
   return (
     <canvas
       ref={ref}
@@ -83,12 +167,15 @@ function ShotFrame({
 function Playback({
   shots,
   images,
+  sketches,
   speakers,
   look,
   onClose,
 }: {
   shots: TimedShot[];
   images: Record<number, HTMLImageElement | null>;
+  // By shot: the sketch to draw when there is no picture (null: the colour card).
+  sketches: Record<number, SketchSetup[] | null>;
   speakers: Record<string, Speaker>;
   look: Look;
   onClose: () => void;
@@ -115,7 +202,8 @@ function Playback({
       const now = playing ? Math.min(total, clock.current.base + (performance.now() - clock.current.at) / 1000) : tRef.current;
       const shot = shots.find((s) => now >= s.start && now < s.end) ?? shots[shots.length - 1];
       const ctx = ref.current?.getContext("2d");
-      if (ctx && shot) drawShot(ctx, shot, images[shot.index] ?? null, speakers, now, { disclosure: "", fullFrame: false, headlines: true, style: look.style });
+      if (ctx && shot)
+        drawShot(ctx, shot, images[shot.index] ?? null, speakers, now, { disclosure: "", fullFrame: false, headlines: true, style: look.style, sketch: sketches[shot.index] ?? null });
       // A continuous take reads each beat's line when the beat starts; a one-line shot, its line.
       const beatIndex = shot ? shot.timeline.findIndex((b) => now - shot.start >= b.from && now - shot.start < b.to) : -1;
       const key = shot ? `${shot.index}:${beatIndex}` : "";
@@ -139,7 +227,7 @@ function Playback({
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playing, voice, shots, images, speakers, look.style, total]);
+  }, [playing, voice, shots, images, sketches, speakers, look.style, total]);
 
   useEffect(() => () => window.speechSynthesis?.cancel(), []);
 
@@ -190,7 +278,25 @@ function Playback({
 }
 
 // Step 3: the whole board as the finished piece will look, with a note box on every shot, before an image is made.
-export function BoardView({ story, board, round, busy, problems, dismissed, look, onRevise, onFix, onDismiss, onApprove }: Props) {
+function RunnerMark({ story }: { story: Story }) {
+  const lands = runnerLandings(story);
+  if (!lands.length) return null;
+  const missed = lands.filter((land) => !land.hit || land.quotes.length === 0).length;
+  const same = lands.some((land) => land.same);
+  if (missed === 0 && !same) return <b className="text-good"> · las tres caen</b>;
+  return (
+    <b className="text-neg">
+      {missed > 0 ? ` · ${missed} ${missed === 1 ? "caída" : "caídas"} sin línea` : ""}
+      {same ? " · una caída se repite" : ""}
+    </b>
+  );
+}
+
+export function BoardView({ story, board, round, busy, problems, dismissed, look, onRevise, onFix, onDismiss, onApprove, onSketch, onSketchRemove }: Props) {
+  // Bocetos: the drawn storyboard (uploaded sketches, else the app's pencil sketch). Imágenes: the pictures so far.
+  const [view, setView] = useState<"sketch" | "image">("sketch");
+  const [sketchImages, setSketchImages] = useState<Record<number, HTMLImageElement | null>>({});
+  const sketchKey = JSON.stringify(look.sketches);
   const [note, setNote] = useState("");
   const [shotNotes, setShotNotes] = useState<Record<number, string>>({});
   const [playing, setPlaying] = useState(false);
@@ -209,6 +315,26 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
     .filter(([, v]) => v.trim())
     .map(([k, v]) => ({ index: Number(k), note: v.trim() }));
   const imageKey = JSON.stringify(look.images);
+  const drawn = useMemo(
+    () => Object.fromEntries(shots.map((s) => [s.index, sketchSetups(s, setups, look.castKinds)])) as Record<number, SketchSetup[]>,
+    // setups and castKinds are rebuilt on every render; the board's setups and shots decide them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shots, board.setups, JSON.stringify(look.castKinds)],
+  );
+  const frameImages = view === "sketch" ? sketchImages : images;
+  const frameSketches = view === "sketch" ? drawn : {};
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all(Object.entries(look.sketches).map(async ([i, src]) => [Number(i), await loadImage(src)] as const)).then((list) => {
+      if (alive) setSketchImages(Object.fromEntries(list));
+    });
+    return () => {
+      alive = false;
+    };
+    // sketchKey stands in for look.sketches, rebuilt on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sketchKey]);
 
   // The pictures the frames show, loaded once per change.
   useEffect(() => {
@@ -247,9 +373,19 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
             {board.shots.length} tomas · {formatTime(total)} · estilo: {board.style}
           </p>
         </div>
-        <Button onClick={() => setPlaying(true)} disabled={!shots.length}>
-          ▶ Ver la pieza
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Segmented
+            value={view}
+            onChange={setView}
+            options={[
+              { value: "sketch", label: "Bocetos" },
+              { value: "image", label: "Imágenes" },
+            ]}
+          />
+          <Button onClick={() => setPlaying(true)} disabled={!shots.length}>
+            ▶ Ver la pieza
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-1.5">
@@ -282,6 +418,23 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
             {story.callbacks.map((c) => `${c.planted} → ${c.payoff}`).join(" · ")}
           </p>
         )}
+        {(story.runner?.bit || story.tease?.trim()) && (
+          <div className="space-y-1 rounded-lg border border-line bg-paper px-2.5 py-1.5">
+            {story.runner?.bit && (
+              <p className="text-xs text-muted">
+                <b className="text-ink">Corredor ({story.runner.bit}): </b>
+                {story.runner.open} · {story.runner.middle} · {story.runner.tag}
+                <RunnerMark story={story} />
+              </p>
+            )}
+            {story.tease?.trim() && (
+              <p className="text-xs text-muted">
+                <b className="text-ink">Para el próximo: </b>
+                {story.tease}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <ol className={`grid gap-4 ${look.format === "vertical" ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
@@ -297,8 +450,16 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
                 </span>
               )}
               <div className={`rounded-[1.4rem] ${flagged.has(s.index) ? "ring-4 ring-neg/50" : ""}`}>
-                <ShotFrame shot={s} image={images[s.index] ?? null} speakers={speakers} look={look} />
+                <ShotFrame shot={s} image={frameImages[s.index] ?? null} sketch={frameSketches[s.index] ?? null} speakers={speakers} look={look} />
               </div>
+              {view === "sketch" && s.kind !== "screen" && (
+                <SketchTools
+                  prompt={sketchPrompt(s.visualPrompt, look.format)}
+                  uploaded={Boolean(look.sketches[s.index])}
+                  onFile={(file) => onSketch(s.index, file)}
+                  onRemove={() => onSketchRemove(s.index)}
+                />
+              )}
               <div className={`border-l-4 pl-2 ${BEAT_EDGE[s.beat]}`}>
                 <p className="text-sm leading-snug font-bold">
                   {s.index + 1}. {s.title}
@@ -396,7 +557,7 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
         })}
       </ol>
 
-      {playing && <Playback shots={shots} images={images} speakers={speakers} look={look} onClose={() => setPlaying(false)} />}
+      {playing && <Playback shots={shots} images={frameImages} sketches={frameSketches} speakers={speakers} look={look} onClose={() => setPlaying(false)} />}
 
       <ChecksPanel
         problems={problems}

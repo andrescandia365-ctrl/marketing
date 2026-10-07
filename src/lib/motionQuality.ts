@@ -1,7 +1,7 @@
 // The quality loop's eyes: the contact sheet (one frame per beat, at phone-thumbnail size, with the second under
 // each frame) and the facts the app measures itself (cuts and entrances against the beats, still stretches, the
 // hook's timing, voices that run over, elements off the frame), so the reviewer never has to guess them.
-import { CUT_PUSH, quietGaps, readingIssues, sceneElements, timeScenes, type MotionScript } from "../../shared/motion.ts";
+import { cutPush, quietGaps, readingIssues, sceneElements, timeScenes, type MotionScript } from "../../shared/motion.ts";
 import { drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionWorld } from "./motion.ts";
 
 export type SheetFormat = "vertical" | "horizontal";
@@ -16,9 +16,9 @@ const ON_BEAT = 0.06;
 export function sheetTimes(script: MotionScript, beats: number[]): number[] {
   const duration = scriptDuration(script);
   const end = Math.max(0, duration - 0.05);
-  const cuts = timeScenes(script.scenes)
-    .slice(1)
-    .map((s) => s.start + CUT_PUSH / 2);
+  const push = cutPush(script.tone);
+  // A hard cut (dry tone) has no middle to look at.
+  const cuts = push > 0 ? timeScenes(script.scenes).slice(1).map((s) => s.start + push / 2) : [];
   const grid = beats.length > 1 ? beats.filter((b) => b > 0 && b < end) : Array.from({ length: Math.floor(end) }, (_, i) => i + 1);
   const room = MAX_FRAMES - 4;
   const thinned = grid.length > room ? Array.from({ length: room }, (_, i) => grid[Math.round((i * (grid.length - 1)) / (room - 1))]) : grid;
@@ -62,7 +62,7 @@ export function contactSheet(script: MotionScript, world: MotionWorld, format: S
     ctx.font = "600 13px system-ui, sans-serif";
     ctx.textBaseline = "middle";
     const i = sceneAt(timed, t);
-    const cut = i > 0 && t - timed[i].start < CUT_PUSH;
+    const cut = i > 0 && t - timed[i].start < cutPush(script.tone);
     ctx.fillStyle = cut ? "#b52f12" : "#15171c";
     ctx.fillText(cut ? `${t.toFixed(2)} s · corte ${i}→${i + 1}` : `${t.toFixed(2)} s · escena ${i + 1}`, x + 6, y + ch + label / 2);
     ctx.strokeStyle = "#d9dbe0";
@@ -87,7 +87,12 @@ export function measureFacts(
 ): string {
   const timed = timeScenes(script.scenes);
   const total = scriptDuration(script);
-  const lines: string[] = [`Length: ${total.toFixed(1)} s, ${timed.length} scenes.`, `Music: ${music}${beats.length ? ` (${beats.length} beats on the grid)` : ", no beat grid"}.`];
+  const tone = script.tone ?? "warm";
+  const lines: string[] = [
+    `Length: ${total.toFixed(1)} s, ${timed.length} scenes.`,
+    `Tone: ${tone} (${tone === "dry" ? "hard cuts and very few sounds, on purpose" : tone === "absurdist" ? "fast pushes between scenes, more sounds" : "soft pushes between scenes"}).`,
+    `Music: ${music}${beats.length ? ` (${beats.length} beats on the grid)` : ", no beat grid"}.`,
+  ];
   if (beats.length) {
     const cuts = timed.slice(1).map((s) => s.start);
     const onCuts = cuts.filter((t) => nearestGap(t, beats) <= ON_BEAT).length;

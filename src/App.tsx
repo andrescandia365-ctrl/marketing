@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_AUDIO, voiceModeOf, type AudioSettings, type CharacterVoice, type VoiceMode } from "../shared/audio.ts";
 import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/checks.ts";
-import { buildCopyPrompt } from "../shared/prompt.ts";
+import { SKETCH_BASE, buildCopyPrompt } from "../shared/prompt.ts";
 import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
 import { migrateBoard, migrateStory, type Board, type Brief, type Menu, type Setup, type Shot, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
 import { DEFAULT_TEXT_STYLE, castRef, hasLook, seriesId, type CastMember, type TextStyle } from "../shared/series.ts";
@@ -13,6 +13,7 @@ import { MenuPicker } from "./components/MenuPicker.tsx";
 import { LyricStudio, type LyricOpen } from "./components/LyricStudio.tsx";
 import { ModelsPanel } from "./components/ModelsPanel.tsx";
 import { MotionStudio, type MotionOpen } from "./components/MotionStudio.tsx";
+import { NarrationImport } from "./components/NarrationImport.tsx";
 import { ProductPanel } from "./components/ProductPanel.tsx";
 import { ProjectsPanel } from "./components/ProjectsPanel.tsx";
 import { SeriesEditor } from "./components/SeriesEditor.tsx";
@@ -28,6 +29,8 @@ import {
   type MediaState,
 } from "./components/ScriptView.tsx";
 import { StoryView } from "./components/StoryView.tsx";
+import { WritersRoom } from "./components/WritersRoom.tsx";
+import type { RoomCard } from "../shared/room.ts";
 import { VideoPanel } from "./components/VideoPanel.tsx";
 import { Button, Notice, PieceTitle, Spinner } from "./components/ui.tsx";
 import { api, libraryFileUrl, projectFileUrl, type ProjectSummary } from "./lib/api.ts";
@@ -108,7 +111,24 @@ export function App() {
   >(null);
   const [error, setError] = useState("");
   // undefined: not editing; null: a new series; a string: that series.
-  const [editingSeries, setEditingSeries] = useState<string | null | undefined>(undefined);
+  // Kept for this tab, so a reload while a puppet upload is in flight comes back to Editar serie.
+  const [editingSeries, setEditingSeries] = useState<string | null | undefined>(() => {
+    try {
+      const saved = sessionStorage.getItem("playbook-editing-series");
+      if (saved === null) return undefined;
+      return saved === "" ? null : saved;
+    } catch {
+      return undefined;
+    }
+  });
+  useEffect(() => {
+    try {
+      if (editingSeries === undefined) sessionStorage.removeItem("playbook-editing-series");
+      else sessionStorage.setItem("playbook-editing-series", editingSeries ?? "");
+    } catch {
+      // The tab can refuse storage. The editor still works for this visit.
+    }
+  }, [editingSeries]);
 
   // The open lyric video, if this piece is one; `key` remounts it for another piece.
   const [lyric, setLyric] = useState<{ key: string; initial: LyricOpen | null } | null>(null);
@@ -116,6 +136,10 @@ export function App() {
   // The project folder this piece autosaves into.
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  // The writers' room: other pieces of this series, and the note this piece will pick up.
+  const [room, setRoom] = useState<RoomCard[]>([]);
+  const [roomNotes, setRoomNotes] = useState<string[]>([]);
+  const [seed, setSeed] = useState<{ id: number; text: string; on: boolean } | null>(null);
   // Bumped when an approved image is replaced, so the browser shows the new file under the same name.
   const [libraryVersion, setLibraryVersion] = useState(Date.now());
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -159,6 +183,31 @@ export function App() {
   useEffect(() => {
     if (step === "brief") refreshProjects();
   }, [step]);
+
+  // The board reads the other saved pieces of the series. The open piece stays off it.
+  useEffect(() => {
+    const seriesId = step === "brief" ? brief.series : pieceBrief.series;
+    const info = status?.series.find((s) => s.id === seriesId);
+    const visible =
+      !!info &&
+      info.type !== "music" &&
+      !lyric &&
+      !motion &&
+      (step === "menu" || step === "story" || step === "board" || (step === "brief" && brief.piece === "story" && editingSeries === undefined));
+    if (!visible) return;
+    let cancel = false;
+    api
+      .room(seriesId, projectId ?? "")
+      .then((r) => {
+        if (!cancel) setRoom(r.cards);
+      })
+      .catch(() => {
+        if (!cancel) setRoom([]);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [step, brief.series, brief.piece, pieceBrief.series, projectId, lyric, motion, status, editingSeries]);
 
   // Warn before closing the tab while a save or an upload is still on its way.
   useEffect(() => {
@@ -205,7 +254,7 @@ export function App() {
         audio,
       };
       const markdown =
-        story && board ? pieceToMarkdown(pieceBrief, story, board, toolName, log) : story ? storyToMarkdown(story) : undefined;
+        story && board ? pieceToMarkdown(pieceBrief, story, board, toolName, log, audio) : story ? storyToMarkdown(story) : undefined;
       try {
         await api.saveProject(projectId, state, markdown);
         if (seq === saveSeq.current) {
@@ -273,6 +322,8 @@ export function App() {
     setMusic(null);
     setLyric(null);
     setMotion(null);
+    setRoomNotes([]);
+    setSeed(null);
     logStart.current = Date.now();
   }
 
@@ -402,22 +453,35 @@ export function App() {
   }
 
   // Step 2 → story
+  function retake(text: string) {
+    const has = roomNotes.includes(text);
+    setRoomNotes(has ? roomNotes.filter((n) => n !== text) : [...roomNotes, text]);
+    if (step === "story") setSeed({ id: Date.now(), text, on: !has });
+  }
+
   async function writeStory(topics: TopicIdea[]) {
-    const result = await run("story", () => api.story(pieceBrief, topics));
+    const note = roomNotes.join("\n");
+    const result = await run("story", () => api.story(pieceBrief, topics, note, projectId ?? ""));
     if (!result) return;
     setStory(result.story);
     setStoryRound(1);
     setBoard(null);
     setBoardApproved(false);
     setDemo(result.demo);
-    addLog({ text: `Temas elegidos: ${topics.map((t) => `“${t.title}”`).join(", ")}`, outcome: "historia, ronda 1" });
+    addLog({
+      text: `Temas elegidos: ${topics.map((t) => `“${t.title}”`).join(", ")}`,
+      outcome: note ? `historia, ronda 1 · la sala: “${note.slice(0, 160)}”` : "historia, ronda 1",
+    });
+    setSeed(note ? { id: Date.now(), text: note, on: true } : null);
     setStep("story");
   }
 
   async function reviseStory(note: string, kind: "revise" | "fixStory" = "revise"): Promise<boolean> {
     if (!story) return false;
-    const result = await run(kind, () => api.reviseStory(pieceBrief, story, note));
+    const result = await run(kind, () => api.reviseStory(pieceBrief, story, note, projectId ?? ""));
     if (!result) return false;
+    setSeed(null);
+    setRoomNotes([]);
     setStory(result.story);
     setStoryRound((r) => r + 1);
     addLog({
@@ -572,8 +636,9 @@ export function App() {
       if (kind === "image" || kind === "clip") delete next.review;
       return { ...prev, [index]: next };
     });
-    const what = { image: "Imagen quitada", clip: "Clip quitado", voice: "Voz quitada", sfx: "Efecto quitado" }[kind];
-    addLog({ shot: index, text: what });
+    const sketch = kind === "image" && index >= SKETCH_BASE;
+    const what = sketch ? "Boceto quitado" : { image: "Imagen quitada", clip: "Clip quitado", voice: "Voz quitada", sfx: "Efecto quitado" }[kind];
+    addLog({ shot: sketch ? index - SKETCH_BASE : index, text: what });
     await keep(index, (id) => api.removeMedia(id, index, kind));
   }
 
@@ -752,8 +817,28 @@ export function App() {
   const realProviders = status?.imageProviders.filter((p) => p.available && p.id !== "placeholder") ?? [];
   const maxTopics = pieceBrief.length === "short" ? 1 : 4;
   const open = (p: Problem) => !dismissed.includes(p.id);
-  const storyIssues = story ? storyProblems(story) : [];
+  const usedRunners = room.flatMap((c) => (c.runner ? [{ bit: c.runner, problem: c.problem }] : []));
+  const storyIssues = story ? storyProblems(story, pieceBrief, usedRunners) : [];
   const boardIssues = board ? boardProblems(board) : [];
+  const roomSeriesId = step === "brief" ? brief.series : pieceBrief.series;
+  const roomSeriesInfo = status?.series.find((s) => s.id === roomSeriesId);
+  const showRoom =
+    !!roomSeriesInfo &&
+    roomSeriesInfo.type !== "music" &&
+    !lyric &&
+    !motion &&
+    (step === "menu" || step === "story" || step === "board" || (step === "brief" && brief.piece === "story" && editingSeries === undefined));
+  const roomEl = showRoom ? (
+    <WritersRoom
+      seriesName={roomSeriesInfo.name}
+      cards={room}
+      notes={roomNotes}
+      showBanner={step === "brief" || step === "menu"}
+      busy={busy !== null}
+      onRetake={step === "board" ? undefined : retake}
+      onClear={() => setRoomNotes([])}
+    />
+  ) : null;
 
   const steps: { id: Step; label: string; enabled: boolean }[] = lyric
     ? [
@@ -778,7 +863,7 @@ export function App() {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Playbook Studio</h1>
-          <p className="text-sm text-muted">Contenido con historia: el Bueno contra el Malo, temas, puentes y callbacks.</p>
+          <p className="text-sm text-muted">Contenido con historia: el Bueno contra el Malo, temas, puentes, callbacks y la pizarra de la serie.</p>
         </div>
         {status && (
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -876,6 +961,7 @@ export function App() {
 
         {step === "brief" && editingSeries === undefined && (
           <section className="space-y-6">
+            {roomEl}
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="secondary"
@@ -956,6 +1042,7 @@ export function App() {
             defaultVoice={status?.voice.defaultVoice ?? ""}
             projectsDir={status?.projectsDir ?? "proyectos"}
             ffmpeg={status?.render?.ffmpeg ?? false}
+            autoSync={status?.lyrics.autoSync ?? false}
             onSaveStatus={setSaveStatus}
           />
         )}
@@ -975,7 +1062,8 @@ export function App() {
         )}
 
         {step === "menu" && menu && (
-          <section>
+          <section className="space-y-6">
+            {roomEl}
             {demo && <p className="mb-2 text-sm text-muted">(Menú de muestra.)</p>}
             <MenuPicker
               ideas={menu.ideas}
@@ -988,6 +1076,8 @@ export function App() {
         )}
 
         {step === "story" && story && (
+          <div className="space-y-6">
+            {roomEl}
           <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
             <StoryView
               story={story}
@@ -996,6 +1086,8 @@ export function App() {
               busy={busy === "revise" ? "revise" : busy === "fixStory" ? "fix" : busy === "board" ? "board" : null}
               problems={storyIssues.filter(open)}
               dismissed={storyIssues.length - storyIssues.filter(open).length}
+              seed={seed}
+              usedRunners={usedRunners}
               onRevise={(note) => reviseStory(note)}
               onFix={() => reviseStory(fixNote(storyIssues.filter(open)), "fixStory")}
               onDismiss={dismiss}
@@ -1013,9 +1105,12 @@ export function App() {
               <StoryNotes story={story} />
             </aside>
           </section>
+          </div>
         )}
 
         {step === "board" && story && board && (
+          <div className="space-y-6">
+            {roomEl}
           <BoardView
             story={story}
             board={board}
@@ -1023,12 +1118,26 @@ export function App() {
             busy={busy === "reviseBoard" ? "revise" : busy === "fixBoard" ? "fix" : null}
             problems={boardIssues.filter(open)}
             dismissed={boardIssues.length - boardIssues.filter(open).length}
-            look={{ format: pieceBrief.format, style: pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE, images: shotImages }}
+            look={{
+              format: pieceBrief.format,
+              style: pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE,
+              images: shotImages,
+              sketches: Object.fromEntries(board.shots.map((_, i) => [i, media[SKETCH_BASE + i]?.image])),
+              castKinds: Object.fromEntries((pieceSeries?.cast ?? []).map((m) => [m.id, m.kind])),
+            }}
+            onSketch={async (index, file) => {
+              const image = await readImageFile(file);
+              setShotMedia(SKETCH_BASE + index, { image, error: undefined });
+              addLog({ shot: index, text: `Boceto subido: ${file.name}` });
+              await keep(SKETCH_BASE + index, (id) => api.uploadMedia(id, SKETCH_BASE + index, "image", file));
+            }}
+            onSketchRemove={(index) => void removeMedia(SKETCH_BASE + index, "image")}
             onRevise={(note, shotNotes) => reviseBoard(note, shotNotes)}
             onFix={() => reviseBoard(fixNote(boardIssues.filter(open)), [], "fixBoard")}
             onDismiss={dismiss}
             onApprove={approveBoard}
           />
+          </div>
         )}
 
         {step === "production" && story && board && (
@@ -1099,7 +1208,7 @@ export function App() {
                     className="ml-auto"
                     onClick={() =>
                       download(
-                        new Blob([pieceToMarkdown(pieceBrief, story, board, toolName, log)], { type: "text/markdown" }),
+                        new Blob([pieceToMarkdown(pieceBrief, story, board, toolName, log, audio)], { type: "text/markdown" }),
                         `${slug(story.problem || story.title)}.md`,
                       )
                     }
@@ -1113,6 +1222,40 @@ export function App() {
                 <b>En {toolName}, cada vez:</b> elegí el largo del clip (6, 10 o 15 s) y la forma en sus propios
                 controles; el prompt solo lo recuerda. Primero la imagen, después animala.
               </Notice>
+
+              <NarrationImport
+                lines={board.shots.flatMap((s, i) =>
+                  s.voiceover.trim()
+                    ? [
+                        {
+                          key: String(i),
+                          label: `Toma ${i + 1}`,
+                          speaker: story.characters.find((c) => c.id === s.speaker)?.name ?? s.speaker,
+                          text: s.voiceover,
+                          // The story line's emotion (a continuous take: its first spoken beat's).
+                          emotion:
+                            story.topics.flatMap((t) => t.lines).find((l) => l.text.trim() === s.voiceover.trim())?.emotion ??
+                            s.timeline?.find((b) => b.line.trim())?.emotion ??
+                            "",
+                        },
+                      ]
+                    : [],
+                )}
+                narratorKeys={board.shots.flatMap((s, i) =>
+                  story.characters.find((c) => c.id === s.speaker)?.role === "narrator" && s.voiceover.trim() ? [String(i)] : [],
+                )}
+                language={pieceBrief.language}
+                autoSync={status?.lyrics.autoSync ?? false}
+                room={Object.fromEntries(board.shots.map((s, i) => [String(i), s.seconds]))}
+                onParts={async (parts) => {
+                  for (const p of parts) {
+                    const i = Number(p.key);
+                    await addAudio(i, "voice", p.blob, `toma-${i + 1}-narracion.wav`);
+                    setVoiceMode(i, "recorded");
+                  }
+                  addLog({ text: `Narración en un archivo: ${parts.length} partes repartidas en sus tomas.` });
+                }}
+              />
 
               <ScriptView
                 brief={pieceBrief}
@@ -1151,6 +1294,8 @@ export function App() {
                   onGenerate: generateVoice,
                   onRemove: (i, kind) => removeMedia(i, kind),
                   onSfx: (i, blob, name) => addAudio(i, "sfx", blob, name),
+                  onClipSound: (i, sound) => setAudio((a) => ({ ...a, clipSound: { ...a.clipSound, [i]: sound } })),
+                  onClipLevel: (i, level) => setAudio((a) => ({ ...a, clipLevel: { ...a.clipLevel, [i]: level } })),
                   onSeconds: (i, seconds) => {
                     const shot = board.shots[i];
                     updateShot(i, { ...shot, seconds, toolSettings: shot.toolSettings.replace(/\d+(\.\d+)?\s*s\b/, `${seconds} s`) });

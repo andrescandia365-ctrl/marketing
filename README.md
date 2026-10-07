@@ -6,15 +6,20 @@ Hace contenido con historia, no publicidad: un ida y vuelta entre **el Bueno** (
 
 1. **Brief.** La serie (IMAN, Máshogar o las que agregues; cada una es de Software o de E-commerce), las pantallas reales que puede mostrar, el largo (corto de 60–90 s con un tema, o episodio de 5–8 min con 3–4 temas), el producto del episodio (obligatorio en las series de un producto por episodio, como Máshogar), un gancho del momento, notas, tono, idioma, formato y la herramienta de imagen y video.
 2. **Menú.** La IA propone temas, cada uno con **el problema que resuelve** como título y abajo el gancho: el dolor, quién hace de Malo, cómo gana el Bueno y con qué arranca. Elegís uno (corto) o hasta cuatro en orden (episodio), o agregás uno propio.
-3. **Historia.** La IA escribe la historia con personajes, diálogo marcado Negativo / Emotivo / Bueno, puentes y callbacks. Vos le dejás **notas de director** y la reescribe en otra ronda. Un **check** revisa el gancho, la retención y la recompensa (que cada loop abierto se cierre), el loop de la serie, que la marca solo haga lo que existe hoy y **¿Pasa así de verdad?**: que la gente trabaje como dice "Cómo se trabaja hoy" en la serie (o las notas del brief), sin costumbres inventadas. Si algo falla, no se puede aprobar hasta arreglarlo (**Arreglalo** se lo pasa a la IA) o marcarlo como "no es un problema".
+3. **Historia.** Con **Narrador: Sin narrador** en el brief, la cuentan los personajes con lo que dicen, lo que hacen y el texto en pantalla, y el check frena la aprobación si quedó alguna línea del narrador (en los explicativos, sin narrador no hay voz). La IA escribe la historia con personajes, diálogo marcado Negativo / Emotivo / Bueno, puentes y callbacks. Vos le dejás **notas de director** y la reescribe en otra ronda. Un **check** revisa el gancho, la retención y la recompensa (que cada loop abierto se cierre), el loop de la serie, que la marca solo haga lo que existe hoy y **¿Pasa así de verdad?**: que la gente trabaje como dice "Cómo se trabaja hoy" en la serie (o las notas del brief), sin costumbres inventadas. Si algo falla, no se puede aprobar hasta arreglarlo (**Arreglalo** se lo pasa a la IA) o marcarlo como "no es un problema".
 4. **Storyboard.** La historia en tomas de 6, 10 o 15 s (los largos de Grok), vista **como la pieza terminada**:
-   - Cada toma es una pantalla de celular con su imagen (o la imagen aprobada del elenco, o el color del momento), el headline y la línea, igual que en el video final.
+   - Cada toma es una pantalla de celular con el headline y la línea, igual que en el video final. Arriba elegís qué se ve:
+     - **Bocetos** (lo primero, antes de gastar en Grok): la app dibuja cada toma a lápiz con lo que la toma ya dice: quién está en cuadro y dónde, el lugar, la pantalla real, el encuadre (primer plano, plano medio, plano general) y la altura de la cámara. Es gratis y al instante.
+     - **Boceto con IA**, por toma: **Prompt de boceto** copia un prompt de boceto a lápiz para Grok, y **Subir boceto** pone el que hiciste en lugar del dibujo de la app.
+     - **Imágenes:** la imagen de la toma, o la aprobada del elenco, o el color del momento.
    - Abajo, el título de la toma, quién habla, el largo y un ícono si es transformación, pantalla real o edición. Los prompts quedan en **Ver detalles**.
    - Arriba, una banda con los temas y los callbacks.
-   - **▶ Ver la pieza** pasa las tomas con su largo real y lee las líneas con la voz del navegador.
+   - **▶ Ver la pieza** pasa las tomas con su largo real (con los bocetos o las imágenes, según lo que elegiste) y lee las líneas con la voz del navegador.
    - Notas por toma y para todo el storyboard, rondas, y el mismo check (continuidad, lo que existe hoy, imágenes con más de un momento).
 5. **Producción.** Cada toma trae un prompt de imagen (un solo momento; si aparece una acción, la app avisa en amarillo) y uno de video, con botón **Copiar**. Soltás la imagen y el clip en su toma; un clic los muestra en grande, con **Cambiar** y **Quitar**. El navegador arma el video con tus clips, el sonido si querés, el **headline** arriba (se puede apagar) y quién habla con su línea abajo. Tamaño y color del texto, y sombra, borde o caja para que se lea, se guardan como estilo de la serie. Con **Cuadro completo** la marca de agua de Grok queda visible.
    - Al subir una imagen o un clip, la app avisa si no tiene el formato del video, y la IA lo **revisa** contra la toma: el momento, los personajes como en su referencia, que no tenga texto ni logos, ni personas reales. Si algo falla, te da un prompt de edición para corregirlo.
+   - **Sonido dentro del clip**, por toma: qué se oye en el clip de Grok (diálogo, ambiente, efectos, con lo que se oye escrito, o nada). Cambia la línea "Audio:" del prompt de video que copiás; si no lo tocás, queda la que escribió la IA. Y cómo suena ese clip en el video: **Entero**, **Bajo** o **Mudo**. La música nunca se le pide al clip: va aparte, con su licencia.
+   - **Narración de ElevenLabs (u otra voz):** copiás las líneas (las del narrador o todas, con su emoción entre corchetes si querés), las hacés en ElevenLabs de una vez y subís el audio entero. La app lo corta por línea (por las palabras con `OPENAI_API_KEY`, o por las pausas sin ella), te deja escuchar cada parte y avisa si un corte no cayó en una pausa o si una parte no entra en su toma. Después las pone cada una en su toma. Lo mismo en los explicativos, por escena. Solo voces con licencia o la tuya; nunca la voz clonada de una persona real sin su permiso.
    - **Cambiar un solo objeto:** escribís qué cambiar ("solo el yogur vencido") y la IA te dice qué seleccionar con los segmentos de Grok y el prompt de edición. Nunca para tapar la marca de agua.
    - En las series de **e-commerce**, **Producto recortado:** la IA escribe el prompt del producto limpio; lo hacés en Grok, usás **Eliminar fondo** y soltás el PNG, que queda en el elenco de la serie como producto (`@`).
 
@@ -38,19 +43,23 @@ Cada serie es una marca: qué es, **lo que existe hoy** (lo único que la IA pue
 En el brief, **Pieza → Explicativo (motion graphics)** y **Empezar un explicativo**. Sirve para explicar la app (software) o el producto del episodio (e-commerce).
 
 - **Marca de la serie** (Editar serie → Marca): logo, fondo, texto, un solo acento, fuente de títulos y fuente de interfaz (Google Fonts).
+  - **Traer la marca desde su web:** pegás la dirección de la web de la marca (y marcás que es la suya) y la app lee sus colores, sus fuentes, su logo y lo que dice. Te lo propone y no cambia nada hasta que tocás "Usar". Lo que dice la web queda como [VERIFY] hasta que toques "Lo confirmo", que lo pasa a "Lo que existe hoy". Solo lee webs públicas: nunca esta compu ni la red local, y solo desde la app abierta en esta compu.
 - **Duración:** automática (la IA la elige según el tema) o a mano (15 a 90 s).
 - **Personajes 3D:** un personaje del elenco puede presentar el explicativo. Se arma así:
   1. En Editar serie, **+ Personaje con hoja → Personaje 3D**: la IA escribe la hoja con look 3D estilizado (una persona adulta, una mascota o un objeto que habla) y la vista **«Para el títere»**: de frente, con los brazos separados y la boca cerrada.
   2. Hacés esa vista en Grok y la cortás con **Segmentos**: cabeza, cuerpo, cada brazo, boca y ojos. Después **Descargar todo**.
-  3. En la tarjeta del personaje, **Títere 3D → Subir capas**. La app reconoce cada parte por el nombre del archivo (se puede cambiar) y encuentra sola el cuello y los hombros. Una vista previa lo muestra presentando, saludando, señalando, festejando y sorprendido.
+  3. En la tarjeta del personaje, **Títere 3D → Carpeta de Segmentos**: la app toma la figura de frente y le separa la cabeza del cuerpo.
+  4. Para que muevan los brazos o la boca, **Partes sueltas** con esos recortes. Segmentos los corta cada uno a su tamaño y no dice dónde iban, así que se abre **Armar a mano**: arrastrás cada parte a su lugar, la agrandás o achicás desde la esquina roja y movés el punto azul donde gira (el hombro, el cuello). Las flechas del teclado la mueven de a poco. Una vista previa lo muestra presentando, saludando, señalando, festejando y sorprendido.
   - En la escena **Personaje 3D**, el personaje respira, parpadea, dice la línea de su escena con la boca siguiendo la voz y hace su gesto. Puede señalar o presentar una pantalla real o el producto.
   - Sin partes, usa su imagen entera como una sola pieza.
 - **Camina y gira:** en la tarjeta del personaje, **Subir GLB**. El mesh se hace afuera (Meshy o Tripo); Mesh2Motion o Mixamo le ponen el esqueleto y los clips, y se exporta un GLB. Se asignan cinco tramos (quieto, camina, gira a cada lado, señala). En la escena Personaje 3D el tramo reemplaza al gesto del títere. Caminar y girar usan el root motion de la cadera. El GLB queda en `biblioteca/<serie>/`.
   - Siempre personajes inventados: nunca uno conocido ni "al estilo de" un estudio.
-- **Guion por escenas:** la IA arma el guion con plantillas: gancho, pantalla en el celular o la compu, zoom a una función, **texto que se tipea** (un buscador o un campo de la app: se escribe letra por letra con sonido de teclas, se toca el botón y aparece el resultado), rótulos, paso a paso, antes/después, producto con precio, número grande y cierre con logo. Usa las pantallas reales, el producto recortado, los personajes y las capas de Grok que subas. Cada escena se puede editar, mover o sacar.
+- **Tono:** sale de la voz del brief y se cambia en el estudio. **Seco:** cortes secos, la música más baja y casi sin efectos (solo el producto y el logo). **Cálido:** pasa de escena con un empuje suave. **Absurdo:** empujes rápidos y todos los efectos. La IA también escribe el guion con ese ritmo.
+- **Texto para publicar:** la IA escribe 1 a 3 frases para pegar en X, LinkedIn o Instagram, en el tono de la pieza, con su propio problema y sin frases de manual. Se edita y se copia; si tiene un [VERIFY], la app avisa.
+- **Guion por escenas:** la IA arma el guion con plantillas: gancho, pantalla en el celular o la compu, zoom a una función, **texto que se tipea** (un buscador o un campo de la app: se escribe letra por letra con sonido de teclas, se toca el botón y aparece el resultado), rótulos, paso a paso, antes/después, producto con precio, número grande y cierre con logo. Usa las pantallas reales, el producto recortado, los personajes y las capas de Grok que subas. Cada escena se puede editar, mover o sacar. La cámara de cada escena puede quedarse quieta, acercarse, alejarse, panear o derivar. Los subtítulos y el aviso de IA quedan quietos.
 - **Sonido:**
   - Voz por escena: generada, grabada o subida.
-  - Música sintetizada en código (tres climas y tempo) o tu tema. Los cortes caen en los beats.
+  - Música sintetizada en código (tres climas y tempo) o tu tema. Los cortes caen en los beats, y la entrada del producto y del logo en los golpes más fuertes (el primer tiempo del compás, o los golpes más graves de tu tema), salvo que eso deje un texto sin tiempo para leerse.
   - **Efectos:** una biblioteca libre de dominio público (Kenney y sonidos de teclas, en `public/sfx/` con sus créditos), sintetizados, o ninguno. Cada efecto suena justo cuando empieza su movimiento; en los rótulos y pasos suenan el primero y el último.
   - El total queda a −14 LUFS.
 - **Reglas del estudio:**
@@ -85,15 +94,18 @@ Una serie de tipo **Música** no escribe historias, sino videos de letra. Elegí
 
 1. **Canción y letra.**
    - Subís la canción y pegás la letra, en cualquier idioma: español, guaraní, japonés, coreano o romanizada.
-   - Si querés, cargás una **segunda línea** más chica con la romanización o la traducción. La podés escribir vos o pedírsela a la IA (**Romanizar con IA** o **Traducir al español con IA**); revisala, porque se puede equivocar.
+   - Si querés, cargás una **segunda línea** más chica con la romanización o la traducción. Elegís el idioma (español, guaraní, inglés, portugués, japonés, coreano, francés, italiano u otro que escribas) y la pedís con **Traducir con IA**, o **Romanizar con IA**. Revisala, porque se puede equivocar, sobre todo en guaraní. Si la línea ya está en ese idioma, se copia.
+   - Los rótulos que traen las páginas de letras («Chorus (Miku):», «Verse 2», «Estribillo:») se saltean solos; la pantalla dice cuántos. **Seguir → sincronizar** dice qué falta (la canción o la letra).
    - Confirmás que la canción es tuya o tenés licencia.
 2. **Sincronizar.** Hay dos formas, y después podés ajustar cada línea:
    - **Automático:** OpenAI escucha la canción y le pone tiempo a cada palabra. Usa la misma `OPENAI_API_KEY`. El guaraní no lo conoce, así que escucha sin idioma.
    - **Tocando:** apretás **Ahora** o la barra espaciadora cuando empieza cada línea.
    - **Importar .lrc:** si ya la tenés sincronizada; si el archivo no coincide con tu letra, trae también la letra.
-3. **Estilo y video.**
-   - Fondo orgánico que se mueve y late con el ritmo, **capas de Grok** (cada una se mueve según su profundidad), tu foto, o hasta 4 videos que se pasan uno tras otro en loop. **Prompts para Grok** escribe los clips de fondo según la letra y los colores. Si el fondo lo hizo una IA, va el aviso al pie, y con **Cuadro completo** no se recorta.
-   - Tipografía, tamaño, colores, karaoke, cómo entra cada línea y palabras clave más grandes. Tocás una palabra para marcarla, o le pedís ideas a la IA.
+3. **Reloj.** Arma el reloj de la pieza en `sync/` dentro de la carpeta del proyecto. El kick (corte y acento) sale del stem de batería; la palabra sale del stem de voz y no se pega al beat. **Crítica** mira una tira de cuadros y anota los problemas.
+4. **Elementos.** Después de sincronizar, gráficos que entran con un verso. **Sugerir con IA** propone de 3 a 6 (forma, movimiento, lugar y segundos). A mano entran hasta 12, y uno puede marcar el beat. También podés pegar un PNG, un JPG o un SVG: entra entero, sin recortar.
+5. **Estilo y video.**
+   - Fondo orgánico que se mueve y late con el ritmo, **capas de Grok** (cada una se mueve según su profundidad), tu foto, o hasta 8 videos que se pasan uno tras otro en loop. **Prompts para Grok** escribe los clips de fondo según la letra y los colores. Si el fondo lo hizo una IA, va el aviso al pie, y con **Cuadro completo** no se recorta.
+   - Tipografía, tamaño, colores, karaoke, cómo entra cada línea (corte, sube, empuje, barrido, salta, fundido) y palabras clave más grandes. Tocás una palabra para marcarla, o le pedís ideas a la IA.
    - Vista previa en vivo, vertical u horizontal (o **los dos formatos de una vez**), desde y hasta qué segundo, y el crédito de la canción.
    - El estilo se puede guardar en la serie.
 

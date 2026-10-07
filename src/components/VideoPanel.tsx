@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AudioSettings } from "../../shared/audio.ts";
+import { CLIP_LEVEL_GAIN, type AudioSettings } from "../../shared/audio.ts";
 import type { Board, Brief, Story } from "../../shared/schema.ts";
 import type { TextStyle } from "../../shared/series.ts";
 import { formatTime, totalSeconds } from "../../shared/template.ts";
@@ -146,6 +146,7 @@ export function VideoPanel({
           disclosure: disclosureText,
           fullFrame,
           keepSound: sound === "keep",
+          clipGain: Object.fromEntries(Object.entries(audio.clipLevel ?? {}).map(([i, level]) => [i, CLIP_LEVEL_GAIN[level]])),
           speakers,
           headlines,
           style,

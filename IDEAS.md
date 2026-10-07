@@ -162,6 +162,73 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 - **Cuidado:** las imágenes de una misma toma tienen que tener la misma forma (9:16) y luz parecida.
 - **Une las ideas 1 (tomas de transformación) y 2 (referencias con `@`).**
 
+### 36. Deploy fuera de la compu (4 Oct 2026) — **en pausa ("pin al deploy")**
+- Hoy la app corre en tu compu. En Vercel no anda tal como está: el disco no guarda nada, corta los archivos de más de 4,5 MB, tiene un tiempo máximo por pedido, no puede correr el render final ni el Reloj, y la app no tiene contraseña.
+- Caminos, de menos a más trabajo:
+  - Tailscale para usarla desde el celular sin publicarla;
+  - un servidor con disco (Railway, Render, Fly.io o un VPS), con contraseña;
+  - Vercel, pasando el guardado a una base de datos y a almacenamiento.
+- Se retoma con "go".
+
+### 37. Storyboard dibujado antes de gastar en Grok (4 Oct 2026) — **Construido (4 Oct 2026, "Todo en ese orden, GO")**
+- **Idea (tuya):** ver el storyboard antes de generar las imágenes o los videos con Grok.
+- **Ya existe:** el paso Storyboard viene antes de Producción. Cada toma tiene su claqueta, quién está en cuadro, el prompt y **▶ Ver la pieza**, que la pasa con su duración real, las líneas y la tarjeta de color.
+- **Lo que falta, un dibujo por toma:**
+  - **A. Boceto de la app (gratis, al instante):** la app dibuja cada toma como un boceto en gris: los personajes como siluetas en su lugar (`setups`), el encuadre (plano general, medio, primer plano), la cámara, la pantalla real si va una, y el texto en pantalla. Sale de lo que la toma ya dice; no gasta nada. "Ver la pieza" pasaría estos bocetos en vez de la tarjeta de color.
+  - **B. Boceto con IA de imagen:** un prompt "storyboard sketch, lápiz, gris, sin detalle" por toma para Grok u otra herramienta, más barato de rehacer que la imagen final. **[NOT SURE]** si Grok cobra distinto un boceto que una imagen final.
+  - Con cualquiera de los dos: aprobar el storyboard dibujado antes de pasar a Producción, y que los bocetos se vean en `pieza.md`.
+- **Recomendación:** empezar por A.
+- **Decidido (4 Oct 2026):** los dos, A y B.
+
+### 38. Sonido de los clips de Grok (4 Oct 2026) — **Construido (4 Oct 2026)**
+- **Idea (tuya):** los videos de Grok pueden hablar y hacer sonidos.
+- **Ya existe:**
+  - la voz "La dice Grok" por toma: el prompt de video le pasa la línea, la voz y la emoción;
+  - el prompt de video termina con una línea "Audio: …";
+  - el render mezcla el sonido de cada clip.
+- **Lo que falta:**
+  - por toma, **qué suena dentro del clip**: diálogo, ambiente (el local, la calle), efectos (la persiana, el escáner) o nada. Va a la línea "Audio:" del prompt, en vez de que la escriba la IA sola;
+  - en el render, por toma: **sonido del clip** (todo, solo ambiente bajo, o mudo), para que no choque con el narrador ni con la música;
+  - aviso si el clip trae música: solo se usa si la herramienta da la licencia, como con las canciones.
+- **Decidido (4 Oct 2026):** se elige por toma.
+
+### 39. Narrador hecho en ElevenLabs (4 Oct 2026) — **A y B construidos (4 Oct 2026); C queda**
+- **Idea (tuya):** hacer la voz del narrador en ElevenLabs y traerla a la app.
+- **Ya existe:** "Grabada o subida" por toma o escena: hoy podés subir cada parte por separado.
+- **Lo que falta:**
+  - **A. Guion para ElevenLabs:** un botón "Copiar el guion del narrador" con todas sus líneas en orden, cada una con su emoción, listo para pegar.
+  - **B. Un solo archivo para toda la pieza:** subís el audio entero de ElevenLabs. La app lo transcribe con tiempos, como en los videos de letra, lo corta por línea y pone cada parte en su toma o escena. Si una parte no entra, avisa y propone alargar la toma.
+  - **C. ElevenLabs desde la app (más adelante):** como otra "Voz generada", con su clave (`ELEVENLABS_API_KEY`, en Modelos) y la voz elegida por personaje. **[NOT SURE]**: su API y sus precios de hoy.
+- **Reglas:** voces de la biblioteca de ElevenLabs con su licencia, o tu propia voz. Nunca la voz clonada de una persona real sin su permiso: es la misma regla que con las caras.
+- **Recomendación:** A y B primero, porque no necesitan otra clave.
+- **Decidido (4 Oct 2026):** A y B. C queda para después.
+
+### 40. Piezas sin narrador (4 Oct 2026) — **Construido (4 Oct 2026)**
+- **Idea (tuya):** también tiene que haber videos sin narrador.
+- **Ya existe:** el narrador es un rol más de la historia, y en los explicativos se puede elegir "Sin voz".
+- **Lo que falta:** en el brief, **Narrador: con / sin**.
+  - **Sin narrador, en las historias:** la IA no usa el rol narrador. Todo se cuenta con lo que dicen los personajes (Grok los hace hablar, o van subtitulados), con la acción y con el texto en pantalla. Los subtítulos siguen para lo que se dice.
+  - **Sin narrador, en los explicativos:** la IA no escribe líneas de voz; el sentido va en los títulos, los rótulos y el producto en uso, con música y efectos.
+  - El check de la historia revisa que se entienda sin narrador.
+- **Preguntas para el "go":**
+  1. Storyboard dibujado: ¿A (boceto de la app), B (boceto con IA) o los dos?
+  2. ElevenLabs: ¿A y B (copiar el guion y subir un archivo), o también C (desde la app, con clave)?
+  3. Sonido de Grok: ¿por toma, o una sola opción para toda la pieza?
+  4. ¿Por cuál empezamos?
+- **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
+- **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
+
+### 35. Videos de letra: traducir a cualquier idioma y avisar qué falta para sincronizar (4 Oct 2026) — **Construido (4 Oct 2026, "go 35")**
+- **Idea (tuya):** "Traducir al español con IA" tiene que poder traducir también al guaraní y a los demás idiomas.
+  - Un selector de idioma destino al lado del botón: español, guaraní, inglés, portugués, japonés, coreano, u otro escrito a mano.
+  - La IA traduce línea por línea, en el mismo orden, para que cada traducción quede debajo de su línea.
+  - **[NOT SURE]** Las IAs traducen peor al guaraní que al español o al inglés: el aviso pide que lo revise alguien que lo hable.
+- **Lo que pasó al probar (captura del 4 Oct):** "Seguir → sincronizar" no avanzaba porque faltaba subir la canción, y la pantalla no lo decía.
+  - **Arreglo:** al lado del botón, la lista de lo que falta ("Falta: la canción").
+- **Rótulos de sección:** los renglones como "Refrain (Grimes):", "Bridge (Hatsune Miku):" o "Chorus (Hatsune Miku):" hoy se muestran como letra. Solo se saltean los renglones entre [corchetes] o (paréntesis).
+  - **Arreglo:** saltear también un renglón corto que termina en ":" y empieza con una palabra de sección (Chorus, Verse, Bridge, Refrain, Interlude, Intro, Outro, Estribillo, Verso, Puente…), con un aviso de cuántos se saltearon.
+- **Construido:** selector de idioma con "Otro…" para escribir uno, aviso de revisión para el guaraní, "Falta subir la canción" al lado del botón, y los rótulos de sección salteados con su cuenta ("salteé 3 rótulos de sección").
+
 ### 34. Anuncios estáticos: analizar una referencia y conceptos de imagen fija (4 Oct 2026)
 - **De dónde sale:** dos textos que pasaste:
   - instrucciones de un proyecto, "Direct Response Creative Director", para copiar ("swipe") anuncios de la competencia;
@@ -262,6 +329,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **El tono "ridículo / grandes promesas":** va contra el playbook (no inventar números, el chiste es el problema).
 - **Si se construye:** se copian solo los efectos CC0 con su aviso de origen (Kenney y unicae_games) y la nota MIT del análisis, en `public/sfx/`.
 - **Construido (4 Oct 2026, "go 32: 1 a 5"):** portada en el cuadro 0 (automática, de la IA o tuya; también `portada-*.jpg`), check "Se lee" que bloquea el render, cuadros a mitad de corte en la hoja de contactos, biblioteca de efectos CC0 (18 sonidos en `public/sfx/`) con la plantilla "Texto que se tipea", y efectos al empezar cada movimiento (primero y último en las series). Quedan para otro "go": 6 a 9.
+- **Construido (4 Oct 2026, "go 32"): 6 a 9.** Texto para publicar en cada explicativo (editable, con aviso si tiene [VERIFY]); el producto y el logo entran en los golpes fuertes (primer tiempo del compás o los golpes más graves del tema propio) solo si no se pierde lectura; tono Seco / Cálido / Absurdo que cambia los cortes, los efectos y el nivel de la música, y el ritmo que pide la IA; traer la marca desde su web (colores, fuentes de Google Fonts, logo, nombre y frase, y lo que dice como [VERIFY] hasta confirmarlo), solo webs públicas y solo desde la app en esta compu.
 - **Integrado al playbook (4 Oct 2026):** las reglas de oficio (gancho, mostrar el producto en uso, tiempo de lectura, transiciones, sonido, portada, texto para publicar, voz → ritmo) están en `PLAYBOOK.md` §3.1 y en `server/playbook.md`, así la IA ya escribe con ellas. Las funciones de la app (1 a 9) siguen esperando "go".
 
 ### 31. Motion graphics: videos de letra y videos explicativos
