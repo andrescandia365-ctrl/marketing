@@ -1,5 +1,6 @@
 // The piece as a Markdown file: story, storyboard with every prompt, and the direction log.
 import { clipPrompt, type AudioSettings } from "../../shared/audio.ts";
+import { MOVE_LABEL } from "../../shared/moves.ts";
 import type { Board, Brief, Story } from "../../shared/schema.ts";
 import { buildCopyPrompt, sketchPrompt } from "../../shared/prompt.ts";
 import { BEAT_INFO, ROLE_LABEL, formatTime, timeShots, totalSeconds } from "../../shared/template.ts";
@@ -24,7 +25,8 @@ export function storyToMarkdown(story: Story): string {
             `- *${BEAT_INFO[l.beat].label}* · **${cast[l.speaker]?.name ?? l.speaker}:** “${l.text}”${l.emotion ? ` _(${l.emotion})_` : ""}\n  - _${l.direction}_`,
         )
         .join("\n");
-      return `### Tema ${i + 1} · ${t.title}\n\n${i === 0 ? "Arranca con" : "Puente"}: ${t.bridge}\n\n${lines}`;
+      const moves = (t.moves ?? []).length ? `\n\nJugadas: ${t.moves.map((m) => MOVE_LABEL[m]).join(" · ")}` : "";
+      return `### Tema ${i + 1} · ${t.title}\n\n${i === 0 ? "Arranca con" : "Puente"}: ${t.bridge}${moves}\n\n${lines}`;
     })
     .join("\n\n");
   const callbacks = story.callbacks.map((c) => `- ${c.planted} → ${c.payoff}`).join("\n") || "- Ninguno.";

@@ -45,6 +45,12 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
 - Claude returns `beat`/`role`/`disclosure` as plain strings; `normalizeStory()`/`normalizeBoard()` map them to
   strict values. Shots last exactly 6, 10 or 15 s (Grok's clip lengths; `snapSeconds`).
 - Every menu idea and story has a `problem` (the problem it solves, plain words) shown before its hook `title`.
+- Every story topic tags the playbook moves it really uses (`moves`, ids from `shared/moves.ts`, PLAYBOOK §2.5;
+  `normalizeStory` maps names, old stories get `[]`). The story shows them per topic and as the piece's coverage; a
+  tagged story with no Turn or no Button is blocked ("Sin Giro", "Sin Botón"); the writers' room counts moves across
+  the series (`overusedMoves`, also in `roomBrief`). "5 variantes de gancho" (`POST /api/story/hooks`,
+  `HookVariants`, PLAYBOOK §3) writes five hooks, each with its move and the viewer's awareness level 1–5: one can
+  become the story's hook, and the five go to Publicidad as pending hooks.
 - The writer grades its own story (checklist, open loops, series loop, claims vs "Lo que existe hoy", practices vs
   "Cómo se trabaja hoy": pains follow how people really work, never an invented habit) and board
   (issues); `shared/checks.ts` turns that into problems that block approval until fixed ("Arreglalo") or dismissed.
@@ -114,8 +120,10 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   each motion, first and last of a sequence only. The `type` template types the title into a field with key sounds.
   The script's `tone` (from brief.tone) sets the cut (`cutPush`: dry hard cut, warm 0.38 s push, absurdist 0.2 s),
   the effects (dry: no whoosh or pops) and the music bed (`TONE_BED`); its `caption` is the share text. The cuts into
-  the product and the logo go to `strongBeats` (the synth's bar starts, or the track's hardest low-end onsets) only
-  when `readingIssues` and `quietGaps` do not get worse. "Traer la marca desde su web" (`server/brandWeb.ts`,
+  the product and the logo go to `strongBeats` (the synth's bar starts, or the downbeats of the track's drums stem)
+  only when `readingIssues` and `quietGaps` do not get worse. An explainer's own track gets its beat grid only from
+  its drums stem (`piece.kickGrid` from `trackKicks` = `fitKicks`: a stem the person uploads, or Demucs through
+  `PUT /api/motion/kicks`); with no stem it has no grid and nothing snaps, never peaks off the track. "Traer la marca desde su web" (`server/brandWeb.ts`,
   `/api/brand/from-web`, localhost-only, public addresses only, checked on every redirect) proposes the brand kit;
   page claims stay [VERIFY] until the person confirms them into "Lo que existe hoy".
   3D-look characters are cut-out puppets (`src/lib/puppet.ts`): a cast character's `puppet.layers` (roles
@@ -163,7 +171,10 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
 ## Commands
 - `npm run dev` — API on 8787 + Vite on 5173 (proxied `/api`).
 - `npm run typecheck`, `npm run build`, `npm start`.
-- `npx tsx server/clock-check.ts` — lyric clock harness (kick grid, lyric gate, frames 100 and 400).
+- `npm test` — `node:test` + tsx over `tests/` (the pure logic in `shared/` and the timing in `src/lib`).
+- `npx tsx server/clock-check.ts` — lyric clock harness (kick grid, lyric gate, frames 100 and 400); needs the API on
+  8787 and the same `PROJECTS_DIR`.
+- CI (`.github/workflows/ci.yml`) runs typecheck, tests, build, and clock-check against the API in sample mode.
 - `npx tsx server/clock-cli.ts sync|critique --project ID` — write or critique `proyectos/<id>/sync/`.
 
 @PLAYBOOK.md

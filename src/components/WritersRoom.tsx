@@ -1,6 +1,7 @@
 import { Children, type ReactNode } from "react";
+import { MOVES, MOVE_HINT, MOVE_LABEL, moveCounts } from "../../shared/moves.ts";
 import type { RoomCard } from "../../shared/room.ts";
-import { retakeCanon, retakeLoop, retakeRunner, retakeTease } from "../../shared/room.ts";
+import { overusedMoves, retakeCanon, retakeLoop, retakeRunner, retakeTease } from "../../shared/room.ts";
 import { Button } from "./ui.tsx";
 
 type Props = {
@@ -41,6 +42,8 @@ export function WritersRoom({ seriesName, cards, notes, showBanner, busy, onReta
   const loops = cards.flatMap((c) => c.open.map((question) => ({ card: c, question })));
   const canon = canonGroups(cards);
   const runners = cards.filter((c) => c.runner);
+  const moves = moveCounts(cards.map((c) => c.moves ?? []));
+  const leaning = new Set(overusedMoves(cards).map((m) => m.move));
 
   return (
     <section className="rounded-xl border border-line bg-white p-4" aria-label="La pizarra">
@@ -87,6 +90,25 @@ export function WritersRoom({ seriesName, cards, notes, showBanner, busy, onReta
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {MOVES.some((m) => moves[m] > 0) && (
+        <div className="mt-3">
+          <p className="text-xs font-semibold">Jugadas en la serie</p>
+          <p className="mt-1 flex flex-wrap gap-1">
+            {MOVES.filter((m) => moves[m] > 0).map((m) => (
+              <span
+                key={m}
+                title={`${MOVE_HINT[m]} · en ${moves[m]} de ${cards.length} piezas${leaning.has(m) && m !== "turn" && m !== "button" ? ". La serie se apoya mucho en esta: probá otra." : ""}`}
+                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                  leaning.has(m) && m !== "turn" && m !== "button" ? "border-neg/40 bg-neg-soft text-neg" : "border-line bg-paper text-muted"
+                }`}
+              >
+                {MOVE_LABEL[m]} {moves[m]}/{cards.length}
+              </span>
+            ))}
+          </p>
         </div>
       )}
 

@@ -1,7 +1,8 @@
 // What the explainer studio and the render page (render.mjs) share: loading a piece's images, voices and track,
 // the beat grid, the scenes on it, the world the engine draws with, and the sound. Both build frame t and the mix
 // the same way, so the final render matches the preview.
-import { TYPE_CPS, cutPush, elementTimes, sceneElements, snapElements, snapScenes, timeScenes, type MotionPiece, type MotionScene, type MotionScript } from "../../shared/motion.ts";
+import { TYPE_CPS, cutPush, elementTimes, sceneElements, snapElements, snapScenes, timeScenes, type MotionPiece, type MotionScene, type MotionScript, type TrackKicks } from "../../shared/motion.ts";
+import { fitKicks, type Pcm } from "../../shared/clock.ts";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import type { Brand } from "../../shared/series.ts";
 import { libraryFileUrl, projectFileUrl, type MediaFileRecord, type MediaRecord } from "./api.ts";
@@ -9,7 +10,6 @@ import { buildPuppet, singlePuppet, type PuppetAsset } from "./puppet.ts";
 import { loadActor, type ActorAsset } from "./actor.ts";
 import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "./motion.ts";
 import { buildSound, type HitKind, type SoundPlan } from "./motionAudio.ts";
-import { findBeats } from "./render.ts";
 
 export const VOICE_BASE = 100;
 export const LAYER_BASE = 200;
@@ -135,58 +135,38 @@ export async function loadPieceMedia(
   return { voices, layers, track };
 }
 
-// The beat grid: the synthesized score's, or the track's measured beats; none without music.
-export function motionBeats(script: MotionScript | null, music: MotionPiece["music"], track: AudioBuffer | null): number[] {
+// The beat grid: the synthesized score's, or the kicks measured on the track's drums stem (TrackKicks). A track with
+// no drums stem has no grid: the beat is never read off the track itself (the two clocks, CLAUDE.md). None without music.
+export function motionBeats(script: MotionScript | null, music: MotionPiece["music"], kicks: TrackKicks | null | undefined): number[] {
   if (!script) return [];
-  if (music === "track" && track) return findBeats(track);
+  if (music === "track") return kicks?.kicks ?? [];
   if (music === "none") return [];
   return beatGrid(scriptDuration(script) + 2, script.music.bpm);
 }
 
 // The strongest hits, where the big moments (the product, the logo) go: the synthesized score's bar starts (every
-// fourth beat), or the person's track's beats with the hardest low end (its top fifth). Pure: the same track gives the
-// same list in the studio and in the render.
-export function strongBeats(beats: number[], music: MotionPiece["music"], track: AudioBuffer | null): number[] {
+// fourth beat), or the downbeats of the track's drums stem. Pure: the studio and the render get the same list.
+export function strongBeats(beats: number[], music: MotionPiece["music"], kicks: TrackKicks | null | undefined): number[] {
   if (music === "none" || beats.length < 2) return [];
-  if (music !== "track" || !track) return beats.filter((_, i) => i % 4 === 0);
-  const low = lowEnergy(track);
-  const hop = LOW_HOP / track.sampleRate;
-  const at = (t: number) => low[Math.min(low.length - 1, Math.max(0, Math.round(t / hop)))] ?? 0;
-  // Low-end energy just after the beat against just before it: a kick or a bass hit, not a bright tick.
-  const strength = beats.map((t) => {
-    let after = 0;
-    let before = 0;
-    for (let k = 0; k < 4; k++) {
-      after += at(t + k * hop);
-      before += at(t - (k + 1) * hop);
-    }
-    return after - before;
-  });
-  const sorted = [...strength].sort((a, b) => b - a);
-  const bar = sorted[Math.max(0, Math.floor(sorted.length / 5) - 1)];
-  return beats.filter((_, i) => strength[i] >= bar && strength[i] > 0);
+  if (music === "track") return kicks?.downbeats ?? [];
+  return beats.filter((_, i) => i % 4 === 0);
 }
 
-// The track's energy under ~150 Hz in hops of LOW_HOP samples (channel 0, one-pole low-pass), kept per track.
-const LOW_HOP = 512;
-const lows = new WeakMap<AudioBuffer, Float32Array>();
-function lowEnergy(track: AudioBuffer): Float32Array {
-  const known = lows.get(track);
-  if (known) return known;
-  const data = track.getChannelData(0);
-  const a = 1 - Math.exp((-2 * Math.PI * 150) / track.sampleRate);
-  const out = new Float32Array(Math.floor(data.length / LOW_HOP));
-  let y = 0;
-  for (let h = 0; h < out.length; h++) {
-    let sum = 0;
-    for (let j = h * LOW_HOP; j < (h + 1) * LOW_HOP; j++) {
-      y += a * (data[j] - y);
-      sum += y * y;
-    }
-    out[h] = Math.sqrt(sum / LOW_HOP);
+// The track's beat clock from its drums stem (a file the person exported, or Demucs on this computer): the kicks and
+// downbeats fitKicks measures, the same as the Reloj of lyric videos.
+export function trackKicks(pcm: Pcm, source: TrackKicks["source"], name: string): TrackKicks {
+  const grid = fitKicks(pcm, 30);
+  return { kicks: grid.kicks, downbeats: grid.downbeats, bpm: grid.bpm, medianErrorMs: grid.medianErrorMs, usable: grid.usable, source, name };
+}
+
+// A decoded file as one channel (the average of its channels), for the kick clock or for Demucs.
+export function monoPcm(buffer: AudioBuffer): Pcm {
+  const samples = new Float32Array(buffer.length);
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    const data = buffer.getChannelData(ch);
+    for (let i = 0; i < data.length; i++) samples[i] += data[i] / buffer.numberOfChannels;
   }
-  lows.set(track, out);
-  return out;
+  return { samples, sampleRate: buffer.sampleRate };
 }
 
 // The scenes as they play: snapped onto the beats unless the person turned that off, with the cuts into the product
@@ -197,11 +177,11 @@ export function arrangeScenes(
   beats: number[],
   snap: boolean,
   music: MotionPiece["music"] = "synth",
-  track: AudioBuffer | null = null,
+  kicks: TrackKicks | null | undefined = null,
 ): MotionScene[] {
   if (!script) return [];
   if (!snap) return script.scenes;
-  return snapElements(snapScenes(script.scenes, beats, strongBeats(beats, music, track), cutPush(script.tone)), beats);
+  return snapElements(snapScenes(script.scenes, beats, strongBeats(beats, music, kicks), cutPush(script.tone)), beats);
 }
 
 // The music bed's level by tone: lower under a dry piece, a touch higher in an absurd one.

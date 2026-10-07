@@ -566,6 +566,20 @@ export function quietGaps(scenes: MotionScene[], push: number, max = 4): { from:
   return gaps;
 }
 
+// A track's beat clock, measured on its drums stem (shared/clock.ts fitKicks), never on the track itself: the kicks
+// (cuts and accents land on them) and the downbeats (the big moments). From a stem the person exported, or Demucs.
+export type TrackKicks = {
+  kicks: number[];
+  downbeats: number[];
+  bpm: number;
+  medianErrorMs: number;
+  // One steady tempo (false: the tempo moves; the kicks still hold).
+  usable: boolean;
+  source: "stem" | "demucs";
+  // The stem's file name, or the track's for Demucs.
+  name: string;
+};
+
 // What a motion piece saves in its project.
 export type MotionPiece = {
   script: MotionScript | null;
@@ -592,6 +606,8 @@ export type MotionPiece = {
   poster?: { t: number; by: "vos" | "ia" } | null;
   // Reading-time warnings the person marked "no es un problema" (readingKey).
   readingOk?: string[];
+  // The track's beat clock from its drums stem; none: a track has no grid.
+  kickGrid?: TrackKicks | null;
 };
 
 export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {

@@ -119,7 +119,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   movimiento. Recomiendo lo primero: así "un acento cae en un kick" se cumple en imagen y sonido, y el check de
   sincronía de la IA deja de marcar lo que la app misma corrió.
 
-#### 44. Los explicativos con tema propio leen los beats del master
+#### 44. Los explicativos con tema propio leen los beats del master — **Construido (7 Oct 2026, "Go 44, 49, 56 y 55")**
 - **Qué pasa:** `motionBeats` usa `findBeats(track)` (picos de volumen general) cuando hay un tema subido, y
   `strongBeats` aproxima los graves con un pasabajos. Es justo lo que la regla de las dos relojes prohíbe para el
   Reloj: "nunca lee picos del master". Un hat o una voz fuerte cuentan como beat y los cortes caen ahí.
@@ -190,7 +190,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   operativas de `PLAYBOOK.md` (§1, §3, §3.1, §3.2, §5, §6) y un check en `typecheck`/CI que falla si el archivo
   generado no coincide con el guardado.
 
-#### 49. Pruebas y CI
+#### 49. Pruebas y CI — **Construido (7 Oct 2026)**
 - Hoy no hay pruebas (solo `clock-check.ts`). Toda la lógica pura está en `shared/` y se prueba sin navegador:
   `checks.ts`, `motion.ts` (`snapScenes`, `readingIssues`, `quietGaps`, `posterTime`), `clock.ts`, `lyrics.ts`
   (`alignLyrics`, `splitLyrics`), `ads.ts`. **Propuesta:** `node --test` con `tsx` en `tests/`, y un workflow de
@@ -231,14 +231,14 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 
 ### Playbook al máximo
 
-#### 55. Las jugadas (§2.5) como dato de cada tema
+#### 55. Las jugadas (§2.5) como dato de cada tema — **Construido (7 Oct 2026)**
 - Hoy la historia no dice qué jugadas usa. **Propuesta:** cada tema devuelve `moves` (Clip Drop, Contradicción,
   Reacción lenta, Escalera, Giro, Botón, Brecha de curiosidad, Visita de campo, Callback, Corresponsal) y la app
   muestra una fila de chips por tema y una **cobertura por pieza**. El check suma "Sin Giro" (el Momento emotivo ya
   está) y "Sin Botón que vuelva al gancho". Con tres o cuatro piezas, la pizarra de la serie ve qué jugadas se
   repiten de más.
 
-#### 56. Cinco variantes de gancho por historia (§3)
+#### 56. Cinco variantes de gancho por historia (§3) — **Construido (7 Oct 2026)**
 - El playbook pide entregar 5 ganchos por guion y la app entrega uno. **Propuesta:** botón "5 variantes de
   gancho" en la historia (cada una con su jugada), elegir la que va, y **"Mandar las 5 a Publicidad"**: entran al
   catálogo de hooks con su nivel. Es el puente natural entre el contenido orgánico y el 50-5-3.
@@ -269,6 +269,28 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - Con el Método 50-5-3 construido, el tipo de pieza "Imagen fija" tiene un uso más: el anuncio estático sale de un
   hook aprobado (su titular en pantalla y su prompt de imagen) con el texto puesto por la app. Sigue esperando
   "go" y las 4 respuestas de la idea 34.
+
+### Lo construido con "Go 44, 49, 56 y 55" (7 Oct 2026)
+- **44:** con tema propio, la grilla del explicativo sale solo de la pista de batería: la subís (la exporta tu programa
+  de música o un separador) o, si Demucs está instalado en la compu, "Separar la batería con Demucs". Los cortes y los
+  acentos van a los bombos medidos y el producto y el logo a los primeros tiempos, con el mismo `fitKicks` del Reloj.
+  Sin pista, el panel dice "Sin grilla" y nada se pega: nunca se miden los picos del tema entero. Al cambiar el tema,
+  la grilla vieja se borra.
+  - Probado con una pista sintética: los bombos quedaron a menos de 5 ms (en la app, error mediano 0,08 ms), todos
+    los cortes en un bombo y el corte al producto en un primer tiempo cuando hay uno cerca.
+- **49:** `npm test` corre 27 pruebas en `tests/` (tiempos de explicativos, checks y jugadas, variantes de gancho,
+  pizarra, Publicidad, reloj de bombos, letras, reloj suavizado). Rompí a propósito la regla del Giro y las dos mitades
+  de la 45, y las pruebas fallaron en cada caso. El workflow de GitHub Actions corre tipos, pruebas, build y el arnés
+  del Reloj contra la API en modo de muestra, en cada push y PR.
+- **55:** cada tema de la historia trae sus jugadas, con chips por tema y una fila de cobertura arriba (las que no se
+  usaron aparecen tachadas). Si la historia tiene jugadas marcadas y le falta el Giro o el Botón, el check bloquea con
+  "Sin Giro" o "Sin Botón". Las historias viejas, sin jugadas, no se juzgan por esto. La pizarra de la serie muestra
+  las jugadas de todas las piezas y marca en rojo las que usan más de la mitad (con tres piezas o más), y el escritor
+  recibe esa misma lista para variar.
+- **56:** en la historia, "Escribir 5 variantes": cinco ganchos, cada uno con su jugada, su nivel de conciencia (N1 a
+  N5) y por qué frena el scroll. "Usar como gancho" cambia el gancho de la pieza (queda en el registro de dirección), y
+  "Mandar las 5 a Publicidad" las deja como hooks pendientes con su nivel, para aprobar con Sí o No. Las variantes se
+  guardan con el proyecto.
 
 ### Si tuviera que elegir el primer "go"
 1. **41 + 42 + 43:** el reloj de la vista previa, el empuje en el check y una sola fuente de verdad imagen-sonido.

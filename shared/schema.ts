@@ -3,6 +3,7 @@
 import { z } from "zod";
 import type { LyricStyle } from "./lyrics.ts";
 import type { Brand, CastMember, SeriesLook, SeriesType, TextStyle } from "./series.ts";
+import { MOVES_FOR_WRITER, pickMove, pickMoves, type Move } from "./moves.ts";
 
 export const BEATS = ["negative", "touching", "good"] as const;
 export type Beat = (typeof BEATS)[number];
@@ -90,8 +91,11 @@ const TopicWire = z.object({
   title: z.string(),
   bridge: z.string().describe("The concrete bridge into this topic (for the first topic: the opening artifact)."),
   lines: z.array(LineWire),
+  moves: z
+    .array(z.string())
+    .describe(`The playbook moves this topic really uses on screen, by id, from: ${MOVES_FOR_WRITER}. Only what a line or a direction shows; may be empty.`),
 });
-export type Topic = Omit<z.infer<typeof TopicWire>, "lines"> & { lines: Line[] };
+export type Topic = Omit<z.infer<typeof TopicWire>, "lines" | "moves"> & { lines: Line[]; moves: Move[] };
 
 const ChecklistItemSchema = z.object({ item: z.string(), pass: z.boolean(), note: z.string() });
 export type ChecklistItem = z.infer<typeof ChecklistItemSchema>;
@@ -186,6 +190,37 @@ export type Story = Omit<z.infer<typeof StoryWireSchema>, "characters" | "topics
   characters: Character[];
   topics: Topic[];
 };
+
+// ── Five hook variants for a story (PLAYBOOK §3: 5 hook variants per script, each naming its move) ──────────
+export const HookVariantsWireSchema = z.object({
+  variants: z
+    .array(
+      z.object({
+        title: z
+          .string()
+          .describe(
+            "The hook: what stops the scroll in the first 2 seconds, for the same problem and story. Up to 12 words, concrete (the object, the number, the hour), makes sense with no context. Spanish (Rioplatense). Never the playbook's example lines.",
+          ),
+        move: z.string().describe(`The one move it leans on, by id, from: ${MOVES_FOR_WRITER}.`),
+        level: z
+          .number()
+          .describe(
+            "The viewer's awareness it speaks to, 1 to 5: 1 does not know they have the problem; 2 knows the problem, not the way out; 3 knows ways out exist, not this brand's; 4 knows this brand and doubts; 5 is ready and needs a push.",
+          ),
+        why: z.string().describe("One line in Spanish: why it stops the scroll."),
+      }),
+    )
+    .describe("Exactly five variants, each on a different move."),
+});
+export type HookVariant = { title: string; move: Move; level: 1 | 2 | 3 | 4 | 5; why: string };
+
+export function normalizeHookVariants(wire: z.infer<typeof HookVariantsWireSchema>): HookVariant[] {
+  const level = (n: number) => (Number.isFinite(n) ? (Math.min(5, Math.max(1, Math.round(n))) as HookVariant["level"]) : 2);
+  return wire.variants
+    .filter((v) => v.title.trim())
+    .slice(0, 5)
+    .map((v) => ({ title: v.title.trim().slice(0, 200), move: pickMove(v.move) ?? "curiosityGap", level: level(v.level), why: v.why.trim().slice(0, 300) }));
+}
 
 // ── Review of an uploaded image or clip frame ───────────────────────────────────
 export const ImageReviewSchema = z.object({
@@ -362,7 +397,7 @@ export function migrateStory(story: Story): Story {
     },
     tease: old.tease ?? "",
     canon: old.canon ?? [],
-    topics: story.topics.map((t) => ({ ...t, lines: t.lines.map((l) => ({ ...l, emotion: l.emotion ?? "" })) })),
+    topics: story.topics.map((t) => ({ ...t, moves: t.moves ?? [], lines: t.lines.map((l) => ({ ...l, emotion: l.emotion ?? "" })) })),
   };
 }
 
@@ -372,6 +407,7 @@ export function normalizeStory(wire: z.infer<typeof StoryWireSchema>): Story {
     characters: wire.characters.map((c) => ({ ...c, role: pick(c.role, ROLES, "human") })),
     topics: wire.topics.map((t) => ({
       ...t,
+      moves: pickMoves(t.moves),
       lines: t.lines.map((l) => ({ ...l, beat: pick(l.beat, BEATS, "negative") })),
     })),
   };
@@ -462,8 +498,8 @@ export type Status = {
   voice: { available: boolean; defaultVoice: string };
   // Lyric videos: automatic sync needs the transcription API (same OpenAI key).
   lyrics: { autoSync: boolean };
-  // The final render of explainers (render.mjs) needs ffmpeg on this computer.
-  render: { ffmpeg: boolean };
+  // The final render of explainers (render.mjs) needs ffmpeg on this computer. Demucs separates a track's drums.
+  render: { ffmpeg: boolean; demucs: boolean };
 };
 
 // "Modelos": who writes, who looks at pictures, and which keys are set (never the keys themselves).

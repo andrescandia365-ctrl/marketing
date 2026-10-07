@@ -5,6 +5,9 @@ import { z } from "zod";
 import {
   BoardWireSchema,
   BrandSuggestionSchema,
+  HookVariantsWireSchema,
+  normalizeHookVariants,
+  type HookVariant,
   ImageReviewSchema,
   MenuSchema,
   ProductShotSchema,
@@ -372,6 +375,24 @@ ${STORY_CHECKS}`,
   );
 }
 
+// PLAYBOOK §3: five hook variants per script, each naming the move it uses. Same problem and story, five ways in.
+export async function hookVariants(brief: Brief, story: Story): Promise<HookVariant[]> {
+  return normalizeHookVariants(
+    await ask(
+      brief,
+      false,
+      `Brief:
+${describeBrief(brief)}
+
+The story (its problem: "${story.problem}"; its hook now: "${story.title}"):
+${JSON.stringify({ problem: story.problem, title: story.title, logline: story.logline, topics: story.topics.map((t) => ({ title: t.title, bridge: t.bridge, lines: t.lines.map((l) => l.text) })), close: story.close }, null, 2)}
+
+Write five hook variants for this piece: the same problem and story, five different ways into it, each leaning on a different playbook move (§2.5) and naming it. Each one stops the scroll in the first 2 seconds with something concrete (the object, the number, the hour) and makes sense with no context. Punch at the problem, never at the person. Only what the series shows as real; anything unconfirmed carries [VERIFY]. Do not repeat the current hook. Say which awareness level (1–5) of the viewer each one speaks to, so the best ones can also run as paid ads.`,
+      HookVariantsWireSchema,
+    ),
+  );
+}
+
 // What a writers' room keeps across episodes, on top of the callbacks inside this one.
 const ROOM_CRAFT = `Like a series writers' room, also fill:
 - runner: one concrete bit (an object, a short phrase or a gesture) that lands in the opening, again in the middle and in the tag. Each landing changes the bit. open, middle and tag each quote, inside «», a few words that are spoken in a line, and the three quotes are different.
@@ -379,7 +400,9 @@ const ROOM_CRAFT = `Like a series writers' room, also fill:
 - canon: up to three facts this episode makes true for later episodes (an object, a relationship, a rule of the place). Not a product claim. Empty if the world did not change.`;
 
 // The checks the writer runs on its own story; the app blocks approval on any that fail.
-const STORY_CHECKS = `Then check the story like a strict critic who did not write it. A pass you cannot point to in the text is a fail.
+const STORY_CHECKS = `Tag each topic's moves: the playbook moves (§2.5) it really uses on screen, by id. Use them on purpose: open on the real artifact, escalate, let one Turn land (the irony drops, one sincere line) and end the piece on a Button that calls back to the hook. Do not tag a move the lines do not show.
+
+Then check the story like a strict critic who did not write it. A pass you cannot point to in the text is a fail.
 - checklist: Gancho (the first 3 seconds stop the scroll with a concrete pain or a question), Retención (open questions and tension keep people watching; the escalation grows), Recompensa (every open loop pays off), Bueno contra Malo, Momento emotivo, Detalle concreto, Puentes, Callbacks, Continuidad (each line follows from the one before), Lo que existe hoy, El chiste es el problema. The runner's three «quotes» are three different phrases, each one said in the story. The tease is not listed as a loop.
 - loops: every open loop (the hook's question, each tension, each planted callback), where it opens and where it pays off. One that never pays off is not closed.
 - seriesLoop: walk the series loop from the bible step by step: does the piece show it, and if so, does it show the pain, the step doing its job and the result?

@@ -2,6 +2,7 @@ import type {
   Board,
   BrandFromWeb,
   Brief,
+  HookVariant,
   ImageReview,
   Menu,
   ProductShot,
@@ -140,6 +141,7 @@ export const api = {
   reviseStory: (brief: Brief, story: Story, note: string, projectId = "") =>
     call<{ story: Story } & Demo>("/api/story/revise", { brief, story, note, projectId }),
   board: (brief: Brief, story: Story) => call<{ board: Board } & Demo>("/api/board", { brief, story }),
+  storyHooks: (brief: Brief, story: Story) => call<{ variants: HookVariant[] } & Demo>("/api/story/hooks", { brief, story }),
   reviseBoard: (brief: Brief, story: Story, board: Board, note: string, shotNotes: { index: number; note: string }[]) =>
     call<{ board: Board } & Demo>("/api/board/revise", { brief, story, board, note, shotNotes }),
   rewriteShot: (brief: Brief, story: Story, board: Board, index: number, note: string) =>
@@ -220,6 +222,9 @@ export const api = {
   startFinal: (id: string, formats: ("vertical" | "horizontal")[], origin: string) =>
     call<{ job: FinalJob }>(`/api/projects/${enc(id)}/final`, { formats, origin }),
   finalJob: (job: string) => call<{ job: FinalJob }>(`/api/final/${enc(job)}`),
+  // An explainer's track (mono WAV) → Demucs on this computer → the kicks of its drums stem.
+  trackKicks: (wav: Blob) =>
+    upload<{ kicks: { kicks: number[]; downbeats: number[]; bpm: number; medianErrorMs: number; usable: boolean } }>("/api/motion/kicks", wav, "audio/wav"),
   // Modelos (only answers from this computer).
   settings: () => call<SettingsView>("/api/settings"),
   saveKey: (name: string, key: string | null) => call<SettingsView>("/api/settings/key", { name, key }, "PUT"),

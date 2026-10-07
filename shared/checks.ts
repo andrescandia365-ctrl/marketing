@@ -1,6 +1,7 @@
 // The checks that gate each approval. The writer grades its own story and board; these turn that grading
 // into a list of problems. A problem blocks approval until it is fixed ("Arreglalo") or the person dismisses it.
 import type { Board, Brief, Story } from "./schema.ts";
+import { MOVE_LABEL } from "./moves.ts";
 import { PRACTICES } from "./series.ts";
 
 export type Problem = {
@@ -153,6 +154,23 @@ export function storyProblems(
         detail: `${c.claim}. No está en "Lo que existe hoy" y la historia lo muestra como real. ${c.note}`,
       });
   });
+  // The playbook's moves (§2.5): every piece has a Turn and ends on a Button. Stories written before the moves were
+  // data have none tagged and are not judged on them.
+  const tagged = story.topics.flatMap((t) => t.moves ?? []);
+  if (tagged.length) {
+    if (!tagged.includes("turn"))
+      problems.push({
+        id: "jugada:giro",
+        label: `Sin ${MOVE_LABEL.turn}`,
+        detail: "Ningún tema tiene el Giro: una línea sincera, sin ironía, sobre lo que el problema le cuesta a alguien.",
+      });
+    if (!tagged.includes("button"))
+      problems.push({
+        id: "jugada:boton",
+        label: `Sin ${MOVE_LABEL.button}`,
+        detail: "Ningún tema cierra con el Botón: la última línea, corta, que vuelve al gancho.",
+      });
+  }
   (story.practices ?? []).forEach((p, i) => {
     if (!p.known)
       problems.push({

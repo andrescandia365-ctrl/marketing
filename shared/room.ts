@@ -2,6 +2,7 @@
 // A tease is planted for a later episode. It is not an open loop of the piece that plants it.
 // A runner is one concrete bit that lands in the opening, the middle and the tag, and changes each time.
 // Canon is a fact later episodes treat as already true.
+import { MOVES, MOVE_LABEL, moveCounts, pickMoves, type Move } from "./moves.ts";
 
 export type RoomCard = {
   id: string;
@@ -13,6 +14,8 @@ export type RoomCard = {
   canon: string[];
   runner: string;
   paid: string[];
+  // The playbook moves the piece used (any topic), so the series sees which ones it leans on.
+  moves: Move[];
 };
 
 type LooseStory = {
@@ -23,6 +26,7 @@ type LooseStory = {
   loops?: { question?: string; closed?: boolean }[];
   canon?: { fact?: string }[];
   runner?: { bit?: string };
+  topics?: { moves?: string[] }[];
 };
 
 export function clipText(text: string, max = 180): string {
@@ -55,12 +59,25 @@ export function storyCard(id: string, updatedAt: string, story: LooseStory | nul
       .map((c) => clipText(c?.payoff || ""))
       .filter(Boolean)
       .slice(0, 2),
+    moves: pickMoves((story.topics ?? []).flatMap((t) => (Array.isArray(t?.moves) ? t.moves : []))),
   };
+}
+
+// Moves used by more than half the pieces of the series (at least three pieces): the series leans on them.
+export function overusedMoves(cards: Pick<RoomCard, "moves">[]): { move: Move; label: string; pieces: number }[] {
+  if (cards.length < 3) return [];
+  const counts = moveCounts(cards.map((c) => c.moves ?? []));
+  return MOVES.filter((m) => counts[m] > cards.length / 2).map((m) => ({ move: m, label: MOVE_LABEL[m], pieces: counts[m] }));
 }
 
 // What the writer sees. Empty when this is the first piece.
 export function roomBrief(cards: RoomCard[]): string {
   if (cards.length === 0) return "";
+  // Moves the other pieces keep using (the Turn and the Button are in every piece on purpose).
+  const leaning = overusedMoves(cards).filter((m) => m.move !== "turn" && m.move !== "button");
+  const moves = leaning.length
+    ? `\nMoves most earlier pieces already lean on (open or escalate differently this time): ${leaning.map((m) => `${m.move} (${m.pieces} of ${cards.length})`).join(", ")}.`
+    : "";
   return cards
     .slice(0, 8)
     .map((c) => {
@@ -73,7 +90,8 @@ export function roomBrief(cards: RoomCard[]): string {
       ].filter(Boolean);
       return `- “${c.problem}”${c.title ? ` (hook: ${c.title})` : ""}\n  ${bits.join("\n  ") || "Nothing left open."}`;
     })
-    .join("\n");
+    .join("\n")
+    .concat(moves);
 }
 
 export function retakeTease(card: RoomCard): string {
