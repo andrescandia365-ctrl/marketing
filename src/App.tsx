@@ -901,7 +901,7 @@ export function App() {
   const open = (p: Problem) => !dismissed.includes(p.id);
   const usedRunners = room.flatMap((c) => (c.runner ? [{ bit: c.runner, problem: c.problem }] : []));
   const storyIssues = story ? storyProblems(story, pieceBrief, usedRunners) : [];
-  const boardIssues = board ? boardProblems(board) : [];
+  const boardIssues = board ? boardProblems(board, Object.fromEntries((pieceSeries?.cast ?? []).map((m) => [m.id, m.kind]))) : [];
   const roomSeriesId = step === "brief" ? brief.series : pieceBrief.series;
   const roomSeriesInfo = status?.series.find((s) => s.id === roomSeriesId);
   const showRoom =
@@ -1046,6 +1046,7 @@ export function App() {
               tools={status.tools}
               imageProviders={status.imageProviders}
               writer={Boolean(status.writer)}
+              voice={status.voice}
               onToPlaybook={(text) => {
                 setBrief((b) => ({ ...b, angle: text }));
                 setSection("playbook");

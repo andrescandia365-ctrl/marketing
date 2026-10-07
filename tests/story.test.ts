@@ -1,7 +1,7 @@
 // The story's moves (PLAYBOOK §2.5), the checks that gate approval, hook variants and the writers' room.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { storyProblems, boardProblems, actionWords, polishWords } from "../shared/checks.ts";
+import { storyProblems, boardChecks, boardProblems, borrowedNames, actionWords, polishWords } from "../shared/checks.ts";
 import { MOVES, moveCounts, pickMove, pickMoves } from "../shared/moves.ts";
 import { overusedMoves, roomBrief, storyCard } from "../shared/room.ts";
 import { migrateStory, normalizeHookVariants, normalizeStory, type Story } from "../shared/schema.ts";
@@ -47,8 +47,40 @@ test("a piece without a narrator blocks narrator lines", () => {
 
 test("board issues become problems tied to their shot", () => {
   const problems = boardProblems({ ...DEMO_BOARD, issues: [{ shot: 2, kind: "continuity", note: "No sigue." }] });
-  assert.equal(problems[0].shot, 1);
-  assert.match(problems[0].label, /Continuidad/);
+  const issue = problems.find((p) => p.id.startsWith("board:"))!;
+  assert.equal(issue.shot, 1);
+  assert.match(issue.label, /Continuidad/);
+});
+
+test("checklist §7.4: the brand never opens the piece", () => {
+  const brandFirst = story({
+    topics: DEMO_STORY.topics.map((t, i) => (i === 0 ? { ...t, lines: [{ ...t.lines[0], speaker: "iman" }, ...t.lines.slice(1)] } : t)),
+  });
+  assert.ok(storyProblems(brandFirst).some((p) => p.id === "cliente-heroe"));
+  assert.ok(!storyProblems(story()).some((p) => p.id === "cliente-heroe"));
+});
+
+test("checklist §7.4: nothing borrowed from the show, in the story or the board", () => {
+  assert.deepEqual(borrowedNames("Como en The Daily Show, Jon  Stewart diría…"), ["daily show", "jon stewart"]);
+  assert.deepEqual(borrowedNames("Snlaguna no cuenta; dostoievski tampoco"), []);
+  const borrowed = story({ title: "Al estilo SNL" });
+  assert.ok(storyProblems(borrowed).some((p) => p.label === "Nada prestado"));
+  const board = { ...DEMO_BOARD, shots: DEMO_BOARD.shots.map((s, i) => (i === 1 ? { ...s, visualPrompt: `${s.visualPrompt} Colbert style desk.` } : s)) };
+  assert.ok(boardChecks(board).some((p) => p.label === "Nada prestado"));
+});
+
+test("checklist §7.4: the hook shows the pain in 2 s, and the Good shows the product in use", () => {
+  const base = { ...DEMO_BOARD, issues: [] };
+  assert.deepEqual(boardChecks(base).map((p) => p.id), []);
+  const goodFirst = { ...base, shots: [{ ...base.shots[0], beat: "good" as const }, ...base.shots.slice(1)] };
+  assert.deepEqual(boardChecks(goodFirst).map((p) => p.id), ["gancho:dolor"]);
+  const silent = { ...base, shots: [{ ...base.shots[0], voiceover: "", onScreenText: "" }, ...base.shots.slice(1)] };
+  assert.deepEqual(boardChecks(silent).map((p) => p.id), ["gancho:mudo"]);
+  // With a real screen in the series' cast, a Good with no screen shot and no product setup is flagged…
+  assert.deepEqual(boardChecks(base, { app: "screen" }).map((p) => p.id), ["producto-en-uso"]);
+  // …and a Good shot of the real screen clears it.
+  const withScreen = { ...base, shots: base.shots.map((s) => (s.beat === "good" ? { ...s, kind: "screen" as const, screen: "app" } : s)) };
+  assert.deepEqual(boardChecks(withScreen, { app: "screen" }).map((p) => p.id), []);
 });
 
 test("an image prompt with an action or a polished look is caught", () => {

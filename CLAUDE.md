@@ -5,7 +5,10 @@ A web app (Spanish interface) for story-driven content, not ads: each piece is a
 Flow: brief → topic menu → story in rounds with director notes → storyboard review → production (prompts, uploads,
 render). `server/engine.md` is the storytelling engine; `server/series/*.md` holds one bible per series (IMAN,
 Máshogar); `server/playbook.md` is the operative copy of `PLAYBOOK.md` the app sends to Claude. When `PLAYBOOK.md`'s
-rules change, update it there too. The playbook's 75 s ad template does not drive the app.
+rules change, update it there too, then record it with `npm run playbook -- --write`: `scripts/playbook.snapshot.md`
+keeps the PLAYBOOK.md sections (§1–§7, not §2.1) the summary follows, plus the summary's fingerprint, and a test fails
+while either side changed alone. The summary is written by hand, never generated: it leaves out the show's name, real
+people and politics. The playbook's 75 s ad template does not drive the app.
 
 ## Layout
 - `shared/` — zod schemas and types (`schema.ts`), beats/roles/lengths and shot timing (`template.ts`), the
@@ -54,6 +57,11 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
 - The writer grades its own story (checklist, open loops, series loop, claims vs "Lo que existe hoy", practices vs
   "Cómo se trabaja hoy": pains follow how people really work, never an invented habit) and board
   (issues); `shared/checks.ts` turns that into problems that block approval until fixed ("Arreglalo") or dismissed.
+  The checklist of PLAYBOOK §7.4 is part of it: the writer grades Cliente héroe, Un solo llamado and Nada prestado
+  (and board issues `hook`, `product`), and the app measures what it can on its own: the brand never says the first
+  line (`cliente-heroe`), no show or host names in the story or the board (`borrowedNames`), the first shot is the
+  pain with a line or a headline (Gancho en 2 s) and, when the series has a product or a real screen in its cast, a
+  Good shot shows it in use (`boardChecks(board, castKinds)`).
 - Every shot has a slate (`title`, `action`); its image prompt is one frozen moment, actions go in the video prompt.
   The storyboard opens on "Bocetos": the app's pencil sketch of each shot (`lib/sketch.ts`, from its setups, the cast
   kinds and the framing in its prompt; deterministic) or a sketch the person made with `sketchPrompt` and uploaded
@@ -152,6 +160,11 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   limit. The run renders each piece once with `renderPiece` (render.ts, `alwaysAudio`) and cuts the ads with
   `concatPieces` (encoded packets copied, no re-encode; falls back to `renderAdWhole`); the platform texts (primary,
   headline, button) come from one writer call per 50 hook+CTA pairs. `server/ads.md` is the method the writer reads.
+  Each piece can carry a voice (uploaded, or generated with the presenter's voice `offer.ttsVoice`; "Generar las N
+  voces que faltan" does every approved piece); it starts 0.15 s into the piece and is cut at its end. "Probar un
+  anuncio" cuts one ad from three chosen pieces (the same cache). The weekly limit is enforced by the server too. A
+  piece's cache shows its format: webm means this browser has no H.264 encoder (the ads would be VP9 in MP4), and
+  "Sacarlas de la caché" (DELETE .../pieces/:id/render) lets a browser that has one render them again.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
   a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Per shot,
   `audio.clipSound` (dialogue/ambient/effects + what is heard) rewrites the video prompt's "Audio:" line only when the
@@ -172,6 +185,7 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
 - `npm run dev` — API on 8787 + Vite on 5173 (proxied `/api`).
 - `npm run typecheck`, `npm run build`, `npm start`.
 - `npm test` — `node:test` + tsx over `tests/` (the pure logic in `shared/` and the timing in `src/lib`).
+- `npm run playbook` — says whether `PLAYBOOK.md` and `server/playbook.md` drifted; `-- --write` records them in step.
 - `npx tsx server/clock-check.ts` — lyric clock harness (kick grid, lyric gate, frames 100 and 400); needs the API on
   8787 and the same `PROJECTS_DIR`.
 - CI (`.github/workflows/ci.yml`) runs typecheck, tests, build, and clock-check against the API in sample mode.

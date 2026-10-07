@@ -143,7 +143,7 @@ export const StoryWireSchema = z.object({
   checklist: z
     .array(ChecklistItemSchema)
     .describe(
-      "A strict critic's checklist, items named in Spanish: Gancho (the first 3 seconds stop the scroll), Retención (open questions keep people watching, the escalation grows), Recompensa (every open loop pays off), Bueno contra Malo, Momento emotivo, Detalle concreto, Puentes, Callbacks, Continuidad (each line follows the one before), Lo que existe hoy (the brand only does what its list says), El chiste es el problema. A pass you cannot point to in the text is a fail.",
+      "A strict critic's checklist, items named in Spanish: Gancho (the first 3 seconds stop the scroll), Retención (open questions keep people watching, the escalation grows), Recompensa (every open loop pays off), Bueno contra Malo, Momento emotivo, Detalle concreto, Puentes, Callbacks, Continuidad (each line follows the one before), Lo que existe hoy (the brand only does what its list says), El chiste es el problema, Cliente héroe (the customer or the person on screen is the hero; the brand guides and never opens the piece), Un solo llamado (at most one soft call to action, at the end), Nada prestado (no show, host, real person, character, catchphrase or another brand's ad borrowed). A pass you cannot point to in the text is a fail.",
     ),
   loops: z
     .array(
@@ -359,7 +359,7 @@ export type Setup = z.infer<typeof SetupSchema>;
 
 const BoardIssueSchema = z.object({
   shot: z.number().describe("Shot number, from 1. 0 for the whole board."),
-  kind: z.string().describe("One of: continuity, reality, image, loop, other."),
+  kind: z.string().describe("One of: continuity, reality, practice, image, loop, hook, product, other."),
   note: z.string().describe("The problem, in Spanish, specific enough to fix."),
 });
 export type BoardIssue = z.infer<typeof BoardIssueSchema>;
@@ -371,7 +371,7 @@ export const BoardWireSchema = z.object({
   issues: z
     .array(BoardIssueSchema)
     .describe(
-      "A strict critic's pass over the finished board: a shot that does not follow the one before (continuity); the brand shown doing something not in its list of what exists today without a concept or simulation label (reality); an image prompt with more than one moment (image); an open loop never paid off (loop). Empty only if none.",
+      "A strict critic's pass over the finished board: a shot that does not follow the one before (continuity); the brand shown doing something not in its list of what exists today without a concept or simulation label (reality); an image prompt with more than one moment (image); an open loop never paid off (loop); the first 2 seconds do not show or name the pain (hook); the Good never shows the product in use, a real screen or the product doing its job (product). Empty only if none.",
     ),
 });
 export type Board = { style: string; setups: Setup[]; shots: Shot[]; issues: BoardIssue[] };

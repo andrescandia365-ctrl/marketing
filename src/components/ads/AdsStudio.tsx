@@ -26,6 +26,7 @@ import type { ImageProviderInfo, SeriesInfo, ToolInfo } from "../../../shared/sc
 import { ads as adsApi, adsFileUrl, api } from "../../lib/api.ts";
 import { concatPieces, renderAdWhole, renderPiece, type PieceLook } from "../../lib/adsRender.ts";
 import { blobToDataUrl, readImageFile } from "../../lib/files.ts";
+import { audioDuration } from "../Audio.tsx";
 import { Button, Notice, Segmented, Spinner } from "../ui.tsx";
 import { BatchWizard, type Wizard } from "./BatchWizard.tsx";
 import { CombinePanel, type RenderProgress } from "./CombinePanel.tsx";
@@ -50,6 +51,8 @@ type Props = {
   tools: ToolInfo[];
   imageProviders: ImageProviderInfo[];
   writer: boolean;
+  // Generated voices (OpenAI speech): whether the key is there, and the app's default voice.
+  voice: { available: boolean; defaultVoice: string };
   onToPlaybook: (text: string) => void;
 };
 
@@ -77,7 +80,7 @@ function loadSettings(): Settings {
   return { seconds: 15, levels: [], format: "vertical", tool: "", provider: "" };
 }
 
-export function AdsStudio({ series, tools, imageProviders, writer, onToPlaybook }: Props) {
+export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPlaybook }: Props) {
   const [state, setState] = useState<AdsState | null>(null);
   const [ranking, setRanking] = useState<RankedHook[]>([]);
   const [transcription, setTranscription] = useState(false);
@@ -146,15 +149,16 @@ export function AdsStudio({ series, tools, imageProviders, writer, onToPlaybook 
               .then((image) => !cancel && setMedia((prev) => ({ ...prev, [id]: { ...prev[id], image } })))
               .catch(() => undefined);
           }
-          if (m.clip) {
-            const saved = m.clip;
+          for (const kind of ["clip", "voice"] as const) {
+            const saved = m[kind];
+            if (!saved) continue;
             fetch(adsFileUrl(series.id, saved.file))
               .then((r) => r.blob())
               .then((blob) => {
                 if (cancel) return;
                 const url = URL.createObjectURL(blob);
                 urls.current.push(url);
-                setMedia((prev) => ({ ...prev, [id]: { ...prev[id], clip: { url, blob, name: saved.name, duration: saved.duration } } }));
+                setMedia((prev) => ({ ...prev, [id]: { ...prev[id], [kind]: { url, blob, name: saved.name, duration: saved.duration } } }));
               })
               .catch(() => undefined);
           }
@@ -167,6 +171,12 @@ export function AdsStudio({ series, tools, imageProviders, writer, onToPlaybook 
   }, [series.id]);
 
   const demo = !writer;
+  const lang = "es" as const;
+  // How a piece's cached render was encoded, from its file: mp4 is H.264 (render.ts), webm is VP9 or another codec.
+  const cachedFormat = (id: string): "mp4" | "webm" | null => {
+    const file = state?.renders[id];
+    return file ? (file.endsWith(".mp4") ? "mp4" : "webm") : null;
+  };
   const pieceById = useMemo(() => {
     const m = new Map<string, Piece>();
     for (const p of [...(state?.hooks ?? []), ...(state?.meats ?? []), ...(state?.ctas ?? [])]) m.set(p.id, p);
@@ -246,7 +256,56 @@ export function AdsStudio({ series, tools, imageProviders, writer, onToPlaybook 
     }
   }
 
-  async function removeMedia(piece: Piece, kind: "image" | "clip") {
+  // The piece's voice: uploaded, or generated with the presenter's voice from the offer profile. Its render is redone.
+  async function keepVoice(piece: Piece, blob: Blob, name: string) {
+    const duration = await audioDuration(blob).catch(() => {
+      throw new Error("No se pudo leer ese audio. Probá con un .mp3 o un .wav.");
+    });
+    const url = URL.createObjectURL(blob);
+    urls.current.push(url);
+    setPieceMedia(piece.id, { voice: { url, blob, name, duration }, voiceLoading: false, error: undefined });
+    const file = blob.type ? blob : new Blob([blob], { type: "audio/mpeg" });
+    const r = await adsApi.uploadPieceMedia(series.id, piece.id, "voice", file, { name, duration });
+    setState(r.state);
+    renders.current.delete(piece.id);
+  }
+
+  async function uploadVoice(piece: Piece, file: File) {
+    try {
+      await keepVoice(piece, file, file.name);
+    } catch (e) {
+      setPieceMedia(piece.id, { error: message(e) });
+    }
+  }
+
+  async function generateVoice(piece: Piece) {
+    setPieceMedia(piece.id, { voiceLoading: true, error: undefined });
+    try {
+      const blob = await api.speak(piece.text, state?.offer.ttsVoice ?? "", lang);
+      await keepVoice(piece, blob, `${piece.id}-voz-generada.mp3`);
+    } catch (e) {
+      setPieceMedia(piece.id, { voiceLoading: false, error: message(e) });
+    }
+  }
+
+  // Every approved piece without a voice gets one, one after another (the speech API is called once per piece).
+  async function generateMissingVoices() {
+    if (!state) return;
+    const missing = [...state.hooks, ...state.meats, ...state.ctas].filter((p) => p.status === "approved" && !media[p.id]?.voice && p.text.trim());
+    setBusy("voices");
+    setError("");
+    try {
+      for (const [i, p] of missing.entries()) {
+        setProgress({ stage: "voices", done: i, total: missing.length, current: `${p.id}: ${p.text.slice(0, 60)}`, errors: [] });
+        await generateVoice(p);
+      }
+      setProgress(null);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function removeMedia(piece: Piece, kind: "image" | "clip" | "voice") {
     setMedia((prev) => {
       const next = { ...prev[piece.id] };
       delete next[kind];
@@ -276,6 +335,9 @@ export function AdsStudio({ series, tools, imageProviders, writer, onToPlaybook 
       onUploadClip={(f) => uploadClip(piece, f)}
       onGenerateImage={() => generateImage(piece)}
       onRemoveMedia={(k) => removeMedia(piece, k)}
+      onUploadVoice={(f) => uploadVoice(piece, f)}
+      onGenerateVoice={voice.available ? () => generateVoice(piece) : null}
+      cached={cachedFormat(piece.id)}
       flags={flagsFor(piece.id)}
       stats={
         piece.kind === "hook" ? (
@@ -288,7 +350,6 @@ export function AdsStudio({ series, tools, imageProviders, writer, onToPlaybook 
   );
 
   // ── Generation ──────────────────────────────────────────────────────────────
-  const lang = "es" as const;
   async function generateHooks(count: number, levels = settings.levels, seconds = settings.seconds) {
     const r = await act("hooks", () => adsApi.hooks(series.id, { levels, count, seconds, tool: toolId, language: lang }));
     if (r) setNotes((n) => ({ ...n, hooks: r.note }));
@@ -342,6 +403,71 @@ export function AdsStudio({ series, tools, imageProviders, writer, onToPlaybook 
   }
 
   // ── The run: pieces once (cached), then the ads cut from them ─────────────────
+  const look = (): PieceLook => ({ format: settings.format, style: series.textStyle, disclosure: "Imágenes ilustrativas", fullFrame: true, headlines: true });
+  const shotMedia = (id: string) => ({ image: media[id]?.image, clip: media[id]?.clip?.blob, voice: media[id]?.voice?.blob });
+
+  // A piece's render: this session's, the cached file, or a new render saved to the cache.
+  async function ensureRender(piece: Piece, current: AdsState): Promise<{ blob: Blob; state: AdsState }> {
+    const known = renders.current.get(piece.id);
+    if (known) return { blob: known, state: current };
+    const saved = current.renders[piece.id];
+    if (saved) {
+      const blob = await fetch(adsFileUrl(series.id, saved))
+        .then((r) => (r.ok ? r.blob() : null))
+        .catch(() => null);
+      if (blob && blob.size) {
+        renders.current.set(piece.id, blob);
+        return { blob, state: current };
+      }
+    }
+    const result = await renderPiece(piece, shotMedia(piece.id), look(), () => undefined);
+    renders.current.set(piece.id, result.blob);
+    const up = await adsApi.uploadRender(series.id, piece.id, result.blob);
+    setState(up.state);
+    return { blob: result.blob, state: up.state };
+  }
+
+  // One ad from its cached pieces, packets copied; if this browser cannot, rendered whole (and so is the rest).
+  async function assembleAd(ad: AdCombo, whole: { on: boolean }, errors: string[]): Promise<Blob> {
+    const parts = [ad.hookId, ad.meatId, ad.ctaId];
+    const pieces = parts.map((id) => pieceById.get(id)).filter((p): p is Piece => Boolean(p));
+    const cached = parts.map((id) => renders.current.get(id));
+    if (!whole.on && cached.every((b): b is Blob => Boolean(b))) {
+      try {
+        return await concatPieces(cached);
+      } catch (e) {
+        whole.on = true;
+        errors.push(`Las piezas no se pudieron unir sin recodificar (${message(e)}); los anuncios se renderizan enteros.`);
+      }
+    }
+    return (await renderAdWhole(pieces, Object.fromEntries(parts.map((id) => [id, shotMedia(id)])), look(), () => undefined)).blob;
+  }
+
+  // "Probar un anuncio": the three pieces (cached or rendered now) cut together, to watch before a batch.
+  async function previewAd(hookId: string, meatId: string, ctaId: string): Promise<string | null> {
+    if (!state) return null;
+    setError("");
+    setBusy("preview");
+    try {
+      let current = state;
+      for (const id of [hookId, meatId, ctaId]) {
+        const piece = pieceById.get(id);
+        if (!piece) throw new Error(`No existe ${id}.`);
+        current = (await ensureRender(piece, current)).state;
+      }
+      const errors: string[] = [];
+      const blob = await assembleAd({ id: `${hookId}-${meatId}-${ctaId}`, hookId, meatId, ctaId, level: pieceById.get(hookId)?.kind === "hook" ? (pieceById.get(hookId) as Hook).level : 1 }, { on: false }, errors);
+      if (errors.length) setError(errors.join(" "));
+      const url = URL.createObjectURL(blob);
+      urls.current.push(url);
+      return url;
+    } catch (e) {
+      setError(message(e));
+      return null;
+    } finally {
+      setBusy(null);
+    }
+  }
   async function runBatch(combos: AdCombo[], mode: "full" | "stage", rules: CombineRules) {
     if (!state) return;
     setError("");
@@ -352,9 +478,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, onToPlaybook 
       setState(created.state);
       const batch = created.batch;
       let current = created.state;
-      const look: PieceLook = { format: settings.format, style: series.textStyle, disclosure: "Imágenes ilustrativas", fullFrame: true, headlines: true };
       const pieceIds = [...new Set(combos.flatMap((a) => [a.hookId, a.meatId, a.ctaId]))];
-      const shotMedia = (id: string) => ({ image: media[id]?.image, clip: media[id]?.clip?.blob });
 
       setProgress({ stage: "pieces", done: 0, total: pieceIds.length, current: "", errors });
       for (let i = 0; i < pieceIds.length; i++) {
@@ -362,53 +486,24 @@ export function AdsStudio({ series, tools, imageProviders, writer, onToPlaybook 
         const piece = pieceById.get(id);
         if (!piece) continue;
         setProgress({ stage: "pieces", done: i, total: pieceIds.length, current: `${id}: ${piece.text.slice(0, 60)}`, errors });
-        if (renders.current.has(id)) continue;
-        const saved = current.renders[id];
-        if (saved) {
-          const blob = await fetch(adsFileUrl(series.id, saved))
-            .then((r) => (r.ok ? r.blob() : null))
-            .catch(() => null);
-          if (blob && blob.size) {
-            renders.current.set(id, blob);
-            continue;
-          }
-        }
         try {
-          const result = await renderPiece(piece, shotMedia(id), look, () => undefined);
-          renders.current.set(id, result.blob);
-          const up = await adsApi.uploadRender(series.id, id, result.blob);
-          current = up.state;
-          setState(current);
+          current = (await ensureRender(piece, current)).state;
         } catch (e) {
           errors.push(`${id}: ${message(e)}`);
         }
       }
 
       setProgress({ stage: "ads", done: 0, total: combos.length, current: "", errors });
-      let whole = false;
+      const whole = { on: false };
       for (let i = 0; i < combos.length; i++) {
         const ad = combos[i];
         setProgress({ stage: "ads", done: i, total: combos.length, current: ad.id, errors });
-        const parts = [ad.hookId, ad.meatId, ad.ctaId];
-        const pieces = parts.map((id) => pieceById.get(id)).filter((p): p is Piece => Boolean(p));
-        let blob: Blob | null = null;
-        const cached = parts.map((id) => renders.current.get(id));
-        if (!whole && cached.every((b): b is Blob => Boolean(b))) {
-          try {
-            blob = await concatPieces(cached);
-          } catch (e) {
-            // The pieces could not be cut together in this browser: the rest of the run renders each ad whole.
-            whole = true;
-            errors.push(`Las piezas no se pudieron unir sin recodificar (${message(e)}); los anuncios se renderizan enteros.`);
-          }
-        }
-        if (!blob) {
-          try {
-            blob = (await renderAdWhole(pieces, Object.fromEntries(parts.map((id) => [id, shotMedia(id)])), look, () => undefined)).blob;
-          } catch (e) {
-            errors.push(`${ad.id}: ${message(e)}`);
-            continue;
-          }
+        let blob: Blob;
+        try {
+          blob = await assembleAd(ad, whole, errors);
+        } catch (e) {
+          errors.push(`${ad.id}: ${message(e)}`);
+          continue;
         }
         try {
           await adsApi.uploadAd(series.id, batch.id, ad.id, blob);
@@ -438,6 +533,9 @@ export function AdsStudio({ series, tools, imageProviders, writer, onToPlaybook 
     );
   }
 
+  const approvedPieces = [...state.hooks, ...state.meats, ...state.ctas].filter((p) => p.status === "approved");
+  const missingVoices = approvedPieces.filter((p) => !media[p.id]?.voice && p.text.trim()).length;
+  const webmCount = approvedPieces.filter((p) => cachedFormat(p.id) === "webm").length;
   const counts = {
     hooks: state.hooks.length,
     hooksApproved: state.hooks.filter((h) => h.status === "approved").length,
@@ -492,6 +590,19 @@ export function AdsStudio({ series, tools, imageProviders, writer, onToPlaybook 
             </select>
           </label>
         )}
+        {voice.available && (
+          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={generateMissingVoices} disabled={busy !== null || missingVoices === 0}>
+            {busy === "voices" && progress?.stage === "voices" ? (
+              <>
+                <Spinner /> Voz {progress.done + 1}/{progress.total}
+              </>
+            ) : missingVoices ? (
+              `Generar las ${missingVoices} voces que faltan`
+            ) : (
+              "Todas las aprobadas tienen voz"
+            )}
+          </Button>
+        )}
         <span className="ml-auto font-mono text-xs text-muted" title="Carpeta de Publicidad de esta serie">
           {folder}
         </span>
@@ -533,6 +644,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, onToPlaybook 
           offer={state.offer}
           series={series}
           seriesFields={fields}
+          defaultVoice={voice.defaultVoice}
           onSave={async (offer: Offer) => {
             await act("offer", () => adsApi.saveOffer(series.id, offer));
           }}
@@ -628,6 +740,14 @@ export function AdsStudio({ series, tools, imageProviders, writer, onToPlaybook 
           folder={folder}
           busy={busy}
           flags={flags}
+          onPreview={previewAd}
+          webm={webmCount}
+          onDropWebm={async () => {
+            for (const p of approvedPieces.filter((x) => cachedFormat(x.id) === "webm")) {
+              renders.current.delete(p.id);
+              await act("drop", () => adsApi.dropRender(series.id, p.id));
+            }
+          }}
           reviewNote={reviewNote}
           progress={progress}
           onReview={review}

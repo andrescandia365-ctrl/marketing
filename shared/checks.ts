@@ -1,6 +1,7 @@
 // The checks that gate each approval. The writer grades its own story and board; these turn that grading
 // into a list of problems. A problem blocks approval until it is fixed ("Arreglalo") or the person dismisses it.
 import type { Board, Brief, Story } from "./schema.ts";
+import type { CastKind } from "./series.ts";
 import { MOVE_LABEL } from "./moves.ts";
 import { PRACTICES } from "./series.ts";
 
@@ -62,6 +63,41 @@ export function runnerLandings(story: Pick<Story, "runner" | "topics">): RunnerL
     hit: quotes[i].some((q) => said.includes(q.toLowerCase())),
     same: Boolean(keys[i]) && keys.some((key, j) => j !== i && key === keys[i]),
   }));
+}
+
+// PLAYBOOK §6: never the show's name, its people or the shows around it, in a line, a title or a prompt. The writer is
+// told so; this catches it anyway.
+const BORROWED = [
+  "daily show",
+  "jon stewart",
+  "saturday night live",
+  "snl",
+  "colbert",
+  "comedy central",
+  "crossfire",
+  "jordan klepper",
+  "ronny chieng",
+  "josh johnson",
+  "michael kosta",
+  "desi lydic",
+  "troy iwata",
+  "grace kuhlenschmidt",
+  "fingers the pulse",
+];
+export function borrowedNames(text: string): string[] {
+  const t = ` ${text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")} `;
+  return BORROWED.filter((name) => new RegExp(`[^a-z]${name.replace(/ /g, "\\s+")}[^a-z]`).test(t));
+}
+
+function storyText(story: Story): string {
+  return [
+    story.problem,
+    story.title,
+    story.logline,
+    story.close,
+    ...story.topics.flatMap((t) => [t.title, t.bridge, ...t.lines.flatMap((l) => [l.text, l.direction])]),
+    ...story.characters.flatMap((c) => [c.name, c.identity]),
+  ].join("\n");
 }
 
 export function storyProblems(
@@ -154,6 +190,24 @@ export function storyProblems(
         detail: `${c.claim}. No está en "Lo que existe hoy" y la historia lo muestra como real. ${c.note}`,
       });
   });
+  // PLAYBOOK §3 rule 1: the customer is the hero, so the brand (the Good) never says the first line.
+  const first = story.topics[0]?.lines[0];
+  const opener = first && story.characters.find((c) => c.id === first.speaker);
+  if (opener?.role === "good") {
+    problems.push({
+      id: "cliente-heroe",
+      label: "Cliente héroe",
+      detail: `La pieza la abre ${opener.name}, la marca ("${first.text.slice(0, 60)}"). Que arranque el dolor o la persona; la marca entra después.`,
+    });
+  }
+  const borrowed = borrowedNames(storyText(story));
+  if (borrowed.length) {
+    problems.push({
+      id: `prestado:${borrowed.join(",")}`,
+      label: "Nada prestado",
+      detail: `Nombra ${borrowed.map((b) => `"${b}"`).join(", ")}: se toma la estructura del programa, nunca su nombre ni su gente.`,
+    });
+  }
   // The playbook's moves (§2.5): every piece has a Turn and ends on a Button. Stories written before the moves were
   // data have none tagged and are not judged on them.
   const tagged = story.topics.flatMap((t) => t.moves ?? []);
@@ -188,9 +242,54 @@ const KIND_LABEL: Record<string, string> = {
   practice: "¿Pasa así de verdad?",
   image: "Imagen con más de un momento",
   loop: "Loop abierto",
+  hook: "Gancho en 2 s",
+  product: "El producto en uso",
 };
 
-export function boardProblems(board: Board): Problem[] {
+// The video's part of the checklist (PLAYBOOK §7.4), measured on the board itself. castKinds: the series' cast by id,
+// to know which setups are the product or a real screen; without them the product check is left to the writer.
+export function boardChecks(board: Board, castKinds: Record<string, CastKind> = {}): Problem[] {
+  const problems: Problem[] = [];
+  const first = board.shots[0];
+  if (first) {
+    if (first.beat !== "negative") {
+      problems.push({ id: "gancho:dolor", label: "Gancho en 2 s · toma 1", detail: "La primera toma no es el dolor: los primeros 2 segundos tienen que mostrarlo o nombrarlo.", shot: 0 });
+    } else if (!first.voiceover.trim() && !first.onScreenText.trim()) {
+      problems.push({
+        id: "gancho:mudo",
+        label: "Gancho en 2 s · toma 1",
+        detail: "La primera toma no tiene línea ni headline: en los primeros 2 segundos nada dice cuál es el problema.",
+        shot: 0,
+      });
+    }
+  }
+  const showable = new Set(Object.entries(castKinds).filter(([, k]) => k === "product" || k === "screen").map(([id]) => id));
+  if (showable.size) {
+    const inUse = board.shots.some(
+      (s) =>
+        s.beat === "good" &&
+        (s.kind === "screen" || s.setups.some((id) => showable.has(board.setups.find((x) => x.id === id)?.castId ?? ""))),
+    );
+    if (!inUse) {
+      problems.push({
+        id: "producto-en-uso",
+        label: "El producto en uso",
+        detail: "Ninguna toma del Bueno muestra el producto haciendo su trabajo: una pantalla real o el producto del elenco en cuadro.",
+      });
+    }
+  }
+  const borrowed = borrowedNames(board.shots.flatMap((s) => [s.title, s.action, s.voiceover, s.onScreenText, s.visualPrompt, s.videoPrompt]).join("\n"));
+  if (borrowed.length) {
+    problems.push({ id: `prestado-board:${borrowed.join(",")}`, label: "Nada prestado", detail: `El storyboard nombra ${borrowed.map((b) => `"${b}"`).join(", ")}.` });
+  }
+  return problems;
+}
+
+export function boardProblems(board: Board, castKinds: Record<string, CastKind> = {}): Problem[] {
+  return [...boardChecks(board, castKinds), ...boardIssueProblems(board)];
+}
+
+function boardIssueProblems(board: Board): Problem[] {
   return board.issues.map((issue, i) => {
     const kind = Object.keys(KIND_LABEL).find((k) => issue.kind.toLowerCase().includes(k));
     const shot = issue.shot > 0 && issue.shot <= board.shots.length ? issue.shot - 1 : undefined;

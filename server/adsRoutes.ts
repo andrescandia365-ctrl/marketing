@@ -25,6 +25,7 @@ import {
   toLevel,
   toLevels,
   BUDGETS,
+  adsThisWeek,
   type AdSeconds,
   type AdsState,
   type Batch,
@@ -399,6 +400,17 @@ export function adsRoutes(app: Hono) {
     return c.json({ state, file });
   });
 
+  // Drops a piece's cached render, so the next run renders it again (for example, in a browser that encodes H.264).
+  app.delete("/api/ads/:series/pieces/:id/render", async (c) => {
+    const id = series(c);
+    const pieceId = PieceId.parse(c.req.param("id"));
+    const { state } = await updateAds(id, async (s) => {
+      if (s.renders[pieceId]) await removePieceMedia(id, s.renders[pieceId]).catch(() => undefined);
+      delete s.renders[pieceId];
+    });
+    return c.json({ state });
+  });
+
   // A batch: the combinations (code) and the platform texts (one writer call per 50 hook+CTA pairs).
   app.post("/api/ads/:series/batches", async (c) => {
     const id = series(c);
@@ -406,6 +418,11 @@ export function adsRoutes(app: Hono) {
       .object({ seconds: Seconds, mode: z.enum(["full", "stage"]), rules: CombineRulesSchema, ads: z.array(AdComboSchema).min(1).max(1000) })
       .parse(await c.req.json());
     const state0 = await loadAds(id);
+    // The weekly limit holds here too, not only on the screen.
+    const week = adsThisWeek(state0.batches);
+    if (week + ads.length > state0.weeklyLimit) {
+      throw new AdsError(`Esta tanda (${ads.length}) pasa el límite semanal: ya van ${week} de ${state0.weeklyLimit}. Subí el límite o achicá la tanda.`);
+    }
     const H = new Map(state0.hooks.map((h) => [h.id, h]));
     const C = new Map(state0.ctas.map((x) => [x.id, x]));
     const pairs = new Map<string, { key: string; hook: string; cta: string; level: Level }>();

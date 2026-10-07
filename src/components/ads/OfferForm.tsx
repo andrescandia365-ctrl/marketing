@@ -10,12 +10,13 @@ type Props = {
   series: SeriesInfo;
   seriesFields: { worksToday: string[]; audience: string; what: string } | null;
   onSave: (offer: Offer) => Promise<void>;
+  defaultVoice?: string;
 };
 
 const lines = (xs: string[]) => xs.join("\n");
 const toList = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 20);
 
-export function OfferForm({ offer, series, seriesFields, onSave }: Props) {
+export function OfferForm({ offer, series, seriesFields, onSave, defaultVoice = "" }: Props) {
   const [draft, setDraft] = useState<Offer>({ ...EMPTY_OFFER, ...offer });
   const [objections, setObjections] = useState(lines(offer.objections));
   const [proofs, setProofs] = useState(lines(offer.proofs));
@@ -68,6 +69,13 @@ export function OfferForm({ offer, series, seriesFields, onSave }: Props) {
         </Field>
         <Field label="Quién habla" hint="El mismo presentador o voz en todas las piezas, para que corten entre sí.">
           <input className={inputClass} value={draft.presenter} placeholder="p. ej. la dueña del local, mujer de 40, sin nombre" onChange={(e) => set("presenter", e.target.value)} />
+          <input
+            className={`${inputClass} mt-2`}
+            value={draft.ttsVoice}
+            placeholder={`Voz generada del presentador (por defecto: ${defaultVoice || "la de la app"})`}
+            aria-label="Voz generada del presentador"
+            onChange={(e) => set("ttsVoice", e.target.value)}
+          />
         </Field>
         <Field label="Público" hint="Quién compra, qué hace hoy, qué le duele.">
           <textarea className={`${inputClass} min-h-20`} value={draft.audience} onChange={(e) => set("audience", e.target.value)} />

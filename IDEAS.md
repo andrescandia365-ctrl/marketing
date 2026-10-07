@@ -184,7 +184,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 
 ### Flujo de trabajo y base del código
 
-#### 48. Dos copias del playbook que se desvían
+#### 48. Dos copias del playbook que se desvían — **Construido (7 Oct 2026, "go 54, 58 y 48"), con un cambio de diseño**
 - `PLAYBOOK.md` (investigación) y `server/playbook.md` (lo que lee la IA) se mantienen a mano y ya difieren en
   estructura. **Propuesta:** un script `npm run playbook` que arma `server/playbook.md` a partir de las secciones
   operativas de `PLAYBOOK.md` (§1, §3, §3.1, §3.2, §5, §6) y un check en `typecheck`/CI que falla si el archivo
@@ -220,7 +220,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   el primer camino del error de zod ("falta `brief.series`"), que ayuda cuando un proyecto viejo trae un campo
   cambiado.
 
-#### 54. Publicidad: lo que sigue
+#### 54. Publicidad: lo que sigue — **Construido (7 Oct 2026), menos las métricas por API**
 - Voz por pieza: `media.voice` ya existe en el esquema pero la tarjeta no la sube ni la genera. Sumar "Voz
   generada" con `/api/voice` y la voz del presentador del perfil.
 - "Probar un anuncio": antes de la tanda, elegir un hook, un meat y un CTA y ver el anuncio armado en la app.
@@ -248,7 +248,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   pegás el resumen, la IA lo vuelca en la plantilla EP-NN (tabla de temas, callbacks, observaciones), lo agrega al
   playbook con tu "ok" y, cuando una jugada se repite en 3 o más episodios, propone sumarla a `engine.md`.
 
-#### 58. La lista de control del playbook (§7.4) como checks explícitos
+#### 58. La lista de control del playbook (§7.4) como checks explícitos — **Construido (7 Oct 2026)**
 - Faltan como ítems: "El cliente es el héroe" (la marca no abre la pieza), "Un solo llamado, suave", "Nada
   prestado" (nombres de programas, frases), "Detalle concreto" (objeto, número u hora en el gancho). Para video:
   "Gancho en 2 s" (la primera toma dura 6 s y su línea nombra el dolor) y "El producto en uso" (al menos una toma de
@@ -291,6 +291,38 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   N5) y por qué frena el scroll. "Usar como gancho" cambia el gancho de la pieza (queda en el registro de dirección), y
   "Mandar las 5 a Publicidad" las deja como hooks pendientes con su nivel, para aprobar con Sí o No. Las variantes se
   guardan con el proyecto.
+
+### Lo construido con "go 54, 58 y 48" (7 Oct 2026)
+- **54, Publicidad:**
+  - **Voz por pieza:** en el perfil de oferta va la voz generada del presentador. Cada pieza puede subir su voz o
+    generarla, y arriba está "Generar las N voces que faltan" para todas las aprobadas de una vez. La voz entra en el
+    render de la pieza; si dura más que la pieza, la tarjeta lo avisa en rojo.
+  - **"Probar un anuncio":** elegís hook, meat y CTA y lo ves armado, con descarga. Las piezas que arma quedan en la
+    caché de la tanda.
+  - **Límite semanal en el servidor:** una tanda que lo pasa se rechaza aunque la pantalla no la frene.
+  - **Formato en caché:** cada tarjeta dice si su render es H.264 o webm. Si hay piezas en webm, un aviso explica que
+    los anuncios saldrían en VP9 dentro de MP4, y "Sacarlas de la caché" deja que Chrome o Edge de escritorio las
+    renderice en H.264.
+  - Queda para después: métricas por API de la plataforma (hoy es CSV).
+- **58, lista de control del §7.4:**
+  - Lo que la app mide sola: la marca no dice la primera línea ("Cliente héroe"); ningún nombre del programa, de su
+    gente o de programas vecinos en la historia ni en el storyboard ("Nada prestado"); la primera toma es el dolor y
+    tiene línea o headline ("Gancho en 2 s"); y, si la serie tiene producto o pantallas reales en el elenco, alguna
+    toma del Bueno lo muestra en uso ("El producto en uso").
+  - Lo que califica el escritor: "Cliente héroe", "Un solo llamado" y "Nada prestado" en la lista de la historia, y
+    "hook" y "product" entre los problemas del storyboard.
+  - Los checks de imagen fija esperan a la idea 61.
+  - En el storyboard de muestra de IMAN, el check encontró algo real: ninguna toma del Bueno muestra una pantalla real
+    del producto.
+- **48, cambio de diseño:** `server/playbook.md` no se puede generar desde `PLAYBOOK.md`. Es un resumen escrito a mano
+  que deja afuera el nombre del programa, las personas reales y la política; copiar las secciones se lo daría todo al
+  escritor. En cambio:
+  - `scripts/playbook.snapshot.md` guarda las secciones §1 a §7 de `PLAYBOOK.md` (sin §2.1) tal como estaban la
+    última vez que se puso al día el resumen, más la huella del resumen.
+  - `npm run playbook` dice qué cambió de cada lado, con las líneas; una prueba falla mientras las dos copias no
+    estén al día; `npm run playbook -- --write` las registra.
+  - Al armarlo apareció un desvío real: la lista de control del resumen no tenía "portada y texto para publicar".
+    Quedó agregado.
 
 ### Si tuviera que elegir el primer "go"
 1. **41 + 42 + 43:** el reloj de la vista previa, el empuje en el check y una sola fuente de verdad imagen-sonido.

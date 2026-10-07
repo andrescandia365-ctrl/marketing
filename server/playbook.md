@@ -140,5 +140,5 @@ Guardrails: no shame about someone's home or family; no health, safety or sleep 
 
 ## 8. Checklist (run before delivering)
 Customer is hero · concrete detail · target is the problem · Turn present · single CTA · no unverified claims · no borrowed IP.
-For video, also: hook in 2 s · the product shown in use · every line held long enough to read.
+For video, also: hook in 2 s · the product shown in use · every line held long enough to read · poster and share caption.
 For a static image, also: one frozen moment · Negative → Good readable at a glance · exact, legible text · nothing borrowed from a reference but its structure.
