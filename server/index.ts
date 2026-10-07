@@ -112,6 +112,8 @@ import {
   upsertCastMember,
 } from "./series.ts";
 import { listTools } from "./tools.ts";
+import { AdsError } from "./ads.ts";
+import { adsRoutes } from "./adsRoutes.ts";
 
 const app = new Hono();
 
@@ -121,7 +123,7 @@ app.onError((error, c) => {
     return c.json({ error: error.message }, 400);
   }
   if (error instanceof VoiceError || error instanceof LyricsError) return c.json({ error: error.message }, 502);
-  if (error instanceof ClockError || error instanceof BrandWebError) return c.json({ error: error.message }, 400);
+  if (error instanceof ClockError || error instanceof BrandWebError || error instanceof AdsError) return c.json({ error: error.message }, 400);
   if (error instanceof z.ZodError) return c.json({ error: "Al pedido le faltaban datos." }, 400);
   console.error(error);
   return c.json({ error: error.message || "Algo salió mal." }, 500);
@@ -170,6 +172,9 @@ const StoryInput = z.preprocess(
 const TopicInput = TopicIdeaSchema.extend({ problem: z.string().default("") });
 const BoardInput = z.preprocess(fillOld, BoardWireSchema).transform(normalizeBoard);
 const demo = () => currentWriter() === null;
+
+// Publicidad (Método 50-5-3): its own routes, under /api/ads/:series.
+adsRoutes(app);
 
 app.get("/api/status", (c) => {
   const writer = currentWriter();

@@ -22,6 +22,7 @@ import type { BackgroundPrompts, LyricElement, LyricLanguage, LyricLine, LyricPl
 import type { SyncDoc } from "../../shared/clock.ts";
 import type { Brand, CastMember, PuppetLayer, SeriesFields, TextStyle } from "../../shared/series.ts";
 import type { RoomCard } from "../../shared/room.ts";
+import type { AdCombo, AdsState, Batch, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 
 export type ProjectSummary = {
   id: string;
@@ -71,6 +72,63 @@ async function call<T>(path: string, body?: unknown, method?: "PUT" | "PATCH" | 
 }
 
 type Demo = { demo: boolean };
+
+export type AdsView = { state: AdsState; transcription: boolean; folder: string; ranking: RankedHook[] };
+export const adsFileUrl = (series: string, file: string) => `/api/ads/${enc(series)}/files/${file.split("/").map(enc).join("/")}`;
+
+type PiecePatch = Partial<Pick<Hook, "status" | "text" | "onScreenText" | "visualPrompt" | "videoPrompt" | "note">> & {
+  level?: number;
+  levels?: number[];
+  format?: MeatFormat;
+};
+
+// Publicidad (Método 50-5-3).
+export const ads = {
+  load: (series: string) => call<AdsView>(`/api/ads/${enc(series)}`),
+  saveOffer: (series: string, offer: Offer) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/offer`, { offer }, "PUT"),
+  saveSettings: (series: string, weeklyLimit: number) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/settings`, { weeklyLimit }, "PUT"),
+  uploadClip: async (series: string, file: File, language: "es" | "en") => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    form.append("language", language);
+    const res = await fetch(`/api/ads/${enc(series)}/clips`, { method: "POST", body: form });
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    return data as { state: AdsState; clip: ClipRecord } & Demo;
+  },
+  clipFromText: (series: string, name: string, transcript: string) =>
+    call<{ state: AdsState; clip: ClipRecord } & Demo>(`/api/ads/${enc(series)}/clips/text`, { name, transcript }),
+  removeClip: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/clips/${enc(id)}`, undefined, "DELETE"),
+  importMetrics: (series: string, csv: string, replace = true) =>
+    call<{ state: AdsState; ranking: RankedHook[]; rows: number; withId: number; found: string[]; missing: string[] }>(`/api/ads/${enc(series)}/metrics`, { csv, replace }),
+  hooks: (series: string, body: { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en" }) =>
+    call<{ state: AdsState; hooks: Hook[]; note: string } & Demo>(`/api/ads/${enc(series)}/hooks`, body),
+  organicHook: (series: string, text: string, level: number, seconds: number, note: string) =>
+    call<{ state: AdsState; hook: Hook }>(`/api/ads/${enc(series)}/hooks/organic`, { text, level, seconds, note }),
+  meats: (series: string, body: { levels: number[]; formats: MeatFormat[]; count: number; seconds: number; tool: string; language: "es" | "en" }) =>
+    call<{ state: AdsState; meats: Meat[]; note: string } & Demo>(`/api/ads/${enc(series)}/meats`, body),
+  ctas: (series: string, body: { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en" }) =>
+    call<{ state: AdsState; ctas: Cta[]; note: string } & Demo>(`/api/ads/${enc(series)}/ctas`, body),
+  patchPiece: (series: string, id: string, patch: PiecePatch) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}`, patch, "PATCH"),
+  setStatus: (series: string, ids: string[], status: PieceStatus) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces`, { ids, status }, "PATCH"),
+  removePiece: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}`, undefined, "DELETE"),
+  review: (series: string) => call<{ flags: ReviewFlag[]; note: string } & Demo>(`/api/ads/${enc(series)}/review`, {}),
+  uploadPieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice", file: Blob, meta?: { name: string; duration: number }) =>
+    upload<{ state: AdsState; file: string }>(
+      `/api/ads/${enc(series)}/pieces/${enc(id)}/media/${kind}${meta ? `?name=${enc(meta.name)}&duration=${meta.duration}` : ""}`,
+      file,
+      file.type,
+    ),
+  removePieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice") =>
+    call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/media/${kind}`, undefined, "DELETE"),
+  uploadRender: (series: string, id: string, video: Blob) => upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, video, video.type),
+  createBatch: (series: string, body: { seconds: number; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[] }) =>
+    call<{ state: AdsState; batch: Batch } & Demo>(`/api/ads/${enc(series)}/batches`, body),
+  uploadAd: (series: string, batch: string, adId: string, video: Blob) =>
+    upload<{ file: string }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/ads/${enc(adId)}`, video, video.type),
+  batchCsv: (series: string, batch: string) => call<{ file: string; csv: string }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/csv`, {}),
+  removeBatch: (series: string, batch: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/batches/${enc(batch)}`, undefined, "DELETE"),
+};
 
 export const api = {
   status: () => call<Status>("/api/status"),

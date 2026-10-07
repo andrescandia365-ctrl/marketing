@@ -65,6 +65,8 @@ export type RenderOptions = {
   sfxVolume: number;
   // Move each cut to the nearest beat of the music.
   beatSync: boolean;
+  // Always write an audio track (silent if nothing sounds), so files cut together (Publicidad's pieces).
+  alwaysAudio?: boolean;
 };
 
 export type RenderResult = { blob: Blob; extension: string; mimeType: string; notes: string[] };
@@ -396,7 +398,7 @@ async function mixSound(
   music: AudioBuffer | null,
 ): Promise<AudioBuffer | null> {
   const ctx = new OfflineAudioContext(2, Math.ceil(SAMPLE_RATE * total), SAMPLE_RATE);
-  let any = false;
+  let any = Boolean(options.alwaysAudio);
   for (const shot of shots) {
     const m = media[shot.index] ?? {};
     // A voice laid on top lowers the clip's own sound while it plays.
@@ -488,7 +490,7 @@ export async function renderVideo(
 
   let sound: AudioBuffer | null = null;
   const hasAudio = shots.some((s) => media[s.index]?.voice || media[s.index]?.sfx || (options.keepSound && media[s.index]?.clip));
-  if (hasAudio || music) {
+  if (hasAudio || music || options.alwaysAudio) {
     sound = await mixSound(shots, media, total, options, music);
     if (!sound) notes.push("Los clips no traían sonido que este navegador pueda leer.");
   }

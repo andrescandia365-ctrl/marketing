@@ -30,10 +30,11 @@ import {
 } from "./components/ScriptView.tsx";
 import { StoryView } from "./components/StoryView.tsx";
 import { WritersRoom } from "./components/WritersRoom.tsx";
+import { AdsStudio } from "./components/ads/AdsStudio.tsx";
 import type { RoomCard } from "../shared/room.ts";
 import { VideoPanel } from "./components/VideoPanel.tsx";
 import { Button, Notice, PieceTitle, Spinner } from "./components/ui.tsx";
-import { api, libraryFileUrl, projectFileUrl, type ProjectSummary } from "./lib/api.ts";
+import { ads as adsApi, api, libraryFileUrl, projectFileUrl, type ProjectSummary } from "./lib/api.ts";
 import { blobToDataUrl, pictureForReview, readImageFile } from "./lib/files.ts";
 import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from "./lib/markdown.ts";
 
@@ -61,6 +62,16 @@ type SavedState = {
 };
 
 const BRIEF_KEY = "playbook-studio.brief.v2";
+// The two sections of the app: Playbook (organic content with a story) and Publicidad (paid ads, Método 50-5-3).
+type Section = "playbook" | "ads";
+const SECTION_KEY = "playbook-studio.section";
+function loadSection(): Section {
+  try {
+    return localStorage.getItem(SECTION_KEY) === "ads" ? "ads" : "playbook";
+  } catch {
+    return "playbook";
+  }
+}
 
 function loadBrief(): Brief {
   try {
@@ -87,6 +98,8 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [showModels, setShowModels] = useState(false);
+  const [section, setSection] = useState<Section>(loadSection);
+  const [sent, setSent] = useState("");
   const [step, setStep] = useState<Step>("brief");
   const [brief, setBrief] = useState<Brief>(loadBrief);
   // The brief the current piece was written from; later steps use it even if the form changes.
@@ -171,6 +184,27 @@ export function App() {
       // Not critical.
     }
   }, [brief]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SECTION_KEY, section);
+    } catch {
+      // Not critical.
+    }
+  }, [section]);
+
+  // "Enviar a Publicidad": the story's hook title (and its problem) go to the series' hook catalogue, pending approval.
+  async function sendToAds() {
+    if (!story) return;
+    setError("");
+    try {
+      await adsApi.organicHook(pieceBrief.series, story.title, 2, 15, `Del Playbook: ${story.problem || "historia"}`);
+      setSent(story.title);
+      addLog({ text: `Enviado a Publicidad como hook: “${story.title}”` });
+    } catch (e) {
+      setError(message(e));
+    }
+  }
 
   useEffect(() => () => clipUrls.current.forEach((u) => URL.revokeObjectURL(u)), []);
 
@@ -861,9 +895,27 @@ export function App() {
   return (
     <div className="mx-auto max-w-6xl px-4 pt-6 pb-16">
       <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Playbook Studio</h1>
-          <p className="text-sm text-muted">Contenido con historia: el Bueno contra el Malo, temas, puentes, callbacks y la pizarra de la serie.</p>
+        <div className="flex flex-wrap items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Playbook Studio</h1>
+            <p className="text-sm text-muted">
+              {section === "playbook"
+                ? "Contenido con historia: el Bueno contra el Malo, temas, puentes, callbacks y la pizarra de la serie."
+                : "Publicidad · Método 50-5-3: hooks × meats × CTAs, de 150 a 750 anuncios por semana sin armarlos uno por uno."}
+            </p>
+          </div>
+          <div className="inline-flex rounded-lg border border-line bg-white p-0.5">
+            {(["playbook", "ads"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSection(s)}
+                className={`rounded-md px-3 py-1.5 text-sm font-semibold ${section === s ? "bg-ink text-white" : "text-muted hover:text-ink"}`}
+              >
+                {s === "playbook" ? "Playbook" : "Publicidad"}
+              </button>
+            ))}
+          </div>
         </div>
         {status && (
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -911,6 +963,55 @@ export function App() {
         />
       )}
 
+      {section === "ads" && (
+        <div className="mt-6 space-y-4">
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <label className="flex items-center gap-2">
+              <span className="font-semibold">Serie</span>
+              <select
+                className="rounded-lg border border-line bg-white px-2 py-1.5 text-sm"
+                value={brief.series}
+                onChange={(e) => setBrief({ ...brief, series: e.target.value })}
+              >
+                {(status?.series ?? []).filter((x) => x.type !== "music").map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="text-xs text-muted">La misma serie (biblia, elenco, estilo de texto) que Playbook; el perfil de oferta se guarda por serie.</span>
+          </div>
+          {status && !status.writer && (
+            <Notice tone="warn">
+              <b>Modo de muestra.</b> Sin clave de IA, los hooks, meats y CTAs son ejemplos fijos y la revisión solo mira largo y repetidos. Cargá una clave en{" "}
+              <button type="button" className="font-semibold underline" onClick={() => setShowModels(true)}>
+                Modelos
+              </button>
+              .
+            </Notice>
+          )}
+          {status && currentSeries && currentSeries.type !== "music" ? (
+            <AdsStudio
+              key={currentSeries.id}
+              series={currentSeries}
+              tools={status.tools}
+              imageProviders={status.imageProviders}
+              writer={Boolean(status.writer)}
+              onToPlaybook={(text) => {
+                setBrief((b) => ({ ...b, angle: text }));
+                setSection("playbook");
+                setStep("brief");
+              }}
+            />
+          ) : (
+            status && <Notice tone="info">Elegí una serie de tipo software o e-commerce: las series de música hacen videos de letra, no anuncios.</Notice>
+          )}
+        </div>
+      )}
+
+      {section === "playbook" && (
+      <>
       <nav className="mt-6 flex gap-1 overflow-x-auto border-b border-line">
         {steps.map((s) => (
           <button
@@ -1100,6 +1201,9 @@ export function App() {
                 onClick={() => download(new Blob([storyToMarkdown(story)], { type: "text/markdown" }), `${slug(story.problem || story.title)}-historia.md`)}
               >
                 Descargar historia .md
+              </Button>
+              <Button variant="ghost" className="w-full" onClick={sendToAds} disabled={sent === story.title}>
+                {sent === story.title ? "Enviado a Publicidad ✓" : "Enviar a Publicidad (hook)"}
               </Button>
               <DirectionLog log={log} />
               <StoryNotes story={story} />
@@ -1335,12 +1439,17 @@ export function App() {
                 library={library}
                 onFix={fixSetup}
               />
+              <Button variant="ghost" className="w-full" onClick={sendToAds} disabled={sent === story.title}>
+                {sent === story.title ? "Enviado a Publicidad ✓" : "Enviar a Publicidad (hook)"}
+              </Button>
               <DirectionLog log={log} />
               <StoryNotes story={story} />
             </aside>
           </section>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }
