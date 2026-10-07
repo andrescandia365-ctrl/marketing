@@ -75,6 +75,173 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Render final con `node render.mjs`:** Chrome sin ventana, `window.seek(t)` por cuadro, PNG sin pérdida a ffmpeg (H.264 yuv420p, CRF 16, bt709, AAC). Desde la app o a mano.
   - **Elegido por defecto** (no hubo respuesta a las preguntas): 3 rondas, Google Fonts, y `iniciar.sh` busca ffmpeg y ofrece instalarlo con Homebrew.
 
+## Revisión general de la app (7 Oct 2026)
+
+Recorrí la app entera: flujo Brief → Menú → Historia → Storyboard → Producción, los checks, el motor de explicativos
+(`src/lib/motion.ts`, `shared/motion.ts`, `motionAudio.ts`, `motionProject.ts`, `render.mjs`), el Reloj de letras
+(`shared/clock.ts`, `syncDraw.ts`, `server/sync.ts`), el render de video y la sección nueva de Publicidad. Lo que sigue
+son hallazgos y propuestas, numeradas para seguir con la lista. **Nada está construido:** se construye con "go".
+
+**Lo que está sólido y no tocaría:** el contrato de render (cada cuadro función pura de t, ruido con semilla, el
+render final por `seek(t)` + ffmpeg), los checks que bloquean la aprobación con "Arreglalo", las dos relojes del
+Reloj (kick en el stem de batería, palabras en el stem de voz), el modo de muestra sin clave, y que las claves y
+las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta compu.
+
+### Sincronización de los motion graphics: lo que encontré
+
+#### 41. El reloj de la vista previa va a saltos (explicativos y videos de letra)
+- **Qué pasa:** la vista previa dibuja en cada `requestAnimationFrame` leyendo `audio.currentTime` de un `<audio>`
+  (`MotionStudio.tsx` ~l. 327, `LyricStudio.tsx` ~l. 1213). Ese valor avanza a saltos (en Chrome cada bloque de
+  audio; en Safari y Firefox peor), así que entre un cuadro y el siguiente el `t` puede repetirse o saltar: el
+  movimiento se ve con micro-tirones y un golpe de sonido puede verse 1 o 2 cuadros corrido respecto al render final,
+  que sí es exacto. Además, cada vez que se rearma el WAV de la mezcla el `<audio>` pierde su posición (hoy se
+  parcha con `timeRef`).
+- **Arreglo:** reproducir la mezcla con `AudioContext` (`AudioBufferSourceNode`) y tomar el tiempo como
+  `anchorT + (ctx.currentTime - anchorCtx)`: es un reloj con precisión de muestra, monótono, el mismo en cualquier
+  navegador. Al rearmar la mezcla se reanuda desde el mismo `t` sin perder el lugar. Lo mismo para la letra y para
+  "Ver la pieza" del storyboard cuando tenga voces.
+
+#### 42. El check "Se lee" no cuenta el empuje entre escenas
+- **Qué pasa:** con tono Cálido la escena nueva entra deslizando 0,38 s (`cutPush`), y con Absurdo 0,2 s. Pero
+  `settledAt` (cuándo un elemento quedó quieto) y `revealTimes` cuentan desde el inicio de la escena: un título que
+  "entra a los 0 s" todavía se está moviendo con la escena durante el empuje. El check de lectura queda optimista
+  hasta 0,38 s en cada escena menos la primera, y el efecto de sonido del título puede sonar antes de que se vea
+  quieto. `posterTime` sí lo tiene en cuenta; los demás no.
+- **Arreglo:** en `settledAt` y en `revealTimes`, para `index > 0`, sumar `cutPush(tone)` a todo lo que entra antes
+  de que termine el empuje (`at < push` → cuenta desde `push`). Pasar el tono a esas funciones (hoy no lo reciben).
+
+#### 43. El sonido se mueve al beat, la imagen no
+- **Qué pasa:** `soundHits` lleva cada golpe al beat más cercano si está a menos de 0,06 s (`nearBeat`) y le resta
+  0,02 s. La entrada visual del elemento queda donde estaba. Resultado: hasta 80 ms de corrimiento entre lo que se
+  ve y lo que se oye, justo lo que la regla del playbook (§3.1) quiere evitar.
+- **Arreglo:** una sola fuente de verdad. O bien los tiempos por defecto de `sceneElements` se pegan al beat
+  cuando hay uno a menos de 0,1 s (y el sonido va donde va la imagen), o bien el sonido no se mueve y suena con el
+  movimiento. Recomiendo lo primero: así "un acento cae en un kick" se cumple en imagen y sonido, y el check de
+  sincronía de la IA deja de marcar lo que la app misma corrió.
+
+#### 44. Los explicativos con tema propio leen los beats del master
+- **Qué pasa:** `motionBeats` usa `findBeats(track)` (picos de volumen general) cuando hay un tema subido, y
+  `strongBeats` aproxima los graves con un pasabajos. Es justo lo que la regla de las dos relojes prohíbe para el
+  Reloj: "nunca lee picos del master". Un hat o una voz fuerte cuentan como beat y los cortes caen ahí.
+- **Arreglo:** cuando el explicativo lleva un tema, pasar por el mismo camino del Reloj: stem de batería (Demucs
+  si está, o el stem que subas) → `fitKicks` → `grid.kicks` para pegar escenas y `downbeats` para el producto y
+  el logo. Sin stem, avisar y quedarse con la partitura sintetizada (que ya tiene grilla exacta). `findBeats`
+  queda solo para los cortes de las historias, como dice CLAUDE.md.
+
+#### 45. Pegar escenas a los beats puede dejar la siguiente demasiado corta
+- **Qué pasa:** `snapWith` mueve el corte al beat si la escena actual queda con 1,5 s o más, pero en el camino
+  común no revisa que la **siguiente** escena también quede con 1,5 s (solo lo revisa en el camino de los golpes
+  fuertes). Dos escenas cortas seguidas pueden quedar en 1,1 s y pisarse con su voz.
+- **Arreglo:** la misma condición en los dos caminos, y si no se cumple, probar el beat anterior antes de dejar el
+  corte donde estaba.
+
+#### 46. La voz que no entra solo avisa
+- **Qué pasa:** si la voz de una escena dura más que la escena, el carril de voz se pone rojo y la mezcla sigue
+  sonando sobre la escena siguiente (la música no vuelve a subir hasta que la voz termina), pero el subtítulo ya
+  cambió.
+- **Arreglo:** botón "Ajustar al largo de la voz" (la escena pasa a durar voz + 0,4 s, redondeado al beat) y, en el
+  render, cortar la voz con un fundido de 80 ms en el fin de la escena si la persona prefiere no alargar.
+
+#### 47. Lo que revisé y está bien
+- `speechLevels` y `soundPlan` colocan la voz en el mismo `at` (0,25 s), así la boca del títere y el audio
+  coinciden. `render.mjs` manda el cuadro f en `t = f/30` y la mezcla arranca en 0, con `-shortest`: el final
+  coincide con la vista previa. La grilla sintetizada y el kick del sinte empiezan los dos en 0.
+
+### Flujo de trabajo y base del código
+
+#### 48. Dos copias del playbook que se desvían
+- `PLAYBOOK.md` (investigación) y `server/playbook.md` (lo que lee la IA) se mantienen a mano y ya difieren en
+  estructura. **Propuesta:** un script `npm run playbook` que arma `server/playbook.md` a partir de las secciones
+  operativas de `PLAYBOOK.md` (§1, §3, §3.1, §3.2, §5, §6) y un check en `typecheck`/CI que falla si el archivo
+  generado no coincide con el guardado.
+
+#### 49. Pruebas y CI
+- Hoy no hay pruebas (solo `clock-check.ts`). Toda la lógica pura está en `shared/` y se prueba sin navegador:
+  `checks.ts`, `motion.ts` (`snapScenes`, `readingIssues`, `quietGaps`, `posterTime`), `clock.ts`, `lyrics.ts`
+  (`alignLyrics`, `splitLyrics`), `ads.ts`. **Propuesta:** `node --test` con `tsx` en `tests/`, y un workflow de
+  GitHub Actions con `typecheck`, `build`, las pruebas y `clock-check`. Las pruebas de Publicidad que corrí en esta
+  sesión ya sirven de arranque.
+
+#### 50. El paquete del navegador pesa 1,9 MB
+- `three`, `mediabunny` y los tres estudios cargan juntos aunque se abra solo el brief. **Propuesta:** `import()`
+  dinámico para `MotionStudio`, `LyricStudio`, `AdsStudio` y el actor 3D; `three` solo cuando hay un rig. La
+  primera pantalla pasa a cargar en una fracción.
+
+#### 51. Archivos de más de mil líneas
+- `App.tsx` (1455), `MotionStudio.tsx` (1428), `LyricStudio.tsx` (1604), `SeriesEditor.tsx` (1150),
+  `ScriptView.tsx` (1023). **Propuesta:** sacar de `App.tsx` el autoguardado y la carga de medios a un hook
+  `useProject`, y la producción a `ProductionView`; en los estudios, separar la vista previa (reloj, canvas) de los
+  paneles. Sin cambiar comportamiento; antes, las pruebas de la idea 49.
+
+#### 52. Costo de los prompts
+- El bloque fijo del escritor son ~2.900 palabras (motor + playbook) más el perfil de la herramienta (~1.300) y la
+  biblia de la serie (~600) en cada pedido. Con Claude el bloque fijo va cacheado; con Kimi, NVIDIA y OpenRouter se
+  paga entero cada vez. **Propuesta:** medir tokens por pedido en Modelos ("este pedido costó ~X tokens"), y
+  recortar `server/playbook.md` a las reglas que de verdad cambian la escritura (las tablas de evidencia y las
+  fuentes no hacen falta en el prompt).
+
+#### 53. Errores que no dicen qué faltó
+- Un pedido que no pasa el esquema responde "Al pedido le faltaban datos." sin decir cuál. **Propuesta:** incluir
+  el primer camino del error de zod ("falta `brief.series`"), que ayuda cuando un proyecto viejo trae un campo
+  cambiado.
+
+#### 54. Publicidad: lo que sigue
+- Voz por pieza: `media.voice` ya existe en el esquema pero la tarjeta no la sube ni la genera. Sumar "Voz
+  generada" con `/api/voice` y la voz del presentador del perfil.
+- "Probar un anuncio": antes de la tanda, elegir un hook, un meat y un CTA y ver el anuncio armado en la app.
+- Reforzar el límite semanal del lado del servidor (hoy lo controla la pantalla).
+- Métricas por API de la plataforma, cuando haya cuenta: hoy es CSV.
+- Las piezas se renderizan en el formato que da el navegador (mp4 en Chrome de escritorio, webm sin H.264); los
+  anuncios salen siempre mp4. Avisar en la tarjeta qué codec quedó en caché.
+
+### Playbook al máximo
+
+#### 55. Las jugadas (§2.5) como dato de cada tema
+- Hoy la historia no dice qué jugadas usa. **Propuesta:** cada tema devuelve `moves` (Clip Drop, Contradicción,
+  Reacción lenta, Escalera, Giro, Botón, Brecha de curiosidad, Visita de campo, Callback, Corresponsal) y la app
+  muestra una fila de chips por tema y una **cobertura por pieza**. El check suma "Sin Giro" (el Momento emotivo ya
+  está) y "Sin Botón que vuelva al gancho". Con tres o cuatro piezas, la pizarra de la serie ve qué jugadas se
+  repiten de más.
+
+#### 56. Cinco variantes de gancho por historia (§3)
+- El playbook pide entregar 5 ganchos por guion y la app entrega uno. **Propuesta:** botón "5 variantes de
+  gancho" en la historia (cada una con su jugada), elegir la que va, y **"Mandar las 5 a Publicidad"**: entran al
+  catálogo de hooks con su nivel. Es el puente natural entre el contenido orgánico y el 50-5-3.
+
+#### 57. El registro de episodios (§2.6) desde la app
+- Hoy los resúmenes de episodios se pegan a mano en `PLAYBOOK.md`. **Propuesta:** un panel "Episodios estudiados":
+  pegás el resumen, la IA lo vuelca en la plantilla EP-NN (tabla de temas, callbacks, observaciones), lo agrega al
+  playbook con tu "ok" y, cuando una jugada se repite en 3 o más episodios, propone sumarla a `engine.md`.
+
+#### 58. La lista de control del playbook (§7.4) como checks explícitos
+- Faltan como ítems: "El cliente es el héroe" (la marca no abre la pieza), "Un solo llamado, suave", "Nada
+  prestado" (nombres de programas, frases), "Detalle concreto" (objeto, número u hora en el gancho). Para video:
+  "Gancho en 2 s" (la primera toma dura 6 s y su línea nombra el dolor) y "El producto en uso" (al menos una toma de
+  pantalla real o producto en el Bueno). Entran en `STORY_CHECKS` y `BOARD_RULES` y la app los muestra como los
+  demás.
+
+#### 59. Un corresponsal fijo por serie y el formato "Visita de campo"
+- "The Manager" de IMAN aparece en el playbook pero no en el elenco. **Propuesta:** en el brief, "Formato: escritorio /
+  con corresponsal / visita de campo" (§2.4 y §4), y el corresponsal como personaje fijo con su voz, que el escritor
+  usa para la escalada y el regreso al problema real.
+
+#### 60. Ganchos de calendario por serie
+- El brief tiene "un momento que el público ya siente", pero se escribe cada vez. **Propuesta:** una lista de
+  fechas y momentos por serie (día de inventario, primera semana de frío, el 1 del mes) en Editar serie; el menú y
+  los hooks de Publicidad la leen, y la app sugiere el más cercano.
+
+#### 61. Imagen fija (idea 34) también para Publicidad
+- Con el Método 50-5-3 construido, el tipo de pieza "Imagen fija" tiene un uso más: el anuncio estático sale de un
+  hook aprobado (su titular en pantalla y su prompt de imagen) con el texto puesto por la app. Sigue esperando
+  "go" y las 4 respuestas de la idea 34.
+
+### Si tuviera que elegir el primer "go"
+1. **41 + 42 + 43:** el reloj de la vista previa, el empuje en el check y una sola fuente de verdad imagen-sonido.
+   Son tres cambios chicos y arreglan lo que más se nota al sincronizar.
+2. **49:** pruebas sobre `shared/` y CI, antes de tocar los archivos grandes.
+3. **56 + 55:** las 5 variantes de gancho (puente a Publicidad) y las jugadas como dato: es lo que más saca del
+   playbook con lo que ya existe.
+
 ## Decisiones tomadas (2 Oct 2026)
 1. **Voz:** construir las 4 opciones: solo subtítulos, que Grok haga hablar al personaje, voz generada, y grabarla vos por toma. **Personajes:** usar las voces de Grok (panel Audio: Ara, Eve, Leo, Rex, Sal…, más audios subidos o grabados); cada personaje tiene una voz asignada y el prompt de video la pide. Grok no deja descargar el audio solo, así que esa voz vive dentro del clip. **Narrador:** las 4 opciones, según la escena.
 2. **Escuchar en voz alta:** para escucharlos vos.
