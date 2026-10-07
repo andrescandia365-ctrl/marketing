@@ -75,6 +75,15 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Render final con `node render.mjs`:** Chrome sin ventana, `window.seek(t)` por cuadro, PNG sin pérdida a ffmpeg (H.264 yuv420p, CRF 16, bt709, AAC). Desde la app o a mano.
   - **Elegido por defecto** (no hubo respuesta a las preguntas): 3 rondas, Google Fonts, y `iniciar.sh` busca ffmpeg y ofrece instalarlo con Homebrew.
 
+- **Demucs listo para instalar (7 Oct 2026).** Lo instalás vos; la app lo encuentra y dice cuándo usarlo.
+  - **Modelos → Demucs:** si lo encuentra (`DEMUCS_BIN`, `demucs` en la Terminal o `python3 -m demucs`), dónde lo usa la app y cuándo conviene, cómo instalarlo, la ruta que se guarda en `.env` sin reiniciar, **Volver a buscar** y **Probar Demucs**.
+  - **Una separación por tema**, guardada en `proyectos/.demucs/`: la sincronización, el Reloj y los explicativos la reusan.
+  - **Sincronizar automático:** «Escuchar solo la voz (Demucs)», y un aviso cuando la transcripción encontró menos del 70 % de la letra.
+  - **Reloj:** sin Demucs avisa que falta la batería y no deja armar; con Demucs separa lo que falte (también la voz si subiste solo la batería).
+  - **La voz va chica a la transcripción** (un canal, 16 kHz): la de Demucs pasaba los 25 MB de whisper-1 en un tema de más de 2 minutos y medio.
+  - **Guardar algo en Modelos ya no recarga la página** en modo desarrollo (Vite no mira `.env`).
+  - `iniciar.sh` avisa si está Demucs; no lo instala.
+
 ## Revisión general de la app (7 Oct 2026)
 
 Recorrí la app entera: flujo Brief → Menú → Historia → Storyboard → Producción, los checks, el motor de explicativos

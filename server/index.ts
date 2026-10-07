@@ -49,7 +49,8 @@ import { BrandWebError, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.
 import { EMPTY_BRIEF } from "../shared/example.ts";
 import { ClockError } from "../shared/clock.ts";
 import { roomBrief } from "../shared/room.ts";
-import { buildProjectSync, critiqueProject, demucsAvailable, loadSync, separateDrums } from "./sync.ts";
+import { buildProjectSync, critiqueProject, loadSync } from "./sync.ts";
+import { checkDemucsBin, demucsAvailable, demucsStatus, separate, speechWav, tryDemucs } from "./demucs.ts";
 import { decodeWav, fitKicks } from "../shared/clock.ts";
 import { BrandSchema, DEFAULT_BRAND } from "../shared/series.ts";
 import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, SECOND_LANGUAGES, LyricStyleSchema, alignLyrics, cleanElements, cleanIdeas } from "../shared/lyrics.ts";
@@ -420,14 +421,18 @@ app.post("/api/motion", async (c) => {
   return c.json({ script: await motionScript(brief, target, layers), demo: false });
 });
 
-// An explainer's own track: Demucs separates its drums on this computer and the kicks are measured on that stem, the
-// same clock as the Reloj. Never the track itself: without Demucs this refuses and the person uploads the stem.
+// An explainer's own track (the file as uploaded): Demucs separates its drums on this computer and the kicks are
+// measured on that stem, the same clock as the Reloj. Never the track itself: without Demucs this refuses and the
+// person uploads the stem. A track split before comes from the cache.
 app.put("/api/motion/kicks", async (c) => {
   const master = new Uint8Array(await c.req.arrayBuffer());
   if (master.length < 44) throw new ClockError("Falta el tema.");
-  const { drums } = await separateDrums(master);
+  const { drums, cached } = await separate(master);
   const grid = fitKicks(decodeWav(drums), 30);
-  return c.json({ kicks: { kicks: grid.kicks, downbeats: grid.downbeats, bpm: grid.bpm, medianErrorMs: grid.medianErrorMs, usable: grid.usable } });
+  return c.json({
+    kicks: { kicks: grid.kicks, downbeats: grid.downbeats, bpm: grid.bpm, medianErrorMs: grid.medianErrorMs, usable: grid.usable },
+    cached,
+  });
 });
 
 // A reference sheet (character girl/boy, or place) for the series' cast. People are adults only.
@@ -544,6 +549,18 @@ app.use("/api/settings/*", localOnly);
 // "Traer la marca desde su web": the server opens a public page for the person, so only from the app on this computer
 // (another machine on the network could otherwise make it fetch for them).
 app.use("/api/brand/*", onlyHere("La marca se trae de la web solo desde la app en esta compu."));
+
+// Demucs on this computer (Modelos → Demucs), only from the app here: looked up again now ("Volver a buscar" after
+// installing it), and "Probar Demucs" runs it on four made-up seconds.
+app.use("/api/tools/*", onlyHere("Demucs se revisa solo desde la app en esta compu."));
+app.get("/api/tools/demucs", (c) => c.json({ demucs: demucsStatus(true), ffmpeg: ffmpegAvailable() }));
+app.post("/api/tools/demucs/test", async (c) => c.json(await tryDemucs()));
+// Where Demucs is, saved in .env (null: look on the PATH again).
+app.put("/api/tools/demucs", async (c) => {
+  const { bin } = z.object({ bin: z.string().trim().max(400).nullable() }).parse(await c.req.json());
+  await setEnv({ DEMUCS_BIN: bin ? checkDemucsBin(bin) : null });
+  return c.json({ demucs: demucsStatus(true), ffmpeg: ffmpegAvailable() });
+});
 const HEX = /^#[0-9a-f]{6}$/i;
 app.post("/api/brand/from-web", async (c) => {
   const { url, series } = z
@@ -752,8 +769,20 @@ app.post("/api/lyrics/sync", async (c) => {
   const lines = z.array(z.string()).min(1).max(400).parse(JSON.parse(String(form.get("lines") ?? "[]")));
   const seconds = z.array(z.string()).parse(JSON.parse(String(form.get("seconds") ?? "[]")));
   const language = z.enum(LYRIC_LANGUAGES).parse(form.get("language") ?? "auto");
-  const heard = await hearSong(audio, audio instanceof File ? audio.name : "cancion.mp3", language, lines.join("\n"));
-  return c.json({ lines: alignLyrics(lines, seconds, heard.words, heard.duration), heard: heard.words.length });
+  // "voice=demucs": the transcription hears the vocal stem only (the same split the Reloj reuses).
+  let heard;
+  if (form.get("voice") === "demucs") {
+    // The key first: a split takes minutes, and without the key nothing would hear it.
+    if (!autoSyncAvailable()) throw new LyricsError("Para sincronizar automático falta OPENAI_API_KEY en .env.");
+    const { vocals } = await separate(new Uint8Array(await audio.arrayBuffer()));
+    if (!vocals) throw new ClockError("Demucs no devolvió la voz de este tema.");
+    const speech = speechWav(vocals);
+    heard = await hearSong(new Blob([speech.buffer as ArrayBuffer], { type: "audio/wav" }), "voz.wav", language, lines.join("\n"));
+  } else {
+    heard = await hearSong(audio, audio instanceof File ? audio.name : "cancion.mp3", language, lines.join("\n"));
+  }
+  const share = { matched: 0, total: 0 };
+  return c.json({ lines: alignLyrics(lines, seconds, heard.words, heard.duration, share), heard: heard.words.length, ...share });
 });
 
 const LyricRequest = z.object({ series: z.string(), title: z.string().default(""), artist: z.string().default(""), lines: z.array(z.string()).min(1).max(400) });

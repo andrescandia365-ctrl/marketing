@@ -33,12 +33,15 @@ export function ClockPanel({
   language,
   song,
   brand,
+  demucs,
 }: {
   projectId: string | null;
   lyrics: string;
   language: LyricLanguage;
   song: { blob: Blob; name: string } | null;
   brand: Brand;
+  // Demucs is on this computer: a missing stem is split from the song.
+  demucs: boolean;
 }) {
   const [drumsFile, setDrumsFile] = useState<File | null>(null);
   const [vocalsFile, setVocalsFile] = useState<File | null>(null);
@@ -91,6 +94,9 @@ export function ClockPanel({
     ? `${kick != null ? `kick ${kick.toFixed(3)} s` : "sin kick"} · ${word ? word.text : "sin palabra"} · ${move ? move.move : "sin acento"}`
     : "";
 
+  // Demucs splits the song when a stem is missing (one split per song: the sync tab and the explainers reuse it).
+  const splits = demucs && song !== null && (!drumsFile || !vocalsFile);
+
   async function arm() {
     if (!projectId) return;
     setBusy("arm");
@@ -101,7 +107,7 @@ export function ClockPanel({
         lyrics,
         moves,
         language,
-        master: song ? await fileToWav(song.blob) : null,
+        master: splits && song ? song.blob : null,
         drums: drumsFile ? await fileToWav(drumsFile) : null,
         vocals: vocalsFile ? await fileToWav(vocalsFile) : null,
       });
@@ -138,7 +144,14 @@ export function ClockPanel({
       </p>
       {!projectId && <Notice tone="warn">La carpeta del proyecto todavía no está lista.</Notice>}
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Stem de batería" hint="WAV, mp3 o m4a. Si no lo subís, el master se separa con Demucs. El beat no se mide en el master.">
+        <Field
+          label="Stem de batería"
+          hint={
+            demucs
+              ? "WAV, mp3 o m4a. Si no lo subís, Demucs lo separa del tema (unos minutos la primera vez; después queda guardado)."
+              : "WAV, mp3 o m4a. Sin Demucs en esta compu hace falta: el beat no se mide en el master."
+          }
+        >
           <input
             type="file"
             accept="audio/*,.wav"
@@ -147,7 +160,14 @@ export function ClockPanel({
             onChange={(e) => setDrumsFile(e.target.files?.[0] ?? null)}
           />
         </Field>
-        <Field label="Stem de voz" hint="La letra se alinea acá. Sin este stem el gate queda en 0 y no se inventan tiempos.">
+        <Field
+          label="Stem de voz"
+          hint={
+            demucs
+              ? "La letra se alinea acá. Si no lo subís, sale de la misma separación de Demucs."
+              : "La letra se alinea acá. Sin este stem el gate queda en 0 y no se inventan tiempos."
+          }
+        >
           <input
             type="file"
             accept="audio/*,.wav"
@@ -167,13 +187,19 @@ export function ClockPanel({
         </Field>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => void arm()} disabled={!projectId || busy !== null || !lyrics.trim() || (!song && !drumsFile)}>
-          {busy === "arm" ? "Armando el reloj…" : "Armar reloj"}
+        <Button onClick={() => void arm()} disabled={!projectId || busy !== null || !lyrics.trim() || (!drumsFile && !(song && demucs))}>
+          {busy === "arm" ? (splits ? "Separando con Demucs…" : "Armando el reloj…") : "Armar reloj"}
         </Button>
         <Button variant="secondary" onClick={() => void critic()} disabled={!projectId || !sync || busy !== null}>
           {busy === "critique" ? "Mirando los cuadros…" : "Crítica"}
         </Button>
       </div>
+      {!demucs && !drumsFile && (
+        <Notice tone="info">
+          Falta el stem de batería. Si no lo tenés, instalá Demucs en esta compu y la app lo separa del tema: <b>Modelos → Demucs</b> dice cómo y
+          cuándo conviene.
+        </Notice>
+      )}
       {error && <Notice tone="error">{error}</Notice>}
       {sync && loaded && (
         <div className="grid items-start gap-4 md:grid-cols-[240px_1fr]">

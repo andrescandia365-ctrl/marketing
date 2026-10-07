@@ -28,6 +28,7 @@ import {
   type LyricStyle,
   type SecondLanguage,
 } from "../../shared/lyrics.ts";
+import { voiceStemHelps } from "../../shared/demucs.ts";
 import { buildPlates } from "../../shared/plates.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { api, projectFileUrl, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
@@ -58,6 +59,8 @@ type Props = {
   series: SeriesInfo;
   initial: LyricOpen | null;
   autoSync: boolean;
+  // Demucs is on this computer: the sync can hear the voice alone, and the Reloj splits a missing stem.
+  demucs: boolean;
   projectsDir: string;
   onSaveStatus: (status: "saving" | "saved" | "error") => void;
   onSeries: (series: SeriesInfo[]) => void;
@@ -82,7 +85,7 @@ ${toLrc(piece)}
 `;
 }
 
-export function LyricStudio({ projectId, brief, series, initial, autoSync, projectsDir, onSaveStatus, onSeries }: Props) {
+export function LyricStudio({ projectId, brief, series, initial, autoSync, demucs, projectsDir, onSaveStatus, onSeries }: Props) {
   const [piece, setPiece] = useState<LyricPiece>(() => {
     const base = initial ? { ...newLyricPiece(series.lyricStyle, brief.format), ...initial.piece } : newLyricPiece(series.lyricStyle, brief.format);
     const secondLanguage: SecondLanguage = (SECOND_LANGUAGES as readonly string[]).includes(base.secondLanguage) ? base.secondLanguage : "es";
@@ -109,6 +112,10 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
   const [cuts, setCuts] = useState<number[]>([]);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  // The automatic sync hears the vocal stem Demucs splits (worth it when the music covers the voice).
+  const [voiceOnly, setVoiceOnly] = useState(false);
+  // How much of the lyrics the last automatic sync really heard, when it was too little.
+  const [heardShare, setHeardShare] = useState<{ matched: number; total: number; voiceOnly: boolean } | null>(null);
   // How far "Correr toda la letra" has moved this visit. It lives here so a tab change does not reset the slider.
   const [nudge, setNudge] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -246,6 +253,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
     await work("upload", async () => {
       const duration = await audioDuration(file);
       setSong({ url: objectUrl(file), blob: file, name: file.name, duration });
+      setHeardShare(null);
       if (projectId) await api.uploadMusic(projectId, file, { name: file.name, duration });
     });
   }
@@ -325,11 +333,15 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
 
   async function autoSyncNow() {
     if (!song) return;
-    const result = await work("sync", () => api.syncLyrics(song.blob, song.name, texts, seconds, piece.language));
+    const separated = demucs && voiceOnly;
+    const result = await work("sync", () => api.syncLyrics(song.blob, song.name, texts, seconds, piece.language, separated));
     if (!result) return;
     set({ lines: result.lines, synced: "auto" });
     setNudge(0);
-    setNote(`Sincronizado: la transcripción escuchó ${result.heard} palabras. Revisá los tiempos abajo.`);
+    setHeardShare(voiceStemHelps(result.matched, result.total) ? { matched: result.matched, total: result.total, voiceOnly: separated } : null);
+    setNote(
+      `Sincronizado${separated ? " sobre la voz separada" : ""}: encontró ${result.matched} de ${result.total} palabras de la letra (las demás quedan entre sus vecinas). Revisá los tiempos abajo.`,
+    );
   }
 
   // An .lrc brings its own times; if its lines match the pasted lyrics they keep the pasted text, else it brings the text too.
@@ -723,10 +735,19 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
                     {piece.language === "gn" && " No conoce el guaraní: escucha sin idioma. Si sale mal, sincronizá tocando."}
                     {!autoSync && " Necesita OPENAI_API_KEY en .env."}
                   </p>
+                  {demucs && (
+                    <label className="flex items-start gap-2 text-xs">
+                      <input type="checkbox" className="mt-0.5" checked={voiceOnly} onChange={(e) => setVoiceOnly(e.target.checked)} />
+                      <span>
+                        Escuchar solo la voz (Demucs). Conviene cuando la música tapa la voz; la primera vez tarda unos minutos y la separación
+                        queda guardada para el Reloj.
+                      </span>
+                    </label>
+                  )}
                   <Button onClick={autoSyncNow} disabled={!autoSync || busy !== null || !texts.length}>
                     {busy === "sync" ? (
                       <>
-                        <Spinner /> Escuchando la canción…
+                        <Spinner /> {demucs && voiceOnly ? "Separando la voz y escuchando…" : "Escuchando la canción…"}
                       </>
                     ) : (
                       "Sincronizar automático"
@@ -739,6 +760,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
                   onDone={(starts) => {
                     set({ lines: tapLines(texts, seconds, starts, song.duration), synced: "tap" });
                     setNudge(0);
+                    setHeardShare(null);
                     setNote("Sincronizado tocando. Ajustá cualquier línea abajo.");
                   }}
                 />
@@ -761,6 +783,17 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
                   />
                 </div>
               </div>
+              {heardShare && (
+                <Notice tone="warn">
+                  La transcripción encontró solo {heardShare.matched} de {heardShare.total} palabras de la letra: la música probablemente tapa la
+                  voz.{" "}
+                  {heardShare.voiceOnly
+                    ? "Ya escuchó la voz separada: revisá los tiempos abajo o sincronizá tocando."
+                    : demucs
+                      ? "Probá de nuevo con «Escuchar solo la voz (Demucs)»."
+                      : "Con Demucs instalado en esta compu, la app separa la voz antes de escuchar (Modelos → Demucs dice cómo). Mientras, sincronizá tocando."}
+                </Notice>
+              )}
               {stale && <Notice tone="warn">La letra cambió después de sincronizar: volvé a sincronizar.</Notice>}
               {piece.lines.length > 0 && (
                 <LineEditor
@@ -789,6 +822,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, proje
           language={piece.language}
           song={song}
           brand={series.brand}
+          demucs={demucs}
         />
       )}
 

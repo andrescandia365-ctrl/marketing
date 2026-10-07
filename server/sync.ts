@@ -1,5 +1,5 @@
 // Writes proyectos/<id>/sync from a drums stem (or Demucs) and a vocal stem. The master is never the beat clock.
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +17,7 @@ import {
 import { contactFrames, contactSheet, critique, type Critique } from "../shared/syncDraw.ts";
 import { PROJECTS_DIR, ProjectError, getProject } from "./projects.ts";
 import { autoSyncAvailable, hearSong } from "./lyrics.ts";
+import { demucsAvailable, separate, speechWav } from "./demucs.ts";
 
 const ID = /^[a-z0-9-]{1,80}$/;
 
@@ -62,39 +63,6 @@ function run(cmd: string, args: string[], cwd: string, timeoutMs: number): Promi
       else reject(new ClockError(err.trim() || `${cmd} salió con código ${code}.`));
     });
   });
-}
-
-// Whether Demucs is on this computer (checked once, for the status the app shows).
-let demucs: boolean | undefined;
-export function demucsAvailable(): boolean {
-  demucs ??= spawnSync("sh", ["-c", "command -v demucs"], { stdio: "ignore" }).status === 0;
-  return demucs;
-}
-
-// Demucs only. If it is not installed, the caller must pass a drums stem. The master is not a fallback.
-export async function separateDrums(master: Uint8Array): Promise<{ drums: Uint8Array; vocals: Uint8Array | null }> {
-  if (!(await which("demucs"))) {
-    throw new ClockError("No está Demucs y no subiste el stem de batería. El reloj no mide el beat en el master.");
-  }
-  if (!(await which("ffmpeg"))) {
-    throw new ClockError("Demucs necesita ffmpeg y acá no está. Subí el stem de batería en WAV.");
-  }
-  const dir = await mkdtemp(join(tmpdir(), "reloj-"));
-  try {
-    await writeFile(join(dir, "master.wav"), master);
-    await run("demucs", ["-n", "htdemucs", "--out", join(dir, "out"), join(dir, "master.wav")], dir, 20 * 60 * 1000);
-    const stem = join(dir, "out", "htdemucs", "master");
-    const drums = new Uint8Array(await readFile(join(stem, "drums.wav")));
-    let vocals: Uint8Array | null = null;
-    try {
-      vocals = new Uint8Array(await readFile(join(stem, "vocals.wav")));
-    } catch {
-      vocals = null;
-    }
-    return { drums, vocals };
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
 }
 
 function collectWords(value: unknown, out: HeardWord[]) {
@@ -167,7 +135,9 @@ export async function transcribeVocals(wav: Uint8Array, lyrics: string, language
     await rm(dir, { recursive: true, force: true });
   }
   if (autoSyncAvailable()) {
-    const audio = new Blob([wav.buffer as ArrayBuffer], { type: "audio/wav" });
+    // One channel at 16 kHz: a stereo stem from Demucs passes the transcription's 25 MB in under three minutes.
+    const speech = speechWav(wav);
+    const audio = new Blob([speech.buffer as ArrayBuffer], { type: "audio/wav" });
     const heard = await hearSong(audio, "vocals.wav", language, lyrics);
     return { words: heard.words, engine: "openai-whisper-1" };
   }
@@ -177,7 +147,7 @@ export async function transcribeVocals(wav: Uint8Array, lyrics: string, language
 export async function drumsFromUpload(drums: Uint8Array | null, master: Uint8Array | null): Promise<{ pcm: Pcm; vocals: Uint8Array | null }> {
   if (drums) return { pcm: decodeWav(drums), vocals: null };
   if (!master) throw new ClockError("Subí el master o el stem de batería.");
-  const separated = await separateDrums(master);
+  const separated = await separate(master);
   return { pcm: decodeWav(separated.drums), vocals: separated.vocals };
 }
 
@@ -238,7 +208,9 @@ export async function buildProjectSync(
   },
 ): Promise<{ doc: SyncDoc; qa: string }> {
   const source = await drumsFromUpload(input.drums, input.master);
-  const vocals = input.vocals ?? source.vocals;
+  let vocals = input.vocals ?? source.vocals;
+  // The drums were uploaded but not the voice: with Demucs here, the voice comes from the song's split.
+  if (!vocals && !input.heard && input.master && demucsAvailable()) vocals = (await separate(input.master)).vocals;
   let heard = input.heard ?? [];
   let wordsEngine = input.wordsEngine ?? "none";
   if (!input.heard && vocals) {

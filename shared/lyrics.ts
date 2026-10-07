@@ -355,8 +355,15 @@ function letters(text: string): string[] {
 
 // Synced automatically: the transcription's timed words are matched to the pasted lyrics letter by letter
 // (works for Japanese and Korean too, where words don't line up), and each lyric word takes the times of its
-// matched letters. Words the transcription missed are placed between their neighbours.
-export function alignLyrics(texts: string[], seconds: string[], heard: HeardWord[], songEnd: number): LyricLine[] {
+// matched letters. Words the transcription missed are placed between their neighbours. `share` gets how many lyric
+// words were really heard (the rest were placed between neighbours).
+export function alignLyrics(
+  texts: string[],
+  seconds: string[],
+  heard: HeardWord[],
+  songEnd: number,
+  share?: { matched: number; total: number },
+): LyricLine[] {
   // Every heard letter with its time, spread evenly inside its word.
   const heardChars: { c: string; t: number }[] = [];
   for (const h of heard) {
@@ -428,6 +435,10 @@ export function alignLyrics(texts: string[], seconds: string[], heard: HeardWord
   }
   // Fill the gaps between known words.
   const known = slots.map((s, i) => (s.start !== undefined ? i : -1)).filter((i) => i >= 0);
+  if (share) {
+    share.matched = known.length;
+    share.total = slots.length;
+  }
   const PER_WORD = 0.35;
   for (let i = 0; i < slots.length; i++) {
     const s = slots[i];

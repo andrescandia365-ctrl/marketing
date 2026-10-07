@@ -2,7 +2,8 @@
 // here once and saved in the .env file on this computer; the app only ever shows their last four characters.
 import { useEffect, useMemo, useState } from "react";
 import type { ListedModel, SettingsView } from "../../shared/schema.ts";
-import { api } from "../lib/api.ts";
+import { DEMUCS_COST, DEMUCS_ENV, DEMUCS_INSTALL, DEMUCS_INSTALL_NEWER, DEMUCS_NOT_NEEDED, DEMUCS_USES } from "../../shared/demucs.ts";
+import { api, type DemucsStatus } from "../lib/api.ts";
 import { Button, Notice, Spinner, inputClass } from "./ui.tsx";
 
 const EFFORT_LABEL: Record<string, string> = { low: "Bajo", medium: "Medio", high: "Alto", xhigh: "Muy alto", max: "Máximo" };
@@ -61,6 +62,7 @@ export function ModelsPanel({ onClose, onChanged }: { onClose: () => void; onCha
             <KeysSection view={view} busy={busy} run={run} />
           </>
         )}
+        <DemucsSection onChanged={onChanged} />
       </aside>
     </div>
   );
@@ -366,5 +368,163 @@ function KeyRow({
         <p className="text-xs text-muted">{row.hint}</p>
       )}
     </li>
+  );
+}
+
+// Demucs, installed by the person on this computer: whether the app finds it, where it helps and when to turn it on,
+// how to install it, and a four-second test run.
+function DemucsSection({ onChanged }: { onChanged: () => void }) {
+  const [state, setState] = useState<{ demucs: DemucsStatus; ffmpeg: boolean } | null>(null);
+  const [bin, setBin] = useState("");
+  const [busy, setBusy] = useState<"" | "look" | "save" | "test">("");
+  const [error, setError] = useState("");
+  const [tested, setTested] = useState("");
+
+  async function act(label: "look" | "save" | "test", fn: () => Promise<void>) {
+    setBusy(label);
+    setError("");
+    try {
+      await fn();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy("");
+    }
+  }
+  const look = () =>
+    act("look", async () => {
+      setState(await api.demucs());
+      onChanged();
+    });
+
+  useEffect(() => {
+    api.demucs().then(setState, (e) => setError(message(e)));
+  }, []);
+
+  const ready = state?.demucs.ready ?? false;
+  return (
+    <section className="space-y-3 rounded-xl border border-line bg-white p-4" aria-label="Demucs">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="font-bold">Demucs · separar batería y voz</h3>
+          <p className="text-xs text-muted">
+            Opcional, lo instalás vos en esta compu. Separa un tema en pistas para los dos relojes: el corte va al bombo de la batería y la
+            palabra a la voz. Sin Demucs todo anda igual subiendo esas pistas a mano.
+          </p>
+        </div>
+        {state && (
+          <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${ready ? "border-good/40 bg-good-soft text-good" : "border-line text-muted"}`}>
+            {ready ? "Instalado" : "No está en esta compu"}
+          </span>
+        )}
+      </div>
+      {error && <Notice tone="error">{error}</Notice>}
+      {state && ready && (
+        <p className="text-xs">
+          La app lo llama con <code>{state.demucs.command}</code> · modelo <code>{state.demucs.model}</code> ·{" "}
+          {state.demucs.songs === 1 ? "1 tema ya separado" : `${state.demucs.songs} temas ya separados`}.
+        </p>
+      )}
+      {state && ready && !state.ffmpeg && (
+        <Notice tone="warn">Sin ffmpeg, Demucs solo lee WAV: un mp3 o un m4a no se puede separar. Instalá ffmpeg (bash iniciar.sh lo ofrece).</Notice>
+      )}
+
+      <div className="space-y-1.5">
+        <p className="text-sm font-semibold">Cuándo activarlo</p>
+        <ul className="space-y-2 text-sm">
+          {DEMUCS_USES.map((use) => (
+            <li key={use.where}>
+              <b>{use.where}.</b> {use.when} <span className="text-muted">{use.how}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="pt-1 text-sm font-semibold">No hace falta</p>
+        <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
+          {DEMUCS_NOT_NEEDED.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+        <p className="text-xs text-muted">{DEMUCS_COST}</p>
+      </div>
+
+      {state && !ready && (
+        <div className="space-y-2 rounded-lg border border-line p-3 text-sm">
+          <p className="font-semibold">Cómo instalarlo</p>
+          <p className="text-xs text-muted">En la Terminal, en su propio entorno de Python:</p>
+          <pre className="overflow-x-auto rounded-lg bg-paper p-2 font-mono text-xs">{DEMUCS_INSTALL.join("\n")}</pre>
+          <p className="text-xs text-muted">
+            Si pip no encuentra <code>torchaudio&lt;2.9</code> (pasa con un Python muy nuevo), la segunda línea es <code>{DEMUCS_INSTALL_NEWER}</code>.
+          </p>
+          <p className="text-xs text-muted">
+            Después decile a la app dónde quedó (se guarda en .env como <code>{DEMUCS_ENV}</code>). Si <code>demucs</code> ya anda en la
+            Terminal (por ejemplo con pipx), alcanza con «Volver a buscar».
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <input
+              className={`${inputClass} flex-1 font-mono text-xs`}
+              placeholder="~/demucs/bin/demucs"
+              aria-label="Dónde está Demucs"
+              value={bin}
+              onChange={(e) => setBin(e.target.value)}
+            />
+            <Button
+              variant="secondary"
+              disabled={busy !== "" || !bin.trim()}
+              onClick={() =>
+                act("save", async () => {
+                  setState(await api.saveDemucsBin(bin.trim()));
+                  onChanged();
+                })
+              }
+            >
+              {busy === "save" ? <Spinner /> : "Guardar"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="secondary" disabled={busy !== ""} onClick={() => void look()}>
+          {busy === "look" ? <Spinner /> : "Volver a buscar"}
+        </Button>
+        {ready && (
+          <Button
+            variant="secondary"
+            disabled={busy !== ""}
+            onClick={() =>
+              act("test", async () => {
+                setTested("");
+                const result = await api.testDemucs();
+                setTested(`Anduvo: separó 4 segundos de prueba en ${result.seconds} s.`);
+              })
+            }
+          >
+            {busy === "test" ? (
+              <>
+                <Spinner /> Probando (la primera vez baja el modelo)…
+              </>
+            ) : (
+              "Probar Demucs"
+            )}
+          </Button>
+        )}
+        {state?.demucs.envBin && (
+          <Button
+            variant="ghost"
+            className="text-xs"
+            disabled={busy !== ""}
+            onClick={() =>
+              act("save", async () => {
+                setState(await api.saveDemucsBin(null));
+                onChanged();
+              })
+            }
+          >
+            Olvidar la ruta
+          </Button>
+        )}
+        {tested && <span className="text-sm text-good">{tested}</span>}
+      </div>
+    </section>
   );
 }
