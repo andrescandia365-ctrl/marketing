@@ -31,6 +31,9 @@ import {
   type MotionPiece,
   type MotionScene,
   type MotionScript,
+  voiceFitSeconds,
+  voiceOverrun,
+  SCENE_SECONDS,
 } from "../../shared/motion.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { applyFixes, describeScenes, MAX_ROUNDS, passes, qualityKey, type QualityRound, type QualityState } from "../../shared/motionQuality.ts";
@@ -198,6 +201,26 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     editScenes((list) => list.map((x) => (x.id === sceneId ? { ...x, tweaks: {} } : x)));
   };
   const setSeconds = (sceneId: string, seconds: number) => editScenes((list) => list.map((x) => (x.id === sceneId ? { ...x, seconds } : x)));
+
+  // "Ajustar al largo de la voz": the scene lasts its voice plus 0.4 s, its cut on a beat when the cuts follow the
+  // beats. Checked against the arrangement (a cut into the product or the logo can move to a strong hit), a quarter
+  // second more at a time, up to 8 s.
+  function fitVoice(sceneId: string) {
+    const v = voices[sceneId];
+    if (!script || !v) return;
+    let seconds = voiceFitSeconds(script.scenes, scenes, sceneId, v.duration, snap ? beats : []);
+    if (seconds === null) return;
+    for (let k = 0; k < 16 && seconds < SCENE_SECONDS.max; k++) {
+      const next = seconds;
+      const trial = { ...script, scenes: script.scenes.map((x) => (x.id === sceneId ? { ...x, seconds: next } : x)) };
+      const grid = motionBeats(trial, piece.music, track?.buffer ?? null);
+      const played = timeScenes(arrangeScenes(trial, grid, snap, piece.music, track?.buffer ?? null)).find((x) => x.id === sceneId);
+      if (!played || voiceOverrun(played, v.duration) <= 0) break;
+      seconds = Math.min(SCENE_SECONDS.max, Math.round((seconds + 0.25) * 1000) / 1000);
+    }
+    remember(`voz-${sceneId}-${Date.now()}`);
+    setSeconds(sceneId, seconds);
+  }
 
   function seek(t: number) {
     timeRef.current = Math.max(0, t);
@@ -886,6 +909,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                   onClearTweak={(key) => selected && clearTweak(selected.sceneId, key)}
                   onClearScene={() => selected && clearScene(selected.sceneId)}
                   onSeconds={(seconds) => selected && setSeconds(selected.sceneId, seconds)}
+                  voiceLength={selected ? voices[selected.sceneId]?.duration : undefined}
+                  onFitVoice={() => selected && fitVoice(selected.sceneId)}
                 />
               </div>
               <div className="flex shrink-0 flex-col items-end gap-2 text-xs">
@@ -1444,7 +1469,16 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                   {piece.voice !== "none" && raw.voice.trim() && (
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                       {voice && <audio src={voice.url} controls className="h-8" />}
-                      {voice && voice.duration > s.seconds - 0.3 && <span className="text-neg">La voz dura {voice.duration.toFixed(1)} s y la escena {s.seconds.toFixed(1)} s.</span>}
+                      {voice && voiceOverrun(s, voice.duration) > 0 && (
+                        <>
+                          <span className="text-neg">
+                            La voz dura {voice.duration.toFixed(1)} s, entra a los {(elementTimes(s).voice ?? 0.25).toFixed(2)} s y la escena dura {s.seconds.toFixed(1)} s: se corta con un fundido en el corte.
+                          </span>
+                          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => fitVoice(s.id)}>
+                            Ajustar al largo de la voz
+                          </Button>
+                        </>
+                      )}
                       {piece.voice === "generated" ? (
                         <Button variant="secondary" className="px-2 py-1 text-xs" disabled={!voiceAvailable || busy !== null} onClick={() => generateVoice(raw)}>
                           {voice ? "Generar de nuevo" : "Generar voz"}

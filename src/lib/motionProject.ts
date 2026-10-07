@@ -84,7 +84,9 @@ export async function speechLevels(
     const ch = buffer.getChannelData(0);
     const step = buffer.sampleRate / rate;
     const start = Math.floor((s.start + (elementTimes(s).voice ?? 0.25)) * rate);
-    for (let i = 0; start + i < data.length && i * step < ch.length; i++) {
+    // The mouth stops on the cut, where the mix fades a voice that runs past its scene.
+    const stop = Math.min(data.length, Math.ceil(s.end * rate));
+    for (let i = 0; start + i < stop && i * step < ch.length; i++) {
       let sum = 0;
       const from = Math.floor(i * step);
       const to = Math.min(ch.length, Math.floor((i + 1) * step));
@@ -320,12 +322,12 @@ export function soundPlan(
   piece: MotionPiece,
   voices: Record<string, { blob: Blob }>,
   track: AudioBuffer | null,
-): { plan: Omit<SoundPlan, "voices" | "samples">; voiceBlobs: { at: number; blob: Blob }[] } {
+): { plan: Omit<SoundPlan, "voices" | "samples">; voiceBlobs: { at: number; until: number; blob: Blob }[] } {
   const timed = timeScenes(snapped.scenes);
   const voiceBlobs =
     piece.voice === "none"
       ? []
-      : timed.flatMap((s) => (voices[s.id] ? [{ at: s.start + (elementTimes(s).voice ?? 0.25), blob: voices[s.id].blob }] : []));
+      : timed.flatMap((s) => (voices[s.id] ? [{ at: s.start + (elementTimes(s).voice ?? 0.25), until: s.end, blob: voices[s.id].blob }] : []));
   return {
     plan: {
       duration: scriptDuration(snapped),
@@ -348,7 +350,7 @@ export async function motionSound(
   track: AudioBuffer | null,
 ): Promise<{ buffer: AudioBuffer; lufs: number }> {
   const made = soundPlan(snapped, piece, voices, track);
-  const decoded = await Promise.all(made.voiceBlobs.map(async (v) => ({ at: v.at, buffer: await decodeAudio(v.blob) })));
+  const decoded = await Promise.all(made.voiceBlobs.map(async (v) => ({ at: v.at, until: v.until, buffer: await decodeAudio(v.blob) })));
   const samples = made.plan.effects === "library" ? await loadSfx() : undefined;
   return buildSound({ ...made.plan, voices: decoded, samples });
 }

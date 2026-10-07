@@ -88,13 +88,16 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   function of time (seeded mulberry32 noise, never Math.random, no timers) with the series `brand` (logo, bg, text, one
   accent, display + UI Google Fonts). Studio rules: no stock defaults (centred title on gradient, everything fading in,
   corner labels, frame borders, glow, particle bursts); something new every 2-4 s (`quietGaps` blocks rendering);
-  scenes snap to the beat grid, and `arrangeScenes` also moves each element's template time onto a beat within 0.1 s
+  scenes snap to the beat grid (a cut moves only to a beat that leaves both its scenes `MIN_SCENE` 1.5 s, trying the
+  next-nearest before giving up), and `arrangeScenes` also moves each element's template time onto a beat within 0.1 s
   (`snapElements`, kept in `onBeat` on the arranged copy only; hand-set times never move), so the drawing, the sound and
   the checks read one time and each effect lands exactly with its element. The checks take the tone's push between
   scenes (`readingIssues`/`quietGaps(scenes, cutPush)`): an entrance inside the push arrives with the cut. The preview
   plays the mix through Web Audio and draws from its clock (`MixPlayer`, `lib/playClock.ts`; an edit while playing
   rebuilds the mix and carries on from the same second); lyric videos keep the song's player and smooth its time
-  (`mediaClock`). `motionAudio.ts` synthesizes the score and hits and normalizes to -14 LUFS with the
+  (`mediaClock`). A voice longer than its scene is faded out on the cut (80 ms, `VOICE_FADE`; the mouth stops there
+  too); "Ajustar al largo de la voz" (`voiceFitSeconds`, `voiceOverrun`) lengthens the scene to the voice plus 0.4 s,
+  its cut on a beat, up to 8 s. `motionAudio.ts` synthesizes the score and hits and normalizes to -14 LUFS with the
   BS.1770 K-weighting (matches ffmpeg ebur128), peaks under -1.5 dBFS. Lyric videos can use Grok's layers (parallax).
   The timeline (`MotionTimeline`) edits each scene's `tweaks` by element key (`sceneElements`): `at` (when it enters,
   both formats) and `v`/`h` (dx, dy in units of the short side, scale) per format; `revealTimes`, the gap check and

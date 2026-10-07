@@ -8,6 +8,7 @@ import {
   LANE_LABEL,
   MOTION_TEMPLATE_LABEL,
   sceneElements,
+  voiceOverrun,
   type Lane,
   type SceneElement,
   type TimedScene,
@@ -315,7 +316,7 @@ function Mark({
         type="button"
         className={`absolute top-1 bottom-1 w-2.5 -translate-x-1/2 cursor-grab rounded-sm active:cursor-grabbing ${tone} ${selected ? "ring-2 ring-touch/40" : ""}`}
         style={{ left: pct(from) }}
-        title={`${scene.index + 1} · ${el.label} · entra a los ${el.at.toFixed(2)} s${over ? ` · la voz dura ${estimated ? "unos " : ""}${spoken.toFixed(1)} s y no entra en la escena` : ""}`}
+        title={`${scene.index + 1} · ${el.label} · entra a los ${el.at.toFixed(2)} s${over ? ` · la voz dura ${estimated ? "unos " : ""}${spoken.toFixed(1)} s y no entra en la escena${estimated ? "" : ": se apaga en el corte"}` : ""}`}
         aria-label={`Escena ${scene.index + 1}, ${el.label}, entra a los ${el.at.toFixed(2)} segundos`}
         onPointerDown={onPointerDown}
         onKeyDown={onKeyDown}
@@ -336,6 +337,8 @@ export function Inspector({
   onClearTweak,
   onClearScene,
   onSeconds,
+  voiceLength,
+  onFitVoice,
 }: {
   scene: TimedScene | undefined;
   selected: Selection | null;
@@ -349,6 +352,9 @@ export function Inspector({
   onClearTweak: (key: string) => void;
   onClearScene: () => void;
   onSeconds: (seconds: number) => void;
+  // The selected scene's voice file, in seconds (none when it has no file), and "Ajustar al largo de la voz".
+  voiceLength?: number;
+  onFitVoice?: () => void;
 }) {
   if (!scene || !selected) {
     return <p className="text-xs text-muted">Tocá un elemento en la vista previa o una marca en la línea de tiempo para moverlo. En la vista previa: arrastrá, o usá las flechas (con Mayús, más rápido).</p>;
@@ -435,6 +441,18 @@ export function Inspector({
         <p className="text-xs text-muted">{el.lane === "voice" ? "La voz se mueve solo en el tiempo." : "Este movimiento se cambia solo en el tiempo."}</p>
       )}
       {outside && <p className="text-xs font-semibold text-neg">Se sale del cuadro: en el celular no se va a leer entero.</p>}
+      {el.lane === "voice" && voiceLength !== undefined && voiceOverrun(scene, voiceLength) > 0 && (
+        <div className="space-y-1.5 text-xs">
+          <p className="font-semibold text-neg">
+            La voz dura {voiceLength.toFixed(1)} s y se pasa {voiceOverrun(scene, voiceLength).toFixed(1)} s de la escena: en el corte se apaga con un fundido.
+          </p>
+          {onFitVoice && (
+            <Button variant="secondary" className="px-2 py-1 text-xs" onClick={onFitVoice}>
+              Ajustar al largo de la voz
+            </Button>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
         {Object.keys(tweak).length > 0 && (
           <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => onClearTweak(el.key)}>

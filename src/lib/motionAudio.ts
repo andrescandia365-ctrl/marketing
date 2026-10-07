@@ -13,8 +13,8 @@ export type SoundPlan = {
   mood: MotionMood;
   bpm: number;
   track: AudioBuffer | null;
-  // When each voice line starts.
-  voices: { at: number; buffer: AudioBuffer }[];
+  // When each voice line starts, and the end of its scene: what runs past it is faded out there.
+  voices: { at: number; until?: number; buffer: AudioBuffer }[];
   // Scene changes (whoosh), elements arriving (pop), a big reveal, the logo, a tap, a key press. n picks a variation.
   hits: { at: number; kind: HitKind; n?: number }[];
   // The bundled public-domain effects, synthesized ones, or none.
@@ -26,6 +26,9 @@ export type SoundPlan = {
 };
 
 export type HitKind = "whoosh" | "pop" | "reveal" | "logo" | "tap" | "key";
+
+// A voice that runs past its scene fades out over this long, ending on the cut.
+export const VOICE_FADE = 0.08;
 
 // How loud each kind sits in the effects bus: soft under the music, repeated little sounds lowest.
 const HIT_GAIN: Record<HitKind, number> = { whoosh: 0.55, pop: 0.6, reveal: 0.75, logo: 0.5, tap: 0.55, key: 0.28 };
@@ -294,13 +297,23 @@ export async function buildSound(plan: SoundPlan): Promise<{ buffer: AudioBuffer
     music.gain.linearRampToValueAtTime(0, plan.duration);
   }
   addHits(ctx, sfx, plan);
-  // The music ducks under every voice line.
+  // The music ducks under every voice line. A line longer than its scene fades out on the cut, so it never talks
+  // over the next scene (the studio offers to lengthen the scene instead).
   for (const v of plan.voices) {
     const src = ctx.createBufferSource();
     src.buffer = v.buffer;
-    src.connect(voice);
-    src.start(v.at);
-    const end = v.at + v.buffer.duration;
+    const full = v.at + v.buffer.duration;
+    const end = v.until !== undefined ? Math.max(v.at, Math.min(full, v.until)) : full;
+    if (end < full) {
+      const fade = ctx.createGain();
+      fade.gain.setValueAtTime(1, Math.max(v.at, end - VOICE_FADE));
+      fade.gain.linearRampToValueAtTime(0, end);
+      src.connect(fade).connect(voice);
+      src.start(v.at, 0, end - v.at);
+    } else {
+      src.connect(voice);
+      src.start(v.at);
+    }
     music.gain.setTargetAtTime(music.gain.value * 0.32, Math.max(0, v.at - 0.12), 0.05);
     music.gain.setTargetAtTime(bedLevel, end + 0.05, 0.2);
   }

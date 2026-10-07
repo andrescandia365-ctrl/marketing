@@ -227,6 +227,9 @@ export function snapScenes(scenes: MotionScene[], beats: number[], strong: numbe
   return best;
 }
 
+// No scene is left shorter than this by snapping its cuts to the beats.
+export const MIN_SCENE = 1.5;
+
 function snapWith(scenes: MotionScene[], beats: number[], strong: number[], bigCuts: Set<number>): MotionScene[] {
   if (beats.length < 2) return scenes;
   const out: MotionScene[] = [];
@@ -241,8 +244,15 @@ function snapWith(scenes: MotionScene[], beats: number[], strong: number[], bigC
     const big = next && bigCuts.has(i) && strong.length ? nearest(strong, wanted) : null;
     if (big !== null && Math.abs(big - wanted) <= 1 && big - start >= 1.5 && next.seconds - (big - wanted) >= 1.5) end = big;
     else {
-      const near = nearest(beats, wanted);
-      end = Math.abs(near - wanted) <= 0.6 && near - start >= 1.5 ? near : wanted;
+      // The nearest beat within 0.6 s that leaves this scene and the next one 1.5 s each, else the next nearest (the
+      // beat on the other side), else the cut stays where it was planned. The next scene is measured to its own
+      // planned end: its own snap only moves that end when it keeps 1.5 s.
+      const nextEnd = next ? wanted + next.seconds : Infinity;
+      const fits = beats
+        .filter((b) => Math.abs(b - wanted) <= 0.6)
+        .sort((a, b) => Math.abs(a - wanted) - Math.abs(b - wanted))
+        .find((b) => b - start >= MIN_SCENE && nextEnd - b >= MIN_SCENE);
+      end = fits ?? wanted;
     }
     out.push({ ...s, seconds: Math.round((end - start) * 1000) / 1000 });
     // Planned ends do not move: what this cut took or gave comes out of the next scene.
@@ -482,6 +492,32 @@ export function posterTime(scenes: MotionScene[], chosen?: { t: number } | null,
 // When each element enters, by key. Keys a scene does not have read as 0.
 export function elementTimes(scene: MotionScene): Record<string, number> {
   return Object.fromEntries(sceneElements(scene).map((e) => [e.key, e.at]));
+}
+
+// How far a scene's voice runs past the scene's end, in seconds (0 or less: it fits). The line starts at the voice mark.
+// What runs past is faded out at the scene's end in the mix, so it never talks over the next scene.
+export function voiceOverrun(scene: MotionScene, voiceSeconds: number): number {
+  return (elementTimes(scene).voice ?? 0.25) + voiceSeconds - scene.seconds;
+}
+
+// What a scene keeps after its voice ends when it is fitted to it ("Ajustar al largo de la voz").
+export const VOICE_TAIL = 0.4;
+// Scenes last 2 to 8 s (the timeline's limits).
+export const SCENE_SECONDS = { min: 2, max: 8 } as const;
+
+// "Ajustar al largo de la voz": the scene's new length (as written in the script, before the beats) so that its voice
+// ends VOICE_TAIL before the cut, with the cut on the first beat after that when the cuts follow the beats (`beats`
+// empty otherwise). `arranged` is the script as it plays (arrangeScenes), so the voice mark and the scene's real
+// start count. Null when the scene is not there. Clamped to 2–8 s: a longer voice is still faded at the end.
+export function voiceFitSeconds(raw: MotionScene[], arranged: MotionScene[], sceneId: string, voiceSeconds: number, beats: number[]): number | null {
+  const i = raw.findIndex((s) => s.id === sceneId);
+  const played = timeScenes(arranged)[i];
+  if (i < 0 || !played || played.id !== sceneId) return null;
+  const plannedStart = raw.slice(0, i).reduce((n, s) => n + s.seconds, 0);
+  const target = played.start + (elementTimes(played).voice ?? 0.25) + voiceSeconds + VOICE_TAIL;
+  const onBeat = beats.length >= 2 ? beats.find((b) => b >= target - 1e-6) : undefined;
+  const seconds = onBeat !== undefined ? Math.round((onBeat - plannedStart) * 1000) / 1000 : Math.ceil((target - plannedStart) * 10 - 1e-9) / 10;
+  return Math.min(SCENE_SECONDS.max, Math.max(SCENE_SECONDS.min, seconds));
 }
 
 // When something new appears on screen, from the scene's start: the cut itself, then each element. What enters while

@@ -128,19 +128,35 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   el logo. Sin stem, avisar y quedarse con la partitura sintetizada (que ya tiene grilla exacta). `findBeats`
   queda solo para los cortes de las historias, como dice CLAUDE.md.
 
-#### 45. Pegar escenas a los beats puede dejar la siguiente demasiado corta
+#### 45. Pegar escenas a los beats puede dejar la siguiente demasiado corta — **Construido (7 Oct 2026, "go 45 y 46")**
 - **Qué pasa:** `snapWith` mueve el corte al beat si la escena actual queda con 1,5 s o más, pero en el camino
   común no revisa que la **siguiente** escena también quede con 1,5 s (solo lo revisa en el camino de los golpes
   fuertes). Dos escenas cortas seguidas pueden quedar en 1,1 s y pisarse con su voz.
 - **Arreglo:** la misma condición en los dos caminos, y si no se cumple, probar el beat anterior antes de dejar el
   corte donde estaba.
 
-#### 46. La voz que no entra solo avisa
+#### 46. La voz que no entra solo avisa — **Construido (7 Oct 2026)**
 - **Qué pasa:** si la voz de una escena dura más que la escena, el carril de voz se pone rojo y la mezcla sigue
   sonando sobre la escena siguiente (la música no vuelve a subir hasta que la voz termina), pero el subtítulo ya
   cambió.
 - **Arreglo:** botón "Ajustar al largo de la voz" (la escena pasa a durar voz + 0,4 s, redondeado al beat) y, en el
   render, cortar la voz con un fundido de 80 ms en el fin de la escena si la persona prefiere no alargar.
+
+#### Lo construido con "go 45 y 46" (7 Oct 2026)
+- **45:** el corte va al beat más cercano que deje 1,5 s a las dos escenas, la actual y la siguiente. Si no hay, prueba
+  el siguiente más cercano (el del otro lado), y si ninguno sirve, el corte queda donde estaba.
+  - Probado con 5000 guiones al azar, con grillas de sinte y con beats irregulares como los de un tema propio: antes,
+    14 dejaban una escena por debajo de 1,5 s; ahora ninguno. Los cortes que caen en un beat pasaron de 27.346 a 27.374.
+- **46:** si la voz se pasa de su escena, el aviso dice cuánto dura, cuándo entra y cuánto dura la escena, con el botón
+  **"Ajustar al largo de la voz"** al lado. Está en la lista de escenas y en el inspector cuando elegís la marca de la
+  voz. El botón alarga la escena a la voz más 0,4 s, con el corte en el primer beat después, hasta 8 s. Se deshace con
+  Ctrl+Z.
+  - Si no la alargás, la voz se apaga con un fundido de 80 ms justo en el corte, en la vista previa y en el render
+    final. La boca del títere también para ahí y la música vuelve a subir en el corte. Así nunca habla encima de la
+    escena siguiente.
+  - Probado: en 3000 casos al azar, toda voz que entra en 8 s quedó adentro al primer intento, con el corte en un
+    beat. Las voces de más de ~7,3 s no entran en 8 s y se apagan con el fundido. En un render final, la voz sonó
+    hasta el corte y después hubo silencio (−91 dB).
 
 #### 47. Lo que revisé y está bien
 - `speechLevels` y `soundPlan` colocan la voz en el mismo `at` (0,25 s), así la boca del títere y el audio
