@@ -21,7 +21,10 @@ import { CopyButton } from "../ScriptView.tsx";
 import { Button, Spinner, inputClass } from "../ui.tsx";
 
 export type ClipFile = { url: string; blob: Blob; name: string; duration: number };
-export type PieceMediaState = { image?: string; clip?: ClipFile; voice?: ClipFile; loading?: boolean; error?: string };
+export type PieceMediaState = { image?: string; clip?: ClipFile; voice?: ClipFile; loading?: boolean; voiceLoading?: boolean; error?: string };
+
+// A voice starts 0.15 s into its piece (render.ts) and is cut at the piece's end.
+export const VOICE_START = 0.15;
 
 const LEVEL_CHIP: Record<Level, string> = {
   1: "bg-neg-soft text-neg border-neg/40",
@@ -125,12 +128,36 @@ type CardProps = {
   onUploadImage: (file: File) => void;
   onUploadClip: (file: File) => void;
   onGenerateImage: () => void;
-  onRemoveMedia: (kind: "image" | "clip") => void;
+  onRemoveMedia: (kind: "image" | "clip" | "voice") => void;
+  onUploadVoice: (file: File) => void;
+  // Null when there is no OpenAI key for generated voices.
+  onGenerateVoice: (() => void) | null;
+  // The piece's render in the cache: "mp4" (H.264) or "webm" (VP9 or another codec); null if not rendered yet.
+  cached: "mp4" | "webm" | null;
   stats?: ReactNode;
   flags?: { kind: string; note: string; fix: string }[];
 };
 
-export function PieceCard({ piece, media, format, toolName, canGenerate, onStatus, onSave, onRemove, onUploadImage, onUploadClip, onGenerateImage, onRemoveMedia, stats, flags = [] }: CardProps) {
+export function PieceCard({
+  piece,
+  media,
+  format,
+  toolName,
+  canGenerate,
+  onStatus,
+  onSave,
+  onRemove,
+  onUploadImage,
+  onUploadClip,
+  onGenerateImage,
+  onRemoveMedia,
+  onUploadVoice,
+  onGenerateVoice,
+  cached,
+  stats,
+  flags = [],
+}: CardProps) {
+  const voiceOver = media?.voice ? media.voice.duration + VOICE_START - piece.seconds : 0;
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ text: piece.text, onScreenText: piece.onScreenText, visualPrompt: piece.visualPrompt, videoPrompt: piece.videoPrompt });
@@ -227,6 +254,18 @@ export function PieceCard({ piece, media, format, toolName, canGenerate, onStatu
         </Button>
         {media?.clip && <Tag>clip {media.clip.duration.toFixed(1)} s</Tag>}
         {media?.image && !media.clip && <Tag>imagen</Tag>}
+        {media?.voice ? (
+          <Tag title={voiceOver > 0 ? "La voz no entra: se corta al final de la pieza" : "Voz"}>
+            <span className={voiceOver > 0 ? "text-neg" : ""}>voz {media.voice.duration.toFixed(1)} s</span>
+          </Tag>
+        ) : (
+          <Tag>solo subtítulo</Tag>
+        )}
+        {cached && (
+          <Tag title={cached === "mp4" ? "Renderizada en H.264: se une sin recodificar y las plataformas la aceptan." : "Renderizada en webm (VP9 u otro): este navegador no codifica H.264. Los anuncios salen en MP4 con VP9, que algunas plataformas rechazan."}>
+            <span className={cached === "webm" ? "text-neg" : ""}>en caché · {cached === "mp4" ? "H.264" : "webm"}</span>
+          </Tag>
+        )}
       </div>
 
       {open && (
@@ -265,6 +304,32 @@ export function PieceCard({ piece, media, format, toolName, canGenerate, onStatu
                   Quitar clip
                 </Button>
               )}
+            </div>
+            <div className="space-y-1.5 border-t border-line pt-2">
+              <p className="font-semibold text-ink">Voz</p>
+              {media?.voice && <audio src={media.voice.url} controls className="h-8 w-full" />}
+              {voiceOver > 0 && (
+                <p className="text-neg">
+                  La voz dura {media!.voice!.duration.toFixed(1)} s y la pieza {piece.seconds} s: se corta {voiceOver.toFixed(1)} s antes de terminar. Acortá el texto o regenerala.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {onGenerateVoice && (
+                  <Button variant="secondary" className="px-2 py-1 text-xs" onClick={onGenerateVoice} disabled={media?.voiceLoading || !piece.text.trim()}>
+                    {media?.voiceLoading ? <Spinner /> : media?.voice ? "Generar de nuevo" : "Generar voz"}
+                  </Button>
+                )}
+                <label className="cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-semibold hover:border-ink">
+                  Subir voz
+                  <input type="file" accept="audio/*" className="hidden" onChange={(e) => e.target.files?.[0] && onUploadVoice(e.target.files[0])} />
+                </label>
+                {media?.voice && (
+                  <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onRemoveMedia("voice")}>
+                    Quitar voz
+                  </Button>
+                )}
+              </div>
+              {!onGenerateVoice && <p className="text-muted">Para generarla falta la clave de OpenAI en Modelos; podés subirla.</p>}
             </div>
             {media?.error && <p className="text-neg">{media.error}</p>}
           </div>

@@ -3,7 +3,7 @@ import { DEFAULT_AUDIO, voiceModeOf, type AudioSettings, type CharacterVoice, ty
 import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/checks.ts";
 import { SKETCH_BASE, buildCopyPrompt } from "../shared/prompt.ts";
 import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
-import { migrateBoard, migrateStory, type Board, type Brief, type Menu, type Setup, type Shot, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
+import { migrateBoard, migrateStory, type Board, type Brief, type HookVariant, type Menu, type Setup, type Shot, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
 import { DEFAULT_TEXT_STYLE, castRef, hasLook, seriesId, type CastMember, type TextStyle } from "../shared/series.ts";
 import { BEAT_INFO, formatTime, timeShots } from "../shared/template.ts";
 import { VoicesPanel, audioDuration, type AudioFile } from "./components/Audio.tsx";
@@ -30,6 +30,8 @@ import {
 } from "./components/ScriptView.tsx";
 import { StoryView } from "./components/StoryView.tsx";
 import { WritersRoom } from "./components/WritersRoom.tsx";
+import { HookVariants } from "./components/HookVariants.tsx";
+import { MOVE_LABEL } from "../shared/moves.ts";
 import { AdsStudio } from "./components/ads/AdsStudio.tsx";
 import type { RoomCard } from "../shared/room.ts";
 import { VideoPanel } from "./components/VideoPanel.tsx";
@@ -59,6 +61,8 @@ type SavedState = {
   // Check problems the person marked "no es un problema".
   dismissed: string[];
   audio: AudioSettings;
+  // The last five hook variants (PLAYBOOK §3), if any were written.
+  hookVariants?: HookVariant[] | null;
 };
 
 const BRIEF_KEY = "playbook-studio.brief.v2";
@@ -99,6 +103,8 @@ export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [showModels, setShowModels] = useState(false);
   const [section, setSection] = useState<Section>(loadSection);
+  const [hookVariants, setHookVariants] = useState<HookVariant[] | null>(null);
+  const [writingHooks, setWritingHooks] = useState(false);
   const [sent, setSent] = useState("");
   const [step, setStep] = useState<Step>("brief");
   const [brief, setBrief] = useState<Brief>(loadBrief);
@@ -193,6 +199,45 @@ export function App() {
     }
   }, [section]);
 
+  // PLAYBOOK §3: five hook variants for the story, each with its move and the viewer's awareness level.
+  async function writeHookVariants() {
+    if (!story) return;
+    setError("");
+    setWritingHooks(true);
+    try {
+      const result = await api.storyHooks(pieceBrief, story);
+      setHookVariants(result.variants);
+      addLog({ text: "5 variantes de gancho", outcome: result.demo ? "de muestra (sin clave de IA)" : result.variants.map((v) => MOVE_LABEL[v.move]).join(" · ") });
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setWritingHooks(false);
+    }
+  }
+
+  function pickHookVariant(variant: HookVariant) {
+    if (!story) return;
+    addLog({ text: `Gancho cambiado: “${story.title}” → “${variant.title}”`, outcome: `${MOVE_LABEL[variant.move]}, N${variant.level}` });
+    setStory({ ...story, title: variant.title });
+  }
+
+  // The five go to Publicidad as pending hooks, each with its awareness level and its move in the note.
+  async function sendHookVariants(variants: HookVariant[]): Promise<number> {
+    setError("");
+    let sentCount = 0;
+    for (const v of variants) {
+      try {
+        await adsApi.organicHook(pieceBrief.series, v.title, v.level, 15, `Variante de gancho del Playbook · ${MOVE_LABEL[v.move]} · ${story?.problem || "historia"}`);
+        sentCount++;
+      } catch (e) {
+        setError(`Se mandaron ${sentCount} de ${variants.length} a Publicidad: ${message(e)}`);
+        break;
+      }
+    }
+    if (sentCount) addLog({ text: `${sentCount} variantes de gancho enviadas a Publicidad` });
+    return sentCount;
+  }
+
   // "Enviar a Publicidad": the story's hook title (and its problem) go to the series' hook catalogue, pending approval.
   async function sendToAds() {
     if (!story) return;
@@ -286,6 +331,7 @@ export function App() {
         startedAt: logStart.current,
         dismissed,
         audio,
+        hookVariants,
       };
       const markdown =
         story && board ? pieceToMarkdown(pieceBrief, story, board, toolName, log, audio) : story ? storyToMarkdown(story) : undefined;
@@ -304,7 +350,7 @@ export function App() {
     }, 800);
     return () => clearTimeout(timer);
     // toolName only changes with the brief or the status, which are covered.
-  }, [projectId, lyric, motion, step, pieceBrief, menu, demo, story, storyRound, board, boardRound, boardApproved, log, dismissed, audio]);
+  }, [projectId, lyric, motion, step, pieceBrief, menu, demo, story, storyRound, board, boardRound, boardApproved, log, dismissed, audio, hookVariants]);
 
   function addLog(entry: Omit<LogEntry, "at">) {
     setLog((l) => [...l, { ...entry, at: Date.now() - logStart.current }]);
@@ -358,6 +404,7 @@ export function App() {
     setMotion(null);
     setRoomNotes([]);
     setSeed(null);
+    setHookVariants(null);
     logStart.current = Date.now();
   }
 
@@ -398,6 +445,7 @@ export function App() {
     setLog(st.log ?? []);
     setDismissed(st.dismissed ?? []);
     setAudio({ ...DEFAULT_AUDIO, ...(st.audio ?? {}) });
+    setHookVariants(st.hookVariants ?? null);
     logStart.current = st.startedAt ?? Date.now();
     setProjectId(id);
     setStep(st.step ?? "brief");
@@ -853,7 +901,7 @@ export function App() {
   const open = (p: Problem) => !dismissed.includes(p.id);
   const usedRunners = room.flatMap((c) => (c.runner ? [{ bit: c.runner, problem: c.problem }] : []));
   const storyIssues = story ? storyProblems(story, pieceBrief, usedRunners) : [];
-  const boardIssues = board ? boardProblems(board) : [];
+  const boardIssues = board ? boardProblems(board, Object.fromEntries((pieceSeries?.cast ?? []).map((m) => [m.id, m.kind]))) : [];
   const roomSeriesId = step === "brief" ? brief.series : pieceBrief.series;
   const roomSeriesInfo = status?.series.find((s) => s.id === roomSeriesId);
   const showRoom =
@@ -998,6 +1046,7 @@ export function App() {
               tools={status.tools}
               imageProviders={status.imageProviders}
               writer={Boolean(status.writer)}
+              voice={status.voice}
               onToPlaybook={(text) => {
                 setBrief((b) => ({ ...b, angle: text }));
                 setSection("playbook");
@@ -1143,6 +1192,7 @@ export function App() {
             defaultVoice={status?.voice.defaultVoice ?? ""}
             projectsDir={status?.projectsDir ?? "proyectos"}
             ffmpeg={status?.render?.ffmpeg ?? false}
+            demucs={status?.render?.demucs ?? false}
             autoSync={status?.lyrics.autoSync ?? false}
             onSaveStatus={setSaveStatus}
           />
@@ -1205,6 +1255,14 @@ export function App() {
               <Button variant="ghost" className="w-full" onClick={sendToAds} disabled={sent === story.title}>
                 {sent === story.title ? "Enviado a Publicidad ✓" : "Enviar a Publicidad (hook)"}
               </Button>
+              <HookVariants
+                variants={hookVariants}
+                current={story.title}
+                busy={writingHooks || busy !== null}
+                onWrite={writeHookVariants}
+                onUse={pickHookVariant}
+                onSend={sendHookVariants}
+              />
               <DirectionLog log={log} />
               <StoryNotes story={story} />
             </aside>

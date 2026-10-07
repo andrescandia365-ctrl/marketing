@@ -31,6 +31,9 @@ import {
   type MotionPiece,
   type MotionScene,
   type MotionScript,
+  voiceFitSeconds,
+  voiceOverrun,
+  SCENE_SECONDS,
 } from "../../shared/motion.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { applyFixes, describeScenes, MAX_ROUNDS, passes, qualityKey, type QualityRound, type QualityState } from "../../shared/motionQuality.ts";
@@ -43,6 +46,7 @@ import type { ActorAsset } from "../lib/actor.ts";
 import { drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
 import { TARGET_LUFS } from "../lib/motionAudio.ts";
 import { MixPlayer } from "../lib/playClock.ts";
+import { encodeWav } from "../../shared/clock.ts";
 import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
 import {
   LAYER_BASE,
@@ -61,6 +65,8 @@ import {
   posterJpeg,
   speechLevels,
   usesAiImages,
+  monoPcm,
+  trackKicks,
 } from "../lib/motionProject.ts";
 import type { RenderResult } from "../lib/render.ts";
 import { CopyButton } from "./ScriptView.tsx";
@@ -82,6 +88,8 @@ type Props = {
   projectsDir: string;
   // The final render (render.mjs) needs ffmpeg on this computer.
   ffmpeg: boolean;
+  // Demucs is installed on this computer (separates a track's drums for its beat clock).
+  demucs: boolean;
   // OpenAI's transcription is set up: a whole narration is cut by its words, not only its pauses.
   autoSync: boolean;
   onSaveStatus: (status: "saving" | "saved" | "error") => void;
@@ -110,7 +118,7 @@ ${timeScenes(scenes)
 `;
 }
 
-export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, autoSync, onSaveStatus }: Props) {
+export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, demucs, autoSync, onSaveStatus }: Props) {
   const [piece, setPiece] = useState<MotionPiece>(() =>
     initial
       ? { ...newMotionPiece(brief.format), ...initial.piece }
@@ -199,6 +207,26 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   };
   const setSeconds = (sceneId: string, seconds: number) => editScenes((list) => list.map((x) => (x.id === sceneId ? { ...x, seconds } : x)));
 
+  // "Ajustar al largo de la voz": the scene lasts its voice plus 0.4 s, its cut on a beat when the cuts follow the
+  // beats. Checked against the arrangement (a cut into the product or the logo can move to a strong hit), a quarter
+  // second more at a time, up to 8 s.
+  function fitVoice(sceneId: string) {
+    const v = voices[sceneId];
+    if (!script || !v) return;
+    let seconds = voiceFitSeconds(script.scenes, scenes, sceneId, v.duration, snap ? beats : []);
+    if (seconds === null) return;
+    for (let k = 0; k < 16 && seconds < SCENE_SECONDS.max; k++) {
+      const next = seconds;
+      const trial = { ...script, scenes: script.scenes.map((x) => (x.id === sceneId ? { ...x, seconds: next } : x)) };
+      const grid = motionBeats(trial, piece.music, piece.kickGrid);
+      const played = timeScenes(arrangeScenes(trial, grid, snap, piece.music, piece.kickGrid)).find((x) => x.id === sceneId);
+      if (!played || voiceOverrun(played, v.duration) <= 0) break;
+      seconds = Math.min(SCENE_SECONDS.max, Math.round((seconds + 0.25) * 1000) / 1000);
+    }
+    remember(`voz-${sceneId}-${Date.now()}`);
+    setSeconds(sceneId, seconds);
+  }
+
   function seek(t: number) {
     timeRef.current = Math.max(0, t);
     playerRef.current?.seek(timeRef.current);
@@ -257,13 +285,13 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   // The beat grid: the synthesized score's, or the track's measured beats. Scene changes snap onto it.
   const duration = scriptDuration(script);
   const beats = useMemo(
-    () => motionBeats(script, piece.music, track?.buffer ?? null),
+    () => motionBeats(script, piece.music, piece.kickGrid),
     // The grid changes with the length and the tempo, not with every edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [script?.music.bpm, piece.music, track, duration, Boolean(script)],
+    [script?.music.bpm, piece.music, piece.kickGrid, duration, Boolean(script)],
   );
   const snap = piece.snap !== false;
-  const scenes = useMemo(() => arrangeScenes(script, beats, snap, piece.music, track?.buffer ?? null), [script, beats, snap, piece.music, track]);
+  const scenes = useMemo(() => arrangeScenes(script, beats, snap, piece.music, piece.kickGrid), [script, beats, snap, piece.music, piece.kickGrid]);
   const snapped: MotionScript | null = script ? { ...script, scenes } : null;
   const total = scenes.reduce((n, s) => n + s.seconds, 0);
 
@@ -557,8 +585,33 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       const buffer = await decodeAudio(file);
       const duration = buffer.duration;
       setTrack({ file: { url: objectUrl(file), blob: file, name: file.name, duration }, buffer });
-      set({ music: "track" });
+      // A new track needs its own drums stem: the old grid belonged to the old one.
+      set({ music: "track", kickGrid: null });
       if (projectId) await api.uploadMusic(projectId, file, { name: file.name, duration });
+    });
+  }
+
+  // The track's beat clock, from a drums stem the person exported from the song (the kicks are measured there, never in
+  // the track itself).
+  async function addDrums(file: File) {
+    await work("upload", async () => {
+      const buffer = await decodeAudio(file);
+      const grid = trackKicks(monoPcm(buffer), "stem", file.name);
+      set({ kickGrid: grid });
+      if (track && Math.abs(buffer.duration - track.buffer.duration) > 1) {
+        setNote(`La pista de batería dura ${buffer.duration.toFixed(1)} s y el tema ${track.buffer.duration.toFixed(1)} s: fijate que sea del mismo tema y que empiece en el mismo lugar.`);
+      }
+    });
+  }
+
+  // The same with Demucs on this computer: the server separates the track's drums and measures the kicks there.
+  async function separateDrums() {
+    if (!track) return;
+    await work("upload", async () => {
+      const pcm = monoPcm(track.buffer);
+      const wav = new Blob([encodeWav(pcm.samples, pcm.sampleRate) as Uint8Array<ArrayBuffer>], { type: "audio/wav" });
+      const { kicks } = await api.trackKicks(wav);
+      set({ kickGrid: { ...kicks, source: "demucs", name: track.file.name } });
     });
   }
 
@@ -612,13 +665,20 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     let lastSheets: { format: SheetFormat; blob: Blob | null }[] = [];
     let poster: MotionPiece["poster"] | undefined;
     const voiceLengths = Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.duration]));
-    const music = piece.music === "synth" ? `synthesized, ${script.music.mood}, ${script.music.bpm} bpm` : piece.music === "track" && track ? "the person's own track" : "none";
+    const music =
+      piece.music === "synth"
+        ? `synthesized, ${script.music.mood}, ${script.music.bpm} bpm`
+        : piece.music === "track" && track
+          ? piece.kickGrid
+            ? `the person's own track, its beat grid measured on its drums stem (${piece.kickGrid.kicks.length} kicks, ${Math.round(piece.kickGrid.bpm)} bpm)`
+            : "the person's own track, with no beat grid (no drums stem yet, so the cuts are not on the beat)"
+          : "none";
     try {
       await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
       for (let round = 1; round <= MAX_ROUNDS; round++) {
         setReviewing(`Ronda ${round} de ${MAX_ROUNDS}: armando la hoja de contactos…`);
-        const roundBeats = motionBeats(working, piece.music, track?.buffer ?? null);
-        const roundScenes = arrangeScenes(working, roundBeats, snap, piece.music, track?.buffer ?? null);
+        const roundBeats = motionBeats(working, piece.music, piece.kickGrid);
+        const roundScenes = arrangeScenes(working, roundBeats, snap, piece.music, piece.kickGrid);
         const played = { ...working, scenes: roundScenes };
         const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), { puppets, actors, speech });
         const made = formats.map((format) => ({ format, ...contactSheet(played, roundWorld, format) }));
@@ -670,9 +730,9 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       setReviewing("");
       return null;
     }
-    const finalBeats = motionBeats(working, piece.music, track?.buffer ?? null);
+    const finalBeats = motionBeats(working, piece.music, piece.kickGrid);
     const state: QualityState = {
-      key: qualityKey(arrangeScenes(working, finalBeats, snap, piece.music, track?.buffer ?? null), working, qualityExtra),
+      key: qualityKey(arrangeScenes(working, finalBeats, snap, piece.music, piece.kickGrid), working, qualityExtra),
       formats,
       passed,
       accepted: false,
@@ -701,8 +761,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
 
   // The scenes, beats and world for a script that may be newer than this render's state.
   function playable(next: MotionScript) {
-    const b = motionBeats(next, piece.music, track?.buffer ?? null);
-    const sc = arrangeScenes(next, b, snap, piece.music, track?.buffer ?? null);
+    const b = motionBeats(next, piece.music, piece.kickGrid);
+    const sc = arrangeScenes(next, b, snap, piece.music, piece.kickGrid);
     return { played: { ...next, scenes: sc }, beats: b, world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series), { puppets, actors, speech }) };
   }
 
@@ -886,6 +946,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                   onClearTweak={(key) => selected && clearTweak(selected.sceneId, key)}
                   onClearScene={() => selected && clearScene(selected.sceneId)}
                   onSeconds={(seconds) => selected && setSeconds(selected.sceneId, seconds)}
+                  voiceLength={selected ? voices[selected.sceneId]?.duration : undefined}
+                  onFitVoice={() => selected && fitVoice(selected.sceneId)}
                 />
               </div>
               <div className="flex shrink-0 flex-col items-end gap-2 text-xs">
@@ -1098,6 +1160,32 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                 )}
                 {piece.music === "track" && (
                   <input type="file" accept="audio/*" aria-label="Subir el tema" className="text-sm" onChange={(e) => e.target.files?.[0] && addTrack(e.target.files[0])} />
+                )}
+                {piece.music === "track" && track && (
+                  <div className="space-y-1.5 rounded-lg border border-line p-2 text-xs">
+                    {piece.kickGrid ? (
+                      <p className="text-good">
+                        Grilla del tema: {piece.kickGrid.kicks.length} bombos, {Math.round(piece.kickGrid.bpm)} bpm, {piece.kickGrid.downbeats.length} primeros tiempos, de{" "}
+                        {piece.kickGrid.source === "demucs" ? "Demucs" : piece.kickGrid.name} (error mediano {piece.kickGrid.medianErrorMs} ms)
+                        {piece.kickGrid.usable ? "" : ". El tempo cambia: los cortes van a los bombos que hay"}.
+                      </p>
+                    ) : (
+                      <p className="text-neg">
+                        Sin grilla: los cortes no se pegan al tema. La app mide el beat solo en la pista de batería, nunca en el tema entero.
+                      </p>
+                    )}
+                    <label className="block">
+                      <span className="text-muted">Pista de batería del mismo tema (la exporta tu programa de música o un separador de pistas):</span>
+                      <input type="file" accept="audio/*" aria-label="Subir la pista de batería" className="mt-1 block text-xs" onChange={(e) => e.target.files?.[0] && addDrums(e.target.files[0])} />
+                    </label>
+                    {demucs ? (
+                      <Button variant="secondary" className="px-2 py-1 text-xs" disabled={busy !== null} onClick={separateDrums}>
+                        {busy === "upload" ? <Spinner /> : "Separar la batería con Demucs"}
+                      </Button>
+                    ) : (
+                      <p className="text-muted">Con Demucs instalado en esta compu, la app separa la batería sola.</p>
+                    )}
+                  </div>
                 )}
                 {piece.music === "track" && track && <p className="text-xs text-muted">{track.file.name}</p>}
               </div>
@@ -1444,7 +1532,16 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                   {piece.voice !== "none" && raw.voice.trim() && (
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                       {voice && <audio src={voice.url} controls className="h-8" />}
-                      {voice && voice.duration > s.seconds - 0.3 && <span className="text-neg">La voz dura {voice.duration.toFixed(1)} s y la escena {s.seconds.toFixed(1)} s.</span>}
+                      {voice && voiceOverrun(s, voice.duration) > 0 && (
+                        <>
+                          <span className="text-neg">
+                            La voz dura {voice.duration.toFixed(1)} s, entra a los {(elementTimes(s).voice ?? 0.25).toFixed(2)} s y la escena dura {s.seconds.toFixed(1)} s: se corta con un fundido en el corte.
+                          </span>
+                          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => fitVoice(s.id)}>
+                            Ajustar al largo de la voz
+                          </Button>
+                        </>
+                      )}
                       {piece.voice === "generated" ? (
                         <Button variant="secondary" className="px-2 py-1 text-xs" disabled={!voiceAvailable || busy !== null} onClick={() => generateVoice(raw)}>
                           {voice ? "Generar de nuevo" : "Generar voz"}

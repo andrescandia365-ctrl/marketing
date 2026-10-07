@@ -1,5 +1,5 @@
 // Writes proyectos/<id>/sync from a drums stem (or Demucs) and a vocal stem. The master is never the beat clock.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,6 +62,13 @@ function run(cmd: string, args: string[], cwd: string, timeoutMs: number): Promi
       else reject(new ClockError(err.trim() || `${cmd} salió con código ${code}.`));
     });
   });
+}
+
+// Whether Demucs is on this computer (checked once, for the status the app shows).
+let demucs: boolean | undefined;
+export function demucsAvailable(): boolean {
+  demucs ??= spawnSync("sh", ["-c", "command -v demucs"], { stdio: "ignore" }).status === 0;
+  return demucs;
 }
 
 // Demucs only. If it is not installed, the caller must pass a drums stem. The master is not a fallback.

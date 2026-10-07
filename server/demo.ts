@@ -2,7 +2,7 @@
 // IMAN short and do not change with what the person types; revisions in sample mode return them unchanged.
 import type { MotionReview } from "../shared/motionQuality.ts";
 import { normalizeMotion, type MotionScript } from "../shared/motion.ts";
-import type { Board, Brief, Menu, Story } from "../shared/schema.ts";
+import type { Board, Brief, HookVariant, Menu, Story } from "../shared/schema.ts";
 import { getSeries } from "./series.ts";
 
 export const DEMO_MENU: Menu = {
@@ -112,6 +112,7 @@ export const DEMO_STORY: Story = {
         { beat: "good", speaker: "desorden", text: "¿Y yo qué hago?", emotion: "desconcertado", direction: "El Desorden solo en un estante lleno, sin nada que esconder." },
         { beat: "good", speaker: "marta", text: "Vos andá a esconderle el pan a otro.", emotion: "con una sonrisa", direction: "Marta con un mate detrás del mostrador, estantes llenos." },
       ],
+      moves: ["clipDrop", "escalator", "turn", "callback", "button"],
     },
   ],
   callbacks: [
@@ -369,4 +370,16 @@ export function demoMotionReview(round: number): MotionReview {
     summary: note,
     poster: 1.5,
   };
+}
+
+// Sample mode: five variants on five moves, so the panel can be tried. The fourth carries the story's own problem.
+export function demoHookVariants(story: Story): HookVariant[] {
+  const problem = (story.problem || story.title).replace(/\.+$/, "");
+  return [
+    { title: "18:02. El estante del pan, vacío otra vez.", move: "clipDrop", level: 2, why: "Abre con el objeto real y la hora." },
+    { title: "El cartel dice «abierto hasta las 22». A las 21:40 ya no hay pan.", move: "contradiction", level: 2, why: "Lo que se promete contra lo que pasa." },
+    { title: "Primero falta el pan. Después la leche. Después las ganas.", move: "escalator", level: 1, why: "Cada golpe es peor que el anterior." },
+    { title: `¿Por qué nadie te avisa? ${problem}`.slice(0, 120), move: "curiosityGap", level: 3, why: "Promete una respuesta que llega al final." },
+    { title: "Fuimos a un almacén a las seis de la mañana, a ver quién levanta la persiana.", move: "fieldVisit", level: 1, why: "Gente real, en su lugar, a una hora concreta." },
+  ];
 }

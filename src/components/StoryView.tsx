@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MOVES, MOVE_HINT, MOVE_LABEL, moveCounts } from "../../shared/moves.ts";
 import { runnerInUse, runnerLandings, type Problem } from "../../shared/checks.ts";
 import type { Story } from "../../shared/schema.ts";
 import { LENGTHS, ROLE_LABEL, formatTime, spokenSeconds } from "../../shared/template.ts";
@@ -73,6 +74,8 @@ export function StoryView({ story, round, length, busy, problems, dismissed, onR
         ))}
       </div>
 
+      <MoveCoverage topics={story.topics} />
+
       {story.topics.map((topic, i) => (
         <section key={topic.id} className="rounded-xl border border-line bg-white p-4">
           <p className="font-mono text-xs text-muted">Tema {i + 1}</p>
@@ -81,6 +84,15 @@ export function StoryView({ story, round, length, busy, problems, dismissed, onR
             <span className="font-semibold text-ink">{i === 0 ? "Arranca con: " : "Puente: "}</span>
             {topic.bridge}
           </p>
+          {(topic.moves ?? []).length > 0 && (
+            <p className="mt-2 flex flex-wrap gap-1" aria-label="Jugadas del playbook en este tema">
+              {topic.moves.map((m) => (
+                <span key={m} title={MOVE_HINT[m]} className="rounded-full border border-touch/40 bg-touch-soft px-2 py-0.5 text-[11px] font-semibold text-touch">
+                  {MOVE_LABEL[m]}
+                </span>
+              ))}
+            </p>
+          )}
           <ol className="mt-3 space-y-2">
             {topic.lines.map((line, j) => {
               const who = cast[line.speaker];
@@ -236,6 +248,32 @@ export function StoryView({ story, round, length, busy, problems, dismissed, onR
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// The playbook's moves (§2.5) across the piece: the ones its topics use, and the ones it leaves out. Stories written
+// before the moves were data show nothing.
+function MoveCoverage({ topics }: { topics: Story["topics"] }) {
+  const counts = moveCounts(topics.map((t) => t.moves ?? []));
+  if (!MOVES.some((m) => counts[m] > 0)) return null;
+  return (
+    <div className="rounded-xl border border-line bg-white p-3">
+      <p className="text-sm font-semibold">Jugadas del playbook</p>
+      <p className="mt-2 flex flex-wrap gap-1">
+        {MOVES.map((m) => (
+          <span
+            key={m}
+            title={MOVE_HINT[m]}
+            className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+              counts[m] ? "border-touch/40 bg-touch-soft text-touch" : "border-line text-muted line-through decoration-muted/40"
+            }`}
+          >
+            {MOVE_LABEL[m]}
+            {counts[m] > 1 ? ` ×${counts[m]}` : ""}
+          </span>
+        ))}
+      </p>
     </div>
   );
 }

@@ -1,0 +1,38 @@
+# Every push and pull request: types, the tests of the pure logic (tests/), the build, and the lyric clock harness
+# against the API running in sample mode (no AI keys; nothing here calls a paid service).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PROJECTS_DIR: ${{ github.workspace }}/.ci/proyectos
+      LIBRARY_DIR: ${{ github.workspace }}/.ci/biblioteca
+      ADS_DIR: ${{ github.workspace }}/.ci/publicidad
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Tipos
+        run: npm run typecheck
+      - name: Pruebas
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Reloj de letras (clock-check, con la API en modo de muestra)
+        run: |
+          mkdir -p "$PROJECTS_DIR"
+          npx tsx server/index.ts > api.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8787/api/status > /dev/null && break; sleep 0.5; done
+          npx tsx server/clock-check.ts
+      - name: Log de la API si algo falló
+        if: failure()
+        run: cat api.log || true

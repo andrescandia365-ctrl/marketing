@@ -9,7 +9,9 @@
     "dev:web": "vite",
     "build": "tsc -p tsconfig.json && vite build",
     "start": "NODE_ENV=production tsx --env-file-if-exists=.env server/index.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "playbook": "tsx scripts/playbook.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

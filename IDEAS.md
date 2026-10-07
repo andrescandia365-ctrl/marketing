@@ -119,7 +119,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   movimiento. Recomiendo lo primero: así "un acento cae en un kick" se cumple en imagen y sonido, y el check de
   sincronía de la IA deja de marcar lo que la app misma corrió.
 
-#### 44. Los explicativos con tema propio leen los beats del master
+#### 44. Los explicativos con tema propio leen los beats del master — **Construido (7 Oct 2026, "Go 44, 49, 56 y 55")**
 - **Qué pasa:** `motionBeats` usa `findBeats(track)` (picos de volumen general) cuando hay un tema subido, y
   `strongBeats` aproxima los graves con un pasabajos. Es justo lo que la regla de las dos relojes prohíbe para el
   Reloj: "nunca lee picos del master". Un hat o una voz fuerte cuentan como beat y los cortes caen ahí.
@@ -128,19 +128,35 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   el logo. Sin stem, avisar y quedarse con la partitura sintetizada (que ya tiene grilla exacta). `findBeats`
   queda solo para los cortes de las historias, como dice CLAUDE.md.
 
-#### 45. Pegar escenas a los beats puede dejar la siguiente demasiado corta
+#### 45. Pegar escenas a los beats puede dejar la siguiente demasiado corta — **Construido (7 Oct 2026, "go 45 y 46")**
 - **Qué pasa:** `snapWith` mueve el corte al beat si la escena actual queda con 1,5 s o más, pero en el camino
   común no revisa que la **siguiente** escena también quede con 1,5 s (solo lo revisa en el camino de los golpes
   fuertes). Dos escenas cortas seguidas pueden quedar en 1,1 s y pisarse con su voz.
 - **Arreglo:** la misma condición en los dos caminos, y si no se cumple, probar el beat anterior antes de dejar el
   corte donde estaba.
 
-#### 46. La voz que no entra solo avisa
+#### 46. La voz que no entra solo avisa — **Construido (7 Oct 2026)**
 - **Qué pasa:** si la voz de una escena dura más que la escena, el carril de voz se pone rojo y la mezcla sigue
   sonando sobre la escena siguiente (la música no vuelve a subir hasta que la voz termina), pero el subtítulo ya
   cambió.
 - **Arreglo:** botón "Ajustar al largo de la voz" (la escena pasa a durar voz + 0,4 s, redondeado al beat) y, en el
   render, cortar la voz con un fundido de 80 ms en el fin de la escena si la persona prefiere no alargar.
+
+#### Lo construido con "go 45 y 46" (7 Oct 2026)
+- **45:** el corte va al beat más cercano que deje 1,5 s a las dos escenas, la actual y la siguiente. Si no hay, prueba
+  el siguiente más cercano (el del otro lado), y si ninguno sirve, el corte queda donde estaba.
+  - Probado con 5000 guiones al azar, con grillas de sinte y con beats irregulares como los de un tema propio: antes,
+    14 dejaban una escena por debajo de 1,5 s; ahora ninguno. Los cortes que caen en un beat pasaron de 27.346 a 27.374.
+- **46:** si la voz se pasa de su escena, el aviso dice cuánto dura, cuándo entra y cuánto dura la escena, con el botón
+  **"Ajustar al largo de la voz"** al lado. Está en la lista de escenas y en el inspector cuando elegís la marca de la
+  voz. El botón alarga la escena a la voz más 0,4 s, con el corte en el primer beat después, hasta 8 s. Se deshace con
+  Ctrl+Z.
+  - Si no la alargás, la voz se apaga con un fundido de 80 ms justo en el corte, en la vista previa y en el render
+    final. La boca del títere también para ahí y la música vuelve a subir en el corte. Así nunca habla encima de la
+    escena siguiente.
+  - Probado: en 3000 casos al azar, toda voz que entra en 8 s quedó adentro al primer intento, con el corte en un
+    beat. Las voces de más de ~7,3 s no entran en 8 s y se apagan con el fundido. En un render final, la voz sonó
+    hasta el corte y después hubo silencio (−91 dB).
 
 #### 47. Lo que revisé y está bien
 - `speechLevels` y `soundPlan` colocan la voz en el mismo `at` (0,25 s), así la boca del títere y el audio
@@ -168,13 +184,13 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 
 ### Flujo de trabajo y base del código
 
-#### 48. Dos copias del playbook que se desvían
+#### 48. Dos copias del playbook que se desvían — **Construido (7 Oct 2026, "go 54, 58 y 48"), con un cambio de diseño**
 - `PLAYBOOK.md` (investigación) y `server/playbook.md` (lo que lee la IA) se mantienen a mano y ya difieren en
   estructura. **Propuesta:** un script `npm run playbook` que arma `server/playbook.md` a partir de las secciones
   operativas de `PLAYBOOK.md` (§1, §3, §3.1, §3.2, §5, §6) y un check en `typecheck`/CI que falla si el archivo
   generado no coincide con el guardado.
 
-#### 49. Pruebas y CI
+#### 49. Pruebas y CI — **Construido (7 Oct 2026)**
 - Hoy no hay pruebas (solo `clock-check.ts`). Toda la lógica pura está en `shared/` y se prueba sin navegador:
   `checks.ts`, `motion.ts` (`snapScenes`, `readingIssues`, `quietGaps`, `posterTime`), `clock.ts`, `lyrics.ts`
   (`alignLyrics`, `splitLyrics`), `ads.ts`. **Propuesta:** `node --test` con `tsx` en `tests/`, y un workflow de
@@ -204,7 +220,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   el primer camino del error de zod ("falta `brief.series`"), que ayuda cuando un proyecto viejo trae un campo
   cambiado.
 
-#### 54. Publicidad: lo que sigue
+#### 54. Publicidad: lo que sigue — **Construido (7 Oct 2026), menos las métricas por API**
 - Voz por pieza: `media.voice` ya existe en el esquema pero la tarjeta no la sube ni la genera. Sumar "Voz
   generada" con `/api/voice` y la voz del presentador del perfil.
 - "Probar un anuncio": antes de la tanda, elegir un hook, un meat y un CTA y ver el anuncio armado en la app.
@@ -215,14 +231,14 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 
 ### Playbook al máximo
 
-#### 55. Las jugadas (§2.5) como dato de cada tema
+#### 55. Las jugadas (§2.5) como dato de cada tema — **Construido (7 Oct 2026)**
 - Hoy la historia no dice qué jugadas usa. **Propuesta:** cada tema devuelve `moves` (Clip Drop, Contradicción,
   Reacción lenta, Escalera, Giro, Botón, Brecha de curiosidad, Visita de campo, Callback, Corresponsal) y la app
   muestra una fila de chips por tema y una **cobertura por pieza**. El check suma "Sin Giro" (el Momento emotivo ya
   está) y "Sin Botón que vuelva al gancho". Con tres o cuatro piezas, la pizarra de la serie ve qué jugadas se
   repiten de más.
 
-#### 56. Cinco variantes de gancho por historia (§3)
+#### 56. Cinco variantes de gancho por historia (§3) — **Construido (7 Oct 2026)**
 - El playbook pide entregar 5 ganchos por guion y la app entrega uno. **Propuesta:** botón "5 variantes de
   gancho" en la historia (cada una con su jugada), elegir la que va, y **"Mandar las 5 a Publicidad"**: entran al
   catálogo de hooks con su nivel. Es el puente natural entre el contenido orgánico y el 50-5-3.
@@ -232,7 +248,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   pegás el resumen, la IA lo vuelca en la plantilla EP-NN (tabla de temas, callbacks, observaciones), lo agrega al
   playbook con tu "ok" y, cuando una jugada se repite en 3 o más episodios, propone sumarla a `engine.md`.
 
-#### 58. La lista de control del playbook (§7.4) como checks explícitos
+#### 58. La lista de control del playbook (§7.4) como checks explícitos — **Construido (7 Oct 2026)**
 - Faltan como ítems: "El cliente es el héroe" (la marca no abre la pieza), "Un solo llamado, suave", "Nada
   prestado" (nombres de programas, frases), "Detalle concreto" (objeto, número u hora en el gancho). Para video:
   "Gancho en 2 s" (la primera toma dura 6 s y su línea nombra el dolor) y "El producto en uso" (al menos una toma de
@@ -253,6 +269,60 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - Con el Método 50-5-3 construido, el tipo de pieza "Imagen fija" tiene un uso más: el anuncio estático sale de un
   hook aprobado (su titular en pantalla y su prompt de imagen) con el texto puesto por la app. Sigue esperando
   "go" y las 4 respuestas de la idea 34.
+
+### Lo construido con "Go 44, 49, 56 y 55" (7 Oct 2026)
+- **44:** con tema propio, la grilla del explicativo sale solo de la pista de batería: la subís (la exporta tu programa
+  de música o un separador) o, si Demucs está instalado en la compu, "Separar la batería con Demucs". Los cortes y los
+  acentos van a los bombos medidos y el producto y el logo a los primeros tiempos, con el mismo `fitKicks` del Reloj.
+  Sin pista, el panel dice "Sin grilla" y nada se pega: nunca se miden los picos del tema entero. Al cambiar el tema,
+  la grilla vieja se borra.
+  - Probado con una pista sintética: los bombos quedaron a menos de 5 ms (en la app, error mediano 0,08 ms), todos
+    los cortes en un bombo y el corte al producto en un primer tiempo cuando hay uno cerca.
+- **49:** `npm test` corre 27 pruebas en `tests/` (tiempos de explicativos, checks y jugadas, variantes de gancho,
+  pizarra, Publicidad, reloj de bombos, letras, reloj suavizado). Rompí a propósito la regla del Giro y las dos mitades
+  de la 45, y las pruebas fallaron en cada caso. El workflow de GitHub Actions corre tipos, pruebas, build y el arnés
+  del Reloj contra la API en modo de muestra, en cada push y PR.
+- **55:** cada tema de la historia trae sus jugadas, con chips por tema y una fila de cobertura arriba (las que no se
+  usaron aparecen tachadas). Si la historia tiene jugadas marcadas y le falta el Giro o el Botón, el check bloquea con
+  "Sin Giro" o "Sin Botón". Las historias viejas, sin jugadas, no se juzgan por esto. La pizarra de la serie muestra
+  las jugadas de todas las piezas y marca en rojo las que usan más de la mitad (con tres piezas o más), y el escritor
+  recibe esa misma lista para variar.
+- **56:** en la historia, "Escribir 5 variantes": cinco ganchos, cada uno con su jugada, su nivel de conciencia (N1 a
+  N5) y por qué frena el scroll. "Usar como gancho" cambia el gancho de la pieza (queda en el registro de dirección), y
+  "Mandar las 5 a Publicidad" las deja como hooks pendientes con su nivel, para aprobar con Sí o No. Las variantes se
+  guardan con el proyecto.
+
+### Lo construido con "go 54, 58 y 48" (7 Oct 2026)
+- **54, Publicidad:**
+  - **Voz por pieza:** en el perfil de oferta va la voz generada del presentador. Cada pieza puede subir su voz o
+    generarla, y arriba está "Generar las N voces que faltan" para todas las aprobadas de una vez. La voz entra en el
+    render de la pieza; si dura más que la pieza, la tarjeta lo avisa en rojo.
+  - **"Probar un anuncio":** elegís hook, meat y CTA y lo ves armado, con descarga. Las piezas que arma quedan en la
+    caché de la tanda.
+  - **Límite semanal en el servidor:** una tanda que lo pasa se rechaza aunque la pantalla no la frene.
+  - **Formato en caché:** cada tarjeta dice si su render es H.264 o webm. Si hay piezas en webm, un aviso explica que
+    los anuncios saldrían en VP9 dentro de MP4, y "Sacarlas de la caché" deja que Chrome o Edge de escritorio las
+    renderice en H.264.
+  - Queda para después: métricas por API de la plataforma (hoy es CSV).
+- **58, lista de control del §7.4:**
+  - Lo que la app mide sola: la marca no dice la primera línea ("Cliente héroe"); ningún nombre del programa, de su
+    gente o de programas vecinos en la historia ni en el storyboard ("Nada prestado"); la primera toma es el dolor y
+    tiene línea o headline ("Gancho en 2 s"); y, si la serie tiene producto o pantallas reales en el elenco, alguna
+    toma del Bueno lo muestra en uso ("El producto en uso").
+  - Lo que califica el escritor: "Cliente héroe", "Un solo llamado" y "Nada prestado" en la lista de la historia, y
+    "hook" y "product" entre los problemas del storyboard.
+  - Los checks de imagen fija esperan a la idea 61.
+  - En el storyboard de muestra de IMAN, el check encontró algo real: ninguna toma del Bueno muestra una pantalla real
+    del producto.
+- **48, cambio de diseño:** `server/playbook.md` no se puede generar desde `PLAYBOOK.md`. Es un resumen escrito a mano
+  que deja afuera el nombre del programa, las personas reales y la política; copiar las secciones se lo daría todo al
+  escritor. En cambio:
+  - `scripts/playbook.snapshot.md` guarda las secciones §1 a §7 de `PLAYBOOK.md` (sin §2.1) tal como estaban la
+    última vez que se puso al día el resumen, más la huella del resumen.
+  - `npm run playbook` dice qué cambió de cada lado, con las líneas; una prueba falla mientras las dos copias no
+    estén al día; `npm run playbook -- --write` las registra.
+  - Al armarlo apareció un desvío real: la lista de control del resumen no tenía "portada y texto para publicar".
+    Quedó agregado.
 
 ### Si tuviera que elegir el primer "go"
 1. **41 + 42 + 43:** el reloj de la vista previa, el empuje en el check y una sola fuente de verdad imagen-sonido.

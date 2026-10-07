@@ -5,7 +5,10 @@ A web app (Spanish interface) for story-driven content, not ads: each piece is a
 Flow: brief → topic menu → story in rounds with director notes → storyboard review → production (prompts, uploads,
 render). `server/engine.md` is the storytelling engine; `server/series/*.md` holds one bible per series (IMAN,
 Máshogar); `server/playbook.md` is the operative copy of `PLAYBOOK.md` the app sends to Claude. When `PLAYBOOK.md`'s
-rules change, update it there too. The playbook's 75 s ad template does not drive the app.
+rules change, update it there too, then record it with `npm run playbook -- --write`: `scripts/playbook.snapshot.md`
+keeps the PLAYBOOK.md sections (§1–§7, not §2.1) the summary follows, plus the summary's fingerprint, and a test fails
+while either side changed alone. The summary is written by hand, never generated: it leaves out the show's name, real
+people and politics. The playbook's 75 s ad template does not drive the app.
 
 ## Layout
 - `shared/` — zod schemas and types (`schema.ts`), beats/roles/lengths and shot timing (`template.ts`), the
@@ -45,9 +48,20 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
 - Claude returns `beat`/`role`/`disclosure` as plain strings; `normalizeStory()`/`normalizeBoard()` map them to
   strict values. Shots last exactly 6, 10 or 15 s (Grok's clip lengths; `snapSeconds`).
 - Every menu idea and story has a `problem` (the problem it solves, plain words) shown before its hook `title`.
+- Every story topic tags the playbook moves it really uses (`moves`, ids from `shared/moves.ts`, PLAYBOOK §2.5;
+  `normalizeStory` maps names, old stories get `[]`). The story shows them per topic and as the piece's coverage; a
+  tagged story with no Turn or no Button is blocked ("Sin Giro", "Sin Botón"); the writers' room counts moves across
+  the series (`overusedMoves`, also in `roomBrief`). "5 variantes de gancho" (`POST /api/story/hooks`,
+  `HookVariants`, PLAYBOOK §3) writes five hooks, each with its move and the viewer's awareness level 1–5: one can
+  become the story's hook, and the five go to Publicidad as pending hooks.
 - The writer grades its own story (checklist, open loops, series loop, claims vs "Lo que existe hoy", practices vs
   "Cómo se trabaja hoy": pains follow how people really work, never an invented habit) and board
   (issues); `shared/checks.ts` turns that into problems that block approval until fixed ("Arreglalo") or dismissed.
+  The checklist of PLAYBOOK §7.4 is part of it: the writer grades Cliente héroe, Un solo llamado and Nada prestado
+  (and board issues `hook`, `product`), and the app measures what it can on its own: the brand never says the first
+  line (`cliente-heroe`), no show or host names in the story or the board (`borrowedNames`), the first shot is the
+  pain with a line or a headline (Gancho en 2 s) and, when the series has a product or a real screen in its cast, a
+  Good shot shows it in use (`boardChecks(board, castKinds)`).
 - Every shot has a slate (`title`, `action`); its image prompt is one frozen moment, actions go in the video prompt.
   The storyboard opens on "Bocetos": the app's pencil sketch of each shot (`lib/sketch.ts`, from its setups, the cast
   kinds and the framing in its prompt; deterministic) or a sketch the person made with `sketchPrompt` and uploaded
@@ -88,13 +102,16 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   function of time (seeded mulberry32 noise, never Math.random, no timers) with the series `brand` (logo, bg, text, one
   accent, display + UI Google Fonts). Studio rules: no stock defaults (centred title on gradient, everything fading in,
   corner labels, frame borders, glow, particle bursts); something new every 2-4 s (`quietGaps` blocks rendering);
-  scenes snap to the beat grid, and `arrangeScenes` also moves each element's template time onto a beat within 0.1 s
+  scenes snap to the beat grid (a cut moves only to a beat that leaves both its scenes `MIN_SCENE` 1.5 s, trying the
+  next-nearest before giving up), and `arrangeScenes` also moves each element's template time onto a beat within 0.1 s
   (`snapElements`, kept in `onBeat` on the arranged copy only; hand-set times never move), so the drawing, the sound and
   the checks read one time and each effect lands exactly with its element. The checks take the tone's push between
   scenes (`readingIssues`/`quietGaps(scenes, cutPush)`): an entrance inside the push arrives with the cut. The preview
   plays the mix through Web Audio and draws from its clock (`MixPlayer`, `lib/playClock.ts`; an edit while playing
   rebuilds the mix and carries on from the same second); lyric videos keep the song's player and smooth its time
-  (`mediaClock`). `motionAudio.ts` synthesizes the score and hits and normalizes to -14 LUFS with the
+  (`mediaClock`). A voice longer than its scene is faded out on the cut (80 ms, `VOICE_FADE`; the mouth stops there
+  too); "Ajustar al largo de la voz" (`voiceFitSeconds`, `voiceOverrun`) lengthens the scene to the voice plus 0.4 s,
+  its cut on a beat, up to 8 s. `motionAudio.ts` synthesizes the score and hits and normalizes to -14 LUFS with the
   BS.1770 K-weighting (matches ffmpeg ebur128), peaks under -1.5 dBFS. Lyric videos can use Grok's layers (parallax).
   The timeline (`MotionTimeline`) edits each scene's `tweaks` by element key (`sceneElements`): `at` (when it enters,
   both formats) and `v`/`h` (dx, dy in units of the short side, scale) per format; `revealTimes`, the gap check and
@@ -111,8 +128,10 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   each motion, first and last of a sequence only. The `type` template types the title into a field with key sounds.
   The script's `tone` (from brief.tone) sets the cut (`cutPush`: dry hard cut, warm 0.38 s push, absurdist 0.2 s),
   the effects (dry: no whoosh or pops) and the music bed (`TONE_BED`); its `caption` is the share text. The cuts into
-  the product and the logo go to `strongBeats` (the synth's bar starts, or the track's hardest low-end onsets) only
-  when `readingIssues` and `quietGaps` do not get worse. "Traer la marca desde su web" (`server/brandWeb.ts`,
+  the product and the logo go to `strongBeats` (the synth's bar starts, or the downbeats of the track's drums stem)
+  only when `readingIssues` and `quietGaps` do not get worse. An explainer's own track gets its beat grid only from
+  its drums stem (`piece.kickGrid` from `trackKicks` = `fitKicks`: a stem the person uploads, or Demucs through
+  `PUT /api/motion/kicks`); with no stem it has no grid and nothing snaps, never peaks off the track. "Traer la marca desde su web" (`server/brandWeb.ts`,
   `/api/brand/from-web`, localhost-only, public addresses only, checked on every redirect) proposes the brand kit;
   page claims stay [VERIFY] until the person confirms them into "Lo que existe hoy".
   3D-look characters are cut-out puppets (`src/lib/puppet.ts`): a cast character's `puppet.layers` (roles
@@ -141,6 +160,11 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   limit. The run renders each piece once with `renderPiece` (render.ts, `alwaysAudio`) and cuts the ads with
   `concatPieces` (encoded packets copied, no re-encode; falls back to `renderAdWhole`); the platform texts (primary,
   headline, button) come from one writer call per 50 hook+CTA pairs. `server/ads.md` is the method the writer reads.
+  Each piece can carry a voice (uploaded, or generated with the presenter's voice `offer.ttsVoice`; "Generar las N
+  voces que faltan" does every approved piece); it starts 0.15 s into the piece and is cut at its end. "Probar un
+  anuncio" cuts one ad from three chosen pieces (the same cache). The weekly limit is enforced by the server too. A
+  piece's cache shows its format: webm means this browser has no H.264 encoder (the ads would be VP9 in MP4), and
+  "Sacarlas de la caché" (DELETE .../pieces/:id/render) lets a browser that has one render them again.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
   a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Per shot,
   `audio.clipSound` (dialogue/ambient/effects + what is heard) rewrites the video prompt's "Audio:" line only when the
@@ -160,7 +184,11 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
 ## Commands
 - `npm run dev` — API on 8787 + Vite on 5173 (proxied `/api`).
 - `npm run typecheck`, `npm run build`, `npm start`.
-- `npx tsx server/clock-check.ts` — lyric clock harness (kick grid, lyric gate, frames 100 and 400).
+- `npm test` — `node:test` + tsx over `tests/` (the pure logic in `shared/` and the timing in `src/lib`).
+- `npm run playbook` — says whether `PLAYBOOK.md` and `server/playbook.md` drifted; `-- --write` records them in step.
+- `npx tsx server/clock-check.ts` — lyric clock harness (kick grid, lyric gate, frames 100 and 400); needs the API on
+  8787 and the same `PROJECTS_DIR`.
+- CI (`.github/workflows/ci.yml`) runs typecheck, tests, build, and clock-check against the API in sample mode.
 - `npx tsx server/clock-cli.ts sync|critique --project ID` — write or critique `proyectos/<id>/sync/`.
 
 @PLAYBOOK.md

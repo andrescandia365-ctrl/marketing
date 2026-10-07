@@ -5,6 +5,9 @@ import { z } from "zod";
 import {
   BoardWireSchema,
   BrandSuggestionSchema,
+  HookVariantsWireSchema,
+  normalizeHookVariants,
+  type HookVariant,
   ImageReviewSchema,
   MenuSchema,
   ProductShotSchema,
@@ -372,6 +375,24 @@ ${STORY_CHECKS}`,
   );
 }
 
+// PLAYBOOK §3: five hook variants per script, each naming the move it uses. Same problem and story, five ways in.
+export async function hookVariants(brief: Brief, story: Story): Promise<HookVariant[]> {
+  return normalizeHookVariants(
+    await ask(
+      brief,
+      false,
+      `Brief:
+${describeBrief(brief)}
+
+The story (its problem: "${story.problem}"; its hook now: "${story.title}"):
+${JSON.stringify({ problem: story.problem, title: story.title, logline: story.logline, topics: story.topics.map((t) => ({ title: t.title, bridge: t.bridge, lines: t.lines.map((l) => l.text) })), close: story.close }, null, 2)}
+
+Write five hook variants for this piece: the same problem and story, five different ways into it, each leaning on a different playbook move (§2.5) and naming it. Each one stops the scroll in the first 2 seconds with something concrete (the object, the number, the hour) and makes sense with no context. Punch at the problem, never at the person. Only what the series shows as real; anything unconfirmed carries [VERIFY]. Do not repeat the current hook. Say which awareness level (1–5) of the viewer each one speaks to, so the best ones can also run as paid ads.`,
+      HookVariantsWireSchema,
+    ),
+  );
+}
+
 // What a writers' room keeps across episodes, on top of the callbacks inside this one.
 const ROOM_CRAFT = `Like a series writers' room, also fill:
 - runner: one concrete bit (an object, a short phrase or a gesture) that lands in the opening, again in the middle and in the tag. Each landing changes the bit. open, middle and tag each quote, inside «», a few words that are spoken in a line, and the three quotes are different.
@@ -379,8 +400,10 @@ const ROOM_CRAFT = `Like a series writers' room, also fill:
 - canon: up to three facts this episode makes true for later episodes (an object, a relationship, a rule of the place). Not a product claim. Empty if the world did not change.`;
 
 // The checks the writer runs on its own story; the app blocks approval on any that fail.
-const STORY_CHECKS = `Then check the story like a strict critic who did not write it. A pass you cannot point to in the text is a fail.
-- checklist: Gancho (the first 3 seconds stop the scroll with a concrete pain or a question), Retención (open questions and tension keep people watching; the escalation grows), Recompensa (every open loop pays off), Bueno contra Malo, Momento emotivo, Detalle concreto, Puentes, Callbacks, Continuidad (each line follows from the one before), Lo que existe hoy, El chiste es el problema. The runner's three «quotes» are three different phrases, each one said in the story. The tease is not listed as a loop.
+const STORY_CHECKS = `Tag each topic's moves: the playbook moves (§2.5) it really uses on screen, by id. Use them on purpose: open on the real artifact, escalate, let one Turn land (the irony drops, one sincere line) and end the piece on a Button that calls back to the hook. Do not tag a move the lines do not show.
+
+Then check the story like a strict critic who did not write it. A pass you cannot point to in the text is a fail.
+- checklist: Gancho (the first 3 seconds stop the scroll with a concrete pain or a question), Retención (open questions and tension keep people watching; the escalation grows), Recompensa (every open loop pays off), Bueno contra Malo, Momento emotivo, Detalle concreto, Puentes, Callbacks, Continuidad (each line follows from the one before), Lo que existe hoy, El chiste es el problema, Cliente héroe (the customer or the person on screen is the hero and the brand never opens the piece), Un solo llamado (at most one soft call to action, at the end), Nada prestado (no show, host, real person, character, catchphrase or another brand's ad borrowed). The runner's three «quotes» are three different phrases, each one said in the story. The tease is not listed as a loop.
 - loops: every open loop (the hook's question, each tension, each planted callback), where it opens and where it pays off. One that never pays off is not closed.
 - seriesLoop: walk the series loop from the bible step by step: does the piece show it, and if so, does it show the pain, the step doing its job and the result?
 - claims: everything the brand or product is shown doing, each checked against "${WORKS_TODAY}". A thing that is not on the list is only allowed as a clearly labelled concept; the same goes for anything that could break a law or the brand's rules (for example, selling an expired product).
@@ -401,7 +424,7 @@ const BOARD_RULES = `Shot rules:
 - Continuous takes, only when the brief asks for them: each shot is ONE continuous handheld take of exactly 15 s, holding the consecutive lines of one scene (one topic or part of it), kind "single". speaker is the first one who speaks and voiceover all its lines in order. timeline lists every beat from 0 to 15 s: who speaks, the exact line, its emotion, and what the bodies and the camera do, including real camera mistakes (a pan that arrives late and clips a face, autofocus hunting, auto-exposure rolling between inside and outside, a laugh that shakes the frame). visualPrompt is the hero still, frame 0 of the take: exact camera, exact flaws, exact light, everyone in place. videoPrompt is the director's prompt: first a reference map (the initial frame = the hero still; each character = its cast @ref; the place = its cast @ref, environment only; "these images are law"), then "one continuous handheld take, no cuts", then the timed spine with emotion and camera mistakes, then the hard rules: skin never smooth (visible pores, freckles, peach fuzz); grain the whole time; no stabilization, no grade, no music, no text, no digital zoom, no punch-in, no slow motion; brightness changes only from auto-exposure, the light never changes; each line spoken once, exactly as written, in Rioplatense Spanish, with the emotion given; raw phone-mic audio (room tone, handling noise, no denoising). One-line shots have an empty timeline.
 - disclosure: "concept" or "simulation" for anything the brand is shown doing that is not in the series' "${WORKS_TODAY}" list.
 - If the story has a runner, three shots show it: the opening landing, the changed middle landing and the tag. Do not pay the tease off on this board.
-- issues: after writing the board, check it like a strict critic: a shot whose action does not follow the previous one (continuity), the brand shown doing something not on its list without a label (reality), people working in a way the series' "${PRACTICES}" list and the brief don't confirm (practice), an image prompt with more than one moment (image), an open loop never paid off (loop). List every problem you still see; empty only if there are none.`;
+- issues: after writing the board, check it like a strict critic: a shot whose action does not follow the previous one (continuity), the brand shown doing something not on its list without a label (reality), people working in a way the series' "${PRACTICES}" list and the brief don't confirm (practice), an image prompt with more than one moment (image), an open loop never paid off (loop), a first shot that does not show or name the pain within 2 seconds (hook), a Good that never shows the product in use: a real screen, or the product doing its job on screen (product). List every problem you still see; empty only if there are none.`;
 
 // Step 3: the storyboard.
 export async function writeBoard(brief: Brief, story: Story): Promise<Board> {

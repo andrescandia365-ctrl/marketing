@@ -55,8 +55,8 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       await document.fonts.ready;
       const [images, media] = await Promise.all([loadSeriesImages(series), loadPieceMedia(projectId, piece, project.media, project.music)]);
       const script = piece.script!;
-      const beats = motionBeats(script, piece.music, media.track?.buffer ?? null);
-      const scenes = arrangeScenes(script, beats, piece.snap !== false, piece.music, media.track?.buffer ?? null);
+      const beats = motionBeats(script, piece.music, piece.kickGrid);
+      const scenes = arrangeScenes(script, beats, piece.snap !== false, piece.music, piece.kickGrid);
       const snapped = { ...script, scenes };
       const notice = piece.disclosure && usesAiImages(scenes, series);
       const speech = await speechLevels(snapped, piece, media.voices);

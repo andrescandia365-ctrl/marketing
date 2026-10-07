@@ -121,7 +121,7 @@ export function measureFacts(
       ? [`scene ${s.index + 1}'s voice lasts ${known === undefined ? "about " : ""}${length.toFixed(1)} s from ${voice.at.toFixed(2)} s, and the scene ${s.seconds.toFixed(1)} s`]
       : [];
   });
-  lines.push(`Voices that run past their scene: ${over.length ? over.join("; ") : "none"}.`);
+  lines.push(`Voices that run past their scene (the mix fades them out on the cut, mid-word if need be): ${over.length ? over.join("; ") : "none"}.`);
   const off = [...new Map(outside.map((o) => [`${o.scene}:${o.key}:${o.format}`, o])).values()];
   lines.push(
     `Elements running off the frame: ${off.length ? off.map((o) => `scene ${o.scene} ${o.key} (${o.format === "vertical" ? "9:16" : "16:9"}, at ${o.t.toFixed(2)} s)`).join("; ") : "none"}.`,

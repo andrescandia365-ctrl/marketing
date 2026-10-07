@@ -121,6 +121,8 @@ export const OfferSchema = z.object({
   audienceLanguage: z.string().trim().max(4000),
   // Who speaks on camera (the same presenter or voice in every piece, so pieces cut together).
   presenter: z.string().trim().max(200),
+  // The generated voice of the presenter (OpenAI speech voice name); empty: the app's default voice.
+  ttsVoice: z.string().trim().max(40).default(""),
 });
 export type Offer = z.infer<typeof OfferSchema>;
 export const EMPTY_OFFER: Offer = {
@@ -135,6 +137,7 @@ export const EMPTY_OFFER: Offer = {
   landing: "",
   audienceLanguage: "",
   presenter: "",
+  ttsVoice: "",
 };
 export const offerFilled = (o: Offer) => Boolean(o.product.trim() && o.audience.trim() && o.problem.trim() && o.promise.trim());
 

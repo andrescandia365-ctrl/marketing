@@ -41,6 +41,7 @@ import {
   secondLines,
   writeBoard,
   writeStory,
+  hookVariants,
 } from "./claude.ts";
 import { KimiError } from "./kimi.ts";
 import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
@@ -48,11 +49,12 @@ import { BrandWebError, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.
 import { EMPTY_BRIEF } from "../shared/example.ts";
 import { ClockError } from "../shared/clock.ts";
 import { roomBrief } from "../shared/room.ts";
-import { buildProjectSync, critiqueProject, loadSync } from "./sync.ts";
+import { buildProjectSync, critiqueProject, demucsAvailable, loadSync, separateDrums } from "./sync.ts";
+import { decodeWav, fitKicks } from "../shared/clock.ts";
 import { BrandSchema, DEFAULT_BRAND } from "../shared/series.ts";
 import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, SECOND_LANGUAGES, LyricStyleSchema, alignLyrics, cleanElements, cleanIdeas } from "../shared/lyrics.ts";
 import { buildPlates, cleanPlates } from "../shared/plates.ts";
-import { DEMO_BOARD, DEMO_MENU, DEMO_STORY, demoMotion, demoMotionReview } from "./demo.ts";
+import { DEMO_BOARD, DEMO_MENU, DEMO_STORY, demoHookVariants, demoMotion, demoMotionReview } from "./demo.ts";
 import { RenderError, ffmpegAvailable, getFinal, startFinal } from "./finalRender.ts";
 import {
   EFFORTS,
@@ -138,7 +140,7 @@ function fillOld(value: unknown): unknown {
   const v = value as Loose;
   return {
     ...v,
-    ...(v.topics && { topics: v.topics.map((t) => ({ ...t, lines: t.lines?.map((l) => ({ emotion: "", ...l })) })) }),
+    ...(v.topics && { topics: v.topics.map((t) => ({ moves: [], ...t, lines: t.lines?.map((l) => ({ emotion: "", ...l })) })) }),
     ...(v.shots && { shots: v.shots.map((s) => ({ timeline: [], ...s })) }),
   };
 }
@@ -186,7 +188,7 @@ app.get("/api/status", (c) => {
     projectsDir: PROJECTS_DIR,
     voice: { available: voiceAvailable(), defaultVoice: DEFAULT_VOICE },
     lyrics: { autoSync: autoSyncAvailable() },
-    render: { ffmpeg: ffmpegAvailable() },
+    render: { ffmpeg: ffmpegAvailable(), demucs: demucsAvailable() },
   });
 });
 
@@ -416,6 +418,16 @@ app.post("/api/motion", async (c) => {
     .parse(await c.req.json());
   if (demo()) return c.json({ script: demoMotion(brief, target), demo: true });
   return c.json({ script: await motionScript(brief, target, layers), demo: false });
+});
+
+// An explainer's own track: Demucs separates its drums on this computer and the kicks are measured on that stem, the
+// same clock as the Reloj. Never the track itself: without Demucs this refuses and the person uploads the stem.
+app.put("/api/motion/kicks", async (c) => {
+  const master = new Uint8Array(await c.req.arrayBuffer());
+  if (master.length < 44) throw new ClockError("Falta el tema.");
+  const { drums } = await separateDrums(master);
+  const grid = fitKicks(decodeWav(drums), 30);
+  return c.json({ kicks: { kicks: grid.kicks, downbeats: grid.downbeats, bpm: grid.bpm, medianErrorMs: grid.medianErrorMs, usable: grid.usable } });
 });
 
 // A reference sheet (character girl/boy, or place) for the series' cast. People are adults only.
@@ -881,6 +893,13 @@ app.post("/api/story/revise", async (c) => {
   if (demo()) return c.json({ story, demo: true });
   const room = roomBrief(await listRoom(brief.series, projectId));
   return c.json({ story: await reviseStory(brief, story, note, room), demo: false });
+});
+
+// Five hook variants for a story (PLAYBOOK §3), each with its move and the viewer's awareness level.
+app.post("/api/story/hooks", async (c) => {
+  const { brief, story } = z.object({ brief: BriefSchema, story: StoryInput }).parse(await c.req.json());
+  if (demo()) return c.json({ variants: demoHookVariants(story), demo: true });
+  return c.json({ variants: await hookVariants(brief, story), demo: false });
 });
 
 app.post("/api/board", async (c) => {

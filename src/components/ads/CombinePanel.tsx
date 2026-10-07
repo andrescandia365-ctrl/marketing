@@ -22,7 +22,7 @@ import { download } from "../../lib/markdown.ts";
 import { Button, Notice, Spinner } from "../ui.tsx";
 import { LevelChip, Tag } from "./pieces.tsx";
 
-export type RenderProgress = { stage: "pieces" | "ads" | "csv"; done: number; total: number; current: string; errors: string[] };
+export type RenderProgress = { stage: "pieces" | "ads" | "csv" | "voices"; done: number; total: number; current: string; errors: string[] };
 
 type Props = {
   series: string;
@@ -38,11 +38,16 @@ type Props = {
   onWeeklyLimit: (n: number) => Promise<void>;
   onRemoveBatch: (id: string) => Promise<void>;
   onBatchCsv: (id: string) => Promise<string>;
+  // "Probar un anuncio": the ad cut from its three pieces, as a video URL (null if it failed).
+  onPreview: (hookId: string, meatId: string, ctaId: string) => Promise<string | null>;
+  // Approved pieces cached as webm (this browser has no H.264 encoder), and dropping them from the cache.
+  webm: number;
+  onDropWebm: () => Promise<void>;
 };
 
 const mins = (s: number) => (s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`);
 
-export function CombinePanel({ series, state, seconds, folder, busy, flags, reviewNote, progress, onReview, onRun, onWeeklyLimit, onRemoveBatch, onBatchCsv }: Props) {
+export function CombinePanel({ series, state, seconds, folder, busy, flags, reviewNote, progress, onReview, onRun, onWeeklyLimit, onRemoveBatch, onBatchCsv, onPreview, webm, onDropWebm }: Props) {
   const [mode, setMode] = useState<"full" | "stage">("full");
   const [rules, setRules] = useState<CombineRules>({ sameLevel: true });
   const [winner, setWinner] = useState<{ meatId: string; ctaId: string }>({ meatId: "", ctaId: "" });
@@ -183,6 +188,19 @@ export function CombinePanel({ series, state, seconds, folder, busy, flags, revi
         )}
       </div>
 
+      <TryAd state={state} rules={rules} busy={busy} onPreview={onPreview} />
+
+      {webm > 0 && (
+        <Notice tone="warn">
+          {webm === 1 ? "Una pieza aprobada quedó" : `${webm} piezas aprobadas quedaron`} en caché como webm: este navegador no codifica H.264, así que los anuncios
+          saldrían en MP4 con VP9, que algunas plataformas rechazan. Abrí la app en Chrome o Edge de escritorio, sacalas de la caché y la próxima tanda las
+          renderiza en H.264.{" "}
+          <button type="button" className="font-semibold underline" disabled={busy !== null} onClick={onDropWebm}>
+            Sacarlas de la caché
+          </button>
+        </Notice>
+      )}
+
       {overLimit && (
         <Notice tone="warn">
           Esta tanda ({ads.length}) supera el límite semanal: ya van {week} de {state.weeklyLimit}. Subí el límite o achicá la tanda.
@@ -207,7 +225,14 @@ export function CombinePanel({ series, state, seconds, folder, busy, flags, revi
       {progress && (
         <div className="rounded-xl border border-line bg-white p-4 text-sm">
           <p className="font-semibold">
-            {progress.stage === "pieces" ? "Renderizando piezas" : progress.stage === "ads" ? "Armando anuncios" : "Escribiendo el CSV"} · {progress.done}/{progress.total}
+            {progress.stage === "pieces"
+              ? "Renderizando piezas"
+              : progress.stage === "ads"
+                ? "Armando anuncios"
+                : progress.stage === "voices"
+                  ? "Generando voces"
+                  : "Escribiendo el CSV"}{" "}
+            · {progress.done}/{progress.total}
           </p>
           <div className="mt-2 h-2 overflow-hidden rounded bg-paper">
             <div className="h-full bg-ink transition-all" style={{ width: `${progress.total ? (100 * progress.done) / progress.total : 0}%` }} />
@@ -273,5 +298,88 @@ export function CombinePanel({ series, state, seconds, folder, busy, flags, revi
         </p>
       </div>
     </section>
+  );
+}
+
+// "Probar un anuncio": pick a hook, a meat and a CTA and watch the ad cut from their pieces before a batch.
+function TryAd({ state, rules, busy, onPreview }: { state: AdsState; rules: CombineRules; busy: string | null; onPreview: Props["onPreview"] }) {
+  const hooks = state.hooks.filter((p) => p.status === "approved");
+  const [hookId, setHookId] = useState("");
+  const [meatId, setMeatId] = useState("");
+  const [ctaId, setCtaId] = useState("");
+  const [url, setUrl] = useState<string | null>(null);
+  const hook = hooks.find((h) => h.id === hookId);
+  // With the level rule on, only the meats and CTAs that serve the hook's level.
+  const fits = (levels: number[]) => !rules.sameLevel || !hook || levels.includes(hook.level);
+  const meats = state.meats.filter((p) => p.status === "approved" && fits(p.levels));
+  const ctas = state.ctas.filter((p) => p.status === "approved" && fits(p.levels));
+  const select = "mt-1 w-full rounded-lg border border-line bg-white px-2 py-1.5 text-sm";
+  const short = (t: string) => (t.length > 60 ? `${t.slice(0, 59)}…` : t);
+  return (
+    <div className="rounded-xl border border-line bg-white p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold">Probar un anuncio</h3>
+        <span className="text-xs text-muted">Antes de la tanda: elegí las tres piezas y miralo armado.</span>
+      </div>
+      <div className="mt-2 grid gap-2 md:grid-cols-3">
+        <label className="text-xs font-semibold">
+          Hook
+          <select className={select} value={hookId} onChange={(e) => setHookId(e.target.value)}>
+            <option value="">Elegí…</option>
+            {hooks.map((h) => (
+              <option key={h.id} value={h.id}>
+                {h.id} · N{h.level} · {short(h.text)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs font-semibold">
+          Meat
+          <select className={select} value={meatId} onChange={(e) => setMeatId(e.target.value)}>
+            <option value="">Elegí…</option>
+            {meats.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.id} · {short(m.text)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs font-semibold">
+          CTA
+          <select className={select} value={ctaId} onChange={(e) => setCtaId(e.target.value)}>
+            <option value="">Elegí…</option>
+            {ctas.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.id} · {short(c.text)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="mt-3 flex flex-wrap items-start gap-3">
+        <Button
+          variant="secondary"
+          disabled={busy !== null || !hookId || !meats.some((m) => m.id === meatId) || !ctas.some((c) => c.id === ctaId)}
+          onClick={async () => setUrl(await onPreview(hookId, meatId, ctaId))}
+        >
+          {busy === "preview" ? (
+            <>
+              <Spinner /> Armando…
+            </>
+          ) : (
+            "Armar y ver"
+          )}
+        </Button>
+        {url && (
+          <div className="flex items-start gap-2">
+            <video src={url} controls className="max-h-80 rounded-lg border border-line bg-black" aria-label="El anuncio de prueba" />
+            <a className="text-xs underline" href={url} download={`${hookId}-${meatId}-${ctaId}-prueba.mp4`}>
+              Descargar
+            </a>
+          </div>
+        )}
+      </div>
+      <p className="mt-2 text-xs text-muted">Las piezas que arma quedan en caché: la tanda no las vuelve a renderizar.</p>
+    </div>
   );
 }
