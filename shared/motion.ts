@@ -119,6 +119,9 @@ export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture"
   camera?: MotionCamera;
   // By element key (see sceneElements). Empty or missing: the template's own timing and layout.
   tweaks?: Record<string, Tweak>;
+  // Only on the arranged copy (snapElements), never saved: an element's template time moved onto a beat. A hand-set
+  // `at` always wins over it.
+  onBeat?: Record<string, number>;
 };
 export type MotionScript = Omit<z.infer<typeof MotionScriptSchema>, "scenes" | "music" | "caption"> & {
   scenes: MotionScene[];
@@ -208,7 +211,7 @@ export const BIG_MOMENTS: readonly MotionTemplate[] = ["product", "logo"];
 
 // Each cut into a big moment moves to a strong hit only when that does not leave a line too short to read or a still
 // stretch: reading wins over the beat (PLAYBOOK §3.1).
-export function snapScenes(scenes: MotionScene[], beats: number[], strong: number[] = []): MotionScene[] {
+export function snapScenes(scenes: MotionScene[], beats: number[], strong: number[] = [], push = CUT_PUSH): MotionScene[] {
   let best = snapWith(scenes, beats, strong, new Set());
   if (!strong.length) return best;
   let chosen = new Set<number>();
@@ -216,7 +219,7 @@ export function snapScenes(scenes: MotionScene[], beats: number[], strong: numbe
     if (!scenes[i + 1] || !BIG_MOMENTS.includes(scenes[i + 1].template)) return;
     const tryOn = new Set([...chosen, i]);
     const next = snapWith(scenes, beats, strong, tryOn);
-    if (readingIssues(next).length <= readingIssues(best).length && quietGaps(next).length <= quietGaps(best).length) {
+    if (readingIssues(next, push).length <= readingIssues(best, push).length && quietGaps(next, push).length <= quietGaps(best, push).length) {
       best = next;
       chosen = tryOn;
     }
@@ -246,6 +249,33 @@ function snapWith(scenes: MotionScene[], beats: number[], strong: number[], bigC
     start = end;
   });
   return out;
+}
+
+// How far an element's template time may move to land on a beat (PLAYBOOK §3.1: smaller entrances within ~0.10 s).
+export const ELEMENT_SNAP = 0.1;
+
+// Moves each element's template time onto the nearest beat when one is within ELEMENT_SNAP, so an entrance, its
+// sound and every check read the same second. Hand-set times (tweaks) stay where the person put them; the voice is
+// never moved, and what enters with the cut stays with it. Returns scenes with `onBeat` (never saved).
+export function snapElements(scenes: MotionScene[], beats: number[], within = ELEMENT_SNAP): MotionScene[] {
+  if (beats.length < 2) return scenes;
+  return timeScenes(scenes).map(({ index: _index, start, end: _end, ...scene }) => {
+    const onBeat: Record<string, number> = {};
+    const decided = new Set<string>();
+    // One at a time, in order: some template times follow others (the typed text's button and result).
+    for (;;) {
+      const next = sceneElements({ ...scene, onBeat })
+        .filter((e) => !decided.has(e.key) && e.lane !== "voice" && scene.tweaks?.[e.key]?.at === undefined)
+        .sort((a, b) => a.at - b.at)[0];
+      if (!next) break;
+      decided.add(next.key);
+      if (next.at <= 0.001) continue;
+      const near = beats.reduce((best, b) => (Math.abs(b - start - next.at) < Math.abs(best - start - next.at) ? b : best), beats[0]);
+      const local = Math.round((near - start) * 1000) / 1000;
+      if (Math.abs(local - next.at) <= within && local >= 0 && local <= scene.seconds - 0.3) onBeat[next.key] = local;
+    }
+    return Object.keys(onBeat).length ? { ...scene, onBeat } : scene;
+  });
 }
 
 // The timeline's lanes, in order.
@@ -328,7 +358,7 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
       break;
     case "type": {
       add("media", media, "media", 0);
-      const typed = (scene.tweaks?.title?.at ?? 0.35) + typingSeconds(title);
+      const typed = (scene.tweaks?.title?.at ?? scene.onBeat?.title ?? 0.35) + typingSeconds(title);
       if (title) add("title", "Texto tipeado", "title", 0.35);
       if (scene.items[1]) add("tag", "Botón", "tag", typed + 0.15);
       if (text) add("text", "Resultado", "text", typed + 0.6);
@@ -358,7 +388,7 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
   }
   if (scene.voice.trim()) add("voice", "Voz", "voice", 0.25, false);
   const latest = Math.max(0, d - 0.3);
-  return list.map((e) => ({ ...e, at: Math.min(latest, Math.max(0, scene.tweaks?.[e.key]?.at ?? defaults[e.key])) }));
+  return list.map((e) => ({ ...e, at: Math.min(latest, Math.max(0, scene.tweaks?.[e.key]?.at ?? scene.onBeat?.[e.key] ?? defaults[e.key])) }));
 }
 
 // Typing speed of the "type" template, characters per second.
@@ -368,8 +398,14 @@ export const typingSeconds = (text: string) => text.length / TYPE_CPS;
 // The push between scenes in the warm tone (the new scene slides in over the old one); see cutPush for the others.
 export const CUT_PUSH = 0.38;
 
-// When an element is fully on screen and still (its entrance done), from the scene's start.
-export function settledAt(scene: MotionScene, el: SceneElement): number {
+// When an element is fully on screen and still (its entrance done), from the scene's start. `push`: how long this
+// scene slides in over the previous one (cutPush; 0 for the first scene and for hard cuts). Nothing is still before
+// the push ends, whatever its own entrance says.
+export function settledAt(scene: MotionScene, el: SceneElement, push = 0): number {
+  return Math.max(push, entranceDone(scene, el));
+}
+
+function entranceDone(scene: MotionScene, el: SceneElement): number {
   const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
   switch (el.key) {
     case "title":
@@ -385,6 +421,9 @@ export function settledAt(scene: MotionScene, el: SceneElement): number {
       return el.at + (el.key.startsWith("item") ? 0.5 : 0.6);
   }
 }
+
+// How long scene `index` slides in over the one before it.
+export const pushOf = (index: number, push: number) => (index > 0 ? push : 0);
 
 // The text an element shows, for the reading check.
 function shownText(scene: MotionScene, key: string): string {
@@ -405,13 +444,14 @@ export function readingNeed(text: string): number {
 
 export type ReadingIssue = { sceneId: string; index: number; key: string; label: string; text: string; needs: number; has: number };
 
-export function readingIssues(scenes: MotionScene[]): ReadingIssue[] {
+// `push`: the tone's change between scenes (cutPush); a line inside a scene that is still sliding in is not readable yet.
+export function readingIssues(scenes: MotionScene[], push: number): ReadingIssue[] {
   const issues: ReadingIssue[] = [];
   for (const s of timeScenes(scenes)) {
     for (const el of sceneElements(s)) {
       const text = shownText(s, el.key).trim();
       if (!text) continue;
-      const has = el.key === "voice" ? s.seconds : s.seconds - settledAt(s, el);
+      const has = el.key === "voice" ? s.seconds : s.seconds - settledAt(s, el, pushOf(s.index, push));
       const needs = readingNeed(text);
       if (has + 0.05 < needs) issues.push({ sceneId: s.id, index: s.index, key: el.key, label: el.key === "voice" ? "Subtítulo" : el.label, text, needs, has: Math.max(0, has) });
     }
@@ -444,12 +484,12 @@ export function elementTimes(scene: MotionScene): Record<string, number> {
   return Object.fromEntries(sceneElements(scene).map((e) => [e.key, e.at]));
 }
 
-// When something new appears on screen, from the scene's start: the cut itself, then each element. The renderer, the
-// pops of the sound and the 2-to-4-seconds check all read it.
-export function revealTimes(scene: MotionScene): number[] {
+// When something new appears on screen, from the scene's start: the cut itself, then each element. What enters while
+// the scene is still sliding in (`push`) arrives with the cut, not on its own. The 2-to-4-seconds check reads it.
+export function revealTimes(scene: MotionScene, push = 0): number[] {
   const times = sceneElements(scene)
     .filter((e) => e.lane !== "voice")
-    .map((e) => e.at);
+    .map((e) => (e.at < push ? 0 : e.at));
   return [...new Set([0, ...times])].sort((a, b) => a - b);
 }
 
@@ -473,16 +513,16 @@ export function tweakScene(scene: MotionScene, key: string, patch: Tweak): Motio
   return { ...scene, tweaks };
 }
 
-export function motionEvents(scenes: MotionScene[]): number[] {
+export function motionEvents(scenes: MotionScene[], push: number): number[] {
   return timeScenes(scenes)
-    .flatMap((s) => revealTimes(s).filter((r) => r < s.seconds).map((r) => s.start + r))
+    .flatMap((s) => revealTimes(s, pushOf(s.index, push)).filter((r) => r < s.seconds).map((r) => s.start + r))
     .sort((a, b) => a - b);
 }
 
-// Stretches where nothing new appears for longer than `max` seconds.
-export function quietGaps(scenes: MotionScene[], max = 4): { from: number; to: number }[] {
+// Stretches where nothing new appears for longer than `max` seconds. `push`: the tone's change between scenes.
+export function quietGaps(scenes: MotionScene[], push: number, max = 4): { from: number; to: number }[] {
   const total = scenes.reduce((n, s) => n + s.seconds, 0);
-  const points = [...motionEvents(scenes), total];
+  const points = [...motionEvents(scenes, push), total];
   const gaps: { from: number; to: number }[] = [];
   for (let i = 1; i < points.length; i++) {
     if (points[i] - points[i - 1] > max + 0.01) gaps.push({ from: points[i - 1], to: points[i] });

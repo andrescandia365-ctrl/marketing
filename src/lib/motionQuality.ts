@@ -1,7 +1,7 @@
 // The quality loop's eyes: the contact sheet (one frame per beat, at phone-thumbnail size, with the second under
 // each frame) and the facts the app measures itself (cuts and entrances against the beats, still stretches, the
 // hook's timing, voices that run over, elements off the frame), so the reviewer never has to guess them.
-import { cutPush, quietGaps, readingIssues, sceneElements, timeScenes, type MotionScript } from "../../shared/motion.ts";
+import { cutPush, quietGaps, readingIssues, sceneElements, settledAt, timeScenes, type MotionScript } from "../../shared/motion.ts";
 import { drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionWorld } from "./motion.ts";
 
 export type SheetFormat = "vertical" | "horizontal";
@@ -98,17 +98,17 @@ export function measureFacts(
     const onCuts = cuts.filter((t) => nearestGap(t, beats) <= ON_BEAT).length;
     const entries = timed.flatMap((s) => sceneElements(s).filter((e) => e.lane !== "voice" && e.at > 0.05).map((e) => s.start + e.at));
     const onEntries = entries.filter((t) => nearestGap(t, beats) <= ON_BEAT).length;
-    lines.push(`Cuts on a beat (within ${ON_BEAT * 1000} ms): ${onCuts} of ${cuts.length}. Elements entering on a beat: ${onEntries} of ${entries.length} (their sound hits are placed on the grid anyway).`);
+    lines.push(`Cuts on a beat (within ${ON_BEAT * 1000} ms): ${onCuts} of ${cuts.length}. Elements entering on a beat: ${onEntries} of ${entries.length} (each sound hit lands exactly with its element).`);
   }
-  const gaps = quietGaps(script.scenes);
+  const push = cutPush(script.tone);
+  const gaps = quietGaps(script.scenes, push);
   lines.push(`Still stretches over 4 s: ${gaps.length ? gaps.map((g) => `${g.from.toFixed(1)}–${g.to.toFixed(1)} s`).join(", ") : "none"}.`);
   const first = timed[0];
   if (first) {
     const title = sceneElements(first).find((e) => e.key === "title");
-    const words = first.title.split(/\s+/).filter(Boolean).length;
     lines.push(
       title
-        ? `Hook: scene 1's title starts at ${title.at.toFixed(2)} s and is fully on screen at about ${(title.at + Math.max(0, words - 1) * 0.11 + 0.45).toFixed(2)} s.`
+        ? `Hook: scene 1's title starts at ${title.at.toFixed(2)} s and is fully on screen at about ${settledAt(first, title).toFixed(2)} s.`
         : "Hook: scene 1 has no title.",
     );
   }
@@ -126,7 +126,7 @@ export function measureFacts(
   lines.push(
     `Elements running off the frame: ${off.length ? off.map((o) => `scene ${o.scene} ${o.key} (${o.format === "vertical" ? "9:16" : "16:9"}, at ${o.t.toFixed(2)} s)`).join("; ") : "none"}.`,
   );
-  const reading = readingIssues(script.scenes);
+  const reading = readingIssues(script.scenes, push);
   lines.push(
     `Lines on screen too briefly to read (need about 0.3 s per word once fully in, 0.8 s for a 1-3 word label): ${
       reading.length

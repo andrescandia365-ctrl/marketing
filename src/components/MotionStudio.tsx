@@ -41,7 +41,8 @@ import { download, slug } from "../lib/markdown.ts";
 import type { PuppetAsset } from "../lib/puppet.ts";
 import type { ActorAsset } from "../lib/actor.ts";
 import { drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
-import { toWav, TARGET_LUFS } from "../lib/motionAudio.ts";
+import { TARGET_LUFS } from "../lib/motionAudio.ts";
+import { MixPlayer } from "../lib/playClock.ts";
 import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
 import {
   LAYER_BASE,
@@ -127,14 +128,19 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [busy, setBusy] = useState<null | "write" | "sound" | "render" | "voice" | "upload" | "review" | "final">(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
-  const [soundUrl, setSoundUrl] = useState<string | null>(null);
+  // The mix plays through Web Audio, whose clock drives the preview (see playClock.ts). soundFresh: the loaded mix
+  // matches the piece as it is now.
+  const playerRef = useRef<MixPlayer | null>(null);
+  const player = () => (playerRef.current ??= new MixPlayer());
+  const [playing, setPlaying] = useState(false);
+  const soundFresh = useRef(false);
+  const soundSeq = useRef(0);
   const [soundInfo, setSoundInfo] = useState("");
   const [progress, setProgress] = useState<number | null>(null);
   const [results, setResults] = useState<(RenderResult & { url: string; format: string; saved: string })[]>([]);
-  const audioRef = useRef<HTMLAudioElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const urls = useRef<string[]>([]);
-  // The preview's time when the sound is not playing (the player loses its place every time the sound is rebuilt).
+  // The preview's time when the sound is not playing.
   const timeRef = useRef(0);
   const playheadRef = useRef<HTMLDivElement>(null);
   const clockRef = useRef<HTMLSpanElement>(null);
@@ -195,11 +201,20 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
 
   function seek(t: number) {
     timeRef.current = Math.max(0, t);
-    const audio = audioRef.current;
-    if (audio && audio.currentSrc) audio.currentTime = timeRef.current;
+    playerRef.current?.seek(timeRef.current);
+  }
+
+  function pause() {
+    const p = playerRef.current;
+    if (p?.playing) {
+      p.pause();
+      timeRef.current = p.time();
+    }
+    setPlaying(false);
   }
 
   useEffect(() => () => urls.current.forEach((u) => URL.revokeObjectURL(u)), []);
+  useEffect(() => () => playerRef.current?.close(), []);
   const objectUrl = (blob: Blob) => {
     const url = URL.createObjectURL(blob);
     urls.current.push(url);
@@ -259,14 +274,16 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     [brand, assets, logo, beats, piece.disclosure, usesAi, puppets, actors, speech],
   );
 
-  const gaps = quietGaps(scenes);
+  // How long each scene slides in over the one before (the tone's cut); the checks wait for it.
+  const push = cutPush(script?.tone);
+  const gaps = quietGaps(scenes, push);
   const key = (g: { from: number; to: number }) => `${g.from.toFixed(1)}-${g.to.toFixed(1)}`;
   const openGaps = gaps.filter((g) => !piece.dismissed.includes(key(g)));
   // Lines on screen too briefly to read (about 0.3 s per word once fully in).
-  const openReading = readingIssues(scenes).filter((r) => !(piece.readingOk ?? []).includes(readingKey(r)));
+  const openReading = readingIssues(scenes, push).filter((r) => !(piece.readingOk ?? []).includes(readingKey(r)));
   const blocked = openGaps.length > 0 || openReading.length > 0;
   // The thumbnail: frame 0 of every render.
-  const posterT = posterTime(scenes, piece.poster, cutPush(script?.tone));
+  const posterT = posterTime(scenes, piece.poster, push);
   const posterRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const c = posterRef.current;
@@ -298,7 +315,33 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const soundKey = JSON.stringify(
     timeScenes(scenes).map((s) => [s.start, s.template, revealTimes(s), elementTimes(s).voice ?? null]),
   );
-  useEffect(() => setSoundUrl(null), [soundKey, voices, piece.music, piece.voice, piece.effects, track]);
+  // A change makes the loaded mix stale. While it plays, a new mix is built after a short pause in the edits and
+  // carries on from the same second; stopped, the next ▶ builds it.
+  useEffect(() => {
+    soundFresh.current = false;
+    ++soundSeq.current;
+    if (!playerRef.current?.playing) {
+      playerRef.current?.setBuffer(null);
+      return;
+    }
+    const timer = setTimeout(refreshMix, 450);
+    return () => clearTimeout(timer);
+    // The keys below say when the mix changes; refreshMix reads the newest piece.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [soundKey, voices, piece.music, piece.voice, piece.effects, track]);
+
+  // Builds the mix of the piece as it is now and swaps it in while playing (same second). A newer change wins.
+  function refreshMix() {
+    const seq = soundSeq.current;
+    makeSoundRef
+      .current()
+      .then((buffer) => {
+        if (seq !== soundSeq.current || !buffer) return;
+        soundFresh.current = true;
+        playerRef.current?.setBuffer(buffer);
+      })
+      .catch((e) => setError(message(e)));
+  }
 
   // How loud each voice is over time, so the characters' mouths follow it.
   useEffect(() => {
@@ -323,8 +366,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     const tick = () => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
-      const audio = audioRef.current;
-      if (audio && !audio.paused) timeRef.current = audio.currentTime;
+      const mix = playerRef.current;
+      if (mix?.playing) timeRef.current = mix.time();
       const t = timeRef.current;
       if (canvas && ctx && snapped) {
         const found = new Map<string, Box>();
@@ -384,7 +427,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const fmt = piece.format === "vertical" ? "v" : "h";
 
   function canvasDown(e: ReactPointerEvent<HTMLCanvasElement>) {
-    audioRef.current?.pause();
+    pause();
     const point = canvasPoint(e);
     const hits = [...boxes.current.entries()].filter(([, b]) => point.x >= b.x && point.x <= b.x + b.w && point.y >= b.y && point.y <= b.y + b.h);
     // The last drawn is on top; the smallest wins among overlapping ones.
@@ -521,29 +564,34 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
 
   async function makeSound(played = snapped, grid = beats): Promise<AudioBuffer | null> {
     if (!played) return null;
-    const { buffer, lufs } = await motionSound(played, piece, grid, voices, track?.buffer ?? null);
+    const { buffer, lufs } = await motionSound(played, piece, voices, track?.buffer ?? null);
     setSoundInfo(`Sonido: ${Number.isFinite(lufs) ? `${lufs.toFixed(1)} LUFS (objetivo ${TARGET_LUFS})` : "sin sonido"} · ${grid.length ? `${grid.length} beats en la grilla` : "sin grilla"}.`);
     return buffer;
   }
+  // The newest render's makeSound, for mixes built after an await or a timer.
+  const makeSoundRef = useRef(makeSound);
+  makeSoundRef.current = makeSound;
 
-  async function play() {
-    if (!soundUrl) {
+  // ▶ / ❚❚: builds the mix when the loaded one is stale, then plays from the preview's second.
+  async function togglePlay() {
+    const p = player();
+    if (p.playing) return pause();
+    if (!soundFresh.current || !p.ready) {
+      const seq = soundSeq.current;
       const buffer = await work("sound", makeSound);
       if (!buffer) return;
-      const url = objectUrl(toWav(buffer));
-      setSoundUrl(url);
-      setTimeout(() => {
-        const audio = audioRef.current;
-        if (!audio) return;
-        audio.currentTime = timeRef.current < total - 0.1 ? timeRef.current : 0;
-        audio.play().catch(() => undefined);
-      }, 50);
-      return;
+      // The piece changed while the mix was being built: the next ▶ builds it again.
+      soundFresh.current = seq === soundSeq.current;
+      p.setBuffer(buffer);
     }
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (Math.abs(audio.currentTime - timeRef.current) > 0.05) audio.currentTime = timeRef.current < total - 0.1 ? timeRef.current : 0;
-    audio.play().catch(() => undefined);
+    p.onEnd = () => {
+      timeRef.current = p.time();
+      setPlaying(false);
+    };
+    await p.play(timeRef.current < total - 0.1 ? timeRef.current : 0);
+    setPlaying(true);
+    // Something changed while the mix was being built: the newest one replaces it as it plays.
+    if (!soundFresh.current) refreshMix();
   }
 
   // ── Quality loop (the studio's rule: no full render before it) ──────────────────────────────────────────────
@@ -799,18 +847,10 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               />
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="secondary" onClick={play} disabled={busy !== null}>
-                {busy === "sound" ? <Spinner /> : "▶"} Reproducir con sonido
+              <Button variant="secondary" onClick={togglePlay} disabled={busy !== null && !playing}>
+                {busy === "sound" ? <Spinner /> : playing ? "❚❚" : "▶"} {playing ? "Pausa" : "Reproducir con sonido"}
               </Button>
-              <audio
-                ref={audioRef}
-                src={soundUrl ?? undefined}
-                controls
-                className="h-9 min-w-0 flex-1"
-                onSeeked={(e) => {
-                  if (e.currentTarget.currentSrc) timeRef.current = e.currentTarget.currentTime;
-                }}
-              />
+              <span className="min-w-0 flex-1 text-xs text-muted">Para ir a otro segundo, tocá la regla de la línea de tiempo.</span>
               <span ref={clockRef} className="w-14 text-right font-mono text-xs text-muted">
                 0.0 s
               </span>

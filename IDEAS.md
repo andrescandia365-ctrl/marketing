@@ -89,7 +89,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 
 ### Sincronización de los motion graphics: lo que encontré
 
-#### 41. El reloj de la vista previa va a saltos (explicativos y videos de letra)
+#### 41. El reloj de la vista previa va a saltos (explicativos y videos de letra) — **Construido (7 Oct 2026, "Go 41 a 43")**
 - **Qué pasa:** la vista previa dibuja en cada `requestAnimationFrame` leyendo `audio.currentTime` de un `<audio>`
   (`MotionStudio.tsx` ~l. 327, `LyricStudio.tsx` ~l. 1213). Ese valor avanza a saltos (en Chrome cada bloque de
   audio; en Safari y Firefox peor), así que entre un cuadro y el siguiente el `t` puede repetirse o saltar: el
@@ -101,7 +101,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   navegador. Al rearmar la mezcla se reanuda desde el mismo `t` sin perder el lugar. Lo mismo para la letra y para
   "Ver la pieza" del storyboard cuando tenga voces.
 
-#### 42. El check "Se lee" no cuenta el empuje entre escenas
+#### 42. El check "Se lee" no cuenta el empuje entre escenas — **Construido (7 Oct 2026), con una corrección**
 - **Qué pasa:** con tono Cálido la escena nueva entra deslizando 0,38 s (`cutPush`), y con Absurdo 0,2 s. Pero
   `settledAt` (cuándo un elemento quedó quieto) y `revealTimes` cuentan desde el inicio de la escena: un título que
   "entra a los 0 s" todavía se está moviendo con la escena durante el empuje. El check de lectura queda optimista
@@ -110,7 +110,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - **Arreglo:** en `settledAt` y en `revealTimes`, para `index > 0`, sumar `cutPush(tone)` a todo lo que entra antes
   de que termine el empuje (`at < push` → cuenta desde `push`). Pasar el tono a esas funciones (hoy no lo reciben).
 
-#### 43. El sonido se mueve al beat, la imagen no
+#### 43. El sonido se mueve al beat, la imagen no — **Construido (7 Oct 2026)**
 - **Qué pasa:** `soundHits` lleva cada golpe al beat más cercano si está a menos de 0,06 s (`nearBeat`) y le resta
   0,02 s. La entrada visual del elemento queda donde estaba. Resultado: hasta 80 ms de corrimiento entre lo que se
   ve y lo que se oye, justo lo que la regla del playbook (§3.1) quiere evitar.
@@ -146,6 +146,25 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - `speechLevels` y `soundPlan` colocan la voz en el mismo `at` (0,25 s), así la boca del títere y el audio
   coinciden. `render.mjs` manda el cuadro f en `t = f/30` y la mezcla arranca en 0, con `-shortest`: el final
   coincide con la vista previa. La grilla sintetizada y el kick del sinte empiezan los dos en 0.
+
+#### Lo construido con "Go 41 a 43" (7 Oct 2026)
+- **41:** la vista previa del explicativo suena por Web Audio y dibuja con su reloj (`MixPlayer` en
+  `src/lib/playClock.ts`). El botón pasa a ▶ / ❚❚; para ir a otro segundo se toca la regla de la línea de tiempo. Si
+  cambiás algo mientras suena, la mezcla se rearma sola a los 0,45 s y sigue desde el mismo segundo. En los videos de
+  letra la canción conserva su reproductor y la vista previa usa un reloj suavizado (`mediaClock`).
+  - Medido en Chromium, un valor por cuadro durante 1,5 s: el `currentTime` del `<audio>` se apartó hasta 37 ms del
+    reloj real en un cuadro; el reloj suavizado, 4 ms; el de Web Audio, 0 ms. Ninguno fue para atrás. En Safari y
+    Firefox el `<audio>` va más a saltos que en Chrome, así que la diferencia ahí es mayor.
+- **42, corrección:** el check "Se lee" no estaba equivocado. Todas las entradas duran 0,45 s o más y el empuje más
+  largo es 0,38 s, así que ningún texto quedaba quieto antes de que terminara el empuje. Quedó una guarda
+  (`settledAt` nunca antes del fin del empuje) por si un día hay una entrada más rápida. Lo que sí cambió: en el check
+  de "algo nuevo cada 2–4 s", lo que entra mientras la escena todavía se desliza cuenta como parte del corte, no como
+  algo nuevo aparte. Con tono Seco (corte seco) no cambia nada.
+- **43:** `arrangeScenes` pega al beat la entrada de cada elemento cuando hay uno a menos de 0,1 s (`snapElements`).
+  Los tiempos que pusiste a mano no se mueven, la voz no se mueve, y con "Cortes en los beats" apagado no se mueve
+  nada. El sonido ya no se corre solo: cada efecto suena justo cuando entra su elemento.
+  - En el explicativo de muestra: 24 efectos, los 24 en el segundo de su elemento; 10 entradas pasaron a caer en un
+    beat. El render final (`render.mjs`, H.264) salió bien y la mezcla midió −14,1 LUFS.
 
 ### Flujo de trabajo y base del código
 

@@ -1,14 +1,14 @@
 // What the explainer studio and the render page (render.mjs) share: loading a piece's images, voices and track,
 // the beat grid, the scenes on it, the world the engine draws with, and the sound. Both build frame t and the mix
 // the same way, so the final render matches the preview.
-import { TYPE_CPS, elementTimes, sceneElements, snapScenes, timeScenes, type MotionPiece, type MotionScene, type MotionScript } from "../../shared/motion.ts";
+import { TYPE_CPS, cutPush, elementTimes, sceneElements, snapElements, snapScenes, timeScenes, type MotionPiece, type MotionScene, type MotionScript } from "../../shared/motion.ts";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import type { Brand } from "../../shared/series.ts";
 import { libraryFileUrl, projectFileUrl, type MediaFileRecord, type MediaRecord } from "./api.ts";
 import { buildPuppet, singlePuppet, type PuppetAsset } from "./puppet.ts";
 import { loadActor, type ActorAsset } from "./actor.ts";
 import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "./motion.ts";
-import { buildSound, nearBeat, type HitKind, type SoundPlan } from "./motionAudio.ts";
+import { buildSound, type HitKind, type SoundPlan } from "./motionAudio.ts";
 import { findBeats } from "./render.ts";
 
 export const VOICE_BASE = 100;
@@ -188,7 +188,8 @@ function lowEnergy(track: AudioBuffer): Float32Array {
 }
 
 // The scenes as they play: snapped onto the beats unless the person turned that off, with the cuts into the product
-// and the logo on the strongest hits.
+// and the logo on the strongest hits, and each element's template time on a beat when one is within 0.1 s. This is
+// the one place timing moves to the grid: the drawing, the sound and the checks all read what it returns.
 export function arrangeScenes(
   script: MotionScript | null,
   beats: number[],
@@ -197,7 +198,8 @@ export function arrangeScenes(
   track: AudioBuffer | null = null,
 ): MotionScene[] {
   if (!script) return [];
-  return snap ? snapScenes(script.scenes, beats, strongBeats(beats, music, track)) : script.scenes;
+  if (!snap) return script.scenes;
+  return snapElements(snapScenes(script.scenes, beats, strongBeats(beats, music, track), cutPush(script.tone)), beats);
 }
 
 // The music bed's level by tone: lower under a dry piece, a touch higher in an absurd one.
@@ -250,15 +252,16 @@ export function loadSfx(): Promise<Partial<Record<HitKind, AudioBuffer[]>>> {
   return sfx;
 }
 
-// Where the effects go. Each lands as its motion starts (a hair before), and on a beat only when one is within
-// 0.06 s. In a sequence (labels, steps) only the first and the last arrival sound. Typing sounds per key.
-export function soundHits(snapped: MotionScript, beats: number[]): SoundPlan["hits"] {
+// Where the effects go. Each lands exactly as its motion starts: the element's time is already on the beat when it
+// was near one (arrangeScenes), so the sound never moves on its own and image and sound stay together. In a sequence
+// (labels, steps) only the first and the last arrival sound. Typing sounds per key.
+export function soundHits(snapped: MotionScript): SoundPlan["hits"] {
   const hits: SoundPlan["hits"] = [];
   // Dry: only the big moments sound (the product, the logo, a tap or key that is the action itself); no whoosh.
   const dry = snapped.tone === "dry";
   const hit = (t: number, kind: HitKind, n?: number) => {
     if (dry && (kind === "pop" || kind === "whoosh")) return;
-    hits.push({ at: Math.max(0, nearBeat(t, beats) - 0.02), kind, n });
+    hits.push({ at: Math.max(0, t), kind, n });
   };
   for (const s of timeScenes(snapped.scenes)) {
     if (s.index > 0) hit(s.start, "whoosh");
@@ -315,7 +318,6 @@ export function soundHits(snapped: MotionScript, beats: number[]): SoundPlan["hi
 export function soundPlan(
   snapped: MotionScript,
   piece: MotionPiece,
-  beats: number[],
   voices: Record<string, { blob: Blob }>,
   track: AudioBuffer | null,
 ): { plan: Omit<SoundPlan, "voices" | "samples">; voiceBlobs: { at: number; blob: Blob }[] } {
@@ -331,7 +333,7 @@ export function soundPlan(
       mood: snapped.music.mood,
       bpm: snapped.music.bpm,
       track,
-      hits: soundHits(snapped, beats),
+      hits: soundHits(snapped),
       effects: piece.effects ?? "library",
       bed: TONE_BED[snapped.tone ?? "warm"],
     },
@@ -342,11 +344,10 @@ export function soundPlan(
 export async function motionSound(
   snapped: MotionScript,
   piece: MotionPiece,
-  beats: number[],
   voices: Record<string, { blob: Blob }>,
   track: AudioBuffer | null,
 ): Promise<{ buffer: AudioBuffer; lufs: number }> {
-  const made = soundPlan(snapped, piece, beats, voices, track);
+  const made = soundPlan(snapped, piece, voices, track);
   const decoded = await Promise.all(made.voiceBlobs.map(async (v) => ({ at: v.at, buffer: await decodeAudio(v.blob) })));
   const samples = made.plan.effects === "library" ? await loadSfx() : undefined;
   return buildSound({ ...made.plan, voices: decoded, samples });
