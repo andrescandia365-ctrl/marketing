@@ -1005,7 +1005,7 @@ export function App() {
           onChanged={() =>
             api
               .status()
-              .then((s) => setStatus((old) => (old ? { ...old, writer: s.writer, voice: s.voice, lyrics: s.lyrics, imageProviders: s.imageProviders } : s)))
+              .then((s) => setStatus((old) => (old ? { ...old, writer: s.writer, voice: s.voice, lyrics: s.lyrics, imageProviders: s.imageProviders, render: s.render } : s)))
               .catch(() => undefined)
           }
         />
@@ -1206,6 +1206,7 @@ export function App() {
             series={pieceSeries}
             initial={lyric.initial}
             autoSync={status?.lyrics.autoSync ?? false}
+            demucs={status?.render?.demucs ?? false}
             projectsDir={status?.projectsDir ?? "proyectos"}
             onSaveStatus={setSaveStatus}
             onSeries={(series) => setStatus((s) => (s ? { ...s, series } : s))}

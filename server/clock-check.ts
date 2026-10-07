@@ -1,5 +1,4 @@
 // Harness for the lyric clock. A kick grid that locks onto hats, a snapped word, or a gradient card fails here.
-import { spawnSync } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { EMPTY_BRIEF } from "../shared/example.ts";
@@ -21,6 +20,7 @@ import {
 } from "../shared/clock.ts";
 import { critique, pixel, syncPixels, layoutSync } from "../shared/syncDraw.ts";
 import { drumsFromUpload, writeSyncFiles } from "./sync.ts";
+import { demucsCommand } from "./demucs.ts";
 import { PROJECTS_DIR } from "./projects.ts";
 
 const GRID0 = 0.4542;
@@ -187,7 +187,7 @@ for (let y = 0; y < h; y++) {
 const banned = critique(doc, brand, [{ t: 1, rgba: gradient, w, h }]);
 assert(banned.fixes.some((fix) => /gradiente/i.test(fix.problem)), "el gradiente pasó la crítica");
 
-const hasDemucs = spawnSync("bash", ["-lc", "command -v demucs"], { stdio: "ignore" }).status === 0;
+const hasDemucs = demucsCommand() !== null;
 if (!hasDemucs) {
   let refused = false;
   try {

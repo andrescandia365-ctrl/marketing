@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Arranca Playbook Studio: revisa Node, crea .env, pregunta qué IA escribe (y su clave) si falta, instala, ofrece
-# instalar ffmpeg (render final de los explicativos) y abre la app.
+# instalar ffmpeg (render final de los explicativos), avisa si está Demucs (opcional) y abre la app.
 # Uso: bash iniciar.sh            (bash iniciar.sh --ia para cambiar de IA)
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -115,7 +115,22 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
   fi
 fi
 
-# 6. Arrancar.
+# 6. Demucs (opcional; lo instalás vos): separa un tema en batería y voz para el Reloj, la sincronización de letras y
+# los explicativos con música propia. Acá solo se avisa si está.
+demucs_bin=$(grep -E '^DEMUCS_BIN=.+' .env 2>/dev/null | tail -1 | cut -d= -f2- || true)
+demucs_bin=${demucs_bin/#\~/$HOME}
+if { [ -n "$demucs_bin" ] && [ -x "$demucs_bin" ]; } || { [ -z "$demucs_bin" ] && command -v demucs >/dev/null 2>&1; }; then
+  echo "Demucs: listo (Modelos → Demucs dice dónde lo usa la app)."
+elif [ -n "$demucs_bin" ]; then
+  echo
+  echo "DEMUCS_BIN en .env apunta a $demucs_bin y ahí no hay un Demucs que se pueda abrir."
+else
+  echo
+  echo "Opcional: Demucs no está. Sirve para videos de letra sin las pistas del tema y para explicativos con música propia."
+  echo "  Cuándo conviene y cómo instalarlo: botón Modelos → Demucs, en la app."
+fi
+
+# 7. Arrancar.
 echo
 echo "Abrí http://localhost:5173 en Chrome. Para cortar: Ctrl+C."
 echo

@@ -137,6 +137,8 @@ const WRITABLE = new Set([
   "VISION_PROVIDER",
   "VISION_MODEL",
   "WRITER_EFFORT",
+  // Where Demucs is (Modelos → Demucs; demucs.ts only runs a file named demucs).
+  "DEMUCS_BIN",
   "KIMI_MODEL",
   // Only removed from the app: the old single key, when the person deletes the provider it belonged to.
   "KIMI_API_KEY",

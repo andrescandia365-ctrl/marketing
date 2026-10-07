@@ -59,7 +59,7 @@ En el brief, **Pieza → Explicativo (motion graphics)** y **Empezar un explicat
 - **Guion por escenas:** la IA arma el guion con plantillas: gancho, pantalla en el celular o la compu, zoom a una función, **texto que se tipea** (un buscador o un campo de la app: se escribe letra por letra con sonido de teclas, se toca el botón y aparece el resultado), rótulos, paso a paso, antes/después, producto con precio, número grande y cierre con logo. Usa las pantallas reales, el producto recortado, los personajes y las capas de Grok que subas. Cada escena se puede editar, mover o sacar. La cámara de cada escena puede quedarse quieta, acercarse, alejarse, panear o derivar. Los subtítulos y el aviso de IA quedan quietos.
 - **Sonido:**
   - Voz por escena: generada, grabada o subida.
-  - Música sintetizada en código (tres climas y tempo) o tu tema. Los cortes caen en los beats, y la entrada del producto y del logo en los golpes más fuertes (el primer tiempo del compás, o los golpes más graves de tu tema), salvo que eso deje un texto sin tiempo para leerse.
+  - Música sintetizada en código (tres climas y tempo) o tu tema. Los cortes caen en los beats, y la entrada del producto y del logo en los golpes más fuertes (el primer tiempo del compás), salvo que eso deje un texto sin tiempo para leerse. Con tu tema, la grilla sale de su pista de batería: la subís, o la separa [Demucs](#demucs-opcional). Sin esa pista los cortes no se mueven: la app nunca mide el beat en el tema entero.
   - **Efectos:** una biblioteca libre de dominio público (Kenney y sonidos de teclas, en `public/sfx/` con sus créditos), sintetizados, o ninguno. Cada efecto suena justo cuando empieza su movimiento; en los rótulos y pasos suenan el primero y el último.
   - El total queda a −14 LUFS.
 - **Reglas del estudio:**
@@ -98,10 +98,10 @@ Una serie de tipo **Música** no escribe historias, sino videos de letra. Elegí
    - Los rótulos que traen las páginas de letras («Chorus (Miku):», «Verse 2», «Estribillo:») se saltean solos; la pantalla dice cuántos. **Seguir → sincronizar** dice qué falta (la canción o la letra).
    - Confirmás que la canción es tuya o tenés licencia.
 2. **Sincronizar.** Hay dos formas, y después podés ajustar cada línea:
-   - **Automático:** OpenAI escucha la canción y le pone tiempo a cada palabra. Usa la misma `OPENAI_API_KEY`. El guaraní no lo conoce, así que escucha sin idioma.
+   - **Automático:** OpenAI escucha la canción y le pone tiempo a cada palabra. Usa la misma `OPENAI_API_KEY`. El guaraní no lo conoce, así que escucha sin idioma. Al terminar dice cuántas palabras de la letra encontró; si son menos del 70 %, la música tapa la voz y conviene **Escuchar solo la voz (Demucs)**.
    - **Tocando:** apretás **Ahora** o la barra espaciadora cuando empieza cada línea.
    - **Importar .lrc:** si ya la tenés sincronizada; si el archivo no coincide con tu letra, trae también la letra.
-3. **Reloj.** Arma el reloj de la pieza en `sync/` dentro de la carpeta del proyecto. El kick (corte y acento) sale del stem de batería; la palabra sale del stem de voz y no se pega al beat. **Crítica** mira una tira de cuadros y anota los problemas.
+3. **Reloj.** Arma el reloj de la pieza en `sync/` dentro de la carpeta del proyecto. El kick (corte y acento) sale del stem de batería; la palabra sale del stem de voz y no se pega al beat. Si no tenés los stems, [Demucs](#demucs-opcional) los separa del tema; sin Demucs, el stem de batería hace falta. **Crítica** mira una tira de cuadros y anota los problemas.
 4. **Elementos.** Después de sincronizar, gráficos que entran con un verso. **Sugerir con IA** propone de 3 a 6 (forma, movimiento, lugar y segundos). A mano entran hasta 12, y uno puede marcar el beat. También podés pegar un PNG, un JPG o un SVG: entra entero, sin recortar.
 5. **Estilo y video.**
    - Fondo orgánico que se mueve y late con el ritmo, **capas de Grok** (cada una se mueve según su profundidad), tu foto, o hasta 8 videos que se pasan uno tras otro en loop. **Prompts para Grok** escribe los clips de fondo según la letra y los colores. Si el fondo lo hizo una IA, va el aviso al pie, y con **Cuadro completo** no se recorta.
@@ -114,7 +114,7 @@ Cada serie se guarda como un archivo en `server/series/` (`iman.md`, `masogar.md
 ## Cómo correrla
 
 ```bash
-bash iniciar.sh        # revisa Node, crea .env, pregunta qué IA escribe, instala, ofrece ffmpeg y arranca
+bash iniciar.sh        # revisa Node, crea .env, pregunta qué IA escribe, instala, ofrece ffmpeg, avisa si está Demucs y arranca
 ```
 
 Abrí http://localhost:5173. A mano es lo mismo:
@@ -144,6 +144,31 @@ El botón con el nombre de la IA, arriba a la derecha (**· Modelos**), abre la 
 - **Quién mira las imágenes:** la misma IA, u otra que vea imágenes (para la revisión de lo que subís y el control de calidad). **Probar con una imagen** le manda un cuadrado rojo y le pregunta el color.
 - **Claves:** se pegan ahí una vez y se guardan en el `.env` de tu compu (permisos solo tuyos). La app nunca las devuelve: muestra los últimos 4 caracteres. Esta sección solo responde a la app abierta en tu compu (no a otra máquina de la red ni a otra página).
 
+## Demucs (opcional)
+
+Demucs separa un tema en pistas: batería, voz y el resto. La app lo usa para los dos relojes: el corte va al bombo de la batería y la palabra a la voz. Lo instalás vos en tu compu; sin Demucs todo anda igual subiendo esas pistas a mano. **Modelos → Demucs** dice si lo encuentra, dónde lo usa la app y cuándo conviene, y tiene **Probar Demucs** (separa 4 segundos inventados para ver que la instalación anda y, la primera vez, baja el modelo).
+
+**Cuándo activarlo:**
+
+| Dónde | Conviene cuando | Qué hace |
+|---|---|---|
+| Videos de letra → Sincronizar automático | La música tapa la voz: la app avisa si encontró menos del 70 % de la letra | **Escuchar solo la voz (Demucs)**: la transcripción escucha la voz separada |
+| Videos de letra → Reloj | No tenés los stems del tema (si te los pasa quien lo produjo, son más exactos) | Sin stem de batería o de voz, **Armar reloj** los separa del tema |
+| Explicativos con música propia | Querés los cortes en el bombo de tu tema (con la música que arma la app no hace falta) | **Separar la batería con Demucs**, en Música |
+
+No hace falta en las historias (el tema solo acerca los cortes a sus golpes), las narraciones y voces (ya son solo voz) ni Publicidad.
+
+**Instalarlo** (unos 2 GB con PyTorch), en su propio entorno de Python:
+
+```bash
+python3 -m venv ~/demucs
+~/demucs/bin/pip install demucs soundfile "torchaudio<2.9"
+```
+
+Si pip no encuentra `torchaudio<2.9` (pasa con un Python muy nuevo), la segunda línea es `~/demucs/bin/pip install demucs soundfile torchcodec`. Después, en **Modelos → Demucs**, pegá la ruta `~/demucs/bin/demucs` y **Guardar** (queda en `.env` como `DEMUCS_BIN`). Si `demucs` ya anda en la Terminal (por ejemplo con `pipx install demucs`), alcanza con **Volver a buscar**. Para leer mp3 o m4a necesita ffmpeg.
+
+Cada tema se separa una sola vez: las pistas quedan en `proyectos/.demucs/` y las reusan la sincronización, el Reloj y los explicativos. La primera vez tarda unos minutos sin placa de video. `DEMUCS_MODEL=htdemucs_ft` separa un poco mejor y tarda unas cuatro veces más.
+
 ## Conexiones opcionales
 
 | Qué | Variable (o Modelos en la app) | Sin ella |
@@ -153,6 +178,7 @@ El botón con el nombre de la IA, arriba a la derecha (**· Modelos**), abre la 
 | OpenAI Images, Voz generada y letra sincronizada automática | `OPENAI_API_KEY` | Copiá los prompts y subí tus imágenes; grabá o subí la voz; sincronizá la letra tocando |
 | Replicate (Flux) | `REPLICATE_API_TOKEN` | Copiá los prompts y subí tus imágenes |
 | Bocetos | ninguna | Siempre disponible |
+| Demucs (separar batería y voz) | `DEMUCS_BIN`, o `demucs` en la Terminal (Modelos → Demucs) | Subí los stems de batería y voz |
 
 ## Todavía no está
 

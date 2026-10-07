@@ -46,7 +46,6 @@ import type { ActorAsset } from "../lib/actor.ts";
 import { drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
 import { TARGET_LUFS } from "../lib/motionAudio.ts";
 import { MixPlayer } from "../lib/playClock.ts";
-import { encodeWav } from "../../shared/clock.ts";
 import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
 import {
   LAYER_BASE,
@@ -128,6 +127,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [voices, setVoices] = useState<Record<string, AudioFile>>({});
   const [layers, setLayers] = useState<HTMLImageElement[]>([]);
   const [track, setTrack] = useState<{ file: AudioFile; buffer: AudioBuffer } | null>(null);
+  // Demucs is splitting the track (minutes the first time).
+  const [separating, setSeparating] = useState(false);
   const [castImages, setCastImages] = useState<Record<string, MotionAsset>>({});
   const [logo, setLogo] = useState<MotionAsset | null>(null);
   const [puppets, setPuppets] = useState<Record<string, PuppetAsset>>({});
@@ -604,15 +605,20 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     });
   }
 
-  // The same with Demucs on this computer: the server separates the track's drums and measures the kicks there.
+  // The same with Demucs on this computer: the server separates the track's drums (the file as uploaded, so a song
+  // split before comes from the cache) and measures the kicks there.
   async function separateDrums() {
     if (!track) return;
-    await work("upload", async () => {
-      const pcm = monoPcm(track.buffer);
-      const wav = new Blob([encodeWav(pcm.samples, pcm.sampleRate) as Uint8Array<ArrayBuffer>], { type: "audio/wav" });
-      const { kicks } = await api.trackKicks(wav);
-      set({ kickGrid: { ...kicks, source: "demucs", name: track.file.name } });
-    });
+    setSeparating(true);
+    try {
+      await work("upload", async () => {
+        const { kicks, cached } = await api.trackKicks(track.file.blob);
+        set({ kickGrid: { ...kicks, source: "demucs", name: track.file.name } });
+        if (cached) setNote("Este tema ya estaba separado: la grilla sale de la separación guardada.");
+      });
+    } finally {
+      setSeparating(false);
+    }
   }
 
   async function makeSound(played = snapped, grid = beats): Promise<AudioBuffer | null> {
@@ -1179,11 +1185,24 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                       <input type="file" accept="audio/*" aria-label="Subir la pista de batería" className="mt-1 block text-xs" onChange={(e) => e.target.files?.[0] && addDrums(e.target.files[0])} />
                     </label>
                     {demucs ? (
-                      <Button variant="secondary" className="px-2 py-1 text-xs" disabled={busy !== null} onClick={separateDrums}>
-                        {busy === "upload" ? <Spinner /> : "Separar la batería con Demucs"}
-                      </Button>
+                      <div className="space-y-1">
+                        <Button variant="secondary" className="px-2 py-1 text-xs" disabled={busy !== null} onClick={separateDrums}>
+                          {separating ? (
+                            <>
+                              <Spinner /> Separando con Demucs…
+                            </>
+                          ) : (
+                            "Separar la batería con Demucs"
+                          )}
+                        </Button>
+                        {!piece.kickGrid && <p className="text-muted">Unos minutos la primera vez; después el tema queda separado.</p>}
+                      </div>
                     ) : (
-                      <p className="text-muted">Con Demucs instalado en esta compu, la app separa la batería sola.</p>
+                      !piece.kickGrid && (
+                        <p className="text-muted">
+                          ¿No tenés la pista de batería? Con Demucs instalado en esta compu, la app la separa sola (Modelos → Demucs).
+                        </p>
+                      )
                     )}
                   </div>
                 )}

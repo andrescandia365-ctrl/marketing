@@ -25,6 +25,9 @@ import type { Brand, CastMember, PuppetLayer, SeriesFields, TextStyle } from "..
 import type { RoomCard } from "../../shared/room.ts";
 import type { AdCombo, AdsState, Batch, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 
+// Demucs on this computer (Modelos → Demucs).
+export type DemucsStatus = { ready: boolean; command: string; model: string; songs: number; envBin: boolean };
+
 export type ProjectSummary = {
   id: string;
   title: string;
@@ -223,9 +226,17 @@ export const api = {
   startFinal: (id: string, formats: ("vertical" | "horizontal")[], origin: string) =>
     call<{ job: FinalJob }>(`/api/projects/${enc(id)}/final`, { formats, origin }),
   finalJob: (job: string) => call<{ job: FinalJob }>(`/api/final/${enc(job)}`),
-  // An explainer's track (mono WAV) → Demucs on this computer → the kicks of its drums stem.
-  trackKicks: (wav: Blob) =>
-    upload<{ kicks: { kicks: number[]; downbeats: number[]; bpm: number; medianErrorMs: number; usable: boolean } }>("/api/motion/kicks", wav, "audio/wav"),
+  // An explainer's track (the file as uploaded) → Demucs on this computer → the kicks of its drums stem.
+  trackKicks: (track: Blob) =>
+    upload<{ kicks: { kicks: number[]; downbeats: number[]; bpm: number; medianErrorMs: number; usable: boolean }; cached: boolean }>(
+      "/api/motion/kicks",
+      track,
+      track.type,
+    ),
+  // Demucs on this computer, looked up again; and a four-second test run (Modelos → Demucs).
+  demucs: () => call<{ demucs: DemucsStatus; ffmpeg: boolean }>("/api/tools/demucs"),
+  testDemucs: () => call<{ seconds: number; command: string }>("/api/tools/demucs/test", {}),
+  saveDemucsBin: (bin: string | null) => call<{ demucs: DemucsStatus; ffmpeg: boolean }>("/api/tools/demucs", { bin }, "PUT"),
   // Modelos (only answers from this computer).
   settings: () => call<SettingsView>("/api/settings"),
   saveKey: (name: string, key: string | null) => call<SettingsView>("/api/settings/key", { name, key }, "PUT"),
@@ -272,16 +283,19 @@ export const api = {
       applied: SyncDoc;
       qa: string;
     }>(`/api/projects/${enc(id)}/sync/critique`, { brand }),
-  syncLyrics: async (song: Blob, name: string, lines: string[], seconds: string[], language: LyricLanguage) => {
+  // voiceOnly: the transcription hears the vocal stem Demucs splits from the song.
+  syncLyrics: async (song: Blob, name: string, lines: string[], seconds: string[], language: LyricLanguage, voiceOnly = false) => {
     const form = new FormData();
     form.append("audio", song, name);
+    if (voiceOnly) form.append("voice", "demucs");
     form.append("lines", JSON.stringify(lines));
     form.append("seconds", JSON.stringify(seconds));
     form.append("language", language);
     const res = await fetch("/api/lyrics/sync", { method: "POST", body: form });
     const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
     if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
-    return data as { lines: LyricLine[]; heard: number };
+    // matched of total: the lyric words the transcription really heard.
+    return data as { lines: LyricLine[]; heard: number; matched: number; total: number };
   },
   lyricIdeas: (series: string, title: string, artist: string, lines: string[]) =>
     call<{ palette: string[]; mood: "calm" | "lively"; keywords: { line: number; words: string[] }[]; note: string } & Demo>(

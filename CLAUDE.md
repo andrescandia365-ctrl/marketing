@@ -30,7 +30,14 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   places, products, real screens) stored as JSON in its Markdown; approved images live in `biblioteca/<series>/`.
   `voice.ts` makes "Voz generada" with OpenAI's speech API (same `OPENAI_API_KEY`). `lyrics.ts` transcribes a
   song with word times (OpenAI, whisper-1) for lyric videos. `sync.ts` (with `shared/clock.ts`) writes the lyric
-  clock into `proyectos/<id>/sync/`: kick grid from the drums stem, word times from the vocal stem.
+  clock into `proyectos/<id>/sync/`: kick grid from the drums stem, word times from the vocal stem. `demucs.ts` runs
+  Demucs, which the person installs (found by `DEMUCS_BIN`, which must name a file called demucs, else `demucs` on the
+  login PATH, else `python3 -m demucs`; not found is looked up again after 15 s): each song is split once into
+  `PROJECTS_DIR/.demucs/<model>-<hash>/` (drums, vocals), shared by the lyric sync (`voice=demucs`), the Reloj and an
+  explainer's grid; vocal stems go to whisper-1 as 16 kHz mono (`speechWav`, under its 25 MB). "Modelos → Demucs"
+  (`/api/tools/demucs`, localhost-only: status, the path saved to `.env`, a 4 s test run) shows `shared/demucs.ts`:
+  where the app uses it and when to turn it on; the studios show the line that applies. `iniciar.sh` only says
+  whether it is there. Vite has `envDir: false`, so saving `.env` from Modelos never reloads the page.
 - `src/` — React 19 + Tailwind v4 UI, all copy in Spanish (Rioplatense). `MenuPicker`, `StoryView`, `BoardView`
   and `ScriptView` are the steps. `lib/render.ts` plays each shot's uploaded clip (or still, or colour card), mixes
   the clips' sound, draws the speaker and line on top and encodes with WebCodecs via mediabunny; its `drawShot` also
@@ -81,7 +88,9 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   The Reloj tab is the timing contract on top of that renderer (`ClockPanel`, `POST /api/projects/:id/sync`).
 - Lyric and motion timing has two clocks and no third (`shared/clock.ts`, `shared/syncDraw.ts`). Cuts, clicks and
   body accents sit on the kick, measured on the drums stem only (low-pass ~150 Hz, hat onsets dropped). If Demucs
-  and a drums stem are both missing, the clock stops: it never reads peaks off the master. Lyrics sit on the word,
+  and a drums stem are both missing, the clock stops: it never reads peaks off the master (the Reloj says so and
+  "Armar reloj" stays off). The automatic lyric sync reports the lyric words it really heard (`alignLyrics`' `share`);
+  under 70 % (`voiceStemHelps`) it suggests hearing the Demucs vocal stem. Lyrics sit on the word,
   aligned on the vocal stem (WhisperX, stable-ts, or whisper-1 on that stem), and are never snapped to the beat.
   A missing vocal time stays missing. Dance is written onto the kick, not extracted from audio or a pose detector.
   Every frame of the mute preview is a pure function of t (`drawSyncFrame`: no timers, no Math.random, no state
