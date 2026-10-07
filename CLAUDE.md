@@ -22,7 +22,7 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   gateway), an optional vision model for picture requests, Claude's effort, and saves keys to `.env` (mode 600;
   only the last 4 characters are ever sent back). Claude options follow the Models API capabilities (adaptive
   thinking, effort levels, structured outputs; refusal fallbacks only on the models that take them).
-  `projects.ts` saves each piece as a folder in `proyectos/` (project.json, pieza.md, toma-NN-imagen/clip, video);
+  `ads.ts`/`adsRoutes.ts`/`adsWriter.ts` are Publicidad (see Rules). `projects.ts` saves each piece as a folder in `proyectos/` (project.json, pieza.md, toma-NN-imagen/clip, video);
   the browser autosaves into it. Each series has a type (software / e-commerce) and a fixed cast (characters,
   places, products, real screens) stored as JSON in its Markdown; approved images live in `biblioteca/<series>/`.
   `voice.ts` makes "Voz generada" with OpenAI's speech API (same `OPENAI_API_KEY`). `lyrics.ts` transcribes a
@@ -88,7 +88,13 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   function of time (seeded mulberry32 noise, never Math.random, no timers) with the series `brand` (logo, bg, text, one
   accent, display + UI Google Fonts). Studio rules: no stock defaults (centred title on gradient, everything fading in,
   corner labels, frame borders, glow, particle bursts); something new every 2-4 s (`quietGaps` blocks rendering);
-  scenes snap to the beat grid; `motionAudio.ts` synthesizes the score and hits and normalizes to -14 LUFS with the
+  scenes snap to the beat grid, and `arrangeScenes` also moves each element's template time onto a beat within 0.1 s
+  (`snapElements`, kept in `onBeat` on the arranged copy only; hand-set times never move), so the drawing, the sound and
+  the checks read one time and each effect lands exactly with its element. The checks take the tone's push between
+  scenes (`readingIssues`/`quietGaps(scenes, cutPush)`): an entrance inside the push arrives with the cut. The preview
+  plays the mix through Web Audio and draws from its clock (`MixPlayer`, `lib/playClock.ts`; an edit while playing
+  rebuilds the mix and carries on from the same second); lyric videos keep the song's player and smooth its time
+  (`mediaClock`). `motionAudio.ts` synthesizes the score and hits and normalizes to -14 LUFS with the
   BS.1770 K-weighting (matches ffmpeg ebur128), peaks under -1.5 dBFS. Lyric videos can use Grok's layers (parallax).
   The timeline (`MotionTimeline`) edits each scene's `tweaks` by element key (`sceneElements`): `at` (when it enters,
   both formats) and `v`/`h` (dx, dy in units of the short side, scale) per format; `revealTimes`, the gap check and
@@ -116,6 +122,25 @@ rules change, update it there too. The playbook's 75 s ad template does not driv
   (`layerRects`); pivots come from the alpha box or are dragged. The `character` template poses it as a pure function of time (breath, seeded blink, gesture
   present/wave/point/cheer/surprise, mouth from `speechLevels` of the voice file or the line's rhythm). The sheet
   template "puppet" (`/api/sheet`) writes the 3D-look sheet and the "Para el títere" view; never a known character.
+- Publicidad (Método 50-5-3, `src/components/ads/`, `server/ads*.ts`, `shared/ads.ts`): the second section of the app,
+  paid ads next to Playbook's organic content (header toggle). An ad = Hook + Meat + CTA; pieces are written and
+  rendered separately and the combination hook × meat × CTA is pure code (`combine`, `varyHook`), never the AI. Per
+  series, `publicidad/<series>/campana.json` holds the offer profile (product, audience, problem, promise, objections,
+  proofs, tone, forbidden, landing, the audience's words, presenter: the Playbook writer reads the same profile via
+  `offerOf`), the catalogue, the clips, the metrics and the batches; `clips/`, `media/`, `piezas/` (one render per
+  piece, the cache) and `anuncios/<tanda>/` (videos named by id `H12-M3-C2` plus `anuncios.csv`). Every hook carries an
+  awareness level 1–5 (`LEVEL_INFO`; 1–3 cold, 4–5 retargeting), an angle and a formula; meats have a format (demo,
+  testimonial, education, story, faceless), the levels they serve and a neutral opening; CTAs say what, why, when and
+  how easy. An ad lasts 6, 10 or 15 s and `BUDGETS` splits it (15 s: hook 3, meat 9, CTA 3) at ~2.7 words/s; a piece's
+  clip is the next 6/10/15 s length (`clipSecondsFor`) and the render cuts it. "Fuentes" ranks winning hooks: a
+  platform CSV (`parseMetricsCsv`, Meta headers in Spanish or English; hook = 3 s views / impressions, meat = average
+  watch time, CTA = clicks and conversions), hooks sent from Playbook ("Enviar a Publicidad") and uploaded clips
+  transcribed with whisper-1 (`transcribeClip`, same OPENAI_API_KEY; or a pasted transcript) and split by the writer.
+  "Generar tanda" chains hooks → meats → CTAs → combine with a yes/no approval pause per stage. Before a run: local
+  flags (length, near-duplicates) plus the writer's review (policy, mismatch, claims), the estimate and a weekly
+  limit. The run renders each piece once with `renderPiece` (render.ts, `alwaysAudio`) and cuts the ads with
+  `concatPieces` (encoded packets copied, no re-encode; falls back to `renderAdWhole`); the platform texts (primary,
+  headline, button) come from one writer call per 50 hook+CTA pairs. `server/ads.md` is the method the writer reads.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
   a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Per shot,
   `audio.clipSound` (dialogue/ambient/effects + what is heard) rewrites the video prompt's "Audio:" line only when the

@@ -1,0 +1,121 @@
+// Steps 2 and 3: meats (3–5, by format, neutral opening) and CTAs (1–3, four things each), written against the
+// approved hooks of the chosen levels.
+import { useState, type ReactNode } from "react";
+import {
+  BUDGETS,
+  LEVEL_INFO,
+  MEAT_FORMATS,
+  MEAT_FORMAT_LABEL,
+  levelsOf,
+  wordsFor,
+  type AdSeconds,
+  type Cta,
+  type Hook,
+  type Meat,
+  type MeatFormat,
+} from "../../../shared/ads.ts";
+import { Button, Notice, Spinner } from "../ui.tsx";
+import { LevelPicker } from "./pieces.tsx";
+
+type Props<T extends Meat | Cta> = {
+  kind: T["kind"];
+  pieces: T[];
+  hooks: Hook[];
+  levels: number[];
+  seconds: AdSeconds;
+  busy: boolean;
+  demo: boolean;
+  note: string;
+  onLevels: (levels: number[]) => void;
+  onGenerate: (count: number, formats: MeatFormat[]) => Promise<void>;
+  renderCard: (piece: T) => ReactNode;
+};
+
+export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, renderCard }: Props<T>) {
+  const isMeat = kind === "meat";
+  const chosen = levelsOf(levels);
+  const recipe = [...new Set(chosen.flatMap((l) => LEVEL_INFO[l].meats))];
+  const [count, setCount] = useState(isMeat ? 4 : 2);
+  const [formats, setFormats] = useState<MeatFormat[]>([]);
+  const budget = BUDGETS[seconds];
+  const pieceSeconds = isMeat ? budget.meat : budget.cta;
+  const approvedHooks = hooks.filter((h) => h.status === "approved" && chosen.includes(h.level));
+  const useFormats = formats.length ? formats : recipe;
+
+  return (
+    <section className="space-y-4">
+      <div className="rounded-xl border border-line bg-white p-4">
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="space-y-1.5">
+            <p className="text-sm font-semibold">Niveles</p>
+            <LevelPicker value={levels} onChange={onLevels} />
+          </div>
+          <label className="text-sm">
+            <span className="font-semibold">Cantidad</span>
+            <input
+              type="number"
+              min={1}
+              max={isMeat ? 8 : 5}
+              className="ml-2 w-20 rounded-lg border border-line px-2 py-1"
+              value={count}
+              onChange={(e) => setCount(Math.max(1, Math.min(isMeat ? 8 : 5, Number(e.target.value) || 1)))}
+            />
+            <span className="ml-2 text-xs text-muted">{isMeat ? "3 a 5" : "1 a 3"}</span>
+          </label>
+          <Button onClick={() => onGenerate(count, isMeat ? useFormats : [])} disabled={busy}>
+            {busy ? (
+              <>
+                <Spinner /> Escribiendo…
+              </>
+            ) : (
+              `Generar ${count} ${isMeat ? "meats" : "CTAs"}`
+            )}
+          </Button>
+        </div>
+        {isMeat && (
+          <div className="mt-3 space-y-1.5">
+            <p className="text-sm font-semibold">
+              Formatos <span className="font-normal text-muted">(receta por defecto de los niveles elegidos: {recipe.map((f) => MEAT_FORMAT_LABEL[f]).join(", ")})</span>
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {MEAT_FORMATS.map((f) => {
+                const on = useFormats.includes(f);
+                return (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => {
+                      const base = formats.length ? formats : recipe;
+                      setFormats(base.includes(f) ? base.filter((x) => x !== f) : [...base, f]);
+                    }}
+                    className={`rounded-md border px-2 py-1 text-xs font-semibold ${on ? "border-ink bg-ink text-white" : "border-line bg-white text-muted hover:text-ink"}`}
+                  >
+                    {MEAT_FORMAT_LABEL[f]}
+                  </button>
+                );
+              })}
+              {formats.length > 0 && (
+                <button type="button" className="text-xs text-muted underline" onClick={() => setFormats([])}>
+                  volver a la receta
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        <p className="mt-3 text-xs text-muted">
+          {isMeat
+            ? `Cada meat dura ${pieceSeconds} s (hasta ${wordsFor(pieceSeconds)} palabras) y abre neutro, así encaja con cualquier hook de su nivel. Educa sobre el problema, la solución o la oferta según el nivel.`
+            : `Cada CTA dura ${pieceSeconds} s (hasta ${wordsFor(pieceSeconds)} palabras) y dice qué hacer, por qué importa, cuándo y qué tan fácil es (del perfil: landing). ${chosen.map((l) => `N${l}: ${LEVEL_INFO[l].cta}`).join(" ")}`}
+        </p>
+        <p className="mt-1 text-xs text-muted">
+          Contexto que recibe la IA: {approvedHooks.length ? `${approvedHooks.length} hooks aprobados de esos niveles` : "todavía no hay hooks aprobados de esos niveles (escribe igual, por nivel)"}.
+        </p>
+        {note && <p className="mt-2 text-xs text-muted">{note}</p>}
+        {demo && <p className="mt-2 text-xs text-muted">Sin clave de IA, las piezas son de muestra.</p>}
+      </div>
+      {approvedHooks.length === 0 && hooks.length > 0 && <Notice tone="warn">Aprobá primero algunos hooks: el meat y el CTA se escriben con el hook elegido como contexto para que sean coherentes.</Notice>}
+      <div className="space-y-2">{pieces.map((p) => renderCard(p))}</div>
+      {pieces.length === 0 && <p className="text-sm text-muted">Todavía no hay {isMeat ? "meats" : "CTAs"}.</p>}
+    </section>
+  );
+}

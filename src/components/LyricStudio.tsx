@@ -39,6 +39,7 @@ import { ClockPanel } from "./ClockPanel.tsx";
 import { LyricElements } from "./LyricElements.tsx";
 import { LyricPlates } from "./LyricPlates.tsx";
 import { download, slug } from "../lib/markdown.ts";
+import { mediaClock } from "../lib/playClock.ts";
 import { CopyButton } from "./ScriptView.tsx";
 import type { RenderResult } from "../lib/render.ts";
 import { audioDuration, type AudioFile } from "./Audio.tsx";
@@ -1203,14 +1204,15 @@ function VideoTab(props: VideoTabProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [piece.lines]);
 
-  // The live preview follows the song player.
+  // The live preview follows the song player, through a smooth clock: the player's own time moves in steps.
   useEffect(() => {
     let frame = 0;
+    const clock = mediaClock();
     const draw = () => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
       if (canvas && ctx) {
-        const t = audio.current?.currentTime ?? 0;
+        const t = clock(audio.current);
         const video = videoRef.current;
         let bg: Backdrop = null;
         if (video && video.readyState >= 2) bg = { source: video, width: video.videoWidth, height: video.videoHeight };

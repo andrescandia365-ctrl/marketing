@@ -74,7 +74,7 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
         poster: posterTime(scenes, piece.poster, cutPush(script.tone)),
         seek,
         sound: async () => {
-          const { buffer } = await motionSound(snapped, piece, beats, media.voices, media.track?.buffer ?? null);
+          const { buffer } = await motionSound(snapped, piece, media.voices, media.track?.buffer ?? null);
           return base64(toWav(buffer));
         },
       };

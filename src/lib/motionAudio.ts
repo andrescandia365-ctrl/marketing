@@ -187,20 +187,6 @@ function addHits(ctx: OfflineAudioContext, out: AudioNode, plan: SoundPlan) {
   }
 }
 
-// A beat within `within` seconds of t, or t itself.
-export function nearBeat(t: number, beats: number[], within = 0.06): number {
-  let best = t;
-  let gap = within;
-  for (const b of beats) {
-    const d = Math.abs(b - t);
-    if (d <= gap) {
-      best = b;
-      gap = d;
-    }
-  }
-  return best;
-}
-
 // ── Loudness (ITU-R BS.1770-4) ──────────────────────────────────────────────────
 // The K-weighting of ITU-R BS.1770: a high shelf, then the RLB high-pass, with the standard's own coefficients at
 // 48 kHz (other rates are resampled first). Done in plain JS so it matches other meters (ffmpeg's ebur128).
