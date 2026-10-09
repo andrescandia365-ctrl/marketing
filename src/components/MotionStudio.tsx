@@ -587,7 +587,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
 
   async function generateVoice(scene: MotionScene) {
     await work("voice", async () => {
-      const blob = await api.speak(scene.voice, piece.ttsVoice || defaultVoice, brief.language);
+      const blob = await api.speak(scene.voice, piece.ttsVoice || defaultVoice, brief.language, scene.emotion);
       await keepVoice(scene.id, blob, `voz-${scene.id}.mp3`);
     });
   }

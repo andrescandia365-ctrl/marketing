@@ -203,11 +203,11 @@ export const api = {
     ),
   removeMusic: (id: string) => call<{ ok: true }>(`/api/projects/${enc(id)}/music`, undefined, "DELETE"),
   // A generated voice for one line, as an mp3.
-  speak: async (text: string, voice: string, language: "es" | "en"): Promise<Blob> => {
+  speak: async (text: string, voice: string, language: "es" | "en", emotion = ""): Promise<Blob> => {
     const res = await fetch("/api/voice", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice, language }),
+      body: JSON.stringify({ text, voice, language, emotion }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({ error: "El servidor no respondió." }));

@@ -742,7 +742,9 @@ export function App() {
     const shot = board?.shots[index];
     if (!shot) return;
     const own = audio.characters[shot.speaker];
-    const blob = await api.speak(shot.voiceover, own?.ttsVoice ?? "", pieceBrief.language);
+    // Said with its story line's emotion.
+    const emotion = story?.topics.flatMap((t) => t.lines).find((l) => l.text.trim() === shot.voiceover.trim())?.emotion ?? "";
+    const blob = await api.speak(shot.voiceover, own?.ttsVoice ?? "", pieceBrief.language, emotion);
     await addAudio(index, "voice", blob, `toma-${index + 1}-voz-generada.mp3`);
   }
 

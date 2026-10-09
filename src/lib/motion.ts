@@ -4,7 +4,20 @@
 // everything-fades-in, no corner labels or frame borders, no glow, no particle bursts.
 import { drawPuppet, puppetPose, type PuppetAsset } from "./puppet.ts";
 import type { ActorAsset } from "./actor.ts";
-import { STAT_COUNT, TYPE_CPS, cameraAt, cutPush, elementTimes, statCountText, timeScenes, typingSeconds, type MotionScene, type MotionScript, type TimedScene } from "../../shared/motion.ts";
+import {
+  STAT_COUNT,
+  TYPE_CPS,
+  cameraAt,
+  cutPush,
+  elementTimes,
+  statCountText,
+  timeScenes,
+  typingSeconds,
+  type MotionScene,
+  type MotionScript,
+  type MotionTone,
+  type TimedScene,
+} from "../../shared/motion.ts";
 import { BUTTONS_FROM, PHONE_SAFE, isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import type { Brand } from "../../shared/series.ts";
 
@@ -76,6 +89,13 @@ const outBack = (x: number) => {
   const v = clamp01(x);
   return 1 + 2.4 * (v - 1) ** 3 + 1.4 * (v - 1) ** 2;
 };
+// A bigger overshoot, for the absurdist tone's pop.
+const outBackBig = (x: number) => {
+  const v = clamp01(x);
+  return 1 + 3.4 * (v - 1) ** 3 + 2.4 * (v - 1) ** 2;
+};
+// How things land follows the tone: dry settles with no overshoot, warm with a small one, absurdist pops.
+const landFor = (tone: MotionTone | undefined) => (tone === "dry" ? outCubic : tone === "absurdist" ? outBackBig : outBack);
 const span = (t: number, from: number, dur: number) => clamp01((t - from) / dur);
 
 function beatPulse(beats: number[], t: number): number {
@@ -106,6 +126,8 @@ type Frame = {
   world: MotionWorld;
   t: number;
   probe?: Probe;
+  // The tone's landing curve (landFor).
+  land: (x: number) => number;
 };
 
 const display = (f: Frame, size: number, weight = 700) => `${weight} ${size}px "${f.world.brand.displayFont}", "Inter", system-ui, sans-serif`;
@@ -354,6 +376,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
   };
   const asset = s.asset ? world.assets[s.asset] : undefined;
   const missing = s.asset ? `Falta la imagen: ${s.asset}` : "Sin imagen";
+  const land = f.land;
   const titleSize = unit * (vertical ? 0.1 : 0.085);
   // On a 9:16 frame a title near the top starts below the platforms' top bar (shared/safeZone.ts).
   const topSafe = (y: number, size: number) => (isPhoneFrame(w, h) ? Math.max(y, h * PHONE_SAFE.top + size * 0.95) : y);
@@ -384,7 +407,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       });
       text(m, ty + hTitle + unit * 0.04, unit * 0.045, w - m * 2, outCubic(span(lt, at("text"), 0.5)));
       if (asset) {
-        const p = outBack(span(lt, at("media"), 0.6));
+        const p = land(span(lt, at("media"), 0.6));
         const cx = vertical ? w / 2 : w * 0.75;
         const cy = vertical ? h * 0.72 : h / 2;
         put("media", cx, cy, () => {
@@ -395,7 +418,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       break;
     }
     case "screen": {
-      const p = outBack(span(lt, at("media"), 0.6));
+      const p = land(span(lt, at("media"), 0.6));
       const cx = vertical ? w / 2 : w * 0.66;
       const cy = vertical ? h * 0.58 : h * 0.44;
       put("media", cx, cy, () => {
@@ -456,7 +479,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       const height = vertical ? h * (hasProp ? 0.46 : 0.52) : h * 0.8;
       const toward = hasProp ? (vertical ? 1 : -1) : 1;
       if (hasProp) {
-        const p = outBack(span(lt, at("prop"), 0.55));
+        const p = land(span(lt, at("prop"), 0.55));
         const px = vertical ? w * 0.7 : w * 0.47;
         const py = vertical ? h * 0.5 : h * 0.47;
         const size = vertical ? h * 0.3 : h * 0.5;
@@ -493,7 +516,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       const fh = unit * 0.14;
       const fx = m;
       const fy = vertical ? h * 0.36 : h * 0.38;
-      const p = outBack(span(lt, at("media"), 0.55));
+      const p = land(span(lt, at("media"), 0.55));
       const size = unit * 0.05;
       const typedEnd = at("title") + typingSeconds(s.title);
       const field = put("media", fx + fw / 2, fy + fh / 2, () => {
@@ -536,7 +559,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       });
       const button = s.items[1];
       if (button) {
-        const q = outBack(span(lt, at("tag"), 0.45));
+        const q = land(span(lt, at("tag"), 0.45));
         ctx.font = ui(f, unit * 0.042, 700);
         const bw = ctx.measureText(button).width + unit * 0.08;
         const bh = unit * 0.085;
@@ -573,7 +596,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       break;
     }
     case "callouts": {
-      const p = outBack(span(lt, at("media"), 0.6));
+      const p = land(span(lt, at("media"), 0.6));
       const cx = vertical ? w / 2 : w * 0.42;
       const cy = vertical ? h * 0.5 : h * 0.55;
       const box = put("media", cx, cy, () => {
@@ -700,7 +723,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         ctx.stroke();
       }
       s.items.forEach((item, i) => {
-        const q = outBack(span(lt, at(`item${i}`), 0.5));
+        const q = land(span(lt, at(`item${i}`), 0.5));
         if (q <= 0) return;
         const y = top + i * gap;
         put(`item${i}`, dotX, y, () => {
@@ -722,7 +745,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         });
       });
       if (asset && !vertical) {
-        const p = outBack(span(lt, at("media"), 0.6));
+        const p = land(span(lt, at("media"), 0.6));
         put("media", w * 0.76, h * 0.55, () => device(f, asset, w * 0.76, h * 0.55 + (1 - p) * h * 0.5, h * 0.68, missing));
       }
       break;
@@ -763,7 +786,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       break;
     }
     case "product": {
-      const p = outBack(span(lt, at("media"), 0.7));
+      const p = land(span(lt, at("media"), 0.7));
       const float = noise(world.seed + s.index, f.t * 0.5) * unit * 0.012;
       const cx = w / 2;
       const cy = vertical ? h * 0.52 : h * 0.55;
@@ -777,7 +800,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       title(m, vertical ? topSafe(h * 0.15, titleSize) : h * 0.18, titleSize, w - m * 2);
       const tag = s.items[0];
       if (tag) {
-        const q = outBack(span(lt, at("tag"), 0.5));
+        const q = land(span(lt, at("tag"), 0.5));
         const tx = vertical ? w / 2 : w * 0.78;
         const ty = vertical ? h * 0.78 : h * 0.72;
         put("tag", tx, ty, () => {
@@ -817,7 +840,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       break;
     }
     case "logo": {
-      const p = outBack(span(lt, at("media"), 0.6));
+      const p = land(span(lt, at("media"), 0.6));
       const cx = w / 2;
       const cy = vertical ? h * 0.42 : h * 0.36;
       put("media", cx, cy, () => {
@@ -827,8 +850,10 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         ctx.beginPath();
         ctx.arc(cx, cy, unit * 0.2, -Math.PI / 2, -Math.PI / 2 + outCubic(span(lt, at("media"), 0.7)) * Math.PI * 2);
         ctx.stroke();
+        // It grows from 60 %, never from nothing, and is fully there within the first part of its entrance.
         ctx.translate(cx, cy);
-        ctx.scale(Math.max(0, p), Math.max(0, p));
+        ctx.scale(0.6 + 0.4 * p, 0.6 + 0.4 * p);
+        ctx.globalAlpha *= clamp01(span(lt, at("media"), 0.15));
         if (world.logo) drawImage(f, world.logo, 0, 0, unit * 0.26, unit * 0.26, "");
         else {
           ctx.font = display(f, unit * 0.08);
@@ -853,7 +878,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       }
       const cta = s.items[0];
       if (cta) {
-        const r = outBack(span(lt, at("tag"), 0.5));
+        const r = land(span(lt, at("tag"), 0.5));
         const ty = cy + unit * (vertical ? 0.43 : 0.39);
         put("tag", cx, ty, () => {
           ctx.font = ui(f, unit * 0.04, 700);
@@ -892,7 +917,7 @@ export function drawMotionFrame(
   probe?: Probe,
 ) {
   const scenes = timeScenes(script.scenes);
-  const f: Frame = { ctx, w, h, unit: Math.min(w, h), vertical: h > w, world, t, probe };
+  const f: Frame = { ctx, w, h, unit: Math.min(w, h), vertical: h > w, world, t, probe, land: landFor(script.tone) };
   backdrop(f);
   if (!scenes.length) return;
   const i = sceneAt(scenes, t);

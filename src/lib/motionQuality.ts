@@ -19,17 +19,20 @@ const isText = (key: string) => key === "title" || key === "text" || key === "ta
 
 const MAX_FRAMES = 28;
 const ON_BEAT = 0.06;
+// Things enter on the beat, so a frame right on it shows them just starting. The sheet looks a moment later, when
+// what entered has settled.
+export const SHEET_SETTLE = 0.3;
 
-// The seconds the sheet shows: every beat (evenly thinned when there are too many), plus the first two seconds at
-// half-second steps for the hook, and the middle of every cut (to see two scenes overlapping). Without music, one a
-// second.
+// The seconds the sheet shows: just after every beat (evenly thinned when there are too many), plus the first two
+// seconds at half-second steps for the hook, and the middle of every cut (to see two scenes overlapping). Without
+// music, one a second.
 export function sheetTimes(script: MotionScript, beats: number[]): number[] {
   const duration = scriptDuration(script);
   const end = Math.max(0, duration - 0.05);
   const push = cutPush(script.tone);
   // A hard cut (dry tone) has no middle to look at.
   const cuts = push > 0 ? timeScenes(script.scenes).slice(1).map((s) => s.start + push / 2) : [];
-  const grid = beats.length > 1 ? beats.filter((b) => b > 0 && b < end) : Array.from({ length: Math.floor(end) }, (_, i) => i + 1);
+  const grid = beats.length > 1 ? beats.map((b) => b + SHEET_SETTLE).filter((b) => b > 0 && b < end) : Array.from({ length: Math.floor(end) }, (_, i) => i + 1);
   const room = MAX_FRAMES - 4;
   const thinned = grid.length > room ? Array.from({ length: room }, (_, i) => grid[Math.round((i * (grid.length - 1)) / (room - 1))]) : grid;
   const all = [0.5, 1, 1.5, 2, ...thinned.filter((t) => t > 2.1), ...cuts, end];

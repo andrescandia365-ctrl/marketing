@@ -266,15 +266,16 @@ export async function integratedLoudness(buffer: AudioBuffer): Promise<number> {
 }
 
 // Brings the mix to the target loudness, keeping peaks under -1.5 dBFS with a soft knee. The knee takes a little
-// loudness away, so it measures again and corrects (at most three passes).
-async function normalize(buffer: AudioBuffer): Promise<{ lufs: number }> {
+// loudness away, so it measures again and corrects (at most three passes). A silent mix is left alone. Publicidad
+// uses it too, so every piece of an ad sits at the same level and the cuts never jump.
+export async function normalizeLoudness(buffer: AudioBuffer, target = TARGET_LUFS): Promise<{ lufs: number }> {
   // Above the knee, peaks bend smoothly towards the limit (-1.5 dBFS), never past it, so codec overshoot stays under
   // 0 dBFS.
   const knee = 0.66;
   const limit = 0.84;
   let lufs = await integratedLoudness(buffer);
-  for (let pass = 0; pass < 3 && Number.isFinite(lufs) && Math.abs(lufs - TARGET_LUFS) > 0.2; pass++) {
-    const gain = 10 ** ((TARGET_LUFS - lufs) / 20);
+  for (let pass = 0; pass < 3 && Number.isFinite(lufs) && Math.abs(lufs - target) > 0.2; pass++) {
+    const gain = 10 ** ((target - lufs) / 20);
     for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
       const d = buffer.getChannelData(ch);
       for (let i = 0; i < d.length; i++) {
@@ -340,7 +341,7 @@ export async function buildSound(plan: SoundPlan): Promise<{ buffer: AudioBuffer
     music.gain.setTargetAtTime(bedLevel, end + 0.05, 0.2);
   }
   const buffer = await ctx.startRendering();
-  const { lufs } = await normalize(buffer);
+  const { lufs } = await normalizeLoudness(buffer);
   return { buffer, lufs };
 }
 

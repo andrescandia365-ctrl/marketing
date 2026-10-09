@@ -18,6 +18,7 @@ import type { Piece } from "../../shared/ads.ts";
 import type { Board, Brief, Shot } from "../../shared/schema.ts";
 import type { TextStyle } from "../../shared/series.ts";
 import { renderVideo, type RenderResult, type ShotMedia } from "./render.ts";
+import { TARGET_LUFS } from "./motionAudio.ts";
 
 export type PieceLook = { format: Brief["format"]; style: TextStyle; disclosure: string; fullFrame: boolean; headlines: boolean };
 
@@ -63,6 +64,8 @@ function options(look: PieceLook, count: number) {
     sfxVolume: 1,
     beatSync: false,
     alwaysAudio: true,
+    // Every piece at the same loudness: a hook, a meat and a CTA rendered apart never jump in level at the cuts.
+    loudness: TARGET_LUFS,
   };
 }
 

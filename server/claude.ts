@@ -818,7 +818,7 @@ export async function reviewMotion(
     await ask(
       brief,
       false,
-      `You are the motion studio's strict reviewer. ${sheets.length > 1 ? "The contact sheets above show" : "The contact sheet above shows"} one frame per beat of a motion-graphics explainer (the second and scene under each frame), at phone-thumbnail size. This is review round ${round}.
+      `You are the motion studio's strict reviewer. ${sheets.length > 1 ? "The contact sheets above show" : "The contact sheet above shows"} one frame per beat of a motion-graphics explainer, taken 0.3 s after the beat so what entered has settled (the second and scene under each frame), at phone-thumbnail size. This is review round ${round}.
 
 The script as it plays:
 ${scenes}

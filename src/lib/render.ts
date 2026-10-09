@@ -20,6 +20,7 @@ import {
 } from "mediabunny";
 import type { Board, Brief, Role } from "../../shared/schema.ts";
 import { isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
+import { normalizeLoudness } from "./motionAudio.ts";
 import type { TextStyle } from "../../shared/series.ts";
 import { timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 import { drawSketch, type SketchSetup } from "./sketch.ts";
@@ -68,6 +69,8 @@ export type RenderOptions = {
   beatSync: boolean;
   // Always write an audio track (silent if nothing sounds), so files cut together (Publicidad's pieces).
   alwaysAudio?: boolean;
+  // Bring the mix to this integrated loudness (LUFS), so pieces cut together sit at one level (Publicidad).
+  loudness?: number;
 };
 
 export type RenderResult = { blob: Blob; extension: string; mimeType: string; notes: string[] };
@@ -505,6 +508,7 @@ export async function renderVideo(
   const hasAudio = shots.some((s) => media[s.index]?.voice || media[s.index]?.sfx || (options.keepSound && media[s.index]?.clip));
   if (hasAudio || music || options.alwaysAudio) {
     sound = await mixSound(shots, media, total, options, music);
+    if (sound && options.loudness !== undefined) await normalizeLoudness(sound, options.loudness);
     if (!sound) notes.push("Los clips no traían sonido que este navegador pueda leer.");
   }
   onProgress(0.05);
