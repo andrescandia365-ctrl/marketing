@@ -34,7 +34,8 @@ import { PuppetPreview } from "./PuppetPreview.tsx";
 import { SheetBuilder } from "./SheetBuilder.tsx";
 import { CopyButton } from "./ScriptView.tsx";
 import { api, libraryFileUrl } from "../lib/api.ts";
-import { loadActor } from "../lib/actor.ts";
+// three.js (in actor.ts) loads only when a character has a rig to preview.
+const loadActor: typeof import("../lib/actor.ts").loadActor = (...args) => import("../lib/actor.ts").then((m) => m.loadActor(...args));
 import { canvasPng, findFullFigures, revokeFigures, splitFigure, type FigureFile } from "../lib/segmentAssemble.ts";
 import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
 

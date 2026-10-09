@@ -8,7 +8,7 @@ import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../share
 import { copyText } from "../lib/files.ts";
 import { formatElapsed, type LogEntry } from "../lib/markdown.ts";
 import { SpeakButton, VoiceRow, type AudioFile, type VoiceRowProps } from "./Audio.tsx";
-import { ActionWarning, BEAT_EDGE } from "./BoardView.tsx";
+import { ActionWarning, BEAT_EDGE } from "./shotBits.tsx";
 import { BeatChip, Button, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
 
 export type ClipFile = { url: string; blob: Blob; name: string; duration: number };

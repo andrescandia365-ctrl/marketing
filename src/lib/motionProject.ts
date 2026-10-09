@@ -7,7 +7,7 @@ import type { SeriesInfo } from "../../shared/schema.ts";
 import type { Brand } from "../../shared/series.ts";
 import { libraryFileUrl, projectFileUrl, type MediaFileRecord, type MediaRecord } from "./api.ts";
 import { buildPuppet, singlePuppet, type PuppetAsset } from "./puppet.ts";
-import { loadActor, type ActorAsset } from "./actor.ts";
+import type { ActorAsset } from "./actor.ts";
 import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "./motion.ts";
 import { buildSound, type HitKind, type SoundPlan } from "./motionAudio.ts";
 
@@ -61,6 +61,8 @@ export async function loadSeriesImages(
   }
   const actors: Record<string, ActorAsset> = {};
   for (const m of series.cast.filter((x) => x.kind === "character" && x.rig?.file)) {
+    // three.js (in actor.ts) loads only when the series has a rigged character.
+    const { loadActor } = await import("./actor.ts");
     const actor = await loadActor(libraryFileUrl(series.id, m.rig.file), m.rig);
     if (actor) actors[m.id] = actor;
   }
