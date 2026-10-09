@@ -111,7 +111,9 @@ export function describeScenes(scenes: MotionScene[]): string {
           return `${e.key} at ${e.at.toFixed(2)} s${spot("v")}${spot("h")}`;
         })
         .join("; ");
-      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
+      const entry = s.index > 0 && s.entry === "through" ? ", enters by a camera journey into the previous scene's main thing" : "";
+      const reveal = s.template === "beforeAfter" && s.reveal === "iris" ? ", the after grows in a circle" : "";
+      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}${entry}${reveal}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
     })
     .join("\n");
 }

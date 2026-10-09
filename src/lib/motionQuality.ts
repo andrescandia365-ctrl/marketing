@@ -30,8 +30,11 @@ export function sheetTimes(script: MotionScript, beats: number[]): number[] {
   const duration = scriptDuration(script);
   const end = Math.max(0, duration - 0.05);
   const push = cutPush(script.tone);
-  // A hard cut (dry tone) has no middle to look at.
-  const cuts = push > 0 ? timeScenes(script.scenes).slice(1).map((s) => s.start + push / 2) : [];
+  // A hard cut (dry tone) has no middle to look at; a camera journey ("through") has one whatever the tone.
+  const cuts = timeScenes(script.scenes)
+    .slice(1)
+    .filter((s) => pushOf(s, push) > 0)
+    .map((s) => s.start + pushOf(s, push) / 2);
   const grid = beats.length > 1 ? beats.map((b) => b + SHEET_SETTLE).filter((b) => b > 0 && b < end) : Array.from({ length: Math.floor(end) }, (_, i) => i + 1);
   const room = MAX_FRAMES - 4;
   const thinned = grid.length > room ? Array.from({ length: room }, (_, i) => grid[Math.round((i * (grid.length - 1)) / (room - 1))]) : grid;
@@ -84,9 +87,9 @@ export function contactSheet(
         .map(([id, box]) => ({ key: id.slice(scene.id.length + 1), box }))
         .filter(({ key }) => {
           const el = els.find((e) => e.key === key);
-          return isText(key) && el !== undefined && t - scene.start >= settledAt(scene, el, pushOf(scene.index, push));
+          return isText(key) && el !== undefined && t - scene.start >= settledAt(scene, el, pushOf(scene, push));
         });
-      const sub = t - scene.start >= pushOf(scene.index, push) ? subtitleBox(fctx, cw, ch, t, script, world) : null;
+      const sub = t - scene.start >= pushOf(scene, push) ? subtitleBox(fctx, cw, ch, t, script, world) : null;
       const texts = sub ? [...settled, { key: "subtitle", box: sub }] : settled;
       for (const { key, box } of settled) {
         const bands = safeBands(box, cw, ch);
@@ -105,7 +108,7 @@ export function contactSheet(
     ctx.font = "600 13px system-ui, sans-serif";
     ctx.textBaseline = "middle";
     const i = sceneAt(timed, t);
-    const cut = i > 0 && t - timed[i].start < cutPush(script.tone);
+    const cut = i > 0 && t - timed[i].start < pushOf(timed[i], push);
     ctx.fillStyle = cut ? "#b52f12" : "#15171c";
     ctx.fillText(cut ? `${t.toFixed(2)} s · corte ${i}→${i + 1}` : `${t.toFixed(2)} s · escena ${i + 1}`, x + 6, y + ch + label / 2);
     ctx.strokeStyle = "#d9dbe0";

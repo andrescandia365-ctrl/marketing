@@ -7,6 +7,8 @@ import {
   DURATIONS,
   MOTION_CAMERAS,
   MOTION_CAMERA_LABEL,
+  SCENE_ENTRIES,
+  SCENE_ENTRY_LABEL,
   MOTION_GESTURES,
   MOTION_GESTURE_LABEL, MOTION_MOVES, MOTION_MOVE_LABEL,
   MOTION_MOODS,
@@ -1495,6 +1497,21 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                         </option>
                       ))}
                     </select>
+                    {s.index > 0 && (
+                      <select
+                        className={`${smallInput} py-1 text-xs`}
+                        value={raw.entry ?? "cut"}
+                        aria-label="Entrada"
+                        title="Pasar a través: la cámara se mete en lo principal de la escena anterior (la pantalla, el producto, el número) y esta escena se abre desde adentro."
+                        onChange={(e) => updateScene(s.id, { entry: e.target.value === "through" ? "through" : undefined })}
+                      >
+                        {SCENE_ENTRIES.map((c) => (
+                          <option key={c} value={c}>
+                            Entrada: {SCENE_ENTRY_LABEL[c]}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <label className="flex items-center gap-1 text-xs">
                       <input
                         type="number"

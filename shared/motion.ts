@@ -79,6 +79,16 @@ const SceneWire = z.object({
   assetB: z.string().describe("beforeAfter: the 'after' image id. character: what it points at or presents (a real screen or the product id), or empty. Else empty."),
   gesture: z.string().describe("character only: presenta, saluda, señala, festeja or se sorprende. Else empty."),
   move: z.string().optional().describe("character with a rigged GLB: idle, walk, turnL, turnR or point. Else empty."),
+  entry: z
+    .string()
+    .optional()
+    .describe(
+      "How this scene comes in: 'cut' (the tone's change) or 'through' (the camera dives into the previous scene's main thing, the screen, the product, the number, and this scene opens from inside it). Use 'through' once or twice, when this scene lives inside that thing (the shelf, then the product on it, then its expiry date) or to pull back out to the whole. The first scene: cut.",
+    ),
+  reveal: z
+    .string()
+    .optional()
+    .describe("beforeAfter only: 'wipe' (a divider slides across) or 'iris' (the after grows in a circle from focusX, focusY: the change spreads from one spot). Else empty."),
   focusX: z.number().describe("zoom only: the feature's position across the image, 0 to 1."),
   focusY: z.number().describe("zoom only: the feature's position down the image, 0 to 1."),
   zoom: z.number().describe("zoom only: how much to zoom in, 1.5 to 3."),
@@ -109,9 +119,13 @@ export const MotionScriptSchema = z.object({
 export type Spot = { dx?: number; dy?: number; scale?: number };
 export type Tweak = { at?: number; v?: Spot; h?: Spot };
 
-export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture"> & {
+export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture" | "entry" | "reveal"> & {
   id: string;
   template: MotionTemplate;
+  // How the scene comes in. Older scenes have none: the tone's cut.
+  entry?: SceneEntry;
+  // beforeAfter only. Older scenes have none: the wipe.
+  reveal?: BeforeAfterReveal;
   // Character scenes only (older saved scenes have none: "present").
   gesture?: MotionGesture;
   // Rigged humanoid only. Older scenes have none: the renderer uses "walk".
@@ -140,6 +154,22 @@ export const MOTION_TONE_LABEL: Record<MotionTone, string> = { dry: "Seco", warm
 const TONE_CUT: Record<MotionTone, number> = { dry: 0, warm: 0.38, absurdist: 0.2 };
 // How long the change between two scenes lasts (0: a hard cut).
 export const cutPush = (tone?: MotionTone) => TONE_CUT[tone ?? "warm"];
+
+// How a scene comes in. "cut" is the tone's change (cutPush). "through" is a camera journey: the camera dives into the
+// previous scene's main thing and this scene opens from inside it, in a growing circle. It takes THROUGH seconds
+// whatever the tone, so every check that waits for a scene to arrive reads pushOf(scene, push).
+export const SCENE_ENTRIES = ["cut", "through"] as const;
+export type SceneEntry = (typeof SCENE_ENTRIES)[number];
+export const SCENE_ENTRY_LABEL: Record<SceneEntry, string> = { cut: "Corte del tono", through: "Pasar a través" };
+export const THROUGH = 0.7;
+
+export const pickEntry = (value: string | undefined): SceneEntry | undefined => (/through|trav[eé]s|dive|zoom/i.test(value ?? "") ? "through" : undefined);
+
+// How "Antes / después" changes: a divider that slides, or a circle that grows from one spot.
+export const BEFORE_AFTER_REVEALS = ["wipe", "iris"] as const;
+export type BeforeAfterReveal = (typeof BEFORE_AFTER_REVEALS)[number];
+export const BEFORE_AFTER_REVEAL_LABEL: Record<BeforeAfterReveal, string> = { wipe: "Cortina", iris: "Círculo que crece" };
+export const pickReveal = (value: string | undefined): BeforeAfterReveal | undefined => (/iris|c[ií]rc|circle/i.test(value ?? "") ? "iris" : undefined);
 
 // A camera move inside one explainer scene. Hold is the default so older scenes stay put.
 // x and y are fractions of the frame; z is scale. u is 0 at the scene start and 1 at its end.
@@ -184,6 +214,8 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>): Motio
       template: pick(s.template, MOTION_TEMPLATES, "screen"),
       gesture: pickGesture(s.gesture),
       move: pickMove(s.move),
+      entry: pickEntry(s.entry),
+      reveal: s.template.toLowerCase().includes("before") ? pickReveal(s.reveal) : undefined,
       seconds: Math.round(clamp(s.seconds, 2, 8) * 2) / 2,
       items: s.items.map((i) => i.trim()).filter(Boolean).slice(0, 5),
       focusX: clamp(s.focusX, 0, 1),
@@ -478,8 +510,9 @@ function entranceDone(scene: MotionScene, el: SceneElement): number {
   }
 }
 
-// How long scene `index` slides in over the one before it.
-export const pushOf = (index: number, push: number) => (index > 0 ? push : 0);
+// How long a scene comes in over the one before it: the tone's push, or THROUGH for a camera journey; 0 for the first.
+export const pushOf = (scene: { index: number; entry?: SceneEntry }, push: number) =>
+  scene.index > 0 ? (scene.entry === "through" ? THROUGH : push) : 0;
 
 // The text an element shows, for the reading check.
 function shownText(scene: MotionScene, key: string): string {
@@ -507,7 +540,7 @@ export function readingIssues(scenes: MotionScene[], push: number): ReadingIssue
     for (const el of sceneElements(s)) {
       const text = shownText(s, el.key).trim();
       if (!text) continue;
-      const has = el.key === "voice" ? s.seconds : s.seconds - settledAt(s, el, pushOf(s.index, push));
+      const has = el.key === "voice" ? s.seconds : s.seconds - settledAt(s, el, pushOf(s, push));
       const needs = readingNeed(text);
       if (has + 0.05 < needs) issues.push({ sceneId: s.id, index: s.index, key: el.key, label: el.key === "voice" ? "Subtítulo" : el.label, text, needs, has: Math.max(0, has) });
     }
@@ -531,7 +564,8 @@ export function posterTime(scenes: MotionScene[], chosen?: { t: number } | null,
     t = Math.min(first.end - 0.1, settled + 0.15);
   }
   const s = timed.find((x) => t >= x.start && t < x.end) ?? timed.at(-1)!;
-  if (cut > 0 && s.index > 0 && t - s.start < cut + 0.05) t = Math.min(s.end - 0.05, s.start + cut + 0.1);
+  const coming = pushOf(s, cut);
+  if (coming > 0 && t - s.start < coming + 0.05) t = Math.min(s.end - 0.05, s.start + coming + 0.1);
   return Math.max(0, Math.min(total - 0.04, t));
 }
 
@@ -597,7 +631,7 @@ export function tweakScene(scene: MotionScene, key: string, patch: Tweak): Motio
 
 export function motionEvents(scenes: MotionScene[], push: number): number[] {
   return timeScenes(scenes)
-    .flatMap((s) => revealTimes(s, pushOf(s.index, push)).filter((r) => r < s.seconds).map((r) => s.start + r))
+    .flatMap((s) => revealTimes(s, pushOf(s, push)).filter((r) => r < s.seconds).map((r) => s.start + r))
     .sort((a, b) => a - b);
 }
 

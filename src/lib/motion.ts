@@ -10,11 +10,13 @@ import {
   cameraAt,
   cutPush,
   elementTimes,
+  pushOf,
   statCountText,
   timeScenes,
   typingSeconds,
   type MotionScene,
   type MotionScript,
+  type MotionTemplate,
   type MotionTone,
   type TimedScene,
 } from "../../shared/motion.ts";
@@ -918,6 +920,35 @@ export function sceneAt(scenes: TimedScene[], t: number): number {
   return i < 0 ? scenes.length - 1 : i;
 }
 
+// Where a scene's main thing sits (the picture, the screen, the product, the number, what really happens), in frame
+// coordinates at its last moment, after the hand adjustment and the camera. A camera journey ("through") dives here.
+export function anchorOf(scene: TimedScene, w: number, h: number): { x: number; y: number } {
+  const vertical = h > w;
+  const unit = Math.min(w, h);
+  const has = Boolean(scene.asset);
+  const P: Record<MotionTemplate, [number, number]> = {
+    hook: has ? (vertical ? [0.5, 0.72] : [0.75, 0.5]) : vertical ? [0.5, 0.4] : [0.4, 0.45],
+    screen: vertical ? [0.5, 0.58] : [0.66, 0.44],
+    zoom: vertical ? [0.5, 0.58] : [0.5, 0.55],
+    type: vertical ? [0.5, 0.42] : [0.4, 0.45],
+    character: vertical ? [scene.assetB ? 0.3 : 0.5, 0.62] : [scene.assetB ? 0.8 : 0.72, 0.57],
+    callouts: vertical ? [0.5, 0.5] : [0.42, 0.55],
+    steps: has && !vertical ? [0.76, 0.55] : [0.3, vertical ? 0.42 : 0.45],
+    beforeAfter: vertical ? [0.5, 0.48] : [0.5, 0.54],
+    contradiction: vertical ? [0.32, 0.56] : [0.3, 0.64],
+    product: vertical ? [0.5, 0.47] : [0.5, 0.55],
+    stat: vertical ? [0.4, 0.45] : [0.4, 0.48],
+    logo: vertical ? [0.5, 0.42] : [0.5, 0.36],
+  };
+  const [fx, fy] = P[scene.template];
+  const key = scene.template === "stat" ? "title" : scene.template === "contradiction" ? "item1" : "media";
+  const spot = vertical ? scene.tweaks?.[key]?.v : scene.tweaks?.[key]?.h;
+  const x = w * fx + (spot?.dx ?? 0) * unit;
+  const y = h * fy + (spot?.dy ?? 0) * unit;
+  const cam = cameraAt(scene.camera, 1);
+  return { x: w / 2 + cam.x * w + (x - w / 2) * cam.z, y: h / 2 + cam.y * h + (y - h / 2) * cam.z };
+}
+
 // Frame t of the explainer. Scenes change with a push: the old one slides out, the new one in, behind an accent bar.
 // `probe` (the editor only) hears where each visible element of the current scene is; not during a push.
 export function drawMotionFrame(
@@ -964,8 +995,43 @@ export function drawMotionFrame(
     drawScene(shot, scene, sceneTime);
     ctx.restore();
   };
-  if (i > 0 && lt < push) {
-    const p = inOutCubic(lt / push);
+  const coming = pushOf(s, push);
+  if (i > 0 && lt < coming && s.entry === "through") {
+    // A camera journey: the camera dives into the previous scene's main thing, faster and faster, and this scene opens
+    // from inside it in a circle that grows from that spot, ringed in the accent, until it fills the frame.
+    const prev = scenes[i - 1];
+    const p = clamp01(lt / coming);
+    const a = anchorOf(prev, w, h);
+    const dive = 1 + 7 * p * p * p;
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.scale(dive, dive);
+    ctx.translate(-a.x, -a.y);
+    drawShot(prev, prev.seconds - 0.001, false, true);
+    ctx.restore();
+    const q = inOutCubic(clamp01((p - 0.15) / 0.85));
+    if (q > 0) {
+      const r = q * Math.hypot(Math.max(a.x, w - a.x), Math.max(a.y, h - a.y));
+      const k = 0.55 + 0.45 * outCubic(q);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.translate(a.x + (w / 2 - a.x) * q, a.y + (h / 2 - a.y) * q);
+      ctx.scale(k, k);
+      ctx.translate(-w / 2, -h / 2);
+      drawShot(s, lt, false, true);
+      ctx.restore();
+      ctx.save();
+      ctx.strokeStyle = world.brand.accent;
+      ctx.lineWidth = f.unit * 0.01 * (1 - q * 0.6);
+      ctx.beginPath();
+      ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  } else if (i > 0 && lt < coming) {
+    const p = inOutCubic(lt / coming);
     const prev = scenes[i - 1];
     ctx.save();
     ctx.translate(-w * p, 0);
