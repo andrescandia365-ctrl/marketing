@@ -386,10 +386,13 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
       if (title) add("title", "Título", "title", 0.15);
       if (scene.items[0]) add("tag", "Precio", "tag", 0.9);
       break;
-    case "stat":
+    case "stat": {
+      // The supporting line waits for the number to stop counting.
+      const counted = (scene.tweaks?.title?.at ?? scene.onBeat?.title ?? 0) + STAT_COUNT + 0.1;
       if (title) add("title", "Número", "title", 0);
-      if (text) add("text", "Texto", "text", 0.8);
+      if (text) add("text", "Texto", "text", title ? counted : 0.8);
       break;
+    }
     case "logo":
       add("media", media, "media", 0);
       if (text) add("text", "Texto", "text", 0.6);
@@ -399,6 +402,34 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
   if (scene.voice.trim()) add("voice", "Voz", "voice", 0.25, false);
   const latest = Math.max(0, d - 0.3);
   return list.map((e) => ({ ...e, at: Math.min(latest, Math.max(0, scene.tweaks?.[e.key]?.at ?? scene.onBeat?.[e.key] ?? defaults[e.key])) }));
+}
+
+// How long the stat template's number counts up.
+export const STAT_COUNT = 1.2;
+
+// The stat template's title while its number counts up (p from 0 to 1): the number in the title's own format
+// (its thousands mark, its decimal mark, its decimals, what comes before and after it), and at the end the title
+// exactly as written. A title whose number is not a quantity ("24/7", "6:00") does not count: it is shown as is.
+export function statCountText(title: string, p: number): string {
+  const m = title.match(/^(\D*?)(\d+(?:[.,]\d+)*)(.*)$/s);
+  if (!m || p >= 1) return title;
+  const [, before, digits, after] = m;
+  if (/^[/:]\d/.test(after)) return title;
+  const marks = digits.match(/[.,]/g) ?? [];
+  const groups = digits.split(/[.,]/);
+  // One kind of mark followed only by groups of three digits is a thousands mark ("1.500", "12,000"); otherwise
+  // the last mark is the decimal one ("2,5", "1.234,5").
+  const allThousands = marks.length > 0 && new Set(marks).size === 1 && groups.slice(1).every((g) => g.length === 3);
+  const decimalMark = !marks.length || allThousands ? "" : marks[marks.length - 1];
+  const thousandsMark = allThousands ? marks[0] : marks.length > 1 ? marks[0] : "";
+  const decimals = decimalMark ? groups[groups.length - 1].length : 0;
+  const whole = decimalMark ? groups.slice(0, -1).join("") : groups.join("");
+  const value = Number(`${whole}.${decimalMark ? groups[groups.length - 1] : "0"}`);
+  if (!Number.isFinite(value)) return title;
+  const shown = (Math.max(0, p) * value).toFixed(decimals);
+  const [int, frac] = shown.split(".");
+  const grouped = thousandsMark ? int.replace(/\B(?=(\d{3})+(?!\d))/g, thousandsMark) : int;
+  return `${before}${grouped}${frac !== undefined ? `${decimalMark}${frac}` : ""}${after}`;
 }
 
 // Typing speed of the "type" template, characters per second.
@@ -419,7 +450,7 @@ function entranceDone(scene: MotionScene, el: SceneElement): number {
   const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
   switch (el.key) {
     case "title":
-      if (scene.template === "stat") return el.at + 1.2;
+      if (scene.template === "stat") return el.at + STAT_COUNT;
       if (scene.template === "type") return el.at + typingSeconds(scene.title);
       if (scene.template === "logo") return el.at + 0.6;
       // Words rise in one after another.

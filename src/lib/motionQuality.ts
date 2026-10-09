@@ -1,11 +1,20 @@
 // The quality loop's eyes: the contact sheet (one frame per beat, at phone-thumbnail size, with the second under
 // each frame) and the facts the app measures itself (cuts and entrances against the beats, still stretches, the
 // hook's timing, voices that run over, elements off the frame), so the reviewer never has to guess them.
-import { cutPush, quietGaps, readingIssues, sceneElements, settledAt, timeScenes, type MotionScript } from "../../shared/motion.ts";
-import { drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionWorld } from "./motion.ts";
+import { cutPush, pushOf, quietGaps, readingIssues, sceneElements, settledAt, timeScenes, type MotionScript } from "../../shared/motion.ts";
+import { OVERLAP, SAFE_BAND_LABEL, overlapShare, safeBands, type SafeBand } from "../../shared/safeZone.ts";
+import { drawMotionFrame, sceneAt, scriptDuration, subtitleBox, type Box, type MotionWorld } from "./motion.ts";
 
 export type SheetFormat = "vertical" | "horizontal";
 export type Outside = { t: number; scene: number; key: string; format: SheetFormat };
+// Text under a phone's top bar, caption or buttons (9:16 only).
+export type Zoned = { t: number; scene: number; key: string; bands: SafeBand[] };
+// Two settled lines of text on top of each other ("subtitle" is the voice's subtitle).
+export type Overlap = { t: number; scene: number; a: string; b: string; format: SheetFormat };
+
+// The elements that carry words to read.
+const isText = (key: string) => key === "title" || key === "text" || key === "tag" || key === "subtitle" || /^item\d+$/.test(key);
+
 
 const MAX_FRAMES = 28;
 const ON_BEAT = 0.06;
@@ -26,7 +35,11 @@ export function sheetTimes(script: MotionScript, beats: number[]): number[] {
   return [...new Set(all.map((t) => Math.round(Math.min(end, t) * 100) / 100))].sort((a, b) => a - b);
 }
 
-export function contactSheet(script: MotionScript, world: MotionWorld, format: SheetFormat): { canvas: HTMLCanvasElement; times: number[]; outside: Outside[] } {
+export function contactSheet(
+  script: MotionScript,
+  world: MotionWorld,
+  format: SheetFormat,
+): { canvas: HTMLCanvasElement; times: number[]; outside: Outside[]; zoned: Zoned[]; overlaps: Overlap[] } {
   const vertical = format === "vertical";
   const [cw, ch] = vertical ? [216, 384] : [384, 216];
   const cols = vertical ? 7 : 4;
@@ -44,7 +57,10 @@ export function contactSheet(script: MotionScript, world: MotionWorld, format: S
   frame.height = ch;
   const fctx = frame.getContext("2d")!;
   const timed = timeScenes(script.scenes);
+  const push = cutPush(script.tone);
   const outside: Outside[] = [];
+  const zoned: Zoned[] = [];
+  const overlaps: Overlap[] = [];
   times.forEach((t, n) => {
     const seen = new Map<string, Box>();
     drawMotionFrame(fctx, cw, ch, t, script, world, (sceneId, key, box) => seen.set(`${sceneId}:${key}`, box));
@@ -54,6 +70,29 @@ export function contactSheet(script: MotionScript, world: MotionWorld, format: S
         const scene = timed.find((s) => s.id === sceneId);
         if (scene) outside.push({ t, scene: scene.index + 1, key, format });
       }
+    }
+    // Settled text only: an entrance passing over something is not a problem.
+    const scene = timed[sceneAt(timed, t)];
+    if (scene) {
+      const els = sceneElements(scene);
+      const settled = [...seen]
+        .filter(([id]) => id.startsWith(`${scene.id}:`))
+        .map(([id, box]) => ({ key: id.slice(scene.id.length + 1), box }))
+        .filter(({ key }) => {
+          const el = els.find((e) => e.key === key);
+          return isText(key) && el !== undefined && t - scene.start >= settledAt(scene, el, pushOf(scene.index, push));
+        });
+      const sub = t - scene.start >= pushOf(scene.index, push) ? subtitleBox(fctx, cw, ch, t, script, world) : null;
+      const texts = sub ? [...settled, { key: "subtitle", box: sub }] : settled;
+      for (const { key, box } of settled) {
+        const bands = safeBands(box, cw, ch);
+        if (bands.length) zoned.push({ t, scene: scene.index + 1, key, bands });
+      }
+      texts.forEach((a, i) =>
+        texts.slice(i + 1).forEach((b) => {
+          if (overlapShare(a.box, b.box) > OVERLAP) overlaps.push({ t, scene: scene.index + 1, a: a.key, b: b.key, format });
+        }),
+      );
     }
     const x = (n % cols) * cw;
     const y = Math.floor(n / cols) * (ch + label);
@@ -68,7 +107,7 @@ export function contactSheet(script: MotionScript, world: MotionWorld, format: S
     ctx.strokeStyle = "#d9dbe0";
     ctx.strokeRect(x + 0.5, y + 0.5, cw - 1, ch + label - 1);
   });
-  return { canvas, times, outside };
+  return { canvas, times, outside, zoned, overlaps };
 }
 
 export function sheetJpeg(canvas: HTMLCanvasElement): string {
@@ -84,6 +123,8 @@ export function measureFacts(
   music: string,
   voiceLengths: Record<string, number>,
   outside: Outside[],
+  zoned: Zoned[] = [],
+  overlaps: Overlap[] = [],
 ): string {
   const timed = timeScenes(script.scenes);
   const total = scriptDuration(script);
@@ -125,6 +166,18 @@ export function measureFacts(
   const off = [...new Map(outside.map((o) => [`${o.scene}:${o.key}:${o.format}`, o])).values()];
   lines.push(
     `Elements running off the frame: ${off.length ? off.map((o) => `scene ${o.scene} ${o.key} (${o.format === "vertical" ? "9:16" : "16:9"}, at ${o.t.toFixed(2)} s)`).join("; ") : "none"}.`,
+  );
+  const under = [...new Map(zoned.map((z) => [`${z.scene}:${z.key}`, z])).values()];
+  lines.push(
+    `9:16 text under the platforms' own interface (approximate: top bar 10%, caption 20% at the bottom, buttons on the right 12% from 40% down; the app already keeps the subtitle and the AI notice out): ${
+      under.length ? under.map((z) => `scene ${z.scene} ${z.key} (${z.bands.map((b) => SAFE_BAND_LABEL[b]).join(", ")}, at ${z.t.toFixed(2)} s)`).join("; ") : "none"
+    }.`,
+  );
+  const covered = [...new Map(overlaps.map((o) => [`${o.scene}:${o.a}:${o.b}:${o.format}`, o])).values()];
+  lines.push(
+    `Settled text on top of other text: ${
+      covered.length ? covered.map((o) => `scene ${o.scene} ${o.a} over ${o.b} (${o.format === "vertical" ? "9:16" : "16:9"}, at ${o.t.toFixed(2)} s)`).join("; ") : "none"
+    }.`,
   );
   const reading = readingIssues(script.scenes, push);
   lines.push(

@@ -43,7 +43,7 @@ import { ensureFont } from "../lib/fonts.ts";
 import { download, slug } from "../lib/markdown.ts";
 import type { PuppetAsset } from "../lib/puppet.ts";
 import type { ActorAsset } from "../lib/actor.ts";
-import { drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
+import { drawMotionFrame, drawPhoneGuides, sceneAt, scriptDuration, type Box, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
 import { TARGET_LUFS } from "../lib/motionAudio.ts";
 import { MixPlayer } from "../lib/playClock.ts";
 import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
@@ -159,6 +159,10 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [selected, setSelected] = useState<Selection | null>(null);
   const [outside, setOutside] = useState(false);
   const outsideRef = useRef(false);
+  // The phone's own interface drawn over the 9:16 preview (editor only).
+  const [guides, setGuides] = useState(true);
+  const guidesRef = useRef(guides);
+  guidesRef.current = guides;
   // Undo: earlier scripts, newest last.
   const past = useRef<MotionScript[]>([]);
   const lastMark = useRef({ tag: "", at: 0 });
@@ -409,6 +413,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           outsideRef.current = out;
           setOutside(out);
         }
+        if (guidesRef.current) drawPhoneGuides(ctx, canvas.width, canvas.height);
         if (box) {
           ctx.save();
           ctx.lineWidth = 1.5;
@@ -691,7 +696,15 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         const blobs = await Promise.all(made.map((m) => new Promise<Blob | null>((done) => m.canvas.toBlob(done, "image/jpeg", 0.85))));
         setSheets(made.map((m, k) => ({ format: m.format, url: blobs[k] ? objectUrl(blobs[k]!) : "" })));
         lastSheets = made.map((m, k) => ({ format: m.format, blob: blobs[k] }));
-        const facts = measureFacts(played, roundBeats, music, voiceLengths, made.flatMap((m) => m.outside));
+        const facts = measureFacts(
+          played,
+          roundBeats,
+          music,
+          voiceLengths,
+          made.flatMap((m) => m.outside),
+          made.flatMap((m) => m.zoned),
+          made.flatMap((m) => m.overlaps),
+        );
         setReviewing(`Ronda ${round} de ${MAX_ROUNDS}: la IA mira los cuadros…`);
         const { review, demo } = await api.motionReview(
           brief,
@@ -964,6 +977,15 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                   <input type="checkbox" checked={snap} onChange={(e) => set({ snap: e.target.checked })} />
                   Cortes en los beats
                 </label>
+                {vertical && (
+                  <label
+                    className="flex items-center gap-1.5"
+                    title="Dónde Reels, TikTok y Shorts ponen su barra, su texto y sus botones (medidas aproximadas). Solo se ve acá, nunca en el video."
+                  >
+                    <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} />
+                    Ver lo que tapa la app
+                  </label>
+                )}
               </div>
             </div>
 

@@ -19,6 +19,7 @@ import {
   type WrappedCanvas,
 } from "mediabunny";
 import type { Board, Brief, Role } from "../../shared/schema.ts";
+import { isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import type { TextStyle } from "../../shared/series.ts";
 import { timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 import { drawSketch, type SketchSetup } from "./sketch.ts";
@@ -204,6 +205,12 @@ function drawOverlay(
   const unit = Math.min(w, h);
   const { style } = options;
   const disclosure = options.disclosure.trim();
+  // A 9:16 frame keeps its text where Reels, TikTok and Shorts draw nothing (shared/safeZone.ts): below their top
+  // bar, above their caption and left of their buttons. Other formats keep the whole frame.
+  const phone = isPhoneFrame(w, h);
+  const safe = safeRect(w, h);
+  const cx = safe.x + safe.w / 2;
+  const textWidth = phone ? safe.w * 0.96 : w * 0.84;
 
   // Shade top and bottom so the text reads on any picture.
   const top = ctx.createLinearGradient(0, 0, 0, h * 0.3);
@@ -222,23 +229,27 @@ function drawOverlay(
   ctx.shadowColor = style.backing === "shadow" ? style.backingColor : "transparent";
   ctx.shadowBlur = style.backing === "shadow" ? unit * 0.012 : 0;
 
+  // The CONCEPTO / SIMULACIÓN label (a hard rule) sits in the top right corner, below a phone's top bar.
+  const labelled = shot.disclosure !== "none";
   if (options.headlines && shot.onScreenText) {
     const size = unit * 0.075 * (style.headlineSize / 100);
-    drawText(ctx, shot.onScreenText, w / 2, h * 0.08, size, w * 0.86, 700, style.headlineColor, style);
+    const top = phone ? safe.y + unit * (labelled ? 0.1 : 0.03) : h * 0.08;
+    drawText(ctx, shot.onScreenText, phone ? cx : w / 2, top, size, phone ? safe.w * 0.98 : w * 0.86, 700, style.headlineColor, style);
   }
 
-  if (shot.disclosure !== "none") {
+  if (labelled) {
     ctx.save();
     ctx.shadowBlur = 0;
     ctx.font = `700 ${unit * 0.028}px ${FONT}`;
     const label = shot.disclosure === "concept" ? "CONCEPTO" : "SIMULACIÓN";
     const pad = unit * 0.018;
     const tw = ctx.measureText(label).width;
+    const top = phone ? safe.y : 0;
     ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.fillRect(w - tw - pad * 3, pad * 2, tw + pad * 2, unit * 0.028 + pad * 1.4);
+    ctx.fillRect(w - tw - pad * 3, top + pad * 2, tw + pad * 2, unit * 0.028 + pad * 1.4);
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "left";
-    ctx.fillText(label, w - tw - pad * 2, pad * 2.7);
+    ctx.fillText(label, w - tw - pad * 2, top + pad * 2.7);
     ctx.restore();
   }
 
@@ -249,21 +260,23 @@ function drawOverlay(
   const subtitle = beat ? beat.line : shot.timeline?.length ? "" : subtitleAt(shot, t);
   const subSize = unit * 0.045 * (style.subtitleSize / 100);
   ctx.font = `600 ${subSize}px ${FONT}`;
-  const subHeight = subtitle ? wrapLines(ctx, subtitle, w * 0.84).length * subSize * 1.18 : 0;
-  const floor = h - unit * (disclosure ? 0.13 : 0.08);
+  const subHeight = subtitle ? wrapLines(ctx, subtitle, textWidth).length * subSize * 1.18 : 0;
+  const floor = phone ? safe.y + safe.h - unit * (disclosure ? 0.06 : 0.01) : h - unit * (disclosure ? 0.13 : 0.08);
   const subtitleTop = Math.min(h * 0.8, floor - subHeight);
 
   if (speaker && subtitle) {
     const nameSize = unit * 0.032 * Math.max(style.subtitleSize / 100, 0.8);
-    drawText(ctx, speaker.name.toUpperCase(), w / 2, subtitleTop - nameSize * 1.5, nameSize, w * 0.84, 700, ROLE_COLOR[speaker.role], style);
+    drawText(ctx, speaker.name.toUpperCase(), phone ? cx : w / 2, subtitleTop - nameSize * 1.5, nameSize, textWidth, 700, ROLE_COLOR[speaker.role], style);
   }
-  if (subtitle) drawText(ctx, subtitle, w / 2, subtitleTop, subSize, w * 0.84, 600, style.textColor, style);
+  if (subtitle) drawText(ctx, subtitle, phone ? cx : w / 2, subtitleTop, subSize, textWidth, 600, style.textColor, style);
 
-  // Small, always-visible note such as "Imágenes ilustrativas", for platforms that ask for AI disclosure.
+  // Small, always-visible note such as "Imágenes ilustrativas", for platforms that ask for AI disclosure. On a phone
+  // frame it sits just above the platform's caption, where the viewer can see it.
   if (disclosure) {
     ctx.globalAlpha = 0.8;
     const size = unit * 0.026;
-    drawText(ctx, disclosure, w / 2, h - unit * 0.06 - size * 1.18, size, w * 0.9, 500, style.textColor, { ...style, backing: "shadow" });
+    const y = phone ? safe.y + safe.h - unit * 0.008 - size * 1.18 : h - unit * 0.06 - size * 1.18;
+    drawText(ctx, disclosure, phone ? cx : w / 2, y, size, phone ? safe.w : w * 0.9, 500, style.textColor, { ...style, backing: "shadow" });
     ctx.globalAlpha = 1;
   }
   ctx.shadowBlur = 0;

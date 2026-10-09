@@ -4,7 +4,8 @@
 // everything-fades-in, no corner labels or frame borders, no glow, no particle bursts.
 import { drawPuppet, puppetPose, type PuppetAsset } from "./puppet.ts";
 import type { ActorAsset } from "./actor.ts";
-import { TYPE_CPS, cameraAt, cutPush, elementTimes, timeScenes, typingSeconds, type MotionScene, type MotionScript, type TimedScene } from "../../shared/motion.ts";
+import { STAT_COUNT, TYPE_CPS, cameraAt, cutPush, elementTimes, statCountText, timeScenes, typingSeconds, type MotionScene, type MotionScript, type TimedScene } from "../../shared/motion.ts";
+import { BUTTONS_FROM, PHONE_SAFE, isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import type { Brand } from "../../shared/series.ts";
 
 // screen: a real screenshot of the app (shown inside a phone or laptop).
@@ -262,31 +263,60 @@ export function drawLayers(ctx: CanvasRenderingContext2D, w: number, h: number, 
   });
 }
 
+// Where the voice's subtitle and the AI notice go. On a 9:16 frame both stay inside the part the platforms leave
+// alone (shared/safeZone.ts): above their caption and left of their buttons. Other formats keep them low.
+function overlayLayout(f: Pick<Frame, "ctx" | "w" | "h" | "unit" | "world">, text: string) {
+  const { ctx, w, h, unit, world } = f;
+  const size = unit * 0.038;
+  const phone = isPhoneFrame(w, h);
+  const safe = safeRect(w, h);
+  const cx = phone ? safe.x + safe.w / 2 : w / 2;
+  ctx.font = `600 ${size}px "${world.brand.uiFont}", "Inter", system-ui, sans-serif`;
+  const lines = text.trim() ? wrap(ctx, text, phone ? safe.w * 0.96 : w * 0.84) : [];
+  const noticeY = phone ? safe.y + safe.h - unit * 0.008 : h - unit * 0.05;
+  const lastLine = phone ? safe.y + safe.h - unit * (world.disclosure ? 0.045 : 0.01) : h - unit * (world.disclosure ? 0.14 : 0.1);
+  const y0 = lastLine - lines.length * size * 1.25;
+  const width = Math.max(0, ...lines.map((l) => ctx.measureText(l).width));
+  const box: Box = { x: cx - width / 2, y: y0 + size * 0.25, w: width, h: lines.length * size * 1.25 };
+  return { size, cx, lines, y0, noticeY, box };
+}
+
 function subtitle(f: Frame, text: string) {
   if (!text.trim()) return;
-  const { ctx, w, h, unit } = f;
-  const size = unit * 0.038;
-  ctx.font = ui(f, size, 600);
-  const lines = wrap(ctx, text, w * 0.84);
-  const y0 = h - unit * (f.world.disclosure ? 0.14 : 0.1) - lines.length * size * 1.25;
+  const { ctx } = f;
+  const { size, cx, lines, y0 } = overlayLayout(f, text);
   ctx.save();
+  ctx.font = ui(f, size, 600);
   ctx.textAlign = "center";
   ctx.shadowColor = "rgba(0,0,0,0.55)";
   ctx.shadowBlur = size * 0.35;
   ctx.fillStyle = f.world.brand.text;
-  lines.forEach((l, i) => ctx.fillText(l, w / 2, y0 + (i + 1) * size * 1.25));
+  lines.forEach((l, i) => ctx.fillText(l, cx, y0 + (i + 1) * size * 1.25));
   ctx.restore();
 }
 
 function footer(f: Frame) {
   if (!f.world.disclosure) return;
-  const { ctx, w, h, unit } = f;
+  const { ctx, unit } = f;
+  const { cx, noticeY } = overlayLayout(f, "");
   ctx.save();
   ctx.font = ui(f, unit * 0.022);
   ctx.textAlign = "center";
   ctx.fillStyle = hexA(f.world.brand.text, 0.65);
-  ctx.fillText(f.world.disclosure, w / 2, h - unit * 0.05);
+  ctx.fillText(f.world.disclosure, cx, noticeY);
   ctx.restore();
+}
+
+// The subtitle's box at piece time t (the voice of the scene on screen), for the overlap check. Empty when silent.
+export function subtitleBox(ctx: CanvasRenderingContext2D, w: number, h: number, t: number, script: MotionScript, world: MotionWorld): Box | null {
+  const scenes = timeScenes(script.scenes);
+  if (!scenes.length) return null;
+  const voice = scenes[sceneAt(scenes, t)].voice;
+  if (!voice.trim()) return null;
+  ctx.save();
+  const { box } = overlayLayout({ ctx, w, h, unit: Math.min(w, h), world }, voice);
+  ctx.restore();
+  return box;
 }
 
 // Draws one element with the person's hand adjustment: moved by (dx, dy) and scaled around its anchor (ax, ay).
@@ -325,6 +355,8 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
   const asset = s.asset ? world.assets[s.asset] : undefined;
   const missing = s.asset ? `Falta la imagen: ${s.asset}` : "Sin imagen";
   const titleSize = unit * (vertical ? 0.1 : 0.085);
+  // On a 9:16 frame a title near the top starts below the platforms' top bar (shared/safeZone.ts).
+  const topSafe = (y: number, size: number) => (isPhoneFrame(w, h) ? Math.max(y, h * PHONE_SAFE.top + size * 0.95) : y);
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
@@ -372,7 +404,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         const b = device(f, asset, 0, 0, vertical ? h * 0.52 : h * 0.62, missing);
         return { x: cx + b.x, y: cy + b.y, w: b.w, h: b.h };
       });
-      const titleY = vertical ? h * 0.12 : h * 0.3;
+      const titleY = vertical ? topSafe(h * 0.12, titleSize) : h * 0.3;
       const hTitle = title(m, titleY, titleSize, vertical ? w - m * 2 : w * 0.38);
       text(m, titleY + hTitle, unit * 0.04, vertical ? w - m * 2 : w * 0.36, outCubic(span(lt, at("text"), 0.5)));
       break;
@@ -409,7 +441,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         }
         return { x: cx - dw / 2, y: cy - devH / 2, w: dw, h: devH };
       });
-      title(m, vertical ? h * 0.15 : h * 0.16, titleSize * 0.9, w - m * 2);
+      title(m, vertical ? topSafe(h * 0.15, titleSize * 0.9) : h * 0.16, titleSize * 0.9, w - m * 2);
       break;
     }
     case "character": {
@@ -449,7 +481,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         const pose = puppetPose(f.t, lt, at("media"), s.gesture ?? "present", at("gesture"), talkLevel(world, s, f.t, lt), toward, world.seed + s.index * 7);
         return drawPuppet(ctx, puppet, cx, bottom, height, pose);
       });
-      const titleY = vertical ? h * 0.13 : h * 0.2;
+      const titleY = vertical ? topSafe(h * 0.13, titleSize) : h * 0.2;
       const hTitle = title(m, titleY, titleSize, vertical ? w - m * 2 : w * 0.4);
       text(m, titleY + hTitle + unit * 0.02, unit * 0.042, vertical ? w - m * 2 : w * 0.38, outCubic(span(lt, at("text"), 0.5)));
       break;
@@ -550,7 +582,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         const b = drawImage(f, asset, 0, 0, vertical ? w * 0.62 : w * 0.38, vertical ? h * 0.38 : h * 0.6, missing);
         return { x: cx + b.x, y: cy + b.y, w: b.w, h: b.h };
       });
-      title(m, vertical ? h * 0.14 : h * 0.15, titleSize * 0.85, w - m * 2);
+      title(m, vertical ? topSafe(h * 0.14, titleSize * 0.85) : h * 0.15, titleSize * 0.85, w - m * 2);
       s.items.forEach((item, i) => {
         const key = `item${i}`;
         const q = outCubic(span(lt, at(key), 0.45));
@@ -591,7 +623,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       break;
     }
     case "steps": {
-      title(m, vertical ? h * 0.16 : h * 0.18, titleSize * 0.9, w - m * 2);
+      title(m, vertical ? topSafe(h * 0.16, titleSize * 0.9) : h * 0.18, titleSize * 0.9, w - m * 2);
       const top = vertical ? h * 0.3 : h * 0.34;
       const gap = unit * (vertical ? 0.13 : 0.12);
       const dotX = m + unit * 0.035;
@@ -641,7 +673,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       break;
     }
     case "beforeAfter": {
-      title(m, vertical ? h * 0.14 : h * 0.15, titleSize * 0.85, w - m * 2);
+      title(m, vertical ? topSafe(h * 0.14, titleSize * 0.85) : h * 0.15, titleSize * 0.85, w - m * 2);
       const area = { x: m, y: vertical ? h * 0.22 : h * 0.24, w: w - m * 2, h: vertical ? h * 0.55 : h * 0.6 };
       put("media", area.x + area.w / 2, area.y + area.h / 2, () => {
         const wipe = inOutCubic(span(lt, at("wipe"), 1.2));
@@ -687,7 +719,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         const b = drawImage(f, asset, 0, 0, vertical ? w * 0.75 : w * 0.45, vertical ? h * 0.45 : h * 0.6, missing);
         return { x: cx + b.x, y: cy + b.y, w: b.w, h: b.h };
       });
-      title(m, vertical ? h * 0.15 : h * 0.18, titleSize, w - m * 2);
+      title(m, vertical ? topSafe(h * 0.15, titleSize) : h * 0.18, titleSize, w - m * 2);
       const tag = s.items[0];
       if (tag) {
         const q = outBack(span(lt, at("tag"), 0.5));
@@ -712,12 +744,8 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       break;
     }
     case "stat": {
-      const match = s.title.match(/^([\d.,]+)\s*(.*)$/);
-      const value = match ? Number(match[1].replace(/\./g, "").replace(",", ".")) : NaN;
-      const count = outCubic(span(lt, at("title"), 1.2));
-      const shown = Number.isFinite(value)
-        ? `${(value * count).toFixed(Number.isInteger(value) ? 0 : 1)}${match![2] ? ` ${match![2]}` : ""}`
-        : s.title;
+      // Counts up in the title's own format and settles on the title exactly as written.
+      const shown = statCountText(s.title, lt < at("title") ? 0 : outCubic(span(lt, at("title"), STAT_COUNT)));
       // As big as fits the width.
       let size = unit * 0.2;
       ctx.font = display(f, size);
@@ -859,6 +887,41 @@ export function drawMotionFrame(
   } else drawShot(s, lt, true, true);
   subtitle(f, s.voice);
   footer(f);
+}
+
+// The editor's guide (never in the video): where a phone's top bar, caption and buttons will cover a 9:16 frame.
+export function drawPhoneGuides(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  if (!isPhoneFrame(w, h)) return;
+  const safe = safeRect(w, h);
+  const bands: [number, number, number, number, string][] = [
+    [0, 0, w, safe.y, "Barra de la app"],
+    [0, safe.y + safe.h, w, h - safe.y - safe.h, "Texto y cuenta de la app"],
+    [safe.x + safe.w, h * BUTTONS_FROM, w - safe.x - safe.w, safe.y + safe.h - h * BUTTONS_FROM, "Botones"],
+  ];
+  ctx.save();
+  ctx.font = `600 ${Math.round(Math.min(w, h) * 0.028)}px system-ui, sans-serif`;
+  ctx.textBaseline = "middle";
+  for (const [x, y, bw, bh, label] of bands) {
+    ctx.fillStyle = "rgba(20, 22, 28, 0.32)";
+    ctx.fillRect(x, y, bw, bh);
+    ctx.setLineDash([6, 5]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+    ctx.strokeRect(x + 0.75, y + 0.75, bw - 1.5, bh - 1.5);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+    if (bw > bh) {
+      ctx.textAlign = "left";
+      ctx.fillText(label, x + w * 0.04, y + bh / 2);
+    } else {
+      ctx.save();
+      ctx.translate(x + bw / 2, y + bh / 2);
+      ctx.rotate(Math.PI / 2);
+      ctx.textAlign = "center";
+      ctx.fillText(label, 0, 0);
+      ctx.restore();
+    }
+  }
+  ctx.restore();
 }
 
 // The beat grid of the synthesized score.
