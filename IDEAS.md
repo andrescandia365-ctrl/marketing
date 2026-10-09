@@ -84,6 +84,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Guardar algo en Modelos ya no recarga la página** en modo desarrollo (Vite no mira `.env`).
   - `iniciar.sh` avisa si está Demucs; no lo instala.
 
+- **Errores, carga y calendario (9 Oct 2026, ideas 53, 50 y 60):** los errores dicen qué campo faltó y qué le pasa; la primera pantalla baja la cuarta parte que antes (479 kB contra 2.000 kB); "Momentos del calendario" por serie, sugeridos en el brief y leídos por el menú y Publicidad.
 - **Lo que se aprende de Kurzgesagt (9 Oct 2026, idea 63):** "Pasar a través" (la cámara se mete en la escena anterior y la nueva se abre desde adentro), cómo se mueve la marca (Firme, Suave, Elástica: cómo aterriza y si las imágenes respiran), "Antes / después" con un círculo que crece, y la IA que abre con la pregunta de quien mira y viaja de lo grande a lo chico.
 - **20 repos de motion design (9 Oct 2026, idea 62):** zona segura 9:16 para subtítulos, avisos y rótulos; "stat" que termina en el número escrito; cifras con fuente y [VERIFY] que frena; plantilla Contradicción; contraste de la marca; la IA que revisa mide más; música que deja lugar antes del producto y el logo; efectos en su golpe; render final que se frena sin la fuente y revisa el MP4 (arregló el último cuadro que se perdía); voz con su emoción; anuncios a un mismo volumen.
 
@@ -209,7 +210,10 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   GitHub Actions con `typecheck`, `build`, las pruebas y `clock-check`. Las pruebas de Publicidad que corrí en esta
   sesión ya sirven de arranque.
 
-#### 50. El paquete del navegador pesa 1,9 MB
+#### 50. El paquete del navegador pesa 1,9 MB — **Construido (9 Oct 2026, "Go 53, 50, 60")**
+- **Construido:** los estudios, el storyboard, el panel de video, Editar serie y Modelos se cargan la primera vez que se
+  abren; three.js, solo si un personaje tiene esqueleto; la página del render final va aparte. Lo que baja la primera
+  pantalla pasó de 2.000 kB (555 kB comprimidos) a 479 kB (149 kB).
 - `three`, `mediabunny` y los tres estudios cargan juntos aunque se abra solo el brief. **Propuesta:** `import()`
   dinámico para `MotionStudio`, `LyricStudio`, `AdsStudio` y el actor 3D; `three` solo cuando hay un rig. La
   primera pantalla pasa a cargar en una fracción.
@@ -227,7 +231,10 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   recortar `server/playbook.md` a las reglas que de verdad cambian la escritura (las tablas de evidencia y las
   fuentes no hacen falta en el prompt).
 
-#### 53. Errores que no dicen qué faltó
+#### 53. Errores que no dicen qué faltó — **Construido (9 Oct 2026, "Go 53, 50, 60")**
+- **Construido:** dice el campo y qué le pasa, en castellano: "falta «state»", "«language» tiene que ser una de estas
+  opciones: es, en", "«name» está vacío", y cuántos problemas más hay. También al guardar una serie y al leer el
+  archivo de Publicidad.
 - Un pedido que no pasa el esquema responde "Al pedido le faltaban datos." sin decir cuál. **Propuesta:** incluir
   el primer camino del error de zod ("falta `brief.series`"), que ayuda cuando un proyecto viejo trae un campo
   cambiado.
@@ -272,7 +279,13 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   con corresponsal / visita de campo" (§2.4 y §4), y el corresponsal como personaje fijo con su voz, que el escritor
   usa para la escalada y el regreso al problema real.
 
-#### 60. Ganchos de calendario por serie
+#### 60. Ganchos de calendario por serie — **Construido (9 Oct 2026, "Go 53, 50, 60")**
+- **Construido:** "Momentos del calendario" en Editar serie, uno por línea, «cuándo: qué pasa». La app entiende fechas
+  en castellano (el 1 de cada mes, los lunes, 25 de diciembre, 15/3, primera semana de junio, mediados de noviembre,
+  fin de mes, último viernes del mes, julio) y muestra cuándo cae cada una; una semana o un mes que ya empezó cuenta
+  como "hoy". En el brief, las tres más cercanas aparecen como sugerencia debajo de "Gancho del momento" y un clic la
+  pone. El menú, la historia y los ganchos de Publicidad reciben todos los momentos, el más cercano primero. Los que no
+  tienen una fecha que la app entienda ("cuando sube la nafta") igual van a la IA.
 - El brief tiene "un momento que el público ya siente", pero se escribe cada vez. **Propuesta:** una lista de
   fechas y momentos por serie (día de inventario, primera semana de frío, el 1 del mes) en Editar serie; el menú y
   los hooks de Publicidad la leen, y la app sugiere el más cercano.

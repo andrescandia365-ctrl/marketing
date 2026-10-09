@@ -483,6 +483,8 @@ export type SeriesInfo = {
   look: SeriesLook;
   brand: Brand;
   cast: CastMember[];
+  // "Momentos del calendario": "cuándo: qué pasa", one per line (shared/calendar.ts).
+  moments: string[];
 };
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };
 

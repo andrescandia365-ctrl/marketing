@@ -43,7 +43,10 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   and `ScriptView` are the steps. `lib/render.ts` plays each shot's uploaded clip (or still, or colour card), mixes
   the clips' sound, draws the speaker and line on top and encodes with WebCodecs via mediabunny; its `drawShot` also
   draws the storyboard's phone frames and "Ver la pieza", so the board looks like the finished piece. `lib/markdown.ts`
-  exports the story, storyboard, prompts and direction log.
+  exports the story, storyboard, prompts and direction log. The first screen stays light: `main.tsx` loads `App` and
+  `RenderPage` lazily, `App` lazy-loads the studios, `BoardView`, `VideoPanel`, `SeriesEditor` and `ModelsPanel`, and
+  three.js comes in only for a rigged character (`import("./actor.ts")`). Pieces the first screen needs stay out of
+  heavy modules (`components/shotBits.tsx`, `lib/wav.ts`).
 - Production extras: uploads are checked for format and reviewed by the writer (`/api/review`, pictures sent as JPEG
   to Claude or Kimi); "Cambiar un solo objeto" writes a segment edit (`/api/shot/segment`, never on a watermark);
   e-commerce series get "Producto recortado" (`ProductPanel`, the product joins the cast). `iniciar.sh --ia` picks the
@@ -209,6 +212,12 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   top bar; the explainer preview can show
   the bands ("Ver lo que tapa la app", never in the video). The values are [NOT SURE] approximations: check them
   against the apps when they change.
+- A request or a saved file that fails its zod check answers with the first problem in Spanish, the field and what is
+  wrong (`checkErrorText`, `shared/errors.ts`), never a bare "faltaban datos".
+- Each series can list "Momentos del calendario" ("cuándo: qué pasa"); `shared/calendar.ts` reads the "cuándo" in
+  Spanish and finds its next date (a week or month that has begun is today). The brief suggests the three nearest
+  for "Gancho del momento"; the story writer and Publicidad get them all, nearest first (`momentsForWriter`, after the
+  prompt cache since it changes daily). A moment with no date it understands still goes to the writer.
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.
 - Tool features change: edit the tool's `.md` in `server/tools/`, never hard-code them. Tag each line
   [DOCS], [NOT SURE] or [TESTED]. Series are edited in the app (Brief → Editar serie / + Nueva serie); their files are in Spanish, and the

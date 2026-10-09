@@ -1,4 +1,5 @@
 import type { Brief, SeriesInfo, ToolInfo } from "../../shared/schema.ts";
+import { inDays, upcomingMoments } from "../../shared/calendar.ts";
 import { LENGTHS } from "../../shared/template.ts";
 import { Button, Field, Segmented, inputClass } from "./ui.tsx";
 
@@ -14,6 +15,10 @@ type Props = {
 export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewSeries }: Props) {
   const set = <K extends keyof Brief>(key: K, value: Brief[K]) => onChange({ ...brief, [key]: value });
   const current = series.find((s) => s.id === brief.series);
+  // The series' calendar moments with a date, the nearest first: one click puts it in "Gancho del momento".
+  const upcoming = upcomingMoments(current?.moments ?? [], new Date())
+    .filter((m) => m.days !== null)
+    .slice(0, 3);
   const productMode = current?.productPerEpisode ?? false;
   const explainer = brief.piece === "explainer";
   const screens = current?.type === "software" ? current.cast.filter((m) => m.kind === "screen") : [];
@@ -128,6 +133,22 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
       )}
       <Field label="Gancho del momento (opcional)" hint="Algo que la gente ya siente: una fecha, la primera semana de frío, un aumento.">
         <textarea className={inputClass} rows={3} value={brief.angle} onChange={(e) => set("angle", e.target.value)} />
+        {upcoming.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-muted">Del calendario de la serie:</span>
+            {upcoming.map((m) => (
+              <button
+                key={m.line}
+                type="button"
+                className={`rounded-full border px-2.5 py-1 hover:border-ink ${brief.angle.trim() === m.line ? "border-ink bg-paper font-semibold" : "border-line bg-white"}`}
+                title={m.line}
+                onClick={() => set("angle", m.line)}
+              >
+                {inDays(m.days!)} · {m.what.length > 48 ? `${m.what.slice(0, 48)}…` : m.what}
+              </button>
+            ))}
+          </div>
+        )}
       </Field>
 
       <div className="md:col-span-2">

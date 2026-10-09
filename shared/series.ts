@@ -282,6 +282,8 @@ export const SeriesFieldsSchema = z.object({
   practices: z.array(z.string().trim().min(1).max(600)).max(100),
   // The series loop, one step per line (IMAN: the daily loop of the store). The loop check uses it.
   loop: z.array(z.string().trim().min(1).max(300)).max(30),
+  // Dates and seasons the audience already feels, "cuándo: qué pasa" (shared/calendar.ts reads the "cuándo").
+  moments: z.array(z.string().trim().min(1).max(300)).max(60).default([]),
   story: z.string().trim().max(6000),
   bad: z.string().trim().max(6000),
   good: z.string().trim().max(6000),
@@ -304,6 +306,7 @@ export const EMPTY_SERIES: SeriesFields = {
   what: "",
   worksToday: [],
   practices: [],
+  moments: [],
   loop: [],
   story: "",
   bad: "",
@@ -324,7 +327,8 @@ export const WORKS_TODAY = "Lo que existe hoy";
 export const PRACTICES = "Cómo se trabaja hoy";
 export const LOOP = "El loop de la serie";
 export const CAST = "Elenco fijo";
-const LISTS = ["worksToday", "practices", "loop"] as const;
+export const MOMENTS = "Momentos del calendario";
+const LISTS = ["worksToday", "practices", "loop", "moments"] as const;
 type ListKey = (typeof LISTS)[number];
 const isList = (key: string): key is ListKey => (LISTS as readonly string[]).includes(key);
 const SECTIONS = [
@@ -332,6 +336,7 @@ const SECTIONS = [
   ["worksToday", `${WORKS_TODAY} (solo esto se muestra como real)`],
   ["practices", `${PRACTICES} (sin la marca; la historia no inventa otras costumbres)`],
   ["loop", `${LOOP} (un paso por línea)`],
+  ["moments", `${MOMENTS} (uno por línea, cuándo: qué pasa)`],
   ["story", "La historia que contamos"],
   ["bad", "El Malo"],
   ["good", "El Bueno"],

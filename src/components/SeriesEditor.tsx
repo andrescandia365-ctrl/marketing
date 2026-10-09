@@ -27,6 +27,7 @@ import {
   type Brand,
   type SeriesLook,
 } from "../../shared/series.ts";
+import { inDays, upcomingMoments } from "../../shared/calendar.ts";
 import { ensureFont } from "../lib/fonts.ts";
 import { BrandFromWeb } from "./BrandFromWeb.tsx";
 import { PuppetArranger } from "./PuppetArranger.tsx";
@@ -822,6 +823,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
   const [works, setWorks] = useState("");
   const [practices, setPractices] = useState("");
   const [loop, setLoop] = useState("");
+  const [moments, setMoments] = useState("");
   const [sheetFor, setSheetFor] = useState<null | "person" | "place">(null);
   const [version, setVersion] = useState(Date.now());
   const [busy, setBusy] = useState<null | "save" | "delete">(null);
@@ -836,6 +838,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
         setWorks(fields.worksToday.join("\n"));
         setPractices(fields.practices.join("\n"));
         setLoop(fields.loop.join("\n"));
+        setMoments((fields.moments ?? []).join("\n"));
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [id]);
@@ -846,7 +849,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
 
   const music = fields.type === "music";
   const set = <K extends keyof SeriesFields>(key: K, value: SeriesFields[K]) => setFields({ ...fields, [key]: value });
-  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "type" | "textStyle" | "lyricStyle" | "look" | "brand" | "cast">, rows = 4) => (
+  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "moments" | "type" | "textStyle" | "lyricStyle" | "look" | "brand" | "cast">, rows = 4) => (
     <textarea className={inputClass} rows={rows} value={fields[key]} onChange={(e) => set(key, e.target.value)} />
   );
 
@@ -859,7 +862,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
         .split("\n")
         .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
         .filter(Boolean);
-    const next = { ...fields, worksToday: lines(works), practices: lines(practices), loop: lines(loop) };
+    const next = { ...fields, worksToday: lines(works), practices: lines(practices), loop: lines(loop), moments: lines(moments) };
     try {
       if (id) {
         const { series } = await api.saveSeries(id, next);
@@ -1039,6 +1042,34 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
             hint="Los pasos de la rutina que la marca resuelve, uno por línea y en orden. El check revisa que cada paso que aparece se muestre completo: el dolor, el paso y el resultado."
           >
             <textarea className={`${inputClass} font-mono`} rows={6} value={loop} onChange={(e) => setLoop(e.target.value)} />
+          </Field>
+
+          <Field
+            label="Momentos del calendario (opcional)"
+            hint="Fechas que el público ya siente, una por línea: «cuándo: qué pasa». Ej.: «el 1 de cada mes: cobran los sueldos», «primera semana de junio: primer frío», «los lunes: llega el proveedor». El brief te sugiere el más cercano, y el menú y los ganchos de Publicidad los usan."
+          >
+            <textarea
+              className={`${inputClass} font-mono`}
+              rows={5}
+              value={moments}
+              onChange={(e) => setMoments(e.target.value)}
+            />
+            {moments.trim() && (
+              <ul className="mt-1 space-y-0.5 text-xs text-muted">
+                {upcomingMoments(moments.split("\n"), new Date()).map((m) => (
+                  <li key={m.line}>
+                    {m.days === null ? (
+                      <span className="text-amber-800">Sin fecha fija: la IA lo usa igual, pero no se puede sugerir por cercanía.</span>
+                    ) : (
+                      <span className="text-ink">
+                        {inDays(m.days)} · {m.next!.split("-").reverse().join("/")}
+                      </span>
+                    )}{" "}
+                    · {m.what}
+                  </li>
+                ))}
+              </ul>
+            )}
           </Field>
 
           <Field

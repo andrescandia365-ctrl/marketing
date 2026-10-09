@@ -48,6 +48,7 @@ import {
 import { LyricPlatesSchema, type LyricPlatesDraft } from "../shared/plates.ts";
 import { LENGTHS } from "../shared/template.ts";
 import { CAST, PRACTICES, WORKS_TODAY } from "../shared/series.ts";
+import { momentsForWriter } from "../shared/calendar.ts";
 import { getSeries } from "./series.ts";
 import { askKimi, listChatModels, type ChatTarget, type ListedModel } from "./kimi.ts";
 import { baseUrlOf, claudeEffort, keyOf, labelOf, visionChoice, writerChoice, EFFORTS, type Effort, type ProviderId } from "./settings.ts";
@@ -168,6 +169,9 @@ function contextBlocks(brief: Brief, withTool: boolean): string[] {
   const blocks = [
     `The series for this piece (its bible is written in Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real. Its "${PRACTICES}" list, if any, is how people work today without the brand: pains are built only on it and the brief's notes. Its "${CAST}", if any, is the series' fixed cast: characters, places and products with an approved image (reuse them: same id as castId, identity word for word) and real screens of the product (kind "screen": real screenshots, shown only in screen shots).\n\n${series.text}`,
   ];
+  // The series' calendar moments, nearest first with how far each one is (after the cache: it changes every day).
+  const moments = momentsForWriter(series.moments, new Date());
+  if (moments) blocks.push(moments);
   // The offer profile from Publicidad, when the series has one: the same audience, promise and proofs as the ads.
   const offer = offerOf(brief.series);
   if (offer) blocks.push(`${offerBlock(offer)}\nThis profile adds to the bible; where they differ, the bible's "${WORKS_TODAY}" wins on what is real.`);
