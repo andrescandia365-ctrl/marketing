@@ -394,7 +394,9 @@ export function adsRoutes(app: Hono) {
     const data = Buffer.from(await c.req.arrayBuffer());
     if (!data.length) throw new AdsError("El archivo está vacío.");
     const file = await savePieceRender(id, pieceId, data, c.req.header("content-type") ?? "");
-    const { state } = await updateAds(id, (s) => {
+    const { state } = await updateAds(id, async (s) => {
+      // An older render under another name (before the version mark, or another format) goes.
+      if (s.renders[pieceId] && s.renders[pieceId] !== file) await removePieceMedia(id, s.renders[pieceId]).catch(() => undefined);
       s.renders[pieceId] = file;
     });
     return c.json({ state, file });

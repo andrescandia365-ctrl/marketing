@@ -16,6 +16,7 @@ import {
   EMPTY_SERIES,
   LOOK_PRESETS,
   SERIES_TYPE_LABEL,
+  brandContrast,
   castRef,
   type CastKind,
   type CastMember,
@@ -717,6 +718,20 @@ function BrandSection({
             </p>
             <p style={{ fontFamily: `"${brand.uiFont}"`, fontSize: 13, opacity: 0.85 }}>Así se ven los títulos y el texto.</p>
           </div>
+          {(() => {
+            const contrast = brandContrast(brand);
+            return contrast.problems.length ? (
+              <ul className="space-y-0.5 text-xs text-neg">
+                {contrast.problems.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-good">
+                ✓ Contraste: texto {contrast.text.toFixed(1).replace(".", ",")}:1 y acento {contrast.accent.toFixed(1).replace(".", ",")}:1 sobre el fondo.
+              </p>
+            );
+          })()}
         </div>
       </div>
       <div className="mt-3">

@@ -760,7 +760,8 @@ The studio's rules:
 - Only what the series lists as working today is shown as real; never invent a feature, a price or a number (leave items empty and note it).
 - Voice lines in Rioplatense Spanish, each with its emotion, fitting its scene at about 2.5 words per second.
 - A character from the cast (a 3D puppet, or one with an image) can host with the character template: it says its scene's voice line (its mouth moves), makes one gesture (presenta, saluda, señala, festeja, se sorprende) and can point at or present a real screen or the product (assetB). Use it once or twice, to guide, never to replace showing the product.
-- The last scene is the logo with a soft call to action.
+- The Contradiction (contradiction template), when the pain is a mismatch people already live with: items[0] what the system, the label or the habit says, items[1] what really happens; the first gets struck through. Build it only on the series' "Cómo se trabaja hoy" list and the brief, never on an invented habit, and with real numbers only.
+- The last scene is the logo with a soft call to action. Its line calls back to the hook: the same problem, now solved, not a new idea.
 ${brief.narrator === "without" ? "- No narrator: leave every scene's voice and emotion empty. Titles, labels, the typed text and the product in use carry the meaning; keep it readable without a voice.\n" : ""}- Pace for the brief's comic voice (${brief.tone}): ${TONE_PACE[brief.tone]}
 - The product and the logo are the big moments: they land on the music's strongest hits (the app moves their cuts there).
 - music: a mood (calm, drive or bright) and a tempo for the synthesized score.
@@ -817,7 +818,7 @@ export async function reviewMotion(
     await ask(
       brief,
       false,
-      `You are the motion studio's strict reviewer. ${sheets.length > 1 ? "The contact sheets above show" : "The contact sheet above shows"} one frame per beat of a motion-graphics explainer (the second and scene under each frame), at phone-thumbnail size. This is review round ${round}.
+      `You are the motion studio's strict reviewer. ${sheets.length > 1 ? "The contact sheets above show" : "The contact sheet above shows"} one frame per beat of a motion-graphics explainer, taken 0.3 s after the beat so what entered has settled (the second and scene under each frame), at phone-thumbnail size. This is review round ${round}.
 
 The script as it plays:
 ${scenes}
@@ -825,11 +826,11 @@ ${scenes}
 What the app measured (trust these over your eyes for timing and sound):
 ${facts}
 ${earlier ? `\nEarlier rounds, already applied:\n${earlier}\n` : ""}
-The brand ("Marca" line of the series): ${JSON.stringify(series?.brand ?? {})}. Templates: hook, screen, zoom, type, character, callouts, steps, beforeAfter, product, stat, logo.
+The brand ("Marca" line of the series): ${JSON.stringify(series?.brand ?? {})}. Templates: hook, screen, zoom, type, character, callouts, steps, beforeAfter, contradiction, product, stat, logo.
 
 Score each from 1 to 10, strictly (8 = ready to publish):
 - hook: within the first 2 seconds the problem is named and something moves; no slow start.
-- readability: every word reads at phone size (big enough, enough contrast, nothing cut off, not too many words at once) and stays on screen long enough to read (about 0.3 s per word once fully in; the measured list above).
+- readability: every word reads at phone size (big enough, enough contrast, nothing cut off, not too many words at once) and stays on screen long enough to read (about 0.3 s per word once fully in; the measured list above). On 9:16 no text sits under the platform's top bar, caption or buttons, and no settled text covers other text (both measured above). The subtitle and the AI notice cannot move: move the other element (dy, dx or scale).
 - motion also covers the cuts: frames marked "corte" are the middle of a scene change; two busy layouts muddled together there is a problem.
 - motion: purposeful, eased movement; no stock defaults (centred title on a gradient, everything fading in, corner labels or frame borders, glow on UI chrome, particle bursts).
 - variety: the scenes do not repeat the same layout and move; something new every 2 to 4 seconds.

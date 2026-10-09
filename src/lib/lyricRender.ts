@@ -17,6 +17,7 @@ import {
   getFirstEncodableVideoCodec,
 } from "mediabunny";
 import { LYRIC_FONT_FAMILY, elementWindow, type LyricElement, type LyricLine, type LyricMotif, type LyricPiece } from "../../shared/lyrics.ts";
+import { isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import { drawPlateFrame } from "./plateDraw.ts";
 import { drawLayers, type MotionAsset } from "./motion.ts";
 import { findBeats, type RenderResult } from "./render.ts";
@@ -352,7 +353,14 @@ function paintLyricLine(
     : [];
   const rowHeights = rows.map((r) => r.size * 1.18);
   const blockHeight = rowHeights.reduce((a, b) => a + b, 0) + second.length * secondSize * 1.4 + (second.length ? secondSize * 0.6 : 0);
-  const centerY = style.position === "center" ? h * 0.5 : h * (w < h ? 0.72 : 0.74);
+  let centerY = style.position === "center" ? h * 0.5 : h * (w < h ? 0.72 : 0.74);
+  // On a 9:16 frame the AI notice and the credit sit at the bottom of the safe zone; a low lyric ends above them
+  // (room for both notes), however many rows it wraps to.
+  if (style.position !== "center" && isPhoneFrame(w, h)) {
+    const safe = safeRect(w, h);
+    const notes = unit * 0.01 + unit * 0.026 * (1 + 1.5) + unit * 0.025;
+    centerY = Math.min(centerY, safe.y + safe.h - notes - blockHeight / 2);
+  }
   let y = centerY - blockHeight / 2;
 
   ctx.save();
@@ -470,7 +478,11 @@ export function drawLyricFrame(
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.shadowColor = "rgba(0,0,0,0.5)";
     ctx.shadowBlur = size * 0.4;
-    notes.forEach((text, i) => ctx.fillText(text, w / 2, h - unit * 0.05 - (notes.length - 1 - i) * size * 1.5));
+    // On a 9:16 frame, above the platform's caption (shared/safeZone.ts), so the AI notice is seen.
+    const safe = safeRect(w, h);
+    const phone = isPhoneFrame(w, h);
+    const bottom = phone ? safe.y + safe.h - unit * 0.01 : h - unit * 0.05;
+    notes.forEach((text, i) => ctx.fillText(text, phone ? safe.x + safe.w / 2 : w / 2, bottom - (notes.length - 1 - i) * size * 1.5));
     ctx.restore();
   }
 }

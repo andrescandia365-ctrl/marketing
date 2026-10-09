@@ -10,7 +10,8 @@ export function voiceAvailable(): boolean {
   return Boolean(process.env.OPENAI_API_KEY);
 }
 
-export async function speak(text: string, voice: string, language: "es" | "en"): Promise<Buffer> {
+// How the line is said (its written emotion: "con fastidio", "aliviada") goes into the model's instructions.
+export async function speak(text: string, voice: string, language: "es" | "en", emotion = ""): Promise<Buffer> {
   if (!voiceAvailable()) throw new VoiceError("Para la voz generada falta OPENAI_API_KEY en .env.");
   let res: Response;
   try {
@@ -23,9 +24,10 @@ export async function speak(text: string, voice: string, language: "es" | "en"):
         input: text,
         response_format: "mp3",
         instructions:
-          language === "es"
+          (language === "es"
             ? "Hablá en español rioplatense (de Buenos Aires), con voseo, natural y cálido, como en una charla de todos los días."
-            : "Speak naturally and warmly, like an everyday conversation.",
+            : "Speak naturally and warmly, like an everyday conversation.") +
+          (emotion.trim() ? (language === "es" ? ` Decí esta línea así: ${emotion.trim()}.` : ` Say this line like this: ${emotion.trim()}.`) : ""),
       }),
     });
   } catch (error) {

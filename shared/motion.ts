@@ -4,7 +4,7 @@
 import { z } from "zod";
 import type { QualityState } from "./motionQuality.ts";
 
-export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "product", "stat", "logo"] as const;
+export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "contradiction", "product", "stat", "logo"] as const;
 export type MotionTemplate = (typeof MOTION_TEMPLATES)[number];
 export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   hook: "Gancho: palabras que entran",
@@ -15,6 +15,7 @@ export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   callouts: "Rótulos sobre la imagen",
   steps: "Paso a paso",
   beforeAfter: "Antes / después",
+  contradiction: "Contradicción: lo que dicen vs. lo que pasa",
   product: "Producto con precio u oferta",
   stat: "Número grande",
   logo: "Cierre con logo",
@@ -68,12 +69,12 @@ const SceneWire = z.object({
   template: z
     .string()
     .describe(
-      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), type (the product in use: a field where the title is typed letter by letter with key sounds, a button is tapped, then the text appears as the result), character (a cast character marked as a 3D puppet talks the voice line with its mouth moving and makes a gesture; it can point at or present a real screen or the product given in assetB), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene).",
+      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), type (the product in use: a field where the title is typed letter by letter with key sounds, a button is tapped, then the text appears as the result), character (a cast character marked as a 3D puppet talks the voice line with its mouth moving and makes a gesture; it can point at or present a real screen or the product given in assetB), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), contradiction (the Contradiction move: what the system, the label or the habit says, then what really happens, and the first gets struck through; no image needed), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene).",
     ),
   seconds: z.number().describe("2 to 8 seconds; long enough for the voice line at about 2.5 words per second."),
   title: z.string().describe("Up to 6 words, readable on a phone. For stat: starts with the number (e.g. '3 minutos')."),
   text: z.string().describe("Up to 12 words of supporting text, or empty."),
-  items: z.array(z.string()).describe("callouts and steps: up to 4 labels of up to 5 words. beforeAfter: [before label, after label]. product: [price or offer]. logo: [call to action]. type: [the field's placeholder, the button's label]. Else empty."),
+  items: z.array(z.string()).describe("callouts and steps: up to 4 labels of up to 5 words. beforeAfter: [before label, after label]. contradiction: [what is said or shown, what really happens], up to 7 words each, concrete (the number, the object, the hour). product: [price or offer]. logo: [call to action]. type: [the field's placeholder, the button's label]. Else empty."),
   asset: z.string().describe("The id of a cast member to show (a real screen, the product, a character, a place), 'layer:N' for an uploaded layer, or empty."),
   assetB: z.string().describe("beforeAfter: the 'after' image id. character: what it points at or presents (a real screen or the product id), or empty. Else empty."),
   gesture: z.string().describe("character only: presenta, saluda, señala, festeja or se sorprende. Else empty."),
@@ -314,6 +315,7 @@ const MEDIA_LABEL: Record<MotionTemplate, string> = {
   callouts: "Imagen",
   steps: "Pantalla",
   beforeAfter: "Antes / después",
+  contradiction: "Imagen",
   product: "Producto",
   stat: "Imagen",
   logo: "Logo",
@@ -366,6 +368,18 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
       add("media", media, "media", 0);
       add("wipe", "Cortina", "moves", Math.min(d * 0.4, 1.6), false);
       break;
+    case "contradiction": {
+      // What is said, then (once it has been read) what really happens, then the first one is struck through.
+      if (title) add("title", "Título", "title", 0);
+      // The first is fully in at 0.85 s; the second follows once it has had time to be read. The strike follows the
+      // second wherever it was put (by hand or on a beat), so nothing is struck before what contradicts it is there.
+      const real = 0.85 + Math.min(1.2, Math.max(0.6, (d - 1.2) / 3));
+      const realAt = scene.tweaks?.item1?.at ?? scene.onBeat?.item1 ?? real;
+      if (scene.items[0]) add("item0", `Lo que dicen: ${scene.items[0]}`, "items", 0.35);
+      if (scene.items[1]) add("item1", `Lo que pasa: ${scene.items[1]}`, "items", real);
+      if (scene.items[0] && scene.items[1]) add("strike", "Tachado", "moves", realAt + 0.7, false);
+      break;
+    }
     case "type": {
       add("media", media, "media", 0);
       const typed = (scene.tweaks?.title?.at ?? scene.onBeat?.title ?? 0.35) + typingSeconds(title);
@@ -386,10 +400,13 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
       if (title) add("title", "Título", "title", 0.15);
       if (scene.items[0]) add("tag", "Precio", "tag", 0.9);
       break;
-    case "stat":
+    case "stat": {
+      // The supporting line waits for the number to stop counting.
+      const counted = (scene.tweaks?.title?.at ?? scene.onBeat?.title ?? 0) + STAT_COUNT + 0.1;
       if (title) add("title", "Número", "title", 0);
-      if (text) add("text", "Texto", "text", 0.8);
+      if (text) add("text", "Texto", "text", title ? counted : 0.8);
       break;
+    }
     case "logo":
       add("media", media, "media", 0);
       if (text) add("text", "Texto", "text", 0.6);
@@ -399,6 +416,35 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
   if (scene.voice.trim()) add("voice", "Voz", "voice", 0.25, false);
   const latest = Math.max(0, d - 0.3);
   return list.map((e) => ({ ...e, at: Math.min(latest, Math.max(0, scene.tweaks?.[e.key]?.at ?? scene.onBeat?.[e.key] ?? defaults[e.key])) }));
+}
+
+// How long the stat template's number counts up.
+export const STAT_COUNT = 1.2;
+
+// The stat template's title while its number counts up (p from 0 to 1): the number in the title's own format
+// (its thousands mark, its decimal mark, its decimals, what comes before and after it), and at the end the title
+// exactly as written. A title whose number is not a quantity ("24/7", "6:00") does not count: it is shown as is.
+export function statCountText(title: string, p: number): string {
+  const m = title.match(/^(\D*?)(\d+(?:[.,]\d+)*)(.*)$/s);
+  if (!m || p >= 1) return title;
+  const [, before, digits, after] = m;
+  if (/^[/:]\d/.test(after)) return title;
+  const marks = digits.match(/[.,]/g) ?? [];
+  const groups = digits.split(/[.,]/);
+  // One kind of mark followed only by groups of three digits is a thousands mark ("1.500", "12,000"); otherwise
+  // the last mark is the decimal one ("2,5", "1.234,5").
+  // "0,125" is a decimal whatever its digits: no thousands start with 0.
+  const allThousands = marks.length > 0 && new Set(marks).size === 1 && groups[0] !== "0" && groups.slice(1).every((g) => g.length === 3);
+  const decimalMark = !marks.length || allThousands ? "" : marks[marks.length - 1];
+  const thousandsMark = allThousands ? marks[0] : marks.length > 1 ? marks[0] : "";
+  const decimals = decimalMark ? groups[groups.length - 1].length : 0;
+  const whole = decimalMark ? groups.slice(0, -1).join("") : groups.join("");
+  const value = Number(`${whole}.${decimalMark ? groups[groups.length - 1] : "0"}`);
+  if (!Number.isFinite(value)) return title;
+  const shown = (Math.max(0, p) * value).toFixed(decimals);
+  const [int, frac] = shown.split(".");
+  const grouped = thousandsMark ? int.replace(/\B(?=(\d{3})+(?!\d))/g, thousandsMark) : int;
+  return `${before}${grouped}${frac !== undefined ? `${decimalMark}${frac}` : ""}${after}`;
 }
 
 // Typing speed of the "type" template, characters per second.
@@ -419,7 +465,7 @@ function entranceDone(scene: MotionScene, el: SceneElement): number {
   const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
   switch (el.key) {
     case "title":
-      if (scene.template === "stat") return el.at + 1.2;
+      if (scene.template === "stat") return el.at + STAT_COUNT;
       if (scene.template === "type") return el.at + typingSeconds(scene.title);
       if (scene.template === "logo") return el.at + 0.6;
       // Words rise in one after another.
@@ -606,6 +652,8 @@ export type MotionPiece = {
   poster?: { t: number; by: "vos" | "ia" } | null;
   // Reading-time warnings the person marked "no es un problema" (readingKey).
   readingOk?: string[];
+  // Numbers on screen the person confirmed although "Lo que existe hoy" and the brief do not have them (figureKey).
+  figuresOk?: string[];
   // The track's beat clock from its drums stem; none: a track has no grid.
   kickGrid?: TrackKicks | null;
 };
@@ -627,7 +675,69 @@ export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {
     effects: "library",
     poster: null,
     readingOk: [],
+    figuresOk: [],
   };
 }
 
 export const DURATIONS = [15, 30, 45, 60, 90] as const;
+
+// ── Numbers with a source ──────────────────────────────────────────────────────────────
+// A number on screen (or in the voice, which is also the subtitle) is a claim. It must come from the series'
+// "Lo que existe hoy" or from the brief, or the person confirms it; "[VERIFY]" on screen stops the render until the
+// text changes (playbook: nothing unverified ships).
+
+// The numbers in a text, written one way: "1.500" and "1500" are "1500", "2,5" is "2.5", a time is "6:00" ("06:00"
+// too). Digits glued after a letter are part of a name ("mp3", "B2B"), not a figure.
+export function figuresIn(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.match(/(?<![\p{L}\d])(?:\d{1,2}:\d{2}|\d+(?:[.,]\d+)*)/gu) ?? []) {
+    if (raw.includes(":")) {
+      const [hh, mm] = raw.split(":");
+      out.push(`${Number(hh)}:${mm}`);
+      continue;
+    }
+    const marks = raw.match(/[.,]/g) ?? [];
+    const groups = raw.split(/[.,]/);
+    const thousands = marks.length > 0 && new Set(marks).size === 1 && groups[0] !== "0" && groups.slice(1).every((g) => g.length === 3);
+    const value = thousands || !marks.length ? Number(groups.join("")) : Number(`${groups.slice(0, -1).join("")}.${groups[groups.length - 1]}`);
+    if (Number.isFinite(value)) out.push(String(value));
+  }
+  return out;
+}
+
+// "[VERIFY]", "[VERIFY: the number]", "[VERIFICAR]", "[A VERIFICAR]".
+export const VERIFY_MARK = /\[\s*(?:a\s+)?(?:verify|verificar)\b[^\]]*\]/i;
+
+export type FigureIssue = { sceneId: string; index: number; key: string; label: string; text: string; figure: string; verify: boolean };
+export const figureKey = (i: FigureIssue) => `cifra:${i.sceneId}:${i.key}:${i.figure}`;
+
+// How many of a scene's items its template draws (labels, steps, the two statements, the price, the call to action,
+// the field and its button); the rest are never on screen.
+const DRAWN_ITEMS: Partial<Record<MotionTemplate, number>> = { callouts: 5, steps: 5, contradiction: 2, beforeAfter: 2, product: 1, logo: 1, type: 2 };
+
+// What each scene really shows or says, by element key. The logo template draws its title when there is no logo.
+function sceneTexts(s: MotionScene): { key: string; label: string; text: string }[] {
+  const keys = new Set(sceneElements(s).map((e) => e.key));
+  return [
+    ...(keys.has("title") || s.template === "logo" ? [{ key: "title", label: s.template === "stat" ? "Número" : "Título", text: s.title }] : []),
+    ...(keys.has("text") ? [{ key: "text", label: "Texto", text: s.text }] : []),
+    ...s.items.slice(0, DRAWN_ITEMS[s.template] ?? 0).map((text, i) => ({ key: `item${i}`, label: `Rótulo ${i + 1}`, text })),
+    { key: "voice", label: "Voz y subtítulo", text: s.voice },
+  ].filter((x) => x.text.trim());
+}
+
+// Every number without a source, and every "[VERIFY]" left on screen. `sources`: the series' "Lo que existe hoy" and
+// "Cómo se trabaja hoy" and the brief, as text. A time on the hour and the bare hour count as the same figure.
+export function figureIssues(scenes: MotionScene[], sources: string): FigureIssue[] {
+  const known = new Set(figuresIn(sources).flatMap((f) => (f.endsWith(":00") ? [f, f.slice(0, -3)] : [f])));
+  const issues: FigureIssue[] = [];
+  scenes.forEach((s, index) => {
+    for (const { key, label, text } of sceneTexts(s)) {
+      if (VERIFY_MARK.test(text)) issues.push({ sceneId: s.id, index, key, label, text, figure: "[VERIFY]", verify: true });
+      for (const figure of new Set(figuresIn(text))) {
+        if (!known.has(figure) && !(figure.endsWith(":00") && known.has(figure.slice(0, -3)))) issues.push({ sceneId: s.id, index, key, label, text, figure, verify: false });
+      }
+    }
+  });
+  return issues;
+}

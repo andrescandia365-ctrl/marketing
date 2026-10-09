@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { AdsStateSchema, OfferSchema, emptyAds, offerFilled, type AdsState, type Offer } from "../shared/ads.ts";
+import { AdsStateSchema, OfferSchema, RENDER_VERSION, emptyAds, offerFilled, type AdsState, type Offer } from "../shared/ads.ts";
 
 export const ADS_DIR = resolve(process.env.ADS_DIR || "publicidad");
 
@@ -159,7 +159,7 @@ export async function removePieceMedia(series: string, file: string) {
 // A piece's render (the cache).
 export async function savePieceRender(series: string, pieceId: string, data: Buffer, type: string): Promise<string> {
   if (!PIECE.test(pieceId)) throw new AdsError("Esa pieza no existe.");
-  const name = `${pieceId}.${ext(type, VIDEO, "un video")}`;
+  const name = `${pieceId}.${RENDER_VERSION}.${ext(type, VIDEO, "un video")}`;
   await put(join(folder(series), "piezas"), name, data);
   return `piezas/${name}`;
 }

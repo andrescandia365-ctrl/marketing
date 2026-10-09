@@ -7,6 +7,7 @@ import {
   BUDGETS,
   LEVEL_INFO,
   levelsOf,
+  currentRender,
   offerFilled,
   type AdCombo,
   type AdSeconds,
@@ -411,7 +412,8 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     const known = renders.current.get(piece.id);
     if (known) return { blob: known, state: current };
     const saved = current.renders[piece.id];
-    if (saved) {
+    // A render from before the pieces were levelled to one loudness is made again.
+    if (currentRender(saved)) {
       const blob = await fetch(adsFileUrl(series.id, saved))
         .then((r) => (r.ok ? r.blob() : null))
         .catch(() => null);

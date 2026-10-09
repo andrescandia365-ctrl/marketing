@@ -405,10 +405,16 @@ app.delete("/api/projects/:id/music", async (c) => {
 
 // A generated voice for one line. The browser stores it in the project like a recorded one.
 app.post("/api/voice", async (c) => {
-  const { text, voice, language } = z
-    .object({ text: z.string().trim().min(1).max(1500), voice: z.string().max(40).default(""), language: z.enum(["es", "en"]) })
+  const { text, voice, language, emotion } = z
+    .object({
+      text: z.string().trim().min(1).max(1500),
+      voice: z.string().max(40).default(""),
+      language: z.enum(["es", "en"]),
+      // A long direction is cut, never a reason to lose the voice.
+      emotion: z.string().default("").transform((e) => e.slice(0, 120)),
+    })
     .parse(await c.req.json());
-  const audio = await speak(text, voice, language);
+  const audio = await speak(text, voice, language, emotion);
   return c.body(new Uint8Array(audio), 200, { "Content-Type": "audio/mpeg" });
 });
 

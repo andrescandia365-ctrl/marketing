@@ -10,6 +10,7 @@ import {
   combine,
   estimate,
   pieceStats,
+  renderedPieces,
   varyHook,
   type AdCombo,
   type AdSeconds,
@@ -61,7 +62,7 @@ export function CombinePanel({ series, state, seconds, folder, busy, flags, revi
     return meat && cta ? varyHook(meat, cta, state.hooks, rules) : [];
   }, [mode, rules, winner, state.hooks, state.meats, state.ctas]);
   const theoretical = approved.hooks.length * approved.meats.length * approved.ctas.length;
-  const est = estimate(ads, new Set(Object.keys(state.renders)), seconds);
+  const est = estimate(ads, renderedPieces(state.renders), seconds);
   const week = adsThisWeek(state.batches);
   const overLimit = week + ads.length > state.weeklyLimit;
   const policy = (flags ?? []).filter((f) => f.kind === "policy");

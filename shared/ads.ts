@@ -582,6 +582,12 @@ export function varyHook(meat: Meat, cta: Cta, hooks: Hook[], rules: CombineRule
     .map((h) => ({ id: adId(h.id, meat.id, cta.id), hookId: h.id, meatId: meat.id, ctaId: cta.id, level: h.level }));
 }
 
+// A piece's cached render carries this version in its file name (`H3.l1.mp4`). Renders from before every piece was
+// brought to one loudness have none and are rendered again, so an ad never mixes a levelled piece with an old one.
+export const RENDER_VERSION = "l1";
+export const currentRender = (file: string | undefined): file is string => Boolean(file?.includes(`.${RENDER_VERSION}.`));
+export const renderedPieces = (renders: Record<string, string>) => new Set(Object.keys(renders).filter((id) => currentRender(renders[id])));
+
 // What it takes: unique pieces to render (each once, cached) and the ads to cut from them.
 export function estimate(ads: AdCombo[], rendered: Set<string>, seconds: number) {
   const pieces = new Set(ads.flatMap((a) => [a.hookId, a.meatId, a.ctaId]));

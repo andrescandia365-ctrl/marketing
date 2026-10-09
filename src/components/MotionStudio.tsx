@@ -18,6 +18,8 @@ import {
   blankScene,
   cutPush,
   elementTimes,
+  figureIssues,
+  figureKey,
   posterTime,
   readingIssues,
   readingKey,
@@ -43,7 +45,7 @@ import { ensureFont } from "../lib/fonts.ts";
 import { download, slug } from "../lib/markdown.ts";
 import type { PuppetAsset } from "../lib/puppet.ts";
 import type { ActorAsset } from "../lib/actor.ts";
-import { drawMotionFrame, sceneAt, scriptDuration, type Box, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
+import { drawMotionFrame, drawPhoneGuides, sceneAt, scriptDuration, type Box, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
 import { TARGET_LUFS } from "../lib/motionAudio.ts";
 import { MixPlayer } from "../lib/playClock.ts";
 import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
@@ -159,6 +161,23 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [selected, setSelected] = useState<Selection | null>(null);
   const [outside, setOutside] = useState(false);
   const outsideRef = useRef(false);
+  // The series' "Lo que existe hoy" and "Cómo se trabaja hoy" (null until they load): the numbers on screen must come
+  // from them or the brief.
+  const [seriesFacts, setSeriesFacts] = useState<string[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api
+      .seriesFields(series.id)
+      .then(({ fields }) => live && setSeriesFacts([...fields.worksToday, ...fields.practices]))
+      .catch(() => live && setSeriesFacts([]));
+    return () => {
+      live = false;
+    };
+  }, [series.id]);
+  // The phone's own interface drawn over the 9:16 preview (editor only).
+  const [guides, setGuides] = useState(true);
+  const guidesRef = useRef(guides);
+  guidesRef.current = guides;
   // Undo: earlier scripts, newest last.
   const past = useRef<MotionScript[]>([]);
   const lastMark = useRef({ tag: "", at: 0 });
@@ -310,7 +329,14 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const openGaps = gaps.filter((g) => !piece.dismissed.includes(key(g)));
   // Lines on screen too briefly to read (about 0.3 s per word once fully in).
   const openReading = readingIssues(scenes, push).filter((r) => !(piece.readingOk ?? []).includes(readingKey(r)));
-  const blocked = openGaps.length > 0 || openReading.length > 0;
+  // Numbers on screen without a source in "Lo que existe hoy" or the brief, and "[VERIFY]" left on screen.
+  const figureSources = useMemo(
+    () => [...(seriesFacts ?? []), brief.product, brief.angle, brief.notes].join("\n"),
+    [seriesFacts, brief.product, brief.angle, brief.notes],
+  );
+  const openFigures =
+    seriesFacts === null ? [] : figureIssues(scenes, figureSources).filter((i) => i.verify || !(piece.figuresOk ?? []).includes(figureKey(i)));
+  const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0;
   // The thumbnail: frame 0 of every render.
   const posterT = posterTime(scenes, piece.poster, push);
   const posterRef = useRef<HTMLCanvasElement>(null);
@@ -409,6 +435,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           outsideRef.current = out;
           setOutside(out);
         }
+        if (guidesRef.current) drawPhoneGuides(ctx, canvas.width, canvas.height);
         if (box) {
           ctx.save();
           ctx.lineWidth = 1.5;
@@ -561,7 +588,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
 
   async function generateVoice(scene: MotionScene) {
     await work("voice", async () => {
-      const blob = await api.speak(scene.voice, piece.ttsVoice || defaultVoice, brief.language);
+      const blob = await api.speak(scene.voice, piece.ttsVoice || defaultVoice, brief.language, scene.emotion);
       await keepVoice(scene.id, blob, `voz-${scene.id}.mp3`);
     });
   }
@@ -691,7 +718,16 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         const blobs = await Promise.all(made.map((m) => new Promise<Blob | null>((done) => m.canvas.toBlob(done, "image/jpeg", 0.85))));
         setSheets(made.map((m, k) => ({ format: m.format, url: blobs[k] ? objectUrl(blobs[k]!) : "" })));
         lastSheets = made.map((m, k) => ({ format: m.format, blob: blobs[k] }));
-        const facts = measureFacts(played, roundBeats, music, voiceLengths, made.flatMap((m) => m.outside));
+        const facts = measureFacts(
+          played,
+          roundBeats,
+          music,
+          voiceLengths,
+          made.flatMap((m) => m.outside),
+          made.flatMap((m) => m.zoned),
+          made.flatMap((m) => m.overlaps),
+          roundWorld.brand,
+        );
         setReviewing(`Ronda ${round} de ${MAX_ROUNDS}: la IA mira los cuadros…`);
         const { review, demo } = await api.motionReview(
           brief,
@@ -964,6 +1000,15 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                   <input type="checkbox" checked={snap} onChange={(e) => set({ snap: e.target.checked })} />
                   Cortes en los beats
                 </label>
+                {vertical && (
+                  <label
+                    className="flex items-center gap-1.5"
+                    title="Dónde Reels, TikTok y Shorts ponen su barra, su texto y sus botones (medidas aproximadas). Solo se ve acá, nunca en el video."
+                  >
+                    <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} />
+                    Ver lo que tapa la app
+                  </label>
+                )}
               </div>
             </div>
 
@@ -998,6 +1043,47 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                 </>
               ) : (
                 <p className="font-semibold text-good">✓ Cada texto se queda lo suficiente para leerlo.</p>
+              )}
+            </div>
+
+            <div className={`rounded-xl border p-3 text-sm ${openFigures.length ? "border-neg/40 bg-neg-soft" : "border-good/30 bg-good-soft"}`}>
+              {openFigures.length ? (
+                <>
+                  <p className="font-semibold text-neg">
+                    Cifras con fuente: {openFigures.length} sin fuente o con [VERIFY]. No se puede generar hasta arreglarlo.
+                  </p>
+                  <ul className="mt-1 space-y-1">
+                    {openFigures.map((i) => (
+                      <li key={figureKey(i)} className="flex flex-wrap items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          className="text-left hover:underline"
+                          onClick={() => {
+                            const at = timeScenes(scenes).find((x) => x.id === i.sceneId);
+                            if (at) seek(at.end - 0.1);
+                            setSelected({ sceneId: i.sceneId, key: i.key === "voice" ? null : i.key });
+                          }}
+                        >
+                          {i.verify
+                            ? `Escena ${i.index + 1} · ${i.label} lleva [VERIFY]: confirmalo y sacá la marca, o cambiá el texto.`
+                            : `Escena ${i.index + 1} · ${i.label}: “${i.figure}” no está en la serie («Lo que existe hoy», «Cómo se trabaja hoy») ni en el brief. Sumalo a la serie si es real, o cambialo.`}
+                        </button>
+                        {!i.verify && (
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-muted hover:text-ink"
+                            title="Es real, o es claramente un ejemplo (una hora, un paso)"
+                            onClick={() => set({ figuresOk: [...(piece.figuresOk ?? []), figureKey(i)] })}
+                          >
+                            Lo confirmo
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="font-semibold text-good">✓ Cada número tiene fuente.</p>
               )}
             </div>
 

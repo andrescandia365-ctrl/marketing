@@ -87,6 +87,37 @@ export const DEFAULT_BRAND: Brand = {
   logo: "",
 };
 
+// ── Brand contrast (WCAG 2) ───────────────────────────────────────────────────────────
+// Measured, not judged on thumbnails: text on the background needs 4.5:1 to read at phone size; the accent, which
+// only colours big words, numbers and rings, needs 3:1.
+export const CONTRAST_TEXT = 4.5;
+export const CONTRAST_ACCENT = 3;
+
+function luminance(hex: string): number {
+  const channel = (i: number) => {
+    const v = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
+}
+
+// 1 (no contrast) to 21 (black on white).
+export function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+export function brandContrast(brand: Pick<Brand, "bg" | "text" | "accent">): { text: number; accent: number; problems: string[] } {
+  const text = contrastRatio(brand.text, brand.bg);
+  const accent = contrastRatio(brand.accent, brand.bg);
+  const ratio = (r: number) => `${r.toFixed(1).replace(".", ",")}:1`;
+  const problems = [
+    text < CONTRAST_TEXT ? `El texto sobre el fondo tiene ${ratio(text)}; para leerse en el celular hace falta ${CONTRAST_TEXT.toString().replace(".", ",")}:1.` : "",
+    accent < CONTRAST_ACCENT ? `El acento sobre el fondo tiene ${ratio(accent)}; las palabras y números en acento necesitan ${CONTRAST_ACCENT}:1.` : "",
+  ].filter(Boolean);
+  return { text, accent, problems };
+}
+
 // The two jobs of the playbook, plus lyric videos. Software: features that exist today, the product's loop, real
 // screens. E-commerce: a different product in every episode. Music: lyric videos, with no story.
 export const SERIES_TYPES = ["software", "ecommerce", "music"] as const;

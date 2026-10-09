@@ -2,6 +2,7 @@
 // the narrator's voice on top with the music ducking under it, and the mix normalized to -14 LUFS (ITU-R BS.1770
 // K-weighted integrated loudness, with gating) with peaks kept under -1.5 dBFS.
 import type { MotionMood } from "../../shared/motion.ts";
+import { ROOM_DIP, levelGain, median, roomWindows, sampleShape } from "../../shared/sound.ts";
 import { mulberry32 } from "./motion.ts";
 
 const SR = 48000;
@@ -133,16 +134,28 @@ function synthScore(ctx: OfflineAudioContext, out: AudioNode, duration: number, 
 function addHits(ctx: OfflineAudioContext, out: AudioNode, plan: SoundPlan) {
   if (plan.effects === "none") return;
   const noise = noiseBuffer(ctx, 1, 11);
+  // Each library sample's attack and peak, and each kind's middle peak (one level per kind).
+  const shapes = new Map<AudioBuffer, { onset: number; peak: number }>();
+  const reference: Partial<Record<HitKind, number>> = {};
+  for (const [kind, list] of Object.entries(plan.samples ?? {}) as [HitKind, AudioBuffer[]][]) {
+    for (const b of list) shapes.set(b, sampleShape(b.getChannelData(0), b.sampleRate));
+    reference[kind] = median(list.map((b) => shapes.get(b)!.peak));
+  }
   for (const hit of plan.hits) {
     const samples = plan.effects === "library" ? plan.samples?.[hit.kind] : undefined;
     if (samples?.length) {
       const src = ctx.createBufferSource();
-      src.buffer = samples[(hit.n ?? 0) % samples.length];
+      const buffer = samples[(hit.n ?? 0) % samples.length];
+      src.buffer = buffer;
+      const shape = shapes.get(buffer) ?? { onset: 0, peak: 0 };
       const g = ctx.createGain();
-      g.gain.value = HIT_GAIN[hit.kind];
+      g.gain.value = HIT_GAIN[hit.kind] * levelGain(shape.peak, reference[hit.kind] ?? shape.peak);
       src.connect(g).connect(out);
-      // The slide runs across the cut; everything else starts with its motion.
-      src.start(Math.max(0, hit.at - (hit.kind === "whoosh" ? 0.12 : 0)));
+      // The slide runs across the cut. Everything else starts with its motion: its attack (not the file's silence
+      // before it) lands on the element's time.
+      const at = hit.kind === "whoosh" ? hit.at - 0.12 : hit.at - shape.onset;
+      if (at >= 0) src.start(at);
+      else src.start(0, -at);
       continue;
     }
     if (hit.kind === "whoosh") {
@@ -253,15 +266,22 @@ export async function integratedLoudness(buffer: AudioBuffer): Promise<number> {
 }
 
 // Brings the mix to the target loudness, keeping peaks under -1.5 dBFS with a soft knee. The knee takes a little
-// loudness away, so it measures again and corrects (at most three passes).
-async function normalize(buffer: AudioBuffer): Promise<{ lufs: number }> {
+// loudness away, so it measures again and corrects (at most three passes). A silent mix is left alone. Publicidad
+// uses it too, so every piece of an ad sits at the same level and the cuts never jump.
+// `maxBoostDb` caps how much a quiet mix is raised in all (a piece with only faint room tone is not pumped up to
+// speech level, noise and all); turning a loud one down has no cap.
+export async function normalizeLoudness(buffer: AudioBuffer, target = TARGET_LUFS, maxBoostDb = Infinity): Promise<{ lufs: number }> {
   // Above the knee, peaks bend smoothly towards the limit (-1.5 dBFS), never past it, so codec overshoot stays under
   // 0 dBFS.
   const knee = 0.66;
   const limit = 0.84;
   let lufs = await integratedLoudness(buffer);
-  for (let pass = 0; pass < 3 && Number.isFinite(lufs) && Math.abs(lufs - TARGET_LUFS) > 0.2; pass++) {
-    const gain = 10 ** ((TARGET_LUFS - lufs) / 20);
+  let boosted = 0;
+  for (let pass = 0; pass < 3 && Number.isFinite(lufs) && Math.abs(lufs - target) > 0.2; pass++) {
+    const step = Math.min(target - lufs, maxBoostDb - boosted);
+    if (step > -0.2 && step < 0.2) break;
+    boosted += Math.max(0, step);
+    const gain = 10 ** (step / 20);
     for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
       const d = buffer.getChannelData(ch);
       for (let i = 0; i < d.length; i++) {
@@ -285,7 +305,16 @@ export async function buildSound(plan: SoundPlan): Promise<{ buffer: AudioBuffer
   music.gain.value = bedLevel;
   sfx.gain.value = 0.55;
   voice.gain.value = 1;
-  for (const bus of [music, sfx, voice]) bus.connect(ctx.destination);
+  // The bed makes room before the product and the logo (half a beat of the score) and comes back on the hit.
+  const room = ctx.createGain();
+  music.connect(room).connect(ctx.destination);
+  for (const bus of [sfx, voice]) bus.connect(ctx.destination);
+  for (const w of roomWindows(plan.hits, plan.music === "synth" ? 30 / plan.bpm : 0.3)) {
+    room.gain.setValueAtTime(1, Math.max(0, w.from - 0.04));
+    room.gain.linearRampToValueAtTime(ROOM_DIP, w.from);
+    room.gain.setValueAtTime(ROOM_DIP, Math.max(w.from, w.to - 0.012));
+    room.gain.linearRampToValueAtTime(1, w.to);
+  }
 
   if (plan.music === "synth") synthScore(ctx, music, plan.duration, plan.mood, plan.bpm);
   if (plan.music === "track" && plan.track) {
@@ -318,8 +347,27 @@ export async function buildSound(plan: SoundPlan): Promise<{ buffer: AudioBuffer
     music.gain.setTargetAtTime(bedLevel, end + 0.05, 0.2);
   }
   const buffer = await ctx.startRendering();
-  const { lufs } = await normalize(buffer);
+  const { lufs } = await normalizeLoudness(buffer);
   return { buffer, lufs };
+}
+
+// How much a Publicidad piece may be raised to reach the target: more than this is raising noise.
+export const PIECE_MAX_BOOST_DB = 20;
+
+// Each stretch [cuts[i], cuts[i + 1]) of a mix brought to the target on its own: the pieces of an ad rendered in one go
+// (the whole-ad fallback) match the way separately rendered pieces do.
+export async function normalizeSegments(buffer: AudioBuffer, cuts: number[], target = TARGET_LUFS, maxBoostDb = Infinity): Promise<void> {
+  const bounds = [...new Set([0, ...cuts.map((c) => Math.round(c * buffer.sampleRate)), buffer.length])]
+    .filter((i) => i >= 0 && i <= buffer.length)
+    .sort((a, b) => a - b);
+  for (let k = 0; k + 1 < bounds.length; k++) {
+    const [from, to] = [bounds[k], bounds[k + 1]];
+    if (to - from < buffer.sampleRate * 0.4) continue;
+    const part = new AudioBuffer({ length: to - from, numberOfChannels: buffer.numberOfChannels, sampleRate: buffer.sampleRate });
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) part.copyToChannel(buffer.getChannelData(ch).subarray(from, to), ch);
+    await normalizeLoudness(part, target, maxBoostDb);
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) buffer.copyToChannel(part.getChannelData(ch), ch, from);
+  }
 }
 
 // The mix as a WAV, for the preview player.
