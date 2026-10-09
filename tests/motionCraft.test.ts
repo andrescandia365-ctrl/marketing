@@ -1,4 +1,4 @@
-// What came from the 20 motion-design repos (IDEAS.md §33): the stat counter, the platform safe zone, numbers with a
+// What came from the 20 motion-design repos (IDEAS.md idea 62): the stat counter, the platform safe zone, numbers with a
 // source, overlap and contrast measured, the Contradicción template, the score's room before big hits, and the rule
 // that drawing code never reads a clock.
 import assert from "node:assert/strict";

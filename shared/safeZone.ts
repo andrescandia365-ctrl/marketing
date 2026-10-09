@@ -1,7 +1,7 @@
 // Where Reels, TikTok and Shorts draw their own interface over a 9:16 video: the top bar, the caption, handle and
 // sound line at the bottom, and the button column on the right. The app keeps its own text (subtitles, the AI
 // notice, the CONCEPTO / SIMULACIÓN label, credits) inside the rest, and measures what the templates put there.
-// [NOT SURE] Approximate shares of the frame, the middle of what seven open-source video skills use (IDEAS.md §33:
+// [NOT SURE] Approximate shares of the frame, the middle of what seven open-source video skills use (IDEAS.md idea 62:
 // top 10-19 %, bottom 17-26 %, right 11-13 %, left 5-8 %). The platforms move their interface: check against the apps.
 export const PHONE_SAFE = { top: 0.1, bottom: 0.2, left: 0.05, right: 0.12 } as const;
 // The button column sits on the lower part of the right edge, from about here down.

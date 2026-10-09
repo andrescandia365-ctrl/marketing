@@ -84,6 +84,8 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Guardar algo en Modelos ya no recarga la página** en modo desarrollo (Vite no mira `.env`).
   - `iniciar.sh` avisa si está Demucs; no lo instala.
 
+- **20 repos de motion design (9 Oct 2026, idea 62):** zona segura 9:16 para subtítulos, avisos y rótulos; "stat" que termina en el número escrito; cifras con fuente y [VERIFY] que frena; plantilla Contradicción; contraste de la marca; la IA que revisa mide más; música que deja lugar antes del producto y el logo; efectos en su golpe; render final que se frena sin la fuente y revisa el MP4 (arregló el último cuadro que se perdía); voz con su emoción; anuncios a un mismo volumen.
+
 ## Revisión general de la app (7 Oct 2026)
 
 Recorrí la app entera: flujo Brief → Menú → Historia → Storyboard → Producción, los checks, el motor de explicativos
@@ -482,6 +484,48 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   4. ¿Por cuál empezamos?
 - **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
 - **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
+
+### 62. Lo que sirve de 20 repos de motion design (9 Oct 2026) — **Construido 1 a 12 (9 Oct 2026, "Go")**
+- **Qué son:** skills para agentes (Claude Code y otros) que hacen videos de motion graphics, los motores que usan y guías de criterio. Los mandaste diciendo que están hechos para Opus 5.5: la app ya escribe con `claude-opus-5-5` por defecto, así que no hizo falta cambiar el modelo. Se leyeron los 20 clonados, sin correr nada de ellos.
+  - **Skills** (MIT salvo donde dice): `whaleyxbt/claude-motion` (criterio con números, revisa sus propios cuadros, sonido sintetizado en Python), `howseen-ai/claude-motion-design` (HTML + Playwright + ffmpeg, como nuestro render), `charlie947/motion-graphics-skills` (13 skills de lanzamiento), `haidrrrry/claude-remotion-skill` (Remotion: subtítulos, B-roll, sonido), `t3knobox/klik-anim-skill-creation` (**sin licencia**: solo ideas), `Sunwood-ai-labs/hyperframes-motion-reel-skill` (showreel a 120 bpm en HyperFrames), `AbubakrChan/product-launch-motion` (film de lanzamiento; su aviso deja afuera la película de referencia y las imágenes de ejemplo), `cth9191/animate` (un clip en un solo archivo de canvas), `iart-ai/motion-design-skills` (tiempos, color, tipografía, logos), `nateherkai/hyperframes-student-kit` (14 skills y 406 tarjetas; licencias mezcladas: MIT, un permiso propio para lo importado, Apache 2.0 de HyperFrames y la de GSAP).
+  - **Motores:** `heygen-com/hyperframes` (Apache 2.0), `remotion-dev/remotion` y `remotion-dev/skills` (licencia propia: gratis para personas, organizaciones sin fines de lucro y empresas de hasta 3 empleados; arriba de eso, licencia paga), `greensock/GSAP` (gratis, pero no es código abierto: "All rights reserved" y una licencia aparte en su web).
+  - **Criterio y lo que lo rodea:** `LottieFiles/motion-design-skill` (MIT), `frankxai/awesome-motion-design-agent-skills` (CC0, un mapa), `Barty-Bart/motion-graphics` (MIT, B-roll desde la transcripción de un video con cara), `199-biotechnologies/motion-dev-animations-skill` (MIT, animación de páginas web), `motiondivision/motion` (MIT) y `airbnb/lottie-web` (MIT).
+- **Ya lo tenemos** (varios repos piden lo mismo): cada cuadro como función pura de t con ruido con semilla; render cuadro por cuadro en Chrome sin ventana hacia ffmpeg; una sola línea de tiempo para imagen, sonido y checks; hoja de contactos con cuadros a mitad de corte; revisión de la IA en rondas; portada en el cuadro 0; tiempo de lectura; nada fuera del cuadro; -14 LUFS medido como ffmpeg; música y golpes sintetizados; efectos al empezar el movimiento; tipeo con teclas.
+- **Construido (9 Oct 2026, "Go"),** de más a menos útil:
+  1. **Zona segura 9:16** (la piden 7 repos). Reels, TikTok y Shorts tapan arriba su barra, abajo el texto y el nombre de la cuenta, y a la derecha los botones. Subtítulos, aviso de IA, CONCEPTO / SIMULACIÓN, titular y créditos quedan adentro: en el explicativo, en el render de historias y anuncios y en los videos de letra. Los títulos de arriba bajan de la barra. En la vista previa del explicativo, "Ver lo que tapa la app" (nunca sale en el video). Las medidas son aproximadas [NOT SURE]: arriba 10 %, abajo 20 %, derecha 12 % del 40 % para abajo, izquierda 5 %.
+  2. **"Stat" exacto.** Cuenta con los separadores del título y termina en el título tal cual. Antes "1.500" terminaba en "1500", "2,5" en "2.5" y "24/7" en "24 /7". "24/7" y "6:00" ya no cuentan. El texto de apoyo entra cuando el número paró.
+  3. **Cifras con fuente.** Cada número en pantalla o en la voz tiene que estar en «Lo que existe hoy» o en el brief; si no, frena el render hasta cambiarlo o confirmarlo ("Lo confirmo"). Un [VERIFY] en pantalla frena siempre.
+  4. **Plantilla "Contradicción"** (la jugada del playbook §2.5): lo que dicen, lo que pasa, y lo primero tachado. La IA la usa solo con "Cómo se trabaja hoy" y el brief.
+  5. **La IA que revisa ve más, medido:** texto bajo la interfaz de la app, texto quieto encima de otro texto (con el subtítulo) y el contraste de la marca. La hoja de contactos mira 0,3 s después de cada beat, con lo que entró ya quieto.
+  6. **Contraste de la marca** (WCAG): texto 4,5:1 y acento 3:1 sobre el fondo, a la vista en Editar serie.
+  7. **La música deja lugar:** baja medio beat antes del producto y del logo y vuelve en el golpe. En un render de prueba: de -29 a -44 dB antes del logo y -13 dB en el golpe.
+  8. **Efectos en su golpe y parejos:** arrancan en su ataque y no en el silencio del archivo (las teclas traían hasta 57 ms), y suenan al nivel de su tipo (las teclas variaban 12 dB).
+  9. **Render final que se controla.** Se frena si la fuente de la marca no cargó, y ffprobe revisa cuadros, tamaño, yuv420p y el largo del sonido antes de reemplazar el video anterior. En la primera prueba encontró un error viejo: `-shortest` cortaba el último cuadro. Ahora el sonido se rellena y manda la imagen (563 de 563 cuadros, -14,1 LUFS).
+  10. **Voz con su emoción:** la voz generada dice cada línea con la emoción escrita en la historia o en la escena.
+  11. **Anuncios a un mismo volumen:** cada pieza de Publicidad sale a -14 LUFS, así los cortes no saltan.
+  12. **Oficio:** el tono decide cómo aterriza cada cosa (seco sin rebote, absurdo con más); el logo crece desde el 60 %, nunca desde cero; el cierre del explicativo retoma el gancho; una prueba vigila que el código de dibujo no lea relojes ni `Math.random`.
+- **Para otro "go"** (sirven, pero no ahora):
+  - **Entradas en la palabra que las nombra** (3 repos): un rótulo entra cuando la voz lo dice. Hacen falta los tiempos de cada palabra (whisper-1), y choca con "los acentos en el beat": hay que decidir cuál manda.
+  - **Desenfoque de movimiento solo en el empuje entre escenas** (4 repos): promediar 4 a 8 subcuadros durante el corte. Sigue siendo función pura de t, pero el render tarda más.
+  - **Corte por continuidad:** si dos escenas muestran la misma pantalla o el mismo producto, que pase de una a otra en vez del empuje.
+  - **Subtítulos palabra por palabra** con la palabra activa resaltada, y un `.srt` al lado de cada video para subirlo a la plataforma.
+  - **Plantillas nuevas:** "Avisos" (notificaciones que llegan), "Flujo" (de una fuente a varios canales) y casilleros que se llenan escena por escena (el loop abierto en pantalla).
+  - **Foco de a uno:** cuando entra un rótulo nuevo, los anteriores bajan.
+  - **Títeres con anticipación y rebote**, y cámaras que varían por escena.
+  - **Tiempo de lectura que también cuente letras** (las palabras largas del español).
+  - **Storyboard del explicativo:** un panel por escena, con lo que suena y cómo corta.
+  - **"Nota" para el explicativo,** como en la historia: arreglar una cosa y dejar el resto.
+- **Lo que no conviene usar:**
+  - **Remotion, HyperFrames o GSAP como motor:** serían un segundo motor, y el nuestro ya cumple el mismo contrato. Además Remotion pide licencia paga a empresas de más de 3 personas, y GSAP no es código abierto.
+  - **Los looks de fábrica:** brillos, partículas, degradés que se mueven, aberración cromática, vidrio, sacudidas en cada kick, texto centrado. Van contra las reglas del estudio.
+  - **El "modo remake" de claude-motion-design** (copiar cuadro a cuadro el anuncio de otra marca) y su consejo de recortar caras generadas "para sacar la marca de agua": van contra §3.2 y contra la regla de las marcas de agua.
+  - **Música y efectos sin licencia clara:** Mixkit, Pixabay, temas "sin copyright" y generadores pagos. El MP3 del student kit no tiene licencia confirmada.
+  - **Leer el beat del master** cuando falta la batería (varios scripts lo hacen): nuestra regla es solo el stem de batería.
+  - **Copiar texto o código de `klik-anim`:** no tiene licencia, así que solo se tomaron ideas.
+  - **Las 406 tarjetas del student kit:** sirven de muestrario, pero su licencia propia y su estética (HUD, brillo) no encajan.
+- **Licencias:** no se copió código, texto ni archivos de ningún repo. Todo lo construido es propio, con ideas tomadas de ellos; las medidas de la zona segura son el promedio de lo que usan. Si algún día se copia algo MIT, va con su aviso de copyright.
+- **Del mapa de `awesome-motion-design-agent-skills`, para mirar:** `greensock/gsap-skills` (MIT), `Orkas-AI/Orkas-VideoStudio` (MIT, 14 skills con un `plan.json`) y `NVIDIA/SkillSpector` (Apache 2.0, revisa paquetes de skills antes de instalarlos).
+- **Nota:** los primeros commits de esta tanda dicen "idea 33" por error; es esta, la 62.
 
 ### 35. Videos de letra: traducir a cualquier idioma y avisar qué falta para sincronizar (4 Oct 2026) — **Construido (4 Oct 2026, "go 35")**
 - **Idea (tuya):** "Traducir al español con IA" tiene que poder traducir también al guaraní y a los demás idiomas.

@@ -12,7 +12,8 @@ people and politics. The playbook's 75 s ad template does not drive the app.
 
 ## Layout
 - `shared/` — zod schemas and types (`schema.ts`), beats/roles/lengths and shot timing (`template.ts`), the
-  checks that gate approval (`checks.ts`), the series format and text style (`series.ts`), the example brief.
+  checks that gate approval (`checks.ts`), the series format and text style (`series.ts`, with `brandContrast`), the
+  9:16 platform safe zone (`safeZone.ts`), pure mix helpers (`sound.ts`), the example brief.
 - `server/` — Hono API. `claude.ts` writes the menu, the story, the storyboard, revisions and single-shot rewrites
   (structured output, prompt-cached system prompt; series and tool blocks go after the cache). `series.ts` loads,
   saves, creates and deletes `series/*.md` (the app's "Editar serie" form; `shared/series.ts` maps the
@@ -107,7 +108,8 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   still and its videoPrompt the director's prompt; subtitles follow the timeline and its voice defaults to Grok.
   Every story line has an `emotion`.
 - Motion graphics (`brief.piece = "explainer"`, `MotionStudio`): the writer returns a scene script (`shared/motion.ts`,
-  templates hook/screen/zoom/callouts/steps/beforeAfter/product/stat/logo); `src/lib/motion.ts` draws frame t as a pure
+  templates hook/screen/zoom/type/character/callouts/steps/beforeAfter/contradiction/product/stat/logo; contradiction is
+  PLAYBOOK §2.5's move: what is said, what happens, the first struck through, built only on "Cómo se trabaja hoy"); `src/lib/motion.ts` draws frame t as a pure
   function of time (seeded mulberry32 noise, never Math.random, no timers) with the series `brand` (logo, bg, text, one
   accent, display + UI Google Fonts). Studio rules: no stock defaults (centred title on gradient, everything fading in,
   corner labels, frame borders, glow, particle bursts); something new every 2-4 s (`quietGaps` blocks rendering);
@@ -131,6 +133,15 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   `render.mjs`: headless Chrome opens `/?render=<project>&format=` (`RenderPage`, `window.seek(t)`), PNG frames go to
   ffmpeg (H.264 yuv420p CRF 16, bt709, AAC); the server runs it for the app (`server/finalRender.ts`, localhost only).
   `src/lib/motionProject.ts` holds what the studio and the render page share, so both draw and mix the same.
+  The stat counts in its title's own format and settles on the title exactly (`statCountText`); "24/7" does not count.
+  Numbers on screen or in the voice need a source in "Lo que existe hoy" or the brief (`figureIssues`, blocks the
+  render until changed or confirmed); "[VERIFY]" on screen always blocks. The tone sets how things land (`landFor`: dry
+  no overshoot, absurdist more); nothing grows from scale 0. The bed dips half a beat before the product and the logo
+  (`roomWindows`); library effects start on their attack at their kind's level (`sampleShape`). The contact sheet looks
+  0.3 s after each beat and also measures text under the platform UI, settled text over text (with the subtitle) and
+  the brand's WCAG contrast (text 4.5:1, accent 3:1) for the reviewer. `render.mjs` stops when a brand font did not
+  load (`fontLoaded`), pads the sound so the picture sets the length, and checks the MP4 with ffprobe
+  (`scripts/renderCheck.mjs`: frames, size, yuv420p, sound length) before it replaces the last render.
   Frame 0 of every render is the poster (`posterTime`: the person's, the AI's or the hook's settled frame; saved as
   portada-*.jpg). `readingIssues` blocks rendering when a line stays on screen less than ~0.3 s per word. Effects
   come from `public/sfx` (CC0, credited in CREDITOS.md) or are synthesized; `soundHits` puts them at the start of
@@ -167,7 +178,8 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   "Generar tanda" chains hooks → meats → CTAs → combine with a yes/no approval pause per stage. Before a run: local
   flags (length, near-duplicates) plus the writer's review (policy, mismatch, claims), the estimate and a weekly
   limit. The run renders each piece once with `renderPiece` (render.ts, `alwaysAudio`) and cuts the ads with
-  `concatPieces` (encoded packets copied, no re-encode; falls back to `renderAdWhole`); the platform texts (primary,
+  `concatPieces` (encoded packets copied, no re-encode; falls back to `renderAdWhole`); every piece's mix is brought to
+  -14 LUFS (`loudness`), so the cuts never jump in level; the platform texts (primary,
   headline, button) come from one writer call per 50 hook+CTA pairs. `server/ads.md` is the method the writer reads.
   Each piece can carry a voice (uploaded, or generated with the presenter's voice `offer.ttsVoice`; "Generar las N
   voces que faltan" does every approved piece); it starts 0.15 s into the piece and is cut at its end. "Probar un
@@ -175,7 +187,8 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   piece's cache shows its format: webm means this browser has no H.264 encoder (the ads would be VP9 in MP4), and
   "Sacarlas de la caché" (DELETE .../pieces/:id/render) lets a browser that has one render them again.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
-  a generated voice or the person's recorded/uploaded voice; characters have a default, shots can override. Per shot,
+  a generated voice (said with the line's written emotion) or the person's recorded/uploaded voice; characters have a
+  default, shots can override. Per shot,
   `audio.clipSound` (dialogue/ambient/effects + what is heard) rewrites the video prompt's "Audio:" line only when the
   person set it (`clipPrompt`; never music), and `audio.clipLevel` (full/low/mute) sets the clip's own sound in the
   render. A narration made outside (ElevenLabs) comes in as one file (`NarrationImport`, `lib/narration.ts`): cut by
@@ -183,6 +196,11 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   scene. `brief.narrator = "without"`: no narrator role in the story (a story check blocks it) and no explainer voice. Voices
   and sound effects are per-shot project media; one music track per piece ducks under speech and can pull the
   cuts onto its beats (`findBeats`/`alignCuts` in render.ts). Subtitles always stay.
+- 9:16 safe zone (`shared/safeZone.ts`): Reels, TikTok and Shorts cover the top bar, the caption at the bottom and the
+  buttons on the right. The app's own text (subtitles, the AI notice, CONCEPTO / SIMULACIÓN, the headline, lyric
+  credits) stays inside it in every renderer; explainer titles start below the top bar; the explainer preview can show
+  the bands ("Ver lo que tapa la app", never in the video). The values are [NOT SURE] approximations: check them
+  against the apps when they change.
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.
 - Tool features change: edit the tool's `.md` in `server/tools/`, never hard-code them. Tag each line
   [DOCS], [NOT SURE] or [TESTED]. Series are edited in the app (Brief → Editar serie / + Nueva serie); their files are in Spanish, and the
@@ -193,7 +211,8 @@ people and politics. The playbook's 75 s ad template does not drive the app.
 ## Commands
 - `npm run dev` — API on 8787 + Vite on 5173 (proxied `/api`).
 - `npm run typecheck`, `npm run build`, `npm start`.
-- `npm test` — `node:test` + tsx over `tests/` (the pure logic in `shared/` and the timing in `src/lib`).
+- `npm test` — `node:test` + tsx over `tests/` (the pure logic in `shared/` and the timing in `src/lib`, plus a guard
+  that the drawing code never reads a clock or `Math.random`).
 - `npm run playbook` — says whether `PLAYBOOK.md` and `server/playbook.md` drifted; `-- --write` records them in step.
 - `npx tsx server/clock-check.ts` — lyric clock harness (kick grid, lyric gate, frames 100 and 400); needs the API on
   8787 and the same `PROJECTS_DIR`.

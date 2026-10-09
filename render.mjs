@@ -103,7 +103,9 @@ async function renderOne(browser, format, index) {
       "bt709",
       "-colorspace",
       "bt709",
-      ...(sound ? ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-shortest"] : []),
+      // The sound is padded with silence and the picture sets the length: -shortest alone cut the last frame
+      // whenever the AAC stream ended a hair early.
+      ...(sound ? ["-af", "apad", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-shortest"] : []),
       // Says so in the file too when some pictures were made with AI (the notice is also on screen).
       ...(info.notice ? ["-metadata", `comment=${info.notice}`] : []),
       "-movflags",
