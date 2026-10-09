@@ -136,8 +136,13 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   The stat counts in its title's own format and settles on the title exactly (`statCountText`); "24/7" does not count.
   Numbers the template draws or the voice says need a source in "Lo que existe hoy", "Cómo se trabaja hoy" or the brief
   (`figureIssues`, blocks the render until changed or confirmed); "[VERIFY…]" on screen always blocks. On 9:16 the
-  templates' words end above the subtitle band (`floor` in drawScene). The tone sets how things land (`landFor`: dry
-  no overshoot, absurdist more); nothing grows from scale 0. The bed dips half a beat before the product and the logo
+  templates' words end above the subtitle band (`floor` in drawScene). How things land comes from the series brand's
+  `motion` (even/solid/soft/springy, `landFor`) or else the tone (dry no overshoot, absurdist more); a dry piece never
+  bounces; soft and springy brands let pictures breathe once in (`idleLife`, never text); nothing grows from scale 0.
+  A scene can enter by a camera journey (`entry: "through"`, `THROUGH` 0.7 s in any tone): the camera dives into the
+  previous scene's main thing (`anchorOf`) and the new one opens from inside in a growing circle; every check that
+  waits for a scene to arrive reads `pushOf(scene, push)`. "Antes / después" can reveal in a circle from focusX,
+  focusY (`reveal: "iris"`). The bed dips half a beat before the product and the logo
   (`roomWindows`); library effects start on their attack at their kind's level (`sampleShape`). The contact sheet looks
   0.3 s after each beat and also measures text under the platform UI, settled text over text (with the subtitle) and
   the brand's WCAG contrast (text 4.5:1, accent 3:1) for the reviewer. `render.mjs` stops when a brand font did not

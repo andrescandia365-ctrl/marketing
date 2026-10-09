@@ -84,6 +84,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Guardar algo en Modelos ya no recarga la página** en modo desarrollo (Vite no mira `.env`).
   - `iniciar.sh` avisa si está Demucs; no lo instala.
 
+- **Lo que se aprende de Kurzgesagt (9 Oct 2026, idea 63):** "Pasar a través" (la cámara se mete en la escena anterior y la nueva se abre desde adentro), cómo se mueve la marca (Firme, Suave, Elástica: cómo aterriza y si las imágenes respiran), "Antes / después" con un círculo que crece, y la IA que abre con la pregunta de quien mira y viaja de lo grande a lo chico.
 - **20 repos de motion design (9 Oct 2026, idea 62):** zona segura 9:16 para subtítulos, avisos y rótulos; "stat" que termina en el número escrito; cifras con fuente y [VERIFY] que frena; plantilla Contradicción; contraste de la marca; la IA que revisa mide más; música que deja lugar antes del producto y el logo; efectos en su golpe; render final que se frena sin la fuente y revisa el MP4 (arregló el último cuadro que se perdía); voz con su emoción; anuncios a un mismo volumen.
 
 ## Revisión general de la app (7 Oct 2026)
@@ -484,6 +485,27 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   4. ¿Por cuál empezamos?
 - **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
 - **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
+
+### 63. Lo que se aprende de Kurzgesagt (9 Oct 2026) — **Construido 1 a 5 (9 Oct 2026, "Go")**
+- **De dónde sale:** te encanta Kurzgesagt. Tomamos su oficio, no su estética: ni su pájaro, ni su paleta, ni su nombre en una pieza, ni el brillo (el estudio lo prohíbe).
+- **Lo que hacen bien:**
+  - **No cortan, viajan:** la cámara se mete en una cosa y la idea siguiente vive adentro.
+  - **Un mundo con física propia:** todo se mueve con el mismo material, y nada queda muerto: las cosas respiran.
+  - **El cambio empieza en un punto y se extiende,** muchas veces en un círculo.
+  - **Abren con la pregunta de quien mira** y van de lo grande a lo chico (o al revés): la escala cuenta la historia.
+- **Construido (9 Oct 2026, "Go"):**
+  1. **"Pasar a través":** una escena puede entrar con un viaje de cámara. La cámara se zambulle en lo principal de la escena anterior (la pantalla, el producto, el número, lo que pasa de verdad) y la nueva se abre desde adentro, en un círculo con borde de acento. Dura 0,7 s en cualquier tono; los checks, la portada y la hoja de contactos lo esperan; el whoosh lo acompaña. Se elige por escena ("Entrada") o lo pide la IA.
+  2. **Cómo se mueve la marca** (Editar serie): Pareja (decide el tono, como hasta ahora), Firme (llega y se queda), Suave (se acomoda despacio y las imágenes flotan apenas) o Elástica (rebota un poco y las imágenes respiran). El texto nunca se mueve mientras se lee, y un tono seco nunca rebota.
+  3. **"Antes / después" con un círculo que crece** desde el punto que elijas.
+  4. **La IA escribe así:** abre con la pregunta que ya se hace quien mira, viaja de lo grande a lo chico con "Pasar a través" una o dos veces por pieza, y usa el círculo cuando el cambio empieza en un lugar y se extiende.
+  5. **Las piezas de muestra** (sin clave) usan el viaje (IMAN) y el círculo (Máshogar).
+  - **Probado en un render real** (IMAN con la marca Elástica): la escena del producto se zambulle en su imagen, el número se abre desde adentro y termina en "3 cajas"; 546 de 546 cuadros, -14,1 LUFS.
+- **Para otro "go":**
+  - **Un mundo ilustrado de la marca:** fondos de capas planas con profundidad (el local, los estantes, el barrio) en los colores de la marca, que se mueven con la cámara.
+  - **Escenas metáfora:** una imagen simple que explica una idea (el pedido como una pila de cajas que se cae). Hacen falta imágenes del elenco hechas para eso.
+  - **Un personaje fijo por serie para los explicativos,** simple y siempre igual, que vuelve en cada pieza (los títeres ya existen).
+  - **La letra que actúa el canto** (una nota larga estira su palabra, un grito la sacude) y **música visual desde el kick**, de la charla del 9 Oct.
+- **Lo que no:** su estética (el pájaro, la paleta, el brillo, las estrellas y partículas), su nombre o su logo en una pieza, su narrador; y "Pasar a través" en cada corte: cansa, va una o dos veces.
 
 ### 62. Lo que sirve de 20 repos de motion design (9 Oct 2026) — **Construido 1 a 12 (9 Oct 2026, "Go")**
 - **Qué son:** skills para agentes (Claude Code y otros) que hacen videos de motion graphics, los motores que usan y guías de criterio. Los mandaste diciendo que están hechos para Opus 5.5: la app ya escribe con `claude-opus-5-5` por defecto, así que no hizo falta cambiar el modelo. Se leyeron los 20 clonados, sin correr nada de ellos.
