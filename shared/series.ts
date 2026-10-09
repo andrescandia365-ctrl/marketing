@@ -68,6 +68,17 @@ export const hasLook = (look: SeriesLook) => Object.values(look).some((v) => v.t
 // and one UI face for everything else. Fonts come from Google Fonts.
 export const DISPLAY_FONTS = ["Space Grotesk", "Archivo Black", "Bricolage Grotesque", "Syne", "DM Serif Display", "Fraunces", "Bebas Neue"] as const;
 export const UI_FONTS = ["Inter", "IBM Plex Sans", "DM Sans", "Work Sans", "Manrope"] as const;
+// How the brand moves: how things land and whether pictures breathe once they are in. Text never moves while it is
+// read. "even" leaves it to the piece's tone, as before.
+export const BRAND_MOTIONS = ["even", "solid", "soft", "springy"] as const;
+export type BrandMotion = (typeof BRAND_MOTIONS)[number];
+export const BRAND_MOTION_LABEL: Record<BrandMotion, string> = {
+  even: "Pareja: decide el tono de cada pieza",
+  solid: "Firme: llega y se queda, como una caja en el estante",
+  soft: "Suave: se acomoda despacio y las imágenes flotan apenas",
+  springy: "Elástica: rebota un poco y las imágenes respiran",
+};
+
 export const BrandSchema = z.object({
   bg: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   text: z.string().regex(/^#[0-9a-fA-F]{6}$/),
@@ -76,6 +87,7 @@ export const BrandSchema = z.object({
   uiFont: z.string().max(60),
   // File name in the series library ("" until uploaded).
   logo: z.string().max(120),
+  motion: z.enum(BRAND_MOTIONS).default("even"),
 });
 export type Brand = z.infer<typeof BrandSchema>;
 export const DEFAULT_BRAND: Brand = {
@@ -85,6 +97,7 @@ export const DEFAULT_BRAND: Brand = {
   displayFont: "Space Grotesk",
   uiFont: "Inter",
   logo: "",
+  motion: "even",
 };
 
 // ── Brand contrast (WCAG 2) ───────────────────────────────────────────────────────────

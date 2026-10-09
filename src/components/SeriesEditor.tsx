@@ -16,7 +16,10 @@ import {
   EMPTY_SERIES,
   LOOK_PRESETS,
   SERIES_TYPE_LABEL,
+  BRAND_MOTIONS,
+  BRAND_MOTION_LABEL,
   brandContrast,
+  type BrandMotion,
   castRef,
   type CastKind,
   type CastMember,
@@ -712,6 +715,21 @@ function BrandSection({
               </select>
             </label>
           </div>
+          <label className="block text-xs">
+            <span className="font-semibold">Cómo se mueve la marca</span>
+            <select
+              className={`${inputClass} mt-0.5 py-1`}
+              value={brand.motion ?? "even"}
+              onChange={(e) => onChange({ ...brand, motion: e.target.value as BrandMotion })}
+            >
+              {BRAND_MOTIONS.map((m) => (
+                <option key={m} value={m}>
+                  {BRAND_MOTION_LABEL[m]}
+                </option>
+              ))}
+            </select>
+            <span className="mt-0.5 block text-muted">Cómo aterriza cada cosa y si las imágenes respiran. El texto nunca se mueve mientras se lee; un tono seco nunca rebota.</span>
+          </label>
           <div className="rounded-lg p-3" style={{ background: brand.bg, color: brand.text }}>
             <p style={{ fontFamily: `"${brand.displayFont}"`, fontWeight: 700, fontSize: 22, lineHeight: 1.1 }}>
               Armá el pedido <span style={{ color: brand.accent }}>antes del corte</span>

@@ -16,7 +16,8 @@ import {
   timeScenes,
   type MotionScene,
 } from "../shared/motion.ts";
-import { anchorOf } from "../src/lib/motion.ts";
+import { BrandSchema, DEFAULT_BRAND } from "../shared/series.ts";
+import { anchorOf, landFor } from "../src/lib/motion.ts";
 
 const scene = (o: Partial<MotionScene>): MotionScene => ({ ...blankScene("screen"), ...o });
 
@@ -82,4 +83,28 @@ test("every template has a main thing inside the frame to dive into", () => {
       }
     }
   }
+});
+
+test("the brand's physics sets how things land; a dry piece never bounces", () => {
+  const brands = ["even", "solid", "soft", "springy", undefined] as const;
+  for (const tone of ["dry", "warm", "absurdist"] as const) {
+    for (const motion of brands) {
+      const land = landFor(tone, motion);
+      assert.equal(land(0), 0, `${tone} ${motion} starts at 0`);
+      assert.equal(land(1), 1, `${tone} ${motion} ends at 1`);
+      assert.ok(Math.abs(land(0.98) - 1) < 0.05, `${tone} ${motion} has settled by the end`);
+      const peak = Math.max(...Array.from({ length: 101 }, (_, i) => land(i / 100)));
+      if (tone === "dry" || motion === "solid" || motion === "soft") assert.ok(peak <= 1 + 1e-9, `${tone} ${motion} never overshoots`);
+    }
+  }
+  const peak = (f: (x: number) => number) => Math.max(...Array.from({ length: 101 }, (_, i) => f(i / 100)));
+  assert.ok(peak(landFor("warm", "springy")) > 1.05);
+  assert.ok(peak(landFor("absurdist", "springy")) >= peak(landFor("warm", "springy")) - 0.01);
+});
+
+test("older series read as an even brand", () => {
+  const { motion, ...old } = DEFAULT_BRAND;
+  assert.equal(motion, "even");
+  assert.equal(BrandSchema.parse(old).motion, "even");
+  assert.equal(BrandSchema.parse({ ...old, motion: "soft" }).motion, "soft");
 });

@@ -187,6 +187,10 @@ export function measureFacts(
       covered.length ? covered.map((o) => `scene ${o.scene} ${o.a} over ${o.b} (${o.format === "vertical" ? "9:16" : "16:9"}, at ${o.t.toFixed(2)} s)`).join("; ") : "none"
     }.`,
   );
+  if (brand?.motion && brand.motion !== "even")
+    lines.push(
+      `Brand physics: ${brand.motion} (${brand.motion === "solid" ? "firm landings, no bounce, nothing drifts" : brand.motion === "soft" ? "slow, gentle landings; pictures drift slightly once in" : "springy landings; pictures breathe once in"}). It is the brand's choice; text never moves while it is read.`,
+    );
   if (brand) {
     const c = brandContrast(brand);
     lines.push(

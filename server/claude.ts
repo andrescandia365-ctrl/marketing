@@ -751,7 +751,7 @@ ${cast || "- (nothing yet: use hook, steps, stat and logo, and say in note what 
 ${layers ? `Uploaded layers: ${Array.from({ length: layers }, (_, i) => `layer:${i}`).join(", ")}.` : ""}
 
 The studio's rules:
-- The first scene is a hook that names the problem within 2 seconds.
+- The first scene is a hook that names the problem within 2 seconds, as the question the viewer already asks themselves, in their words.
 - Something new appears on screen every 2 to 4 seconds: a scene change, a label, a step, a zoom. Never a still stretch longer than 4 seconds.
 - Never the stock defaults: a centred title on a gradient, everything fading in, corner labels, frame borders, glow on UI chrome, generic particle bursts.
 - The brand's colours with one accent, its display face for titles and its UI face for the rest (the "Marca" line).
@@ -761,6 +761,8 @@ The studio's rules:
 - Voice lines in Rioplatense Spanish, each with its emotion, fitting its scene at about 2.5 words per second.
 - A character from the cast (a 3D puppet, or one with an image) can host with the character template: it says its scene's voice line (its mouth moves), makes one gesture (presenta, saluda, señala, festeja, se sorprende) and can point at or present a real screen or the product (assetB). Use it once or twice, to guide, never to replace showing the product.
 - The Contradiction (contradiction template), when the pain is a mismatch people already live with: items[0] what the system, the label or the habit says, items[1] what really happens; the first gets struck through. Build it only on the series' "Cómo se trabaja hoy" list and the brief, never on an invented habit, and with real numbers only.
+- Travel between scales when it helps the idea: from the whole to the detail (the shelf, the product on it, its expiry date) or back out to the whole. Make that move with entry "through" on the scene that opens inside the previous one (the camera dives into its main thing), once or twice per piece, never on every cut.
+- In beforeAfter, reveal "iris" when the change starts in one spot and spreads (set focusX, focusY on that spot); "wipe" when it is a plain side-by-side.
 - The last scene is the logo with a soft call to action. Its line calls back to the hook: the same problem, now solved, not a new idea.
 ${brief.narrator === "without" ? "- No narrator: leave every scene's voice and emotion empty. Titles, labels, the typed text and the product in use carry the meaning; keep it readable without a voice.\n" : ""}- Pace for the brief's comic voice (${brief.tone}): ${TONE_PACE[brief.tone]}
 - The product and the logo are the big moments: they land on the music's strongest hits (the app moves their cuts there).
