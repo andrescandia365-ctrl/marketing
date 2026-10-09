@@ -1,7 +1,7 @@
 // What the explainer studio and the render page (render.mjs) share: loading a piece's images, voices and track,
 // the beat grid, the scenes on it, the world the engine draws with, and the sound. Both build frame t and the mix
 // the same way, so the final render matches the preview.
-import { TYPE_CPS, cutPush, elementTimes, sceneElements, snapElements, snapScenes, timeScenes, type MotionPiece, type MotionScene, type MotionScript, type TrackKicks } from "../../shared/motion.ts";
+import { STAT_COUNT, TYPE_CPS, cutPush, elementTimes, sceneElements, snapElements, snapScenes, timeScenes, type MotionPiece, type MotionScene, type MotionScript, type TrackKicks } from "../../shared/motion.ts";
 import { fitKicks, type Pcm } from "../../shared/clock.ts";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import type { Brand } from "../../shared/series.ts";
@@ -272,7 +272,13 @@ export function soundHits(snapped: MotionScript): SoundPlan["hits"] {
         if (within(T.ring + 0.5)) hit(s.start + T.ring + 0.5, "tap");
         break;
       case "stat":
-        if (has("title") && within(T.title + 1.2)) hit(s.start + T.title + 1.2, "pop");
+        if (has("title") && within(T.title + STAT_COUNT)) hit(s.start + T.title + STAT_COUNT, "pop");
+        break;
+      case "contradiction":
+        // The two statements arrive (first and last of a sequence) and the strike is a dry tap, in every tone.
+        if (has("item0") && within(T.item0)) hit(s.start + T.item0, "pop");
+        if (has("item1") && within(T.item1)) hit(s.start + T.item1, "pop", 1);
+        if (has("strike") && within(T.strike)) hit(s.start + T.strike, "tap");
         break;
       case "character": {
         if (has("prop") && within(T.prop)) hit(s.start + T.prop, "reveal");

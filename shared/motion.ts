@@ -4,7 +4,7 @@
 import { z } from "zod";
 import type { QualityState } from "./motionQuality.ts";
 
-export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "product", "stat", "logo"] as const;
+export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "contradiction", "product", "stat", "logo"] as const;
 export type MotionTemplate = (typeof MOTION_TEMPLATES)[number];
 export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   hook: "Gancho: palabras que entran",
@@ -15,6 +15,7 @@ export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   callouts: "Rótulos sobre la imagen",
   steps: "Paso a paso",
   beforeAfter: "Antes / después",
+  contradiction: "Contradicción: lo que dicen vs. lo que pasa",
   product: "Producto con precio u oferta",
   stat: "Número grande",
   logo: "Cierre con logo",
@@ -68,12 +69,12 @@ const SceneWire = z.object({
   template: z
     .string()
     .describe(
-      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), type (the product in use: a field where the title is typed letter by letter with key sounds, a button is tapped, then the text appears as the result), character (a cast character marked as a 3D puppet talks the voice line with its mouth moving and makes a gesture; it can point at or present a real screen or the product given in assetB), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene).",
+      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), type (the product in use: a field where the title is typed letter by letter with key sounds, a button is tapped, then the text appears as the result), character (a cast character marked as a 3D puppet talks the voice line with its mouth moving and makes a gesture; it can point at or present a real screen or the product given in assetB), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), contradiction (the Contradiction move: what the system, the label or the habit says, then what really happens, and the first gets struck through; no image needed), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene).",
     ),
   seconds: z.number().describe("2 to 8 seconds; long enough for the voice line at about 2.5 words per second."),
   title: z.string().describe("Up to 6 words, readable on a phone. For stat: starts with the number (e.g. '3 minutos')."),
   text: z.string().describe("Up to 12 words of supporting text, or empty."),
-  items: z.array(z.string()).describe("callouts and steps: up to 4 labels of up to 5 words. beforeAfter: [before label, after label]. product: [price or offer]. logo: [call to action]. type: [the field's placeholder, the button's label]. Else empty."),
+  items: z.array(z.string()).describe("callouts and steps: up to 4 labels of up to 5 words. beforeAfter: [before label, after label]. contradiction: [what is said or shown, what really happens], up to 7 words each, concrete (the number, the object, the hour). product: [price or offer]. logo: [call to action]. type: [the field's placeholder, the button's label]. Else empty."),
   asset: z.string().describe("The id of a cast member to show (a real screen, the product, a character, a place), 'layer:N' for an uploaded layer, or empty."),
   assetB: z.string().describe("beforeAfter: the 'after' image id. character: what it points at or presents (a real screen or the product id), or empty. Else empty."),
   gesture: z.string().describe("character only: presenta, saluda, señala, festeja or se sorprende. Else empty."),
@@ -314,6 +315,7 @@ const MEDIA_LABEL: Record<MotionTemplate, string> = {
   callouts: "Imagen",
   steps: "Pantalla",
   beforeAfter: "Antes / después",
+  contradiction: "Imagen",
   product: "Producto",
   stat: "Imagen",
   logo: "Logo",
@@ -366,6 +368,16 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
       add("media", media, "media", 0);
       add("wipe", "Cortina", "moves", Math.min(d * 0.4, 1.6), false);
       break;
+    case "contradiction": {
+      // What is said, then (once it has been read) what really happens, then the first one is struck through.
+      if (title) add("title", "Título", "title", 0);
+      // The first is fully in at 0.85 s; the second follows once it has had time to be read.
+      const real = 0.85 + Math.min(1.2, Math.max(0.6, (d - 1.2) / 3));
+      if (scene.items[0]) add("item0", `Lo que dicen: ${scene.items[0]}`, "items", 0.35);
+      if (scene.items[1]) add("item1", `Lo que pasa: ${scene.items[1]}`, "items", real);
+      if (scene.items[0] && scene.items[1]) add("strike", "Tachado", "moves", real + 0.7, false);
+      break;
+    }
     case "type": {
       add("media", media, "media", 0);
       const typed = (scene.tweaks?.title?.at ?? scene.onBeat?.title ?? 0.35) + typingSeconds(title);
@@ -637,6 +649,8 @@ export type MotionPiece = {
   poster?: { t: number; by: "vos" | "ia" } | null;
   // Reading-time warnings the person marked "no es un problema" (readingKey).
   readingOk?: string[];
+  // Numbers on screen the person confirmed although "Lo que existe hoy" and the brief do not have them (figureKey).
+  figuresOk?: string[];
   // The track's beat clock from its drums stem; none: a track has no grid.
   kickGrid?: TrackKicks | null;
 };
@@ -658,7 +672,61 @@ export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {
     effects: "library",
     poster: null,
     readingOk: [],
+    figuresOk: [],
   };
 }
 
 export const DURATIONS = [15, 30, 45, 60, 90] as const;
+
+// ── Numbers with a source ──────────────────────────────────────────────────────────────
+// A number on screen (or in the voice, which is also the subtitle) is a claim. It must come from the series'
+// "Lo que existe hoy" or from the brief, or the person confirms it; "[VERIFY]" on screen stops the render until the
+// text changes (playbook: nothing unverified ships).
+
+// The numbers in a text, written one way: "1.500" and "1500" are "1500", "2,5" is "2.5", a time stays "6:00".
+export function figuresIn(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.match(/\d{1,2}:\d{2}|\d+(?:[.,]\d+)*/g) ?? []) {
+    if (raw.includes(":")) {
+      out.push(raw);
+      continue;
+    }
+    const marks = raw.match(/[.,]/g) ?? [];
+    const groups = raw.split(/[.,]/);
+    const thousands = marks.length > 0 && new Set(marks).size === 1 && groups.slice(1).every((g) => g.length === 3);
+    const value = thousands || !marks.length ? Number(groups.join("")) : Number(`${groups.slice(0, -1).join("")}.${groups[groups.length - 1]}`);
+    if (Number.isFinite(value)) out.push(String(value));
+  }
+  return out;
+}
+
+export const VERIFY_MARK = /\[\s*(verify|verificar)\s*\]/i;
+
+export type FigureIssue = { sceneId: string; index: number; key: string; label: string; text: string; figure: string; verify: boolean };
+export const figureKey = (i: FigureIssue) => `cifra:${i.sceneId}:${i.key}:${i.figure}`;
+
+// What each scene shows or says, by element key.
+function sceneTexts(s: MotionScene): { key: string; label: string; text: string }[] {
+  return [
+    { key: "title", label: s.template === "stat" ? "Número" : "Título", text: s.title },
+    { key: "text", label: "Texto", text: s.text },
+    ...s.items.map((text, i) => ({ key: `item${i}`, label: `Rótulo ${i + 1}`, text })),
+    { key: "voice", label: "Voz y subtítulo", text: s.voice },
+  ].filter((x) => x.text.trim());
+}
+
+// Every number without a source, and every "[VERIFY]" left on screen. `sources`: the series' "Lo que existe hoy"
+// and the brief, as text.
+export function figureIssues(scenes: MotionScene[], sources: string): FigureIssue[] {
+  const known = new Set(figuresIn(sources));
+  const issues: FigureIssue[] = [];
+  scenes.forEach((s, index) => {
+    for (const { key, label, text } of sceneTexts(s)) {
+      if (VERIFY_MARK.test(text)) issues.push({ sceneId: s.id, index, key, label, text, figure: "[VERIFY]", verify: true });
+      for (const figure of new Set(figuresIn(text))) {
+        if (!known.has(figure)) issues.push({ sceneId: s.id, index, key, label, text, figure, verify: false });
+      }
+    }
+  });
+  return issues;
+}

@@ -2,6 +2,7 @@
 // each frame) and the facts the app measures itself (cuts and entrances against the beats, still stretches, the
 // hook's timing, voices that run over, elements off the frame), so the reviewer never has to guess them.
 import { cutPush, pushOf, quietGaps, readingIssues, sceneElements, settledAt, timeScenes, type MotionScript } from "../../shared/motion.ts";
+import { CONTRAST_ACCENT, CONTRAST_TEXT, brandContrast, type Brand } from "../../shared/series.ts";
 import { OVERLAP, SAFE_BAND_LABEL, overlapShare, safeBands, type SafeBand } from "../../shared/safeZone.ts";
 import { drawMotionFrame, sceneAt, scriptDuration, subtitleBox, type Box, type MotionWorld } from "./motion.ts";
 
@@ -125,6 +126,7 @@ export function measureFacts(
   outside: Outside[],
   zoned: Zoned[] = [],
   overlaps: Overlap[] = [],
+  brand?: Brand,
 ): string {
   const timed = timeScenes(script.scenes);
   const total = scriptDuration(script);
@@ -179,6 +181,12 @@ export function measureFacts(
       covered.length ? covered.map((o) => `scene ${o.scene} ${o.a} over ${o.b} (${o.format === "vertical" ? "9:16" : "16:9"}, at ${o.t.toFixed(2)} s)`).join("; ") : "none"
     }.`,
   );
+  if (brand) {
+    const c = brandContrast(brand);
+    lines.push(
+      `Brand contrast (WCAG): text on background ${c.text.toFixed(1)}:1 (needs ${CONTRAST_TEXT}:1), accent on background ${c.accent.toFixed(1)}:1 (needs ${CONTRAST_ACCENT}:1 for big words and numbers).`,
+    );
+  }
   const reading = readingIssues(script.scenes, push);
   lines.push(
     `Lines on screen too briefly to read (need about 0.3 s per word once fully in, 0.8 s for a 1-3 word label): ${

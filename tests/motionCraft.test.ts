@@ -3,7 +3,8 @@
 // that drawing code never reads a clock.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { STAT_COUNT, blankScene, sceneElements, settledAt, statCountText, type MotionScene } from "../shared/motion.ts";
+import { STAT_COUNT, blankScene, figureIssues, normalizeMotion, readingIssues, figuresIn, sceneElements, settledAt, statCountText, type MotionScene } from "../shared/motion.ts";
+import { DEFAULT_BRAND, brandContrast, contrastRatio } from "../shared/series.ts";
 import { BUTTONS_FROM, OVERLAP, PHONE_SAFE, isPhoneFrame, overlapShare, safeBands, safeRect } from "../shared/safeZone.ts";
 
 const stat = (title: string, text = "", seconds = 4): MotionScene => ({ ...blankScene("stat"), title, text, seconds });
@@ -62,4 +63,53 @@ test("overlap is measured on the smaller box", () => {
   assert.equal(overlapShare(title, { x: 0, y: 100, w: 800, h: 50 }), 0);
   assert.equal(overlapShare(title, { x: 700, y: 50, w: 100, h: 100 }), 0.5);
   assert.ok(overlapShare(title, { x: 0, y: 95, w: 800, h: 50 }) < OVERLAP);
+});
+
+test("numbers are read one way, whatever their marks", () => {
+  assert.deepEqual(figuresIn("1.500 pedidos y 1500 más"), ["1500", "1500"]);
+  assert.deepEqual(figuresIn("2,5 horas, 40% menos"), ["2.5", "40"]);
+  assert.deepEqual(figuresIn("a las 6:00 y 12,000 users"), ["6:00", "12000"]);
+  assert.deepEqual(figuresIn("sin números"), []);
+});
+
+test("a number on screen needs a source, and [VERIFY] never ships", () => {
+  const scenes: MotionScene[] = [
+    { ...blankScene("stat"), id: "a", title: "1.500 pedidos", text: "por semana" },
+    { ...blankScene("screen"), id: "b", title: "Pedido en 3 toques", voice: "Ahorra 2 horas [VERIFY]" },
+  ];
+  const sources = "Arma el pedido en 3 toques\nUsado por 1500 pedidos semanales";
+  const issues = figureIssues(scenes, sources);
+  assert.deepEqual(
+    issues.map((i) => [i.sceneId, i.key, i.figure, i.verify]),
+    [
+      ["b", "voice", "[VERIFY]", true],
+      ["b", "voice", "2", false],
+    ],
+  );
+  assert.equal(figureIssues(scenes, "").filter((i) => !i.verify).length, 3);
+});
+
+test("brand contrast is measured (WCAG)", () => {
+  assert.equal(Math.round(contrastRatio("#000000", "#ffffff")), 21);
+  assert.equal(contrastRatio("#777777", "#777777"), 1);
+  assert.deepEqual(brandContrast(DEFAULT_BRAND).problems, []);
+  const weak = brandContrast({ bg: "#ffffff", text: "#999999", accent: "#ffe066" });
+  assert.equal(weak.problems.length, 2);
+  assert.ok(weak.text < 4.5 && weak.accent < 3);
+});
+
+test("Contradicción: what is said, then what happens, then the strike", () => {
+  const s: MotionScene = { ...blankScene("contradiction"), title: "El pedido de los martes", items: ["La planilla dice: 40 cajas", "La góndola tiene 3"], seconds: 4 };
+  const els = sceneElements(s);
+  const at = (key: string) => els.find((e) => e.key === key)!.at;
+  assert.deepEqual(els.map((e) => e.key), ["title", "item0", "item1", "strike"]);
+  // The first is read before the second arrives, and struck once the second is in.
+  assert.ok(at("item1") - settledAt(s, els.find((e) => e.key === "item0")!) >= 0.6);
+  assert.ok(at("strike") >= settledAt(s, els.find((e) => e.key === "item1")!));
+  assert.equal(readingIssues([s], 0).length, 0);
+  // Only one statement: nothing to strike.
+  assert.deepEqual(sceneElements({ ...s, items: ["La planilla dice: 40 cajas"] }).map((e) => e.key), ["title", "item0"]);
+  // The writer's name for it comes back as the template.
+  const wire = { problem: "", title: "", durationNote: "", note: "", caption: "", music: { mood: "drive", bpm: 110 }, scenes: [{ ...s, template: "contradiction", gesture: "", move: "" }] };
+  assert.equal(normalizeMotion(wire).scenes[0].template, "contradiction");
 });

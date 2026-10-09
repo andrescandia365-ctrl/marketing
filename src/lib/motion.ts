@@ -622,6 +622,61 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       });
       break;
     }
+    case "contradiction": {
+      // The Contradiction (PLAYBOOK §2.5): what is said, then what really happens, and the first gets struck
+      // through. Each statement rises out of its own mask; the real one carries the accent bar.
+      title(m, vertical ? topSafe(h * 0.16, titleSize * 0.9) : h * 0.18, titleSize * 0.9, w - m * 2);
+      const size = unit * (vertical ? 0.07 : 0.06);
+      const maxW = vertical ? w - m * 2 : w * 0.62;
+      const tops = vertical ? [h * 0.34, h * 0.52] : [h * 0.36, h * 0.6];
+      const strike = "strike" in T ? outCubic(span(lt, at("strike"), 0.35)) : 0;
+      [0, 1].forEach((i) => {
+        const item = s.items[i];
+        const p = item ? outCubic(span(lt, at(`item${i}`), 0.5)) : 0;
+        if (!item || p <= 0) return;
+        const y = tops[i];
+        put(`item${i}`, m, y, () => {
+          ctx.font = ui(f, size, 700);
+          const lines = wrap(ctx, item, maxW - unit * 0.06);
+          const lh = size * 1.15;
+          const width = Math.max(0, ...lines.map((l) => ctx.measureText(l).width));
+          const boxH = lines.length * lh + unit * 0.04;
+          const textX = m + unit * 0.04;
+          const baseline = (k: number) => y + unit * 0.02 + size * 0.88 + k * lh;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(m - unit * 0.02, y - unit * 0.02, maxW + unit * 0.04, boxH + unit * 0.04);
+          ctx.clip();
+          ctx.translate(0, (1 - p) * boxH);
+          ctx.fillStyle = i === 1 ? world.brand.accent : hexA(world.brand.text, 0.35);
+          ctx.fillRect(m, y, unit * 0.012, boxH);
+          ctx.save();
+          ctx.globalAlpha *= i === 0 ? 1 - 0.45 * strike : 1;
+          ctx.fillStyle = world.brand.text;
+          lines.forEach((l, k) => ctx.fillText(l, textX, baseline(k)));
+          ctx.restore();
+          // The strike runs through each line in turn, left to right, slightly off level like a pen.
+          if (i === 0 && strike > 0) {
+            ctx.strokeStyle = world.brand.accent;
+            ctx.lineWidth = unit * 0.009;
+            ctx.lineCap = "round";
+            lines.forEach((l, k) => {
+              const share = clamp01(strike * lines.length - k);
+              if (share <= 0) return;
+              const len = (ctx.measureText(l).width + unit * 0.02) * share;
+              const yy = baseline(k) - size * 0.3;
+              ctx.beginPath();
+              ctx.moveTo(textX - unit * 0.01, yy + size * 0.04);
+              ctx.lineTo(textX - unit * 0.01 + len, yy + size * 0.04 - size * 0.08 * share);
+              ctx.stroke();
+            });
+          }
+          ctx.restore();
+          return { x: m, y, w: unit * 0.04 + width, h: boxH };
+        });
+      });
+      break;
+    }
     case "steps": {
       title(m, vertical ? topSafe(h * 0.16, titleSize * 0.9) : h * 0.18, titleSize * 0.9, w - m * 2);
       const top = vertical ? h * 0.3 : h * 0.34;

@@ -18,6 +18,8 @@ import {
   blankScene,
   cutPush,
   elementTimes,
+  figureIssues,
+  figureKey,
   posterTime,
   readingIssues,
   readingKey,
@@ -159,6 +161,18 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [selected, setSelected] = useState<Selection | null>(null);
   const [outside, setOutside] = useState(false);
   const outsideRef = useRef(false);
+  // The series' "Lo que existe hoy" (null until it loads): the numbers on screen must come from it or the brief.
+  const [worksToday, setWorksToday] = useState<string[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api
+      .seriesFields(series.id)
+      .then(({ fields }) => live && setWorksToday(fields.worksToday))
+      .catch(() => live && setWorksToday([]));
+    return () => {
+      live = false;
+    };
+  }, [series.id]);
   // The phone's own interface drawn over the 9:16 preview (editor only).
   const [guides, setGuides] = useState(true);
   const guidesRef = useRef(guides);
@@ -314,7 +328,14 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const openGaps = gaps.filter((g) => !piece.dismissed.includes(key(g)));
   // Lines on screen too briefly to read (about 0.3 s per word once fully in).
   const openReading = readingIssues(scenes, push).filter((r) => !(piece.readingOk ?? []).includes(readingKey(r)));
-  const blocked = openGaps.length > 0 || openReading.length > 0;
+  // Numbers on screen without a source in "Lo que existe hoy" or the brief, and "[VERIFY]" left on screen.
+  const figureSources = useMemo(
+    () => [...(worksToday ?? []), brief.product, brief.angle, brief.notes].join("\n"),
+    [worksToday, brief.product, brief.angle, brief.notes],
+  );
+  const openFigures =
+    worksToday === null ? [] : figureIssues(scenes, figureSources).filter((i) => i.verify || !(piece.figuresOk ?? []).includes(figureKey(i)));
+  const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0;
   // The thumbnail: frame 0 of every render.
   const posterT = posterTime(scenes, piece.poster, push);
   const posterRef = useRef<HTMLCanvasElement>(null);
@@ -704,6 +725,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           made.flatMap((m) => m.outside),
           made.flatMap((m) => m.zoned),
           made.flatMap((m) => m.overlaps),
+          roundWorld.brand,
         );
         setReviewing(`Ronda ${round} de ${MAX_ROUNDS}: la IA mira los cuadros…`);
         const { review, demo } = await api.motionReview(
@@ -1020,6 +1042,47 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                 </>
               ) : (
                 <p className="font-semibold text-good">✓ Cada texto se queda lo suficiente para leerlo.</p>
+              )}
+            </div>
+
+            <div className={`rounded-xl border p-3 text-sm ${openFigures.length ? "border-neg/40 bg-neg-soft" : "border-good/30 bg-good-soft"}`}>
+              {openFigures.length ? (
+                <>
+                  <p className="font-semibold text-neg">
+                    Cifras con fuente: {openFigures.length} sin fuente o con [VERIFY]. No se puede generar hasta arreglarlo.
+                  </p>
+                  <ul className="mt-1 space-y-1">
+                    {openFigures.map((i) => (
+                      <li key={figureKey(i)} className="flex flex-wrap items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          className="text-left hover:underline"
+                          onClick={() => {
+                            const at = timeScenes(scenes).find((x) => x.id === i.sceneId);
+                            if (at) seek(at.end - 0.1);
+                            setSelected({ sceneId: i.sceneId, key: i.key === "voice" ? null : i.key });
+                          }}
+                        >
+                          {i.verify
+                            ? `Escena ${i.index + 1} · ${i.label} lleva [VERIFY]: confirmalo y sacá la marca, o cambiá el texto.`
+                            : `Escena ${i.index + 1} · ${i.label}: “${i.figure}” no está en «Lo que existe hoy» ni en el brief. Sumalo a la serie si es real, o cambialo.`}
+                        </button>
+                        {!i.verify && (
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-muted hover:text-ink"
+                            title="Es real, o es claramente un ejemplo (una hora, un paso)"
+                            onClick={() => set({ figuresOk: [...(piece.figuresOk ?? []), figureKey(i)] })}
+                          >
+                            Lo confirmo
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="font-semibold text-good">✓ Cada número tiene fuente.</p>
               )}
             </div>
 
