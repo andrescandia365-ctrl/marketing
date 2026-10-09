@@ -4,6 +4,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { STAT_COUNT, blankScene, figureIssues, normalizeMotion, readingIssues, figuresIn, sceneElements, settledAt, statCountText, type MotionScene } from "../shared/motion.ts";
+import { checkStreams, probeStreams } from "../scripts/renderCheck.mjs";
+import { ROOM_DIP, levelGain, median, roomWindows, sampleShape } from "../shared/sound.ts";
 import { DEFAULT_BRAND, brandContrast, contrastRatio } from "../shared/series.ts";
 import { BUTTONS_FROM, OVERLAP, PHONE_SAFE, isPhoneFrame, overlapShare, safeBands, safeRect } from "../shared/safeZone.ts";
 
@@ -112,4 +114,51 @@ test("Contradicción: what is said, then what happens, then the strike", () => {
   // The writer's name for it comes back as the template.
   const wire = { problem: "", title: "", durationNote: "", note: "", caption: "", music: { mood: "drive", bpm: 110 }, scenes: [{ ...s, template: "contradiction", gesture: "", move: "" }] };
   assert.equal(normalizeMotion(wire).scenes[0].template, "contradiction");
+});
+
+test("a library effect lands on its attack, at its kind's level", () => {
+  const rate = 48000;
+  const data = new Float32Array(rate / 4);
+  // 40 ms of near-silence, then the hit.
+  for (let i = 0; i < data.length; i++) data[i] = i < rate * 0.04 ? 0.001 : 0.5 * Math.exp(-(i - rate * 0.04) / 800);
+  const { onset, peak } = sampleShape(data, rate);
+  assert.ok(Math.abs(onset - 0.038) < 0.001);
+  assert.equal(peak, 0.5);
+  assert.deepEqual(sampleShape(new Float32Array(10), rate), { onset: 0, peak: 0 });
+  assert.equal(median([0.2, 0.6, 0.4]), 0.4);
+  assert.equal(levelGain(0.2, 0.4), 2);
+  assert.equal(levelGain(0.01, 0.9), 4);
+  assert.equal(levelGain(0, 0.5), 1);
+});
+
+test("the music makes room before the product and the logo", () => {
+  const hits = [
+    { at: 0.02, kind: "logo" },
+    { at: 3, kind: "whoosh" },
+    { at: 3.05, kind: "reveal" },
+    { at: 6, kind: "pop" },
+    { at: 9, kind: "logo" },
+    { at: 9.1, kind: "reveal" },
+  ];
+  assert.deepEqual(roomWindows(hits, 0.25), [
+    { from: 2.8, to: 3.05 },
+    { from: 8.75, to: 9.1 },
+  ]);
+  assert.ok(ROOM_DIP > 0 && ROOM_DIP < 0.5);
+});
+
+test("the finished MP4 is checked against what was painted", () => {
+  const want = { frames: 300, fps: 30, width: 1080, height: 1920, sound: true };
+  const good = [
+    { codec_type: "video", nb_read_packets: "300", width: 1080, height: 1920, pix_fmt: "yuv420p", duration: "10.000000" },
+    { codec_type: "audio", nb_read_packets: "470", duration: "10.021333" },
+  ];
+  assert.deepEqual(checkStreams(good, want), []);
+  const bad = [{ codec_type: "video", nb_read_packets: "297", width: 1080, height: 1920, pix_fmt: "yuv444p", duration: "9.9" }];
+  assert.deepEqual(checkStreams(bad, want), ["tiene 297 cuadros y se pintaron 300", "el color está en yuv444p, no en yuv420p", "no tiene sonido"]);
+  const short = [good[0], { codec_type: "audio", nb_read_packets: "400", duration: "8.5" }];
+  assert.equal(checkStreams(short, want).length, 1);
+  // No ffprobe, or output it cannot read: no verdict, the render goes on.
+  assert.equal(probeStreams("x.mp4", () => ({ status: 1, stdout: "" })), null);
+  assert.equal(probeStreams("x.mp4", () => ({ status: 0, stdout: "not json" })), null);
 });

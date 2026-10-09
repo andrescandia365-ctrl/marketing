@@ -28,3 +28,15 @@ export function ensureFont(family: string): Promise<void> {
   }
   return done;
 }
+
+// Whether a face of this family really loaded. (document.fonts.check() says yes for a family it has never heard of,
+// since there is nothing to wait for, so it cannot tell a brand font from the fallback.)
+export function fontLoaded(family: string): boolean {
+  if (!family || typeof document === "undefined") return true;
+  const name = family.replace(/["']/g, "").trim().toLowerCase();
+  let loaded = false;
+  document.fonts.forEach((face) => {
+    if (face.status === "loaded" && face.family.replace(/["']/g, "").trim().toLowerCase() === name) loaded = true;
+  });
+  return loaded;
+}

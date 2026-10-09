@@ -12,6 +12,7 @@ import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
+import { checkStreams, probeStreams } from "./scripts/renderCheck.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -134,6 +135,15 @@ async function renderOne(browser, format, index) {
     await rm(partial, { force: true });
     fail(`ffmpeg falló: ${errors.trim().split("\n").slice(-3).join(" ")}`);
   }
+  // The file is checked before it replaces the last good render: every frame, the size, yuv420p, the sound.
+  const streams = probeStreams(partial, (cmd, argv) => spawnSync(cmd, argv, { encoding: "utf8" }));
+  if (streams) {
+    const problems = checkStreams(streams, { frames, fps: info.fps, width, height, sound: Boolean(sound) });
+    if (problems.length) {
+      await rm(partial, { force: true });
+      fail(`El video ${format} no salió como se pintó (${problems.join("; ")}). Quedó el render anterior.`);
+    }
+  } else console.log(`aviso no encontré ffprobe para revisar el video ${format}`);
   await rename(partial, out);
   console.log(`listo video-final-${format}.mp4`);
 }

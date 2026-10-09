@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { cutPush, newMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
 import type { Brief } from "../shared/schema.ts";
 import { api } from "./lib/api.ts";
-import { ensureFont } from "./lib/fonts.ts";
+import { ensureFont, fontLoaded } from "./lib/fonts.ts";
 import { drawMotionFrame, scriptDuration } from "./lib/motion.ts";
 import { toWav } from "./lib/motionAudio.ts";
 import { arrangeScenes, layerAssets, loadPieceMedia, loadSeriesImages, makeWorld, motionBeats, motionSound, speechLevels, usesAiImages } from "./lib/motionProject.ts";
@@ -53,6 +53,12 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       if (!series) throw new Error(`No existe la serie "${st.pieceBrief.series}".`);
       await Promise.all([ensureFont(series.brand.displayFont), ensureFont(series.brand.uiFont)]);
       await document.fonts.ready;
+      // The final render never goes out in a fallback face: it stops and says which font did not load.
+      const missing = [...new Set([series.brand.displayFont, series.brand.uiFont])].filter((family) => !fontLoaded(family));
+      if (missing.length)
+        throw new Error(
+          `No cargó la fuente ${missing.map((f) => `«${f}»`).join(" ni ")} de la marca, así que el render se frena para no salir con otra letra. Revisá la conexión a internet, o elegí otra fuente en Editar serie.`,
+        );
       const [images, media] = await Promise.all([loadSeriesImages(series), loadPieceMedia(projectId, piece, project.media, project.music)]);
       const script = piece.script!;
       const beats = motionBeats(script, piece.music, piece.kickGrid);
