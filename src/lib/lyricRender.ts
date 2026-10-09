@@ -353,7 +353,14 @@ function paintLyricLine(
     : [];
   const rowHeights = rows.map((r) => r.size * 1.18);
   const blockHeight = rowHeights.reduce((a, b) => a + b, 0) + second.length * secondSize * 1.4 + (second.length ? secondSize * 0.6 : 0);
-  const centerY = style.position === "center" ? h * 0.5 : h * (w < h ? 0.72 : 0.74);
+  let centerY = style.position === "center" ? h * 0.5 : h * (w < h ? 0.72 : 0.74);
+  // On a 9:16 frame the AI notice and the credit sit at the bottom of the safe zone; a low lyric ends above them
+  // (room for both notes), however many rows it wraps to.
+  if (style.position !== "center" && isPhoneFrame(w, h)) {
+    const safe = safeRect(w, h);
+    const notes = unit * 0.01 + unit * 0.026 * (1 + 1.5) + unit * 0.025;
+    centerY = Math.min(centerY, safe.y + safe.h - notes - blockHeight / 2);
+  }
   let y = centerY - blockHeight / 2;
 
   ctx.save();

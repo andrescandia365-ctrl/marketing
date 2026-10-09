@@ -525,6 +525,14 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   - **Las 406 tarjetas del student kit:** sirven de muestrario, pero su licencia propia y su estética (HUD, brillo) no encajan.
 - **Licencias:** no se copió código, texto ni archivos de ningún repo. Todo lo construido es propio, con ideas tomadas de ellos; las medidas de la zona segura son el promedio de lo que usan. Si algún día se copia algo MIT, va con su aviso de copyright.
 - **Del mapa de `awesome-motion-design-agent-skills`, para mirar:** `greensock/gsap-skills` (MIT), `Orkas-AI/Orkas-VideoStudio` (MIT, 14 skills con un `plan.json`) y `NVIDIA/SkillSpector` (Apache 2.0, revisa paquetes de skills antes de instalarlos).
+- **Revisión del código (9 Oct 2026):** una segunda pasada buscó errores en lo construido y se arreglaron los que se confirmaron:
+  - Al subir el subtítulo en 9:16 quedaba encima del precio del producto, de los rótulos 3 y 4 y de los nombres del antes / después: esas plantillas ahora terminan arriba del subtítulo (el personaje y las pantallas pueden quedar detrás, como un subtítulo sobre una imagen).
+  - En los videos de letra con la letra "Abajo", el aviso de IA y el crédito pisaban la última fila: la letra baja ahora termina arriba de ellos.
+  - El tachado de la Contradicción sigue a "Lo que pasa" aunque lo muevas a mano, y el texto no entra en la columna de botones.
+  - Cifras con fuente: mira solo lo que la plantilla dibuja, toma también "Cómo se trabaja hoy", entiende "[VERIFY: …]" y "[A VERIFICAR]", "18:00" y "18" son la misma cifra, y "mp3" o "B2B" no son cifras.
+  - "0,125" cuenta como decimal; una emoción muy larga ya no frena la voz (se corta).
+  - Publicidad: si el anuncio sale entero (sin copiar las piezas), cada pieza se nivela por su lado; una pieza con solo un ruido de fondo no se sube más de 20 dB; las piezas guardadas de antes se hacen de nuevo (los archivos nuevos llevan `.l1.`).
+  - Si el control del MP4 falla, tampoco se cambia la portada.
 - **Nota:** los primeros commits de esta tanda dicen "idea 33" por error; es esta, la 62.
 
 ### 35. Videos de letra: traducir a cualquier idioma y avisar qué falta para sincronizar (4 Oct 2026) — **Construido (4 Oct 2026, "go 35")**

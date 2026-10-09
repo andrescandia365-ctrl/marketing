@@ -20,7 +20,7 @@ import {
 } from "mediabunny";
 import type { Board, Brief, Role } from "../../shared/schema.ts";
 import { isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
-import { normalizeLoudness } from "./motionAudio.ts";
+import { PIECE_MAX_BOOST_DB, normalizeLoudness, normalizeSegments } from "./motionAudio.ts";
 import type { TextStyle } from "../../shared/series.ts";
 import { timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 import { drawSketch, type SketchSetup } from "./sketch.ts";
@@ -508,7 +508,11 @@ export async function renderVideo(
   const hasAudio = shots.some((s) => media[s.index]?.voice || media[s.index]?.sfx || (options.keepSound && media[s.index]?.clip));
   if (hasAudio || music || options.alwaysAudio) {
     sound = await mixSound(shots, media, total, options, music);
-    if (sound && options.loudness !== undefined) await normalizeLoudness(sound, options.loudness);
+    // Publicidad: each shot (a piece) on its own when several are cut together, so the cuts never jump in level.
+    if (sound && options.loudness !== undefined) {
+      if (shots.length > 1) await normalizeSegments(sound, shots.map((s) => s.start), options.loudness, PIECE_MAX_BOOST_DB);
+      else await normalizeLoudness(sound, options.loudness, PIECE_MAX_BOOST_DB);
+    }
     if (!sound) notes.push("Los clips no traían sonido que este navegador pueda leer.");
   }
   onProgress(0.05);

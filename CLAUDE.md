@@ -134,8 +134,9 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   ffmpeg (H.264 yuv420p CRF 16, bt709, AAC); the server runs it for the app (`server/finalRender.ts`, localhost only).
   `src/lib/motionProject.ts` holds what the studio and the render page share, so both draw and mix the same.
   The stat counts in its title's own format and settles on the title exactly (`statCountText`); "24/7" does not count.
-  Numbers on screen or in the voice need a source in "Lo que existe hoy" or the brief (`figureIssues`, blocks the
-  render until changed or confirmed); "[VERIFY]" on screen always blocks. The tone sets how things land (`landFor`: dry
+  Numbers the template draws or the voice says need a source in "Lo que existe hoy", "Cómo se trabaja hoy" or the brief
+  (`figureIssues`, blocks the render until changed or confirmed); "[VERIFY…]" on screen always blocks. On 9:16 the
+  templates' words end above the subtitle band (`floor` in drawScene). The tone sets how things land (`landFor`: dry
   no overshoot, absurdist more); nothing grows from scale 0. The bed dips half a beat before the product and the logo
   (`roomWindows`); library effects start on their attack at their kind's level (`sampleShape`). The contact sheet looks
   0.3 s after each beat and also measures text under the platform UI, settled text over text (with the subtitle) and
@@ -179,7 +180,8 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   flags (length, near-duplicates) plus the writer's review (policy, mismatch, claims), the estimate and a weekly
   limit. The run renders each piece once with `renderPiece` (render.ts, `alwaysAudio`) and cuts the ads with
   `concatPieces` (encoded packets copied, no re-encode; falls back to `renderAdWhole`); every piece's mix is brought to
-  -14 LUFS (`loudness`), so the cuts never jump in level; the platform texts (primary,
+  -14 LUFS (`loudness`; per piece in the whole-ad fallback, raised 20 dB at most), so the cuts never jump in level, and
+  cached piece renders carry `RENDER_VERSION` in their name (older ones are rendered again); the platform texts (primary,
   headline, button) come from one writer call per 50 hook+CTA pairs. `server/ads.md` is the method the writer reads.
   Each piece can carry a voice (uploaded, or generated with the presenter's voice `offer.ttsVoice`; "Generar las N
   voces que faltan" does every approved piece); it starts 0.15 s into the piece and is cut at its end. "Probar un
@@ -198,7 +200,8 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   cuts onto its beats (`findBeats`/`alignCuts` in render.ts). Subtitles always stay.
 - 9:16 safe zone (`shared/safeZone.ts`): Reels, TikTok and Shorts cover the top bar, the caption at the bottom and the
   buttons on the right. The app's own text (subtitles, the AI notice, CONCEPTO / SIMULACIÓN, the headline, lyric
-  credits) stays inside it in every renderer; explainer titles start below the top bar; the explainer preview can show
+  credits) stays inside it in every renderer, and a low lyric ends above the notes; explainer titles start below the
+  top bar; the explainer preview can show
   the bands ("Ver lo que tapa la app", never in the video). The values are [NOT SURE] approximations: check them
   against the apps when they change.
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.

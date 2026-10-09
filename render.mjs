@@ -130,7 +130,8 @@ async function renderOne(browser, format, index) {
   ffmpeg.stdin.end();
   const code = await finished;
   await page.evaluate((t) => window.seek(t), info.poster);
-  await writeFile(join(folder, `portada-${vertical ? "9x16" : "16x9"}.jpg`), await canvas.screenshot({ type: "jpeg", quality: 92 }));
+  // The thumbnail is written with the video, only once the video passed its check.
+  const poster = await canvas.screenshot({ type: "jpeg", quality: 92 });
   await rm(temp, { recursive: true, force: true });
   await page.close();
   if (code !== 0) {
@@ -147,6 +148,7 @@ async function renderOne(browser, format, index) {
     }
   } else console.log(`aviso no encontré ffprobe para revisar el video ${format}`);
   await rename(partial, out);
+  await writeFile(join(folder, `portada-${vertical ? "9x16" : "16x9"}.jpg`), poster);
   console.log(`listo video-final-${format}.mp4`);
 }
 

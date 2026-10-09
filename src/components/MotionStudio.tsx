@@ -161,14 +161,15 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [selected, setSelected] = useState<Selection | null>(null);
   const [outside, setOutside] = useState(false);
   const outsideRef = useRef(false);
-  // The series' "Lo que existe hoy" (null until it loads): the numbers on screen must come from it or the brief.
-  const [worksToday, setWorksToday] = useState<string[] | null>(null);
+  // The series' "Lo que existe hoy" and "Cómo se trabaja hoy" (null until they load): the numbers on screen must come
+  // from them or the brief.
+  const [seriesFacts, setSeriesFacts] = useState<string[] | null>(null);
   useEffect(() => {
     let live = true;
     api
       .seriesFields(series.id)
-      .then(({ fields }) => live && setWorksToday(fields.worksToday))
-      .catch(() => live && setWorksToday([]));
+      .then(({ fields }) => live && setSeriesFacts([...fields.worksToday, ...fields.practices]))
+      .catch(() => live && setSeriesFacts([]));
     return () => {
       live = false;
     };
@@ -330,11 +331,11 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const openReading = readingIssues(scenes, push).filter((r) => !(piece.readingOk ?? []).includes(readingKey(r)));
   // Numbers on screen without a source in "Lo que existe hoy" or the brief, and "[VERIFY]" left on screen.
   const figureSources = useMemo(
-    () => [...(worksToday ?? []), brief.product, brief.angle, brief.notes].join("\n"),
-    [worksToday, brief.product, brief.angle, brief.notes],
+    () => [...(seriesFacts ?? []), brief.product, brief.angle, brief.notes].join("\n"),
+    [seriesFacts, brief.product, brief.angle, brief.notes],
   );
   const openFigures =
-    worksToday === null ? [] : figureIssues(scenes, figureSources).filter((i) => i.verify || !(piece.figuresOk ?? []).includes(figureKey(i)));
+    seriesFacts === null ? [] : figureIssues(scenes, figureSources).filter((i) => i.verify || !(piece.figuresOk ?? []).includes(figureKey(i)));
   const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0;
   // The thumbnail: frame 0 of every render.
   const posterT = posterTime(scenes, piece.poster, push);
@@ -1065,7 +1066,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                         >
                           {i.verify
                             ? `Escena ${i.index + 1} · ${i.label} lleva [VERIFY]: confirmalo y sacá la marca, o cambiá el texto.`
-                            : `Escena ${i.index + 1} · ${i.label}: “${i.figure}” no está en «Lo que existe hoy» ni en el brief. Sumalo a la serie si es real, o cambialo.`}
+                            : `Escena ${i.index + 1} · ${i.label}: “${i.figure}” no está en la serie («Lo que existe hoy», «Cómo se trabaja hoy») ni en el brief. Sumalo a la serie si es real, o cambialo.`}
                         </button>
                         {!i.verify && (
                           <button

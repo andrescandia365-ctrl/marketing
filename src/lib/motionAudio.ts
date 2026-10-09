@@ -268,14 +268,20 @@ export async function integratedLoudness(buffer: AudioBuffer): Promise<number> {
 // Brings the mix to the target loudness, keeping peaks under -1.5 dBFS with a soft knee. The knee takes a little
 // loudness away, so it measures again and corrects (at most three passes). A silent mix is left alone. Publicidad
 // uses it too, so every piece of an ad sits at the same level and the cuts never jump.
-export async function normalizeLoudness(buffer: AudioBuffer, target = TARGET_LUFS): Promise<{ lufs: number }> {
+// `maxBoostDb` caps how much a quiet mix is raised in all (a piece with only faint room tone is not pumped up to
+// speech level, noise and all); turning a loud one down has no cap.
+export async function normalizeLoudness(buffer: AudioBuffer, target = TARGET_LUFS, maxBoostDb = Infinity): Promise<{ lufs: number }> {
   // Above the knee, peaks bend smoothly towards the limit (-1.5 dBFS), never past it, so codec overshoot stays under
   // 0 dBFS.
   const knee = 0.66;
   const limit = 0.84;
   let lufs = await integratedLoudness(buffer);
+  let boosted = 0;
   for (let pass = 0; pass < 3 && Number.isFinite(lufs) && Math.abs(lufs - target) > 0.2; pass++) {
-    const gain = 10 ** ((target - lufs) / 20);
+    const step = Math.min(target - lufs, maxBoostDb - boosted);
+    if (step > -0.2 && step < 0.2) break;
+    boosted += Math.max(0, step);
+    const gain = 10 ** (step / 20);
     for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
       const d = buffer.getChannelData(ch);
       for (let i = 0; i < d.length; i++) {
@@ -343,6 +349,25 @@ export async function buildSound(plan: SoundPlan): Promise<{ buffer: AudioBuffer
   const buffer = await ctx.startRendering();
   const { lufs } = await normalizeLoudness(buffer);
   return { buffer, lufs };
+}
+
+// How much a Publicidad piece may be raised to reach the target: more than this is raising noise.
+export const PIECE_MAX_BOOST_DB = 20;
+
+// Each stretch [cuts[i], cuts[i + 1]) of a mix brought to the target on its own: the pieces of an ad rendered in one go
+// (the whole-ad fallback) match the way separately rendered pieces do.
+export async function normalizeSegments(buffer: AudioBuffer, cuts: number[], target = TARGET_LUFS, maxBoostDb = Infinity): Promise<void> {
+  const bounds = [...new Set([0, ...cuts.map((c) => Math.round(c * buffer.sampleRate)), buffer.length])]
+    .filter((i) => i >= 0 && i <= buffer.length)
+    .sort((a, b) => a - b);
+  for (let k = 0; k + 1 < bounds.length; k++) {
+    const [from, to] = [bounds[k], bounds[k + 1]];
+    if (to - from < buffer.sampleRate * 0.4) continue;
+    const part = new AudioBuffer({ length: to - from, numberOfChannels: buffer.numberOfChannels, sampleRate: buffer.sampleRate });
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) part.copyToChannel(buffer.getChannelData(ch).subarray(from, to), ch);
+    await normalizeLoudness(part, target, maxBoostDb);
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) buffer.copyToChannel(part.getChannelData(ch), ch, from);
+  }
 }
 
 // The mix as a WAV, for the preview player.

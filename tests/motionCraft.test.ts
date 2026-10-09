@@ -162,3 +162,26 @@ test("the finished MP4 is checked against what was painted", () => {
   assert.equal(probeStreams("x.mp4", () => ({ status: 1, stdout: "" })), null);
   assert.equal(probeStreams("x.mp4", () => ({ status: 0, stdout: "not json" })), null);
 });
+
+test("review fixes: decimals with a leading zero, names with digits, every [VERIFY] form", () => {
+  assert.equal(statCountText("0,125 segundos", 0.5), "0,063 segundos");
+  assert.equal(statCountText("0,125 segundos", 1), "0,125 segundos");
+  assert.deepEqual(figuresIn("0,125 y 0.005"), ["0.125", "0.005"]);
+  assert.deepEqual(figuresIn("abre 06:00, formato mp3, venta B2B"), ["6:00"]);
+  const scene = (o: Partial<MotionScene>): MotionScene => ({ ...blankScene("screen"), id: "x", ...o });
+  for (const mark of ["[VERIFY]", "[VERIFY: 3 horas]", "[verificar]", "[A VERIFICAR]"]) {
+    assert.equal(figureIssues([scene({ title: `Ahorra tiempo ${mark}` })], "").filter((i) => i.verify).length, 1, mark);
+  }
+  // A time on the hour and the bare hour are the same figure, both ways.
+  assert.equal(figureIssues([scene({ title: "Corte a las 18:00" })], "El proveedor corta a las 18").length, 0);
+  assert.equal(figureIssues([scene({ title: "Corte a las 18" })], "Horario de corte: 18:00").length, 0);
+  // Fields the template never draws are not on screen: no check.
+  assert.equal(figureIssues([scene({ template: "zoom", text: "99 pedidos", items: ["12"] })], "").length, 0);
+  assert.equal(figureIssues([scene({ template: "product", items: ["$19.990", "3 cuotas"] })], "").length, 1);
+});
+
+test("the strike follows the second statement when it is moved", () => {
+  const s: MotionScene = { ...blankScene("contradiction"), items: ["La planilla dice: alcanza", "La góndola está vacía"], seconds: 5, tweaks: { item1: { at: 3 } } };
+  const els = sceneElements(s);
+  assert.ok(els.find((e) => e.key === "strike")!.at >= 3);
+});

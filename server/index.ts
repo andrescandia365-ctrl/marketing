@@ -410,7 +410,8 @@ app.post("/api/voice", async (c) => {
       text: z.string().trim().min(1).max(1500),
       voice: z.string().max(40).default(""),
       language: z.enum(["es", "en"]),
-      emotion: z.string().max(120).default(""),
+      // A long direction is cut, never a reason to lose the voice.
+      emotion: z.string().default("").transform((e) => e.slice(0, 120)),
     })
     .parse(await c.req.json());
   const audio = await speak(text, voice, language, emotion);
