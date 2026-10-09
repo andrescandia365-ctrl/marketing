@@ -97,9 +97,13 @@ const outBackBig = (x: number) => {
   return 1 + 3.4 * (v - 1) ** 3 + 2.4 * (v - 1) ** 2;
 };
 // A damped spring that starts at 0, overshoots and settles on 1 by the end of the entrance (absurdist: livelier).
-const spring = (bounce: number) => (x: number) => {
-  const v = clamp01(x);
-  return v >= 1 ? 1 : 1 - Math.exp(-6 * v) * Math.cos(bounce * v);
+const spring = (bounce: number) => {
+  // What the decay leaves at the end is taken out evenly along the way, so the curve lands on 1 with no snap.
+  const tail = Math.exp(-6) * Math.cos(bounce);
+  return (x: number) => {
+    const v = clamp01(x);
+    return 1 - Math.exp(-6 * v) * Math.cos(bounce * v) + tail * v;
+  };
 };
 const outQuart = (x: number) => 1 - (1 - clamp01(x)) ** 4;
 const inOutSine = (x: number) => (1 - Math.cos(Math.PI * clamp01(x))) / 2;
@@ -113,11 +117,21 @@ export const landFor = (tone: MotionTone | undefined, motion: BrandMotion | unde
   return tone === "dry" ? outCubic : tone === "absurdist" ? outBackBig : outBack;
 };
 
-// Pictures breathe once they are in (soft: a slow drift; springy: a small breath and bob). Text never moves while it
-// is read, and nothing breathes for a firm or even brand. A pure function of t, seeded per element.
+// Templates whose main element holds words to read (a real screen, the typed field, the before/after labels, a logo
+// that may be a wordmark): it never breathes there.
+const STILL_MEDIA: readonly MotionTemplate[] = ["screen", "zoom", "type", "steps", "beforeAfter", "logo", "contradiction", "stat"];
+
+// Pictures breathe once they are in (soft: a slow drift; springy: a small breath and bob): a photo, the product, a
+// picture in a hook or under callouts, what a character holds. Text never moves while it is read, so nothing with
+// words in it breathes (real screens included), and nothing breathes for a firm or even brand. A pure function of t,
+// seeded per element.
 function idleLife(f: Frame, s: TimedScene, key: string): { dx: number; dy: number; k: number } {
+  const still = { dx: 0, dy: 0, k: 1 };
   const motion = f.world.brand.motion;
-  if ((motion !== "soft" && motion !== "springy") || (key !== "media" && key !== "prop")) return { dx: 0, dy: 0, k: 1 };
+  if ((motion !== "soft" && motion !== "springy") || (key !== "media" && key !== "prop")) return still;
+  if (key === "media" && STILL_MEDIA.includes(s.template)) return still;
+  const asset = f.world.assets[key === "prop" ? s.assetB : s.asset];
+  if (!asset || asset.screen) return still;
   const lt = f.t - s.start;
   const ease = clamp01((lt - (elementTimes(s)[key] ?? 0) - 0.6) / 0.8);
   if (ease <= 0) return { dx: 0, dy: 0, k: 1 };
@@ -1068,6 +1082,9 @@ export function drawMotionFrame(
       ctx.beginPath();
       ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
       ctx.clip();
+      // The circle is the new scene all the way to its edge, even where its scaled set does not reach yet.
+      ctx.fillStyle = world.brand.bg;
+      ctx.fillRect(0, 0, w, h);
       ctx.translate(a.x + (w / 2 - a.x) * q, a.y + (h / 2 - a.y) * q);
       ctx.scale(k, k);
       ctx.translate(-w / 2, -h / 2);

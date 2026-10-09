@@ -372,7 +372,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
 
   // The sound is rebuilt when anything it depends on changes: the timing, not where things sit on screen.
   const soundKey = JSON.stringify(
-    timeScenes(scenes).map((s) => [s.start, s.template, revealTimes(s), elementTimes(s).voice ?? null]),
+    timeScenes(scenes).map((s) => [s.start, s.template, s.entry ?? "cut", revealTimes(s), elementTimes(s).voice ?? null]),
   );
   // A change makes the loaded mix stale. While it plays, a new mix is built after a short pause in the edits and
   // carries on from the same second; stopped, the next ▶ builds it.
@@ -685,7 +685,15 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   }
 
   // ── Quality loop (the studio's rule: no full render before it) ──────────────────────────────────────────────
-  const qualityExtra = JSON.stringify([brand, piece.disclosure, piece.music, track?.file.name ?? "", Object.keys(voices).sort()]);
+  // A brand that did not choose how it moves hashes as before, so reviews saved before that choice existed still count.
+  const { motion: brandMotion, ...brandLook } = brand;
+  const qualityExtra = JSON.stringify([
+    brandMotion && brandMotion !== "even" ? brand : brandLook,
+    piece.disclosure,
+    piece.music,
+    track?.file.name ?? "",
+    Object.keys(voices).sort(),
+  ]);
   const keyNow = script ? qualityKey(scenes, script, qualityExtra) : "";
   const quality = piece.quality ?? null;
   const reviewed = (formats: SheetFormat[]) => Boolean(quality && quality.key === keyNow && formats.every((f) => quality.formats.includes(f)));

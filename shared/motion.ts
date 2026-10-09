@@ -89,8 +89,8 @@ const SceneWire = z.object({
     .string()
     .optional()
     .describe("beforeAfter only: 'wipe' (a divider slides across) or 'iris' (the after grows in a circle from focusX, focusY: the change spreads from one spot). Else empty."),
-  focusX: z.number().describe("zoom only: the feature's position across the image, 0 to 1."),
-  focusY: z.number().describe("zoom only: the feature's position down the image, 0 to 1."),
+  focusX: z.number().describe("zoom: the feature's position across the image, 0 to 1. beforeAfter with reveal 'iris': where the change starts, across, 0 to 1. Else 0.5."),
+  focusY: z.number().describe("zoom: the feature's position down the image, 0 to 1. beforeAfter with reveal 'iris': where the change starts, down, 0 to 1. Else 0.5."),
   zoom: z.number().describe("zoom only: how much to zoom in, 1.5 to 3."),
   voice: z.string().describe("The narrator's line for this scene, in the piece's language. May be empty."),
   emotion: z.string().describe("How the line is said, in Spanish."),

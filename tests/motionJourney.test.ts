@@ -17,7 +17,7 @@ import {
   type MotionScene,
 } from "../shared/motion.ts";
 import { BrandSchema, DEFAULT_BRAND } from "../shared/series.ts";
-import { anchorOf, landFor } from "../src/lib/motion.ts";
+import { anchorOf, drawMotionFrame, landFor } from "../src/lib/motion.ts";
 
 const scene = (o: Partial<MotionScene>): MotionScene => ({ ...blankScene("screen"), ...o });
 
@@ -107,4 +107,47 @@ test("older series read as an even brand", () => {
   assert.equal(motion, "even");
   assert.equal(BrandSchema.parse(old).motion, "even");
   assert.equal(BrandSchema.parse({ ...old, motion: "soft" }).motion, "soft");
+});
+
+// A stand-in 2D context: keeps the transform (translate, scale, rotate, save, restore) and records where every piece of
+// text lands; every other call does nothing.
+function recorder() {
+  type M = [number, number, number, number, number, number];
+  let m: M = [1, 0, 0, 1, 0, 0];
+  const stack: M[] = [];
+  const texts: string[] = [];
+  const mul = (b: M): M => [m[0] * b[0] + m[2] * b[1], m[1] * b[0] + m[3] * b[1], m[0] * b[2] + m[2] * b[3], m[1] * b[2] + m[3] * b[3], m[0] * b[4] + m[2] * b[5] + m[4], m[1] * b[4] + m[3] * b[5] + m[5]];
+  const own: Record<string, unknown> = {
+    save: () => stack.push([...m] as M),
+    restore: () => (m = stack.pop() ?? m),
+    translate: (x: number, y: number) => (m = mul([1, 0, 0, 1, x, y])),
+    scale: (x: number, y: number) => (m = mul([x, 0, 0, y, 0, 0])),
+    rotate: (a: number) => (m = mul([Math.cos(a), Math.sin(a), -Math.sin(a), Math.cos(a), 0, 0])),
+    fillText: (t: string, x: number, y: number) => texts.push(`${t}@${(m[0] * x + m[2] * y + m[4]).toFixed(1)},${(m[1] * x + m[3] * y + m[5]).toFixed(1)}`),
+    measureText: (t: string) => ({ width: t.length * 20 }),
+  };
+  const ctx = new Proxy(own, { get: (o, k: string) => (k in o ? o[k] : () => undefined), set: () => true }) as unknown as CanvasRenderingContext2D;
+  return { ctx, texts };
+}
+
+test("with a springy or soft brand, text never moves while it is read", () => {
+  const picture = { image: {} as CanvasImageSource, width: 400, height: 400, name: "p" };
+  const scenes: MotionScene[] = [
+    { ...blankScene("type"), id: "t", seconds: 6, title: "yerba 1 kg", text: "Quedan 3", items: ["Buscar producto", "Buscar"] },
+    { ...blankScene("beforeAfter"), id: "b", seconds: 6, title: "Antes y después", items: ["A ojo", "Con IMAN"], asset: "p", assetB: "p", reveal: "iris" },
+    { ...blankScene("logo"), id: "l", seconds: 6, title: "IMAN", text: "El pedido, antes del corte" },
+    { ...blankScene("product"), id: "p", seconds: 6, title: "Leche", items: ["Quedan 3"], asset: "p" },
+  ];
+  for (const motion of ["springy", "soft"] as const) {
+    for (const sc of scenes) {
+      const script = { problem: "", title: "", durationNote: "", note: "", scenes: [sc], music: { mood: "drive" as const, bpm: 110 }, tone: "warm" as const };
+      const world = { brand: { ...DEFAULT_BRAND, motion }, assets: { p: picture }, logo: null, beats: [], seed: 7, disclosure: "" };
+      const at = (t: number) => {
+        const r = recorder();
+        drawMotionFrame(r.ctx, 1080, 1920, t, script, world);
+        return r.texts;
+      };
+      assert.deepEqual(at(4), at(5.3), `${motion} ${sc.template}`);
+    }
+  }
 });

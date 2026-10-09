@@ -506,6 +506,12 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   - **Un personaje fijo por serie para los explicativos,** simple y siempre igual, que vuelve en cada pieza (los títeres ya existen).
   - **La letra que actúa el canto** (una nota larga estira su palabra, un grito la sacude) y **música visual desde el kick**, de la charla del 9 Oct.
 - **Lo que no:** su estética (el pájaro, la paleta, el brillo, las estrellas y partículas), su nombre o su logo en una pieza, su narrador; y "Pasar a través" en cada corte: cansa, va una o dos veces.
+- **Revisión del código (9 Oct 2026):** se arreglaron los errores confirmados:
+  - Con la marca Suave o Elástica respiraba también texto que está dentro de una imagen: el campo que se tipea, los nombres del antes / después, un logo hecho de letras y las pantallas reales. Ahora solo respiran las fotos y los productos (una prueba lo vigila).
+  - En la mitad del viaje se veían franjas de la escena anterior dentro del círculo: ahora el círculo es la escena nueva hasta el borde.
+  - Cambiar la "Entrada" no rehacía el sonido de la vista previa.
+  - La curva elástica daba un saltito al terminar.
+  - El dato nuevo de la marca invalidaba las revisiones de la IA ya guardadas: una marca que no eligió cómo moverse cuenta igual que antes.
 
 ### 62. Lo que sirve de 20 repos de motion design (9 Oct 2026) — **Construido 1 a 12 (9 Oct 2026, "Go")**
 - **Qué son:** skills para agentes (Claude Code y otros) que hacen videos de motion graphics, los motores que usan y guías de criterio. Los mandaste diciendo que están hechos para Opus 5.5: la app ya escribe con `claude-opus-5-5` por defecto, así que no hizo falta cambiar el modelo. Se leyeron los 20 clonados, sin correr nada de ellos.
