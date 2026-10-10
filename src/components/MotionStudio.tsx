@@ -81,6 +81,7 @@ import {
   makeWorld,
   motionBeats,
   motionSound,
+  pieceSubtitles,
   posterJpeg,
   speechLevels,
   usesAiImages,
@@ -88,6 +89,7 @@ import {
   trackKicks,
 } from "../lib/motionProject.ts";
 import type { RenderResult } from "../lib/render.ts";
+import { alignWordTimes, subtitleWords, toSrt, wordByWordOn, wordTimesFresh, type HeardWordTimes } from "../../shared/subtitles.ts";
 import { CopyButton } from "./ScriptView.tsx";
 import { NarrationImport } from "./NarrationImport.tsx";
 import { Recorder, audioDuration, type AudioFile } from "./Audio.tsx";
@@ -168,7 +170,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const soundSeq = useRef(0);
   const [soundInfo, setSoundInfo] = useState("");
   const [progress, setProgress] = useState<number | null>(null);
-  const [results, setResults] = useState<(RenderResult & { url: string; format: string; saved: string })[]>([]);
+  const [results, setResults] = useState<(RenderResult & { url: string; format: "vertical" | "horizontal"; saved: string; srt: string })[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const urls = useRef<string[]>([]);
   // The preview's time when the sound is not playing.
@@ -349,10 +351,46 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const usesAi = usesAiImages(scenes, series);
   // "Desenfoque en los cortes": the preview, the contact sheet, the poster and every render read it from the world.
   const cutBlur = cutBlurOn(piece);
+  // The subtitles (word by word unless turned off): the preview, the contact sheet, the renders and the .srt read them.
+  const subtitles = useMemo(() => pieceSubtitles(scenes, piece, voices), [scenes, piece.voice, piece.wordByWord, piece.wordTimes, voices]);
   const world: MotionWorld = useMemo(
-    () => makeWorld(brand, assets, logo, beats, piece.disclosure && usesAi, { puppets, actors, speech, cutBlur }),
-    [brand, assets, logo, beats, piece.disclosure, usesAi, puppets, actors, speech, cutBlur],
+    () => makeWorld(brand, assets, logo, beats, piece.disclosure && usesAi, { puppets, actors, speech, cutBlur, subtitles }),
+    [brand, assets, logo, beats, piece.disclosure, usesAi, puppets, actors, speech, cutBlur, subtitles],
   );
+
+  // Word times for the subtitles: each scene's voice file is heard once (whisper-1) and its words aligned to the line;
+  // a new line or a new file is heard again. Without the OpenAI key, or when it fails, the times stay estimated.
+  const hearing = useRef(new Set<string>());
+  const [heardNote, setHeardNote] = useState("");
+  useEffect(() => {
+    if (!autoSync || !script || piece.voice === "none") return;
+    const todo = script.scenes.filter((s) => {
+      const v = voices[s.id];
+      return v && s.voice.trim() && !wordTimesFresh(piece.wordTimes?.[s.id], s.voice, v.duration) && !hearing.current.has(`${s.id}|${s.voice.trim()}|${v.duration}`);
+    });
+    if (!todo.length) return;
+    for (const s of todo) hearing.current.add(`${s.id}|${s.voice.trim()}|${voices[s.id].duration}`);
+    (async () => {
+      for (const s of todo) {
+        const v = voices[s.id];
+        const text = s.voice.trim();
+        try {
+          const heard = await api.voiceWords(v.blob, v.name, text, brief.language);
+          const aligned = alignWordTimes(subtitleWords(text), heard.words, v.duration);
+          if (!aligned) continue;
+          const entry: HeardWordTimes = { text, seconds: v.duration, times: aligned.times, matched: aligned.matched };
+          setPiece((p) => ({ ...p, wordTimes: { ...p.wordTimes, [s.id]: entry } }));
+        } catch (e) {
+          setHeardNote(`No se pudieron escuchar las palabras de una voz (${message(e)}): sus subtítulos siguen con tiempos estimados.`);
+        }
+      }
+    })();
+    // The voices and the lines decide it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSync, voices, script?.scenes, piece.voice]);
+  const voiced = scenes.filter((s) => s.voice.trim());
+  const heardCount = voiced.filter((s) => piece.voice !== "none" && wordTimesFresh(piece.wordTimes?.[s.id], s.voice, voices[s.id]?.duration)).length;
+  const srtName = (format: "vertical" | "horizontal") => `${slug(script?.title ?? "") || "explicativo"}-${format === "vertical" ? "9x16" : "16x9"}.srt`;
 
   // How long each scene slides in over the one before (the tone's cut); the checks wait for it.
   const push = cutPush(script?.tone);
@@ -789,7 +827,13 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         const roundBeats = motionBeats(working, piece.music, piece.kickGrid);
         const roundScenes = arrangeScenes(working, roundBeats, snap, piece.music, piece.kickGrid);
         const played = { ...working, scenes: roundScenes };
-        const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), { puppets, actors, speech, cutBlur });
+        const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), {
+          puppets,
+          actors,
+          speech,
+          cutBlur,
+          subtitles: pieceSubtitles(roundScenes, piece, voices),
+        });
         const made = formats.map((format) => ({ format, ...contactSheet(played, roundWorld, format) }));
         const blobs = await Promise.all(made.map((m) => new Promise<Blob | null>((done) => m.canvas.toBlob(done, "image/jpeg", 0.85))));
         setSheets(made.map((m, k) => ({ format: m.format, url: blobs[k] ? objectUrl(blobs[k]!) : "" })));
@@ -804,6 +848,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           made.flatMap((m) => m.overlaps),
           roundWorld.brand,
           roundWorld.cutBlur === true,
+          { wordByWord: wordByWordOn(piece), heard: heardCount, voiced: voiced.length },
         );
         setReviewing(`Ronda ${round} de ${MAX_ROUNDS}: la IA mira los cuadros…`);
         const { review, demo } = await api.motionReview(
@@ -890,7 +935,13 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   function playable(next: MotionScript) {
     const b = motionBeats(next, piece.music, piece.kickGrid);
     const sc = arrangeScenes(next, b, snap, piece.music, piece.kickGrid);
-    return { played: { ...next, scenes: sc }, beats: b, world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series), { puppets, actors, speech, cutBlur }) };
+    const subs = pieceSubtitles(sc, piece, voices);
+    return {
+      played: { ...next, scenes: sc },
+      beats: b,
+      subtitles: subs,
+      world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series), { puppets, actors, speech, cutBlur, subtitles: subs }),
+    };
   }
 
   async function finalRender(formats: SheetFormat[]) {
@@ -919,7 +970,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   async function render(formats: ("vertical" | "horizontal")[]) {
     const ok = await ensureReviewed(formats);
     if (!ok) return;
-    const { played, beats: playedBeats, world: playedWorld } = playable(ok.script);
+    const { played, beats: playedBeats, world: playedWorld, subtitles: playedSubs } = playable(ok.script);
     const cover = posterTime(played.scenes, ok.poster !== undefined ? ok.poster : piece.poster, cutPush(played.tone));
     setError("");
     setBusy("render");
@@ -941,11 +992,14 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         });
         let saved = "";
         if (projectId) {
-          saved = `${projectsDir}/${projectId}/${(await api.saveVideo(projectId, out.blob, format)).file}`;
+          const file = (await api.saveVideo(projectId, out.blob, format)).file;
+          saved = `${projectsDir}/${projectId}/${file}`;
+          // The subtitles next to it, with its base name and the same cues.
+          await api.saveSubtitles(projectId, file, toSrt(playedSubs)).catch(() => undefined);
           const poster = await posterJpeg(w, h, cover, played, playedWorld);
           if (poster) await api.uploadMedia(projectId, POSTER_BASE + (format === "vertical" ? 0 : 1), "image", poster).catch(() => undefined);
         }
-        setResults((r) => [...r, { ...out, url: objectUrl(out.blob), format, saved }]);
+        setResults((r) => [...r, { ...out, url: objectUrl(out.blob), format, saved, srt: toSrt(playedSubs) }]);
       }
     } catch (e) {
       setError(message(e));
@@ -1120,6 +1174,19 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                 >
                   <input type="checkbox" checked={cutBlur} disabled={!pushes} onChange={(e) => set({ cutBlur: e.target.checked })} />
                   Desenfoque en los cortes
+                </label>
+                <label
+                  className="flex items-center gap-1.5"
+                  title={
+                    !voiced.length
+                      ? "Ninguna escena tiene voz: no hay subtítulos."
+                      : heardCount
+                        ? `La palabra que se dice se marca en el subtítulo. ${heardCount} de ${voiced.length} escenas con los tiempos escuchados en su voz; el resto, estimados.`
+                        : `La palabra que se dice se marca en el subtítulo. Tiempos estimados por el largo de la voz${autoSync ? "" : " (con OPENAI_API_KEY se escuchan en la voz)"}.`
+                  }
+                >
+                  <input type="checkbox" checked={wordByWordOn(piece)} onChange={(e) => set({ wordByWord: e.target.checked })} />
+                  Palabra por palabra
                 </label>
                 {vertical && (
                   <label
@@ -1521,6 +1588,17 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               </Button>
             </div>
             <p className="text-xs text-muted">Generar arma el video en el navegador. El render final lo hace ffmpeg en tu compu: H.264, CRF 16, la mejor calidad.</p>
+            {subtitles.length > 0 && (
+              <div className="space-y-1">
+                <Button variant="secondary" className="w-full" onClick={() => download(new Blob([toSrt(subtitles)], { type: "application/x-subrip" }), srtName(piece.format))}>
+                  Descargar subtítulos .srt
+                </Button>
+                <p className="text-xs text-muted">
+                  Los mismos tiempos que el video{voiced.length ? ` · ${heardCount ? `${heardCount} de ${voiced.length} escenas con las palabras escuchadas en la voz` : "tiempos estimados por el largo de la voz"}` : ""}.
+                </p>
+                {heardNote && <p className="text-xs text-muted">{heardNote}</p>}
+              </div>
+            )}
             <div className="flex gap-2">
               <Button
                 variant="secondary"
@@ -1579,6 +1657,11 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                       <p className="text-good">
                         Render final (H.264, CRF 16): {projectsDir}/{finalJob.project}/{file}
                       </p>
+                      {finalJob.subtitles?.includes(file.replace(/\.mp4$/, ".srt")) && (
+                        <a className="text-accent underline" href={projectFileUrl(finalJob.project, file.replace(/\.mp4$/, ".srt"))} download>
+                          Subtítulos: {file.replace(/\.mp4$/, ".srt")}
+                        </a>
+                      )}
                     </div>
                   ))
                 )}
@@ -1595,7 +1678,12 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                 <Button variant="secondary" className="w-full" onClick={() => download(r.blob, `${slug(script.title) || "explicativo"}-${r.format === "vertical" ? "9x16" : "16x9"}.${r.extension}`)}>
                   Descargar {r.format === "vertical" ? "9:16" : "16:9"} .{r.extension}
                 </Button>
-                {r.saved && <p className="text-xs text-good">Guardado en el proyecto: {r.saved}</p>}
+                {r.srt && (
+                  <Button variant="secondary" className="w-full" onClick={() => download(new Blob([r.srt], { type: "application/x-subrip" }), srtName(r.format))}>
+                    Descargar subtítulos .srt
+                  </Button>
+                )}
+                {r.saved && <p className="text-xs text-good">Guardado en el proyecto: {r.saved}{r.srt ? " (con su .srt al lado)" : ""}</p>}
                 {r.notes.map((n) => (
                   <p key={n} className="text-xs text-muted">
                     {n}

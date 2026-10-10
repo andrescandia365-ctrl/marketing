@@ -59,6 +59,7 @@ const TYPES: Record<string, string> = {
   weba: "audio/webm",
   md: "text/markdown; charset=utf-8",
   json: "application/json",
+  srt: "application/x-subrip; charset=utf-8",
 };
 
 const AUDIO_TYPES: Record<string, string> = {
@@ -296,6 +297,21 @@ export function saveVideo(id: string, data: Buffer, type: string, variant?: "ver
     else project.video = file;
     project.updatedAt = new Date().toISOString();
     await write(project);
+    return file;
+  });
+}
+
+// An explainer's subtitles (.srt) next to the video the browser rendered, with its base name (video-vertical.srt).
+// Empty text removes the file: a video with no voice has no subtitles.
+export function saveSubtitles(id: string, video: string, text: string) {
+  const m = /^(video(?:-vertical|-horizontal)?)\.(?:mp4|webm|mov)$/.exec(video);
+  if (!m) throw new ProjectError("Ese video no existe.");
+  if (text.length > 1_000_000) throw new ProjectError("Los subtítulos son demasiado largos.");
+  const file = `${m[1]}.srt`;
+  return locked(id, async () => {
+    await read(id);
+    if (text.trim()) await writeFile(join(folder(id), file), text);
+    else await rm(join(folder(id), file), { force: true });
     return file;
   });
 }

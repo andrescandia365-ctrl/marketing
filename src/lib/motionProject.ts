@@ -8,6 +8,7 @@ import type { Brand } from "../../shared/series.ts";
 import { libraryFileUrl, projectFileUrl, type MediaFileRecord, type MediaRecord } from "./api.ts";
 import { buildPuppet, singlePuppet, type PuppetAsset } from "./puppet.ts";
 import type { ActorAsset } from "./actor.ts";
+import { subtitleCues, wordByWordOn, type SubtitleCue } from "../../shared/subtitles.ts";
 import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "./motion.ts";
 import { buildSound, type HitKind, type SoundPlan } from "./motionAudio.ts";
 
@@ -204,9 +205,17 @@ export function makeWorld(
   logo: MotionAsset | null,
   beats: number[],
   notice: boolean,
-  extra: Pick<MotionWorld, "puppets" | "speech" | "actors" | "cutBlur"> = {},
+  extra: Pick<MotionWorld, "puppets" | "speech" | "actors" | "cutBlur" | "subtitles"> = {},
 ): MotionWorld {
   return { brand, assets, logo, beats, seed: MOTION_SEED, disclosure: notice ? AI_NOTICE : "", ...extra };
+}
+
+// The subtitle cues of the scenes as they play (arrangeScenes): word by word unless the person turned it off, with the
+// heard word times when they still fit the line and the file, else estimated from each voice file's length (none when
+// the piece has no voice). The preview, the contact sheet, the render page and the .srt files all read these.
+export function pieceSubtitles(scenes: MotionScene[], piece: MotionPiece, voices: Record<string, { duration: number }>): SubtitleCue[] {
+  const voiceSeconds = piece.voice === "none" ? {} : Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.duration]));
+  return subtitleCues(timeScenes(scenes), { karaoke: wordByWordOn(piece), voiceSeconds, heard: piece.wordTimes });
 }
 
 // The bundled public-domain effects (public/sfx, CC0; see CREDITOS.md there), loaded once.

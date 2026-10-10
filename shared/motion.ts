@@ -1,6 +1,7 @@
 // Motion-graphics explainers: a script of scenes, each drawn from a template. The renderer (src/lib/motion.ts) is a
 // pure function of time; this file holds the shapes, the normalizer and the timing both sides share, including the
 // rule that something new happens on screen every 2 to 4 seconds.
+import type { HeardWordTimes } from "./subtitles.ts";
 import { z } from "zod";
 import type { QualityState } from "./motionQuality.ts";
 
@@ -995,6 +996,12 @@ export type MotionPiece = {
   // "Desenfoque en los cortes": motion blur during the push between scenes (blurSamples). On by default; a piece
   // saved before it existed has none and counts as on (cutBlurOn).
   cutBlur?: boolean;
+  // "Palabra por palabra": the subtitle lights the word being said (subtitleCues). On by default; a piece saved before
+  // it existed has none and counts as on (wordByWordOn).
+  wordByWord?: boolean;
+  // Word times heard in each scene's voice file (whisper-1, aligned to the written words), by scene id. Without them,
+  // or once the line or the file changed, the times are estimated (sceneWordTimes).
+  wordTimes?: Record<string, HeardWordTimes>;
 };
 
 export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {
@@ -1017,6 +1024,7 @@ export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {
     figuresOk: [],
     conceptsOk: [],
     cutBlur: true,
+    wordByWord: true,
   };
 }
 

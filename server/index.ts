@@ -94,6 +94,7 @@ import {
   saveMusic,
   saveState,
   saveVideo,
+  saveSubtitles,
 } from "./projects.ts";
 import { DEFAULT_VOICE, VoiceError, speak, voiceAvailable } from "./voice.ts";
 import {
@@ -812,6 +813,18 @@ app.post("/api/lyrics/sync", async (c) => {
   return c.json({ lines: alignLyrics(lines, seconds, heard.words, heard.duration, share), heard: heard.words.length, ...share });
 });
 
+// An explainer scene's voice file (multipart "audio"), heard with word times for its subtitles; the line ("text")
+// helps it spell. The studio aligns the words to the written line (shared/subtitles.ts alignWordTimes).
+app.post("/api/voice/words", async (c) => {
+  const form = await c.req.formData();
+  const audio = form.get("audio");
+  if (!(audio instanceof Blob)) throw new LyricsError("Falta la voz.");
+  const text = z.string().max(2000).parse(String(form.get("text") ?? ""));
+  const language = z.enum(LYRIC_LANGUAGES).parse(form.get("language") ?? "auto");
+  const heard = await hearSong(audio, audio instanceof File ? audio.name : "voz.mp3", language, text, "voice");
+  return c.json({ words: heard.words, duration: heard.duration });
+});
+
 const LyricRequest = z.object({ series: z.string(), title: z.string().default(""), artist: z.string().default(""), lines: z.array(z.string()).min(1).max(400) });
 
 app.post("/api/lyrics/ideas", async (c) => {
@@ -904,6 +917,12 @@ app.put("/api/projects/:id/video", async (c) => {
   const data = Buffer.from(await c.req.arrayBuffer());
   const variant = z.enum(["vertical", "horizontal"]).optional().parse(c.req.query("variant") || undefined);
   const file = await saveVideo(c.req.param("id"), data, c.req.header("content-type") ?? "", variant);
+  return c.json({ file });
+});
+
+app.put("/api/projects/:id/subtitles", async (c) => {
+  const video = z.string().max(80).parse(c.req.query("video") ?? "");
+  const file = await saveSubtitles(c.req.param("id"), video, await c.req.text());
   return c.json({ file });
 });
 

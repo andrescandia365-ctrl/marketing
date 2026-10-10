@@ -39,7 +39,7 @@ export type ProjectSummary = {
   hasVideo: boolean;
 };
 // The final render (render.mjs + ffmpeg) as the server reports it.
-export type FinalJob = { id: string; project: string; formats: string[]; current: string; progress: number; done: boolean; error: string; files: string[] };
+export type FinalJob = { id: string; project: string; formats: string[]; current: string; progress: number; done: boolean; error: string; files: string[]; subtitles?: string[] };
 export type MediaFileRecord = { file: string; name: string; duration: number };
 export type MediaRecord = { image?: string; clip?: MediaFileRecord; voice?: MediaFileRecord; sfx?: MediaFileRecord };
 export type MediaKind = "image" | "clip" | "voice" | "sfx";
@@ -356,4 +356,18 @@ export const api = {
   ) => call<ImageReview & Demo>("/api/review", { brief, shot, setups, picture, refs }),
   saveVideo: (id: string, video: Blob, variant?: "vertical" | "horizontal") =>
     upload<{ file: string }>(`/api/projects/${enc(id)}/video${variant ? `?variant=${variant}` : ""}`, video, video.type),
+  // The .srt next to a video the browser rendered (same base name); empty text removes it.
+  saveSubtitles: (id: string, video: string, srt: string) =>
+    upload<{ file: string }>(`/api/projects/${enc(id)}/subtitles?video=${encodeURIComponent(video)}`, new Blob([srt], { type: "text/plain" }), "text/plain"),
+  // An explainer scene's voice heard with word times (whisper-1), for its subtitles.
+  voiceWords: async (voice: Blob, name: string, text: string, language: LyricLanguage) => {
+    const form = new FormData();
+    form.append("audio", voice, name);
+    form.append("text", text);
+    form.append("language", language);
+    const res = await fetch("/api/voice/words", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    return data as { words: { word: string; start: number; end: number }[]; duration: number };
+  },
 };

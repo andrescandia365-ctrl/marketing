@@ -12,6 +12,7 @@ const DRAWING = [
   "src/lib/plateDraw.ts",
   "src/lib/sketch.ts",
   "shared/syncDraw.ts",
+  "shared/subtitles.ts",
 ];
 const FORBIDDEN = /\bMath\.random\b|\bDate\.now\b|\bnew Date\(|\bperformance\.now\b|\bsetTimeout\b|\bsetInterval\b|\brequestAnimationFrame\b/;
 

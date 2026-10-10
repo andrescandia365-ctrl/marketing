@@ -27,6 +27,7 @@ import {
 } from "../../shared/motion.ts";
 import { BUTTONS_FROM, PHONE_SAFE, isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import { stepDownColour, type Brand, type BrandMotion } from "../../shared/series.ts";
+import { cueAt, litWord, type SubtitleCue } from "../../shared/subtitles.ts";
 
 // screen: a real screenshot of the app (shown inside a phone or laptop).
 export type MotionAsset = { image: CanvasImageSource; width: number; height: number; name: string; screen?: boolean };
@@ -47,6 +48,8 @@ export type MotionWorld = {
   speech?: { rate: number; data: Float32Array; scenes: string[] };
   // Motion blur during the push between scenes (the piece's "Desenfoque en los cortes", blurSamples). Absent: none.
   cutBlur?: boolean;
+  // The subtitle cues (pieceSubtitles): word by word, or each scene's whole line. Absent: each scene's whole line.
+  subtitles?: SubtitleCue[];
 };
 
 // How open a character's mouth is at piece time t in scene s (scene time lt).
@@ -381,6 +384,59 @@ function subtitle(f: Frame, text: string) {
   ctx.restore();
 }
 
+// The cue's text at frame t. Word by word, the chunk stays put while it is read and only the colours change: the
+// word being said in the full text colour with a short accent bar under it, the others dimmer; before the first word
+// all are dim, and once the last is said all are full. Words keep their places (each line laid out once, left to
+// right from its centred start), so nothing moves while it is read.
+function subtitleCue(f: Frame, cue: SubtitleCue) {
+  const text = cue.words.map((w) => w.text).join(" ");
+  if (!cue.karaoke) return subtitle(f, text);
+  const { ctx, t, world } = f;
+  const { size, cx, lines, y0 } = overlayLayout(f, text);
+  const lit = litWord(cue, t);
+  const after = lit < 0 && t >= (cue.words[0]?.start ?? 0);
+  ctx.save();
+  ctx.font = ui(f, size, 600);
+  ctx.textAlign = "left";
+  ctx.shadowColor = "rgba(0,0,0,0.55)";
+  ctx.shadowBlur = size * 0.35;
+  const space = ctx.measureText(" ").width;
+  let k = 0;
+  lines.forEach((line, row) => {
+    const y = y0 + (row + 1) * size * 1.25;
+    let x = cx - ctx.measureText(line).width / 2;
+    for (const word of line.split(" ")) {
+      const wide = ctx.measureText(word).width;
+      const on = after || k === lit;
+      ctx.fillStyle = on ? world.brand.text : hexA(world.brand.text, 0.55);
+      ctx.fillText(word, x, y);
+      if (k === lit) {
+        ctx.save();
+        ctx.shadowColor = "transparent";
+        ctx.fillStyle = world.brand.accent;
+        ctx.fillRect(x, y + size * 0.22, wide, Math.max(2, size * 0.07));
+        ctx.restore();
+      }
+      x += wide + space;
+      k++;
+    }
+  });
+  ctx.restore();
+}
+
+// The subtitle on screen at frame t: the piece's cue for the scene on screen, or its whole line when the world has no cues.
+function subtitleAt(f: Frame, scene: TimedScene) {
+  if (!f.world.subtitles) return subtitle(f, scene.voice);
+  const cue = cueAt(f.world.subtitles, scene.id, f.t);
+  if (cue) subtitleCue(f, cue);
+}
+
+// The text of the subtitle on screen at t (empty when silent).
+function subtitleText(world: MotionWorld, scene: TimedScene, t: number): string {
+  if (!world.subtitles) return scene.voice;
+  return cueAt(world.subtitles, scene.id, t)?.words.map((w) => w.text).join(" ") ?? "";
+}
+
 function footer(f: Frame) {
   if (!f.world.disclosure) return;
   const { ctx, unit } = f;
@@ -446,7 +502,7 @@ export function disclosureBox(ctx: CanvasRenderingContext2D, w: number, h: numbe
 export function subtitleBox(ctx: CanvasRenderingContext2D, w: number, h: number, t: number, script: MotionScript, world: MotionWorld): Box | null {
   const scenes = timeScenes(script.scenes);
   if (!scenes.length) return null;
-  const voice = scenes[sceneAt(scenes, t)].voice;
+  const voice = subtitleText(world, scenes[sceneAt(scenes, t)], t);
   if (!voice.trim()) return null;
   ctx.save();
   const { box } = overlayLayout({ ctx, w, h, unit: Math.min(w, h), world }, voice);
@@ -1172,7 +1228,7 @@ export function drawMotionFrame(
       ctx.restore();
     });
   } else drawPicture(f, scenes, push);
-  subtitle(f, scenes[sceneAt(scenes, t)].voice);
+  subtitleAt(f, scenes[sceneAt(scenes, t)]);
   footer(f);
   disclosureLabel(f, scenes, push);
 }

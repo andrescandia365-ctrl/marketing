@@ -159,6 +159,8 @@ export function measureFacts(
   brand?: Brand,
   // The piece's "Desenfoque en los cortes" (world.cutBlur): the sheet's cut frames are motion blurred.
   cutBlur = false,
+  // "Palabra por palabra": how the subtitles look, and in how many voiced scenes the word times were heard.
+  subtitles?: { wordByWord: boolean; heard: number; voiced: number },
 ): string {
   const timed = timeScenes(script.scenes);
   const total = scriptDuration(script);
@@ -180,6 +182,12 @@ export function measureFacts(
   if (cutBlur && pushWindows(script.scenes, push).length)
     lines.push(
       `Motion blur on the cuts: during each push between scenes a frame is the average of ${BLUR_SUBFRAMES} moments over the ${Math.round(BLUR_SHUTTER * 1000)} ms before it (a 180° shutter at 30 fps), so on the frames marked "corte" whatever moves is smeared along its path, on purpose. Outside the pushes every frame is sharp. The smear is not a fault; two busy layouts muddled together still is.`,
+    );
+  if (subtitles && subtitles.voiced)
+    lines.push(
+      subtitles.wordByWord
+        ? `Subtitles: word by word, on purpose. The line (or its chunk of at most two lines) stays still while the word being said is in the full text colour with a short accent bar under it and the other words are dimmer; word times ${subtitles.heard ? `heard in the voice for ${subtitles.heard} of ${subtitles.voiced} scenes, the rest estimated` : "estimated from each voice's length"}. Dim words are not a fault.`
+        : "Subtitles: each scene's whole line, all through its scene.",
     );
   const gaps = quietGaps(script.scenes, push);
   lines.push(`Still stretches over 4 s: ${gaps.length ? gaps.map((g) => `${g.from.toFixed(1)}–${g.to.toFixed(1)} s`).join(", ") : "none"}.`);

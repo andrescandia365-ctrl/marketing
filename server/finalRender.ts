@@ -27,6 +27,8 @@ export type FinalJob = {
   done: boolean;
   error: string;
   files: string[];
+  // The .srt written next to each video (video-final-vertical.srt), when the piece has subtitles.
+  subtitles?: string[];
 };
 
 const jobs = new Map<string, FinalJob>();
@@ -35,7 +37,7 @@ export function startFinal(project: string, formats: ("vertical" | "horizontal")
   if (!ffmpegAvailable()) throw new RenderError("Para el render final hace falta ffmpeg. En la Mac: brew install ffmpeg (o volvé a correr bash iniciar.sh).");
   if (!LOCAL.test(origin)) throw new RenderError("El render final solo corre desde la app en esta compu.");
   if ([...jobs.values()].some((j) => j.project === project && !j.done)) throw new RenderError("Ya hay un render final andando para esta pieza.");
-  const job: FinalJob = { id: randomUUID(), project, formats, current: formats[0], progress: 0, done: false, error: "", files: [] };
+  const job: FinalJob = { id: randomUUID(), project, formats, current: formats[0], progress: 0, done: false, error: "", files: [], subtitles: [] };
   jobs.set(job.id, job);
   const child = spawn(process.execPath, [SCRIPT, project, formats.length > 1 ? "ambos" : formats[0], "--url", origin], {
     env: { ...process.env, PROJECTS_DIR },
@@ -52,6 +54,7 @@ export function startFinal(project: string, formats: ("vertical" | "horizontal")
         job.current = a;
         job.progress = Math.min(1, Number(b) || 0);
       } else if (word === "listo" && a) job.files.push(a);
+      else if (word === "subtitulos" && a) job.subtitles = [...(job.subtitles ?? []), a];
     }
   });
   child.stderr.on("data", (chunk: Buffer) => {
