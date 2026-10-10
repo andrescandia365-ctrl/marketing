@@ -135,6 +135,19 @@ export function alignWordTimes(written: string[], heard: HeardWord[], seconds = 
   return { times: times as WordSpan[], matched };
 }
 
+// A heard answer goes in only while it still belongs to the scene's current line and voice file: an older voice's
+// late answer must not overwrite the new one's times. Returns the same map when it does not apply.
+export function keepHeard(
+  wordTimes: Record<string, HeardWordTimes>,
+  sceneId: string,
+  entry: HeardWordTimes,
+  voice: string | undefined,
+  seconds: number | undefined,
+): Record<string, HeardWordTimes> {
+  if (voice === undefined || !wordTimesFresh(entry, voice, seconds)) return wordTimes;
+  return { ...wordTimes, [sceneId]: entry };
+}
+
 // The heard times still belong to this line and this voice file.
 export function wordTimesFresh(stored: HeardWordTimes | undefined, voice: string, seconds: number | undefined): stored is HeardWordTimes {
   return Boolean(

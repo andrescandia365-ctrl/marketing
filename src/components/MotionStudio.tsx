@@ -61,7 +61,7 @@ import { explainerHost } from "../../shared/series.ts";
 import { WORLD_PLACES, WORLD_PLACE_LABEL } from "../../shared/world.ts";
 import { generatedVoice, noteSummary } from "../../shared/motionNote.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
-import { applyFixes, describeScenes, MAX_ROUNDS, passes, qualityKey, type QualityRound, type QualityState } from "../../shared/motionQuality.ts";
+import { applyFixes, conceptsBlockRender, describeScenes, MAX_ROUNDS, passes, qualityKey, type QualityRound, type QualityState } from "../../shared/motionQuality.ts";
 import { api, projectFileUrl, type FinalJob, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
 import { encodeFrames } from "../lib/encode.ts";
 import { ensureFont } from "../lib/fonts.ts";
@@ -92,9 +92,10 @@ import {
   usesAiImages,
   monoPcm,
   trackKicks,
+  nextVoiceSlot,
 } from "../lib/motionProject.ts";
 import type { RenderResult } from "../lib/render.ts";
-import { alignWordTimes, subtitleWords, toSrt, wordByWordOn, wordTimesFresh, type HeardWordTimes } from "../../shared/subtitles.ts";
+import { alignWordTimes, keepHeard, subtitleWords, toSrt, wordByWordOn, wordTimesFresh, type HeardWordTimes } from "../../shared/subtitles.ts";
 import { CopyButton } from "./ScriptView.tsx";
 import { NarrationImport } from "./NarrationImport.tsx";
 import { Recorder, audioDuration, type AudioFile } from "./Audio.tsx";
@@ -155,6 +156,9 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         { ...newMotionPiece(brief.format), ...(brief.narrator === "without" && { voice: "none" as const }) },
   );
   const [voices, setVoices] = useState<Record<string, AudioFile>>({});
+  // The newest voices, for answers that arrive after the voice changed.
+  const voicesRef = useRef(voices);
+  voicesRef.current = voices;
   const [layers, setLayers] = useState<HTMLImageElement[]>([]);
   const [track, setTrack] = useState<{ file: AudioFile; buffer: AudioBuffer } | null>(null);
   // "Storyboard": open or closed (closed by default, so its code loads only when asked for).
@@ -384,13 +388,26 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       for (const s of todo) {
         const v = voices[s.id];
         const text = s.voice.trim();
+        const key = `${s.id}|${text}|${v.duration}`;
         try {
           const heard = await api.voiceWords(v.blob, v.name, text, brief.language);
           const aligned = alignWordTimes(subtitleWords(text), heard.words, v.duration);
-          if (!aligned) continue;
+          if (!aligned) {
+            hearing.current.delete(key);
+            continue;
+          }
           const entry: HeardWordTimes = { text, seconds: v.duration, times: aligned.times, matched: aligned.matched };
-          setPiece((p) => ({ ...p, wordTimes: { ...p.wordTimes, [s.id]: entry } }));
+          // Only while it is still this scene's line and voice file: an older voice's late answer is dropped (and
+          // that voice may be heard again if it comes back).
+          const current = voicesRef.current[s.id];
+          if (current !== v) hearing.current.delete(key);
+          setPiece((p) => {
+            const now = p.script?.scenes.find((x) => x.id === s.id)?.voice;
+            const next = current === v ? keepHeard(p.wordTimes ?? {}, s.id, entry, now, current.duration) : p.wordTimes;
+            return next === p.wordTimes ? p : { ...p, wordTimes: next };
+          });
         } catch (e) {
+          hearing.current.delete(key);
           setHeardNote(`No se pudieron escuchar las palabras de una voz (${message(e)}): sus subtítulos siguen con tiempos estimados.`);
         }
       }
@@ -696,7 +713,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     setVoices((v) => ({ ...v, [sceneId]: { url: objectUrl(blob), blob, name, duration } }));
     let slot = piece.voiceSlots[sceneId];
     if (slot === undefined) {
-      slot = Object.values(piece.voiceSlots).reduce((n, x) => Math.max(n, x + 1), 0);
+      // Past the slots an undo can still restore (a voice a note dropped keeps its file there).
+      slot = nextVoiceSlot(piece.voiceSlots, [...voiceUndo.current.values()].map((u) => u.slots));
       setPiece((p) => ({ ...p, voiceSlots: { ...p.voiceSlots, [sceneId]: slot } }));
     }
     if (projectId) await api.uploadMedia(projectId, VOICE_BASE + slot, "voice", blob, { name, duration });
@@ -938,7 +956,14 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       return null;
     }
     const result = await runQuality(formats);
-    return result && result.quality.passed ? result : null;
+    if (!result || !result.quality.passed) return null;
+    // The review may have flagged a scene beyond "Lo que existe hoy" in this very run: this render waits for it too.
+    const concepts = conceptsBlockRender(result.script, piece.conceptsOk ?? []);
+    if (concepts) {
+      setError(concepts);
+      return null;
+    }
+    return result;
   }
 
   // The scenes, beats and world for a script that may be newer than this render's state.

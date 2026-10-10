@@ -13,6 +13,14 @@ import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type Motio
 import { buildSound, type HitKind, type SoundPlan } from "./motionAudio.ts";
 
 export const VOICE_BASE = 100;
+
+// The slot for a scene's new voice file: past every slot in use and every slot an undo can still bring back (a voice a
+// director note dropped keeps its file there), so a new voice never overwrites a file the undo restores.
+export function nextVoiceSlot(slots: Record<string, number>, held: Iterable<Record<string, number>>): number {
+  let next = 0;
+  for (const map of [slots, ...held]) for (const x of Object.values(map)) next = Math.max(next, x + 1);
+  return next;
+}
 export const LAYER_BASE = 200;
 export const SHEET_BASE = 300;
 // The thumbnail of the last render, per format: 302 (9:16) and 303 (16:9).

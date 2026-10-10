@@ -299,7 +299,8 @@ export function guessClip(name: string): RigMove | null {
 // The part a layer probably is, from its file name (Grok names segments by what they are).
 export function guessRole(name: string): PuppetRole {
   const n = name.toLowerCase();
-  if (/3-?4|tres ?cuartos|three.?quarter/.test(n)) return "view34";
+  // "3-4", "3_4" or a bare "34", never the 34 inside a longer number or a code ("1734", "20261003_134512", "34ab").
+  if (/(?<![0-9])3[-_ ]?4(?![0-9a-z])|tres ?cuartos|three.?quarter/.test(n)) return "view34";
   if (/perfil|profile|(?<![a-z])side/.test(n)) return "viewSide";
   if (/content|feliz|happy|smil|sonri/.test(n)) return "faceHappy";
   if (/sorpre|surpris/.test(n)) return "faceSurprised";

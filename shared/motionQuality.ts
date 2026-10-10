@@ -2,7 +2,7 @@
 // six things from 1 to 10, the three worst problems are fixed as edits to the script, and it repeats until every score
 // is 8 or more, up to a set number of rounds.
 import { z } from "zod";
-import { DISCLOSURE_TAG, MOTION_TEMPLATES, MOTION_TEMPLATE_LABEL, beyondNow, labelled, planCameras, sceneElements, timeScenes, tweakScene, type MotionScene, type MotionScript, type Spot } from "./motion.ts";
+import { DISCLOSURE_TAG, MOTION_TEMPLATES, MOTION_TEMPLATE_LABEL, beyondNow, conceptIssues, labelled, planCameras, sceneElements, timeScenes, tweakScene, type MotionScene, type MotionScript, type Spot } from "./motion.ts";
 
 export const CRITERIA = ["hook", "readability", "motion", "variety", "brand", "sync"] as const;
 export type Criterion = (typeof CRITERIA)[number];
@@ -85,6 +85,15 @@ export function normalizeReview(wire: MotionReviewWire): MotionReview {
 }
 
 export const passes = (scores: Scores) => CRITERIA.every((c) => scores[c].score >= PASS);
+
+// Why a reviewed script still may not render: a scene flagged beyond "Lo que existe hoy" (by the writer or by this very
+// review) with no CONCEPTO / SIMULACIÓN label and not confirmed. "" when nothing stops it.
+export function conceptsBlockRender(script: MotionScript, ok: readonly string[] = []): string {
+  const open = conceptIssues(script.scenes, ok);
+  if (!open.length) return "";
+  const which = open.map((i) => `escena ${i.index + 1} (${i.what})`).join(", ");
+  return `La revisión marcó cosas que no están en «Lo que existe hoy»: ${which}. Marcalas como CONCEPTO o SIMULACIÓN, cambialas o confirmalas antes de generar.`;
+}
 
 // One round, as the studio keeps it.
 // applied: the fixes made after this round; pending: what the last round still found (no rounds left to fix it).
