@@ -2,7 +2,7 @@
 // edits them, adds voice and music, previews with sound and renders. Follows the studio's rules: frames are a pure
 // function of time, something new every 2 to 4 seconds (a check that blocks rendering), hits on the beat grid,
 // -14 LUFS.
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   DURATIONS,
   MOTION_CAMERAS,
@@ -100,7 +100,10 @@ import { NarrationImport } from "./NarrationImport.tsx";
 import { Recorder, audioDuration, type AudioFile } from "./Audio.tsx";
 import { Inspector, MotionTimeline, type Selection } from "./MotionTimeline.tsx";
 import { QualityPanel } from "./QualityPanel.tsx";
-import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
+import { Button, Field, Notice, PartBoundary, Segmented, Spinner, inputClass } from "./ui.tsx";
+
+// "Storyboard": downloaded only when the person opens it.
+const MotionStoryboard = lazy(() => import("./MotionStoryboard.tsx").then((m) => ({ default: m.MotionStoryboard })));
 
 export type MotionOpen = { piece: MotionPiece; media: Record<string, MediaRecord>; music: MediaFileRecord | null };
 
@@ -154,6 +157,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [voices, setVoices] = useState<Record<string, AudioFile>>({});
   const [layers, setLayers] = useState<HTMLImageElement[]>([]);
   const [track, setTrack] = useState<{ file: AudioFile; buffer: AudioBuffer } | null>(null);
+  // "Storyboard": open or closed (closed by default, so its code loads only when asked for).
+  const [boardOpen, setBoardOpen] = useState(false);
   // Demucs is splitting the track (minutes the first time).
   const [separating, setSeparating] = useState(false);
   const [castImages, setCastImages] = useState<Record<string, MotionAsset>>({});
@@ -1709,6 +1714,45 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {script && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-lg font-bold">Storyboard</h3>
+              <p className="text-xs text-muted">Una viñeta por escena: el cuadro ya armado, lo que se dice, lo que suena, cómo entra y la cámara.</p>
+            </div>
+            <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => setBoardOpen((v) => !v)}>
+              {boardOpen ? "Cerrar el storyboard" : "Ver el storyboard"}
+            </Button>
+          </div>
+          {boardOpen && (
+            <PartBoundary>
+              <Suspense
+                fallback={
+                  <div className="flex items-center gap-2 p-4 text-sm text-muted">
+                    <Spinner /> Cargando…
+                  </div>
+                }
+              >
+                <MotionStoryboard
+                  script={script}
+                  scenes={scenes}
+                  world={world}
+                  format={piece.format}
+                  music={piece.music === "track" && !track ? "none" : piece.music}
+                  effects={piece.effects ?? "library"}
+                  voice={piece.voice}
+                  onSeek={(t, sceneId) => {
+                    seek(t);
+                    setSelected({ sceneId, key: null });
+                  }}
+                />
+              </Suspense>
+            </PartBoundary>
+          )}
         </div>
       )}
 

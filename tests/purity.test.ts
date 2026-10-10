@@ -14,6 +14,7 @@ const DRAWING = [
   "src/lib/sketch.ts",
   "shared/syncDraw.ts",
   "shared/subtitles.ts",
+  "src/lib/motionStoryboard.ts",
 ];
 const FORBIDDEN = /\bMath\.random\b|\bDate\.now\b|\bnew Date\(|\bperformance\.now\b|\bsetTimeout\b|\bsetInterval\b|\brequestAnimationFrame\b/;
 

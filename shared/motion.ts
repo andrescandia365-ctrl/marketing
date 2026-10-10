@@ -981,7 +981,7 @@ export function blurSamples(scenes: MotionScene[], push: number, t: number, n = 
 }
 
 // The text an element shows, for the reading check.
-function shownText(scene: MotionScene, key: string): string {
+export function shownText(scene: MotionScene, key: string): string {
   if (key === "title") return scene.template === "logo" ? "" : scene.title;
   if (key === "text") return scene.text;
   if (key === "tag") return scene.template === "type" ? (scene.items[1] ?? "") : (scene.items[0] ?? "");
