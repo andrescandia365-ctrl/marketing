@@ -2,7 +2,7 @@
 // fonts, voices and track, then exposes window.seek(t), which paints frame t at full size, and the finished mix.
 // Nothing here moves on its own: every frame comes from seek(t).
 import { useEffect, useRef, useState } from "react";
-import { cutPush, newMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
+import { cutBlurOn, cutPush, newMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
 import type { Brief } from "../shared/schema.ts";
 import { api } from "./lib/api.ts";
 import { ensureFont, fontLoaded } from "./lib/fonts.ts";
@@ -66,7 +66,12 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       const snapped = { ...script, scenes };
       const notice = piece.disclosure && usesAiImages(scenes, series);
       const speech = await speechLevels(snapped, piece, media.voices);
-      const world = makeWorld(series.brand, { ...images.cast, ...layerAssets(media.layers) }, images.logo, beats, notice, { puppets: images.puppets, actors: images.actors, speech });
+      const world = makeWorld(series.brand, { ...images.cast, ...layerAssets(media.layers) }, images.logo, beats, notice, {
+        puppets: images.puppets,
+        actors: images.actors,
+        speech,
+        cutBlur: cutBlurOn(piece),
+      });
       const ctx = canvasRef.current!.getContext("2d")!;
       const seek = (t: number) => drawMotionFrame(ctx, w, h, t, snapped, world);
       seek(0);

@@ -204,7 +204,7 @@ export function makeWorld(
   logo: MotionAsset | null,
   beats: number[],
   notice: boolean,
-  extra: Pick<MotionWorld, "puppets" | "speech" | "actors"> = {},
+  extra: Pick<MotionWorld, "puppets" | "speech" | "actors" | "cutBlur"> = {},
 ): MotionWorld {
   return { brand, assets, logo, beats, seed: MOTION_SEED, disclosure: notice ? AI_NOTICE : "", ...extra };
 }

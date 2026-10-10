@@ -7,6 +7,7 @@ import type { ActorAsset } from "./actor.ts";
 import {
   STAT_COUNT,
   TYPE_CPS,
+  blurSamples,
   cameraAt,
   cutPush,
   elementTimes,
@@ -41,6 +42,8 @@ export type MotionWorld = {
   // How loud the voices are, `rate` values a second over the whole piece (0..1), and the scenes that have a voice
   // file; other scenes with a line move the mouth to the rhythm of the words.
   speech?: { rate: number; data: Float32Array; scenes: string[] };
+  // Motion blur during the push between scenes (the piece's "Desenfoque en los cortes", blurSamples). Absent: none.
+  cutBlur?: boolean;
 };
 
 // How open a character's mouth is at piece time t in scene s (scene time lt).
@@ -1031,8 +1034,43 @@ export function anchorOf(scene: TimedScene, w: number, h: number): { x: number; 
   return { x: w / 2 + cam.x * w + (x - w / 2) * cam.z, y: h / 2 + cam.y * h + (y - h / 2) * cam.z };
 }
 
+// One scratch canvas per target canvas, for the motion blur on the cut. It is not state between frames: every
+// subframe wipes it whole (pixels and drawing state) before drawing, so frame t never depends on what it held.
+const scratches = new WeakMap<object, CanvasRenderingContext2D>();
+function scratchFor(target: object, w: number, h: number): CanvasRenderingContext2D | null {
+  let c = scratches.get(target);
+  if (!c) {
+    // Outside a page (the unit tests) there is no canvas to borrow: the frame is drawn at t alone.
+    if (typeof document === "undefined") return null;
+    const made = document.createElement("canvas").getContext("2d");
+    if (!made) return null;
+    c = made;
+    scratches.set(target, c);
+  }
+  const [cw, ch] = [Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h))];
+  if (c.canvas.width !== cw || c.canvas.height !== ch) {
+    c.canvas.width = cw;
+    c.canvas.height = ch;
+  }
+  return c;
+}
+
+function wipe(c: CanvasRenderingContext2D) {
+  if (typeof c.reset === "function") c.reset();
+  else {
+    // Setting the size clears the pixels and resets the state, as reset() does.
+    const { width, height } = c.canvas;
+    c.canvas.width = width;
+    c.canvas.height = height;
+  }
+}
+
 // Frame t of the explainer. Scenes change with a push: the old one slides out, the new one in, behind an accent bar.
 // `probe` (the editor only) hears where each visible element of the current scene is; not during a push.
+// With the piece's motion blur on (world.cutBlur), a frame inside a push is the average of subframes over the shutter
+// before t (blurSamples), each drawn whole on a scratch canvas and blended in with its weight (a running mean: alpha =
+// weight / weights so far). Outside a push, and for a hard cut, the frame is drawn once, exactly as without the blur.
+// The subtitle and the AI notice are drawn once on top, from t: they never move with the cut.
 export function drawMotionFrame(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -1055,13 +1093,40 @@ export function drawMotionFrame(
     land: landFor(script.tone, world.brand.motion),
     acting: actingFor(script.tone, world.brand.motion),
   };
+  if (!scenes.length) {
+    backdrop(f);
+    return;
+  }
+  // The change between scenes follows the tone: a push (warm, fast when absurd) or a hard cut (dry).
+  const push = cutPush(script.tone);
+  const samples = world.cutBlur ? blurSamples(scenes, push, t) : [];
+  const scratch = samples.length > 1 ? scratchFor(ctx, w, h) : null;
+  if (scratch) {
+    let sum = 0;
+    samples.forEach(({ at, weight }, k) => {
+      wipe(scratch);
+      // The probe hears the frame at t itself (the first sample), never a subframe.
+      drawPicture({ ...f, ctx: scratch, t: at, probe: k === 0 ? probe : undefined }, scenes, push);
+      sum += weight;
+      ctx.save();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = weight / sum;
+      ctx.drawImage(scratch.canvas, 0, 0, w, h);
+      ctx.restore();
+    });
+  } else drawPicture(f, scenes, push);
+  subtitle(f, scenes[sceneAt(scenes, t)].voice);
+  footer(f);
+}
+
+// The picture of frame f.t without the subtitle and the AI notice: the set, then the scene on screen or the change
+// between two scenes.
+function drawPicture(f: Frame, scenes: TimedScene[], push: number) {
+  const { ctx, w, h, t, world, probe } = f;
   backdrop(f);
-  if (!scenes.length) return;
   const i = sceneAt(scenes, t);
   const s = scenes[i];
   const lt = t - s.start;
-  // The change between scenes follows the tone: a push (warm, fast when absurd) or a hard cut (dry).
-  const push = cutPush(script.tone);
   // moveSet redraws the backdrop inside the camera, so a push or a pan moves the set and not only the type.
   // During a scene change the backdrop stays put, the same as before the camera existed.
   const drawShot = (scene: TimedScene, sceneTime: number, hit: boolean, moveSet: boolean) => {
@@ -1140,8 +1205,6 @@ export function drawMotionFrame(
     ctx.fillStyle = world.brand.accent;
     ctx.fillRect(w * (1 - p) - f.unit * 0.02, 0, f.unit * 0.02, h);
   } else drawShot(s, lt, true, true);
-  subtitle(f, s.voice);
-  footer(f);
 }
 
 // The editor's guide (never in the video): where a phone's top bar, caption and buttons will cover a 9:16 frame.

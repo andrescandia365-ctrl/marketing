@@ -2,11 +2,14 @@
 // each frame) and the facts the app measures itself (cuts and entrances against the beats, still stretches, the
 // hook's timing, voices that run over, elements off the frame), so the reviewer never has to guess them.
 import {
+  BLUR_SHUTTER,
+  BLUR_SUBFRAMES,
   READ_LETTERS_PER_SECOND,
   STEP_DOWN_OVER,
   cutPush,
   focusShare,
   pushOf,
+  pushWindows,
   quietGaps,
   readingIssues,
   sceneElements,
@@ -149,6 +152,8 @@ export function measureFacts(
   zoned: Zoned[] = [],
   overlaps: Overlap[] = [],
   brand?: Brand,
+  // The piece's "Desenfoque en los cortes" (world.cutBlur): the sheet's cut frames are motion blurred.
+  cutBlur = false,
 ): string {
   const timed = timeScenes(script.scenes);
   const total = scriptDuration(script);
@@ -166,6 +171,11 @@ export function measureFacts(
     lines.push(`Cuts on a beat (within ${ON_BEAT * 1000} ms): ${onCuts} of ${cuts.length}. Elements entering on a beat: ${onEntries} of ${entries.length} (each sound hit lands exactly with its element).`);
   }
   const push = cutPush(script.tone);
+  // The blur is the cut's own look: said up front, so a smeared "corte" frame is not read as a fault.
+  if (cutBlur && pushWindows(script.scenes, push).length)
+    lines.push(
+      `Motion blur on the cuts: during each push between scenes a frame is the average of ${BLUR_SUBFRAMES} moments over the ${Math.round(BLUR_SHUTTER * 1000)} ms before it (a 180° shutter at 30 fps), so on the frames marked "corte" whatever moves is smeared along its path, on purpose. Outside the pushes every frame is sharp. The smear is not a fault; two busy layouts muddled together still is.`,
+    );
   const gaps = quietGaps(script.scenes, push);
   lines.push(`Still stretches over 4 s: ${gaps.length ? gaps.map((g) => `${g.from.toFixed(1)}–${g.to.toFixed(1)} s`).join(", ") : "none"}.`);
   const first = timed[0];

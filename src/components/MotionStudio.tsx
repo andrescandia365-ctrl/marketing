@@ -20,11 +20,13 @@ import {
   MOTION_TONES,
   MOTION_TONE_LABEL,
   blankScene,
+  cutBlurOn,
   cutPush,
   elementTimes,
   figureIssues,
   figureKey,
   posterTime,
+  pushWindows,
   readingIssues,
   readingKey,
   newMotionPiece,
@@ -323,13 +325,17 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
 
   const assets: Record<string, MotionAsset> = useMemo(() => ({ ...castImages, ...layerAssets(layers) }), [castImages, layers]);
   const usesAi = usesAiImages(scenes, series);
+  // "Desenfoque en los cortes": the preview, the contact sheet, the poster and every render read it from the world.
+  const cutBlur = cutBlurOn(piece);
   const world: MotionWorld = useMemo(
-    () => makeWorld(brand, assets, logo, beats, piece.disclosure && usesAi, { puppets, actors, speech }),
-    [brand, assets, logo, beats, piece.disclosure, usesAi, puppets, actors, speech],
+    () => makeWorld(brand, assets, logo, beats, piece.disclosure && usesAi, { puppets, actors, speech, cutBlur }),
+    [brand, assets, logo, beats, piece.disclosure, usesAi, puppets, actors, speech, cutBlur],
   );
 
   // How long each scene slides in over the one before (the tone's cut); the checks wait for it.
   const push = cutPush(script?.tone);
+  // A dry piece with no camera journey only has hard cuts: nothing to blur.
+  const pushes = pushWindows(scenes, push).length > 0;
   const gaps = quietGaps(scenes, push);
   const key = (g: { from: number; to: number }) => `${g.from.toFixed(1)}-${g.to.toFixed(1)}`;
   const openGaps = gaps.filter((g) => !piece.dismissed.includes(key(g)));
@@ -727,7 +733,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         const roundBeats = motionBeats(working, piece.music, piece.kickGrid);
         const roundScenes = arrangeScenes(working, roundBeats, snap, piece.music, piece.kickGrid);
         const played = { ...working, scenes: roundScenes };
-        const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), { puppets, actors, speech });
+        const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), { puppets, actors, speech, cutBlur });
         const made = formats.map((format) => ({ format, ...contactSheet(played, roundWorld, format) }));
         const blobs = await Promise.all(made.map((m) => new Promise<Blob | null>((done) => m.canvas.toBlob(done, "image/jpeg", 0.85))));
         setSheets(made.map((m, k) => ({ format: m.format, url: blobs[k] ? objectUrl(blobs[k]!) : "" })));
@@ -741,6 +747,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           made.flatMap((m) => m.zoned),
           made.flatMap((m) => m.overlaps),
           roundWorld.brand,
+          roundWorld.cutBlur === true,
         );
         setReviewing(`Ronda ${round} de ${MAX_ROUNDS}: la IA mira los cuadros…`);
         const { review, demo } = await api.motionReview(
@@ -819,7 +826,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   function playable(next: MotionScript) {
     const b = motionBeats(next, piece.music, piece.kickGrid);
     const sc = arrangeScenes(next, b, snap, piece.music, piece.kickGrid);
-    return { played: { ...next, scenes: sc }, beats: b, world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series), { puppets, actors, speech }) };
+    return { played: { ...next, scenes: sc }, beats: b, world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series), { puppets, actors, speech, cutBlur }) };
   }
 
   async function finalRender(formats: SheetFormat[]) {
@@ -1013,6 +1020,17 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                 <label className="flex items-center gap-1.5" title="Los cortes de escena caen en los beats de la música">
                   <input type="checkbox" checked={snap} onChange={(e) => set({ snap: e.target.checked })} />
                   Cortes en los beats
+                </label>
+                <label
+                  className={`flex items-center gap-1.5 ${pushes ? "" : "text-muted"}`}
+                  title={
+                    pushes
+                      ? "Mientras una escena entra empujando a la anterior, lo que se mueve deja un rastro, como con una cámara. Fuera de los cortes no cambia nada."
+                      : "Este guion corta seco: no hay empuje entre escenas para desenfocar."
+                  }
+                >
+                  <input type="checkbox" checked={cutBlur} disabled={!pushes} onChange={(e) => set({ cutBlur: e.target.checked })} />
+                  Desenfoque en los cortes
                 </label>
                 {vertical && (
                   <label

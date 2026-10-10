@@ -591,6 +591,56 @@ function entranceDone(scene: MotionScene, el: SceneElement): number {
 export const pushOf = (scene: { index: number; entry?: SceneEntry }, push: number) =>
   scene.index > 0 ? (scene.entry === "through" ? THROUGH : push) : 0;
 
+// ── Motion blur on the cut ("Desenfoque en los cortes") ──────────────────────────────────────────────────────────
+// Only while a scene comes in over the one before (the tone's push, or a camera journey's THROUGH), frame t is the
+// average of BLUR_SUBFRAMES pictures spread evenly over the BLUR_SHUTTER seconds that end at t: half a frame at 30 fps,
+// a 180° shutter, the film look. The push is fast (at its peak the warm one crosses about 0.13 of the frame's width
+// during the shutter, the absurdist one about 0.25), so it takes 8 subframes, the most this allows, for the copies to
+// sit close enough to read as one smear [NOT SURE: chosen on these numbers, to be judged on real frames]. A hard cut
+// (dry) has no push, so it has no blur; the frame is drawn 8 times only inside a push (under 0.7 s per cut).
+export const BLUR_SUBFRAMES = 8;
+export const BLUR_SHUTTER = 1 / 60;
+
+// The piece's switch: on by default, and a piece saved before it existed counts as on.
+export const cutBlurOn = (piece: { cutBlur?: boolean }) => piece.cutBlur !== false;
+
+export type PushWindow = { start: number; end: number };
+
+// The push that frame t is in, or null: the scene on screen at t (the last one past the end, as the drawing reads it)
+// comes in over the one before it from its start for pushOf seconds, never past its own end.
+export function pushWindowAt(scenes: MotionScene[], push: number, t: number): PushWindow | null {
+  const timed = timeScenes(scenes);
+  if (!timed.length) return null;
+  const found = timed.findIndex((s) => t >= s.start && t < s.end);
+  const s = timed[found < 0 ? timed.length - 1 : found];
+  const coming = pushOf(s, push);
+  return coming > 0 && t >= s.start && t - s.start < coming ? { start: s.start, end: s.start + Math.min(coming, s.seconds) } : null;
+}
+
+// Every push of the piece, in order (none in a dry piece with no camera journey).
+export function pushWindows(scenes: MotionScene[], push: number): PushWindow[] {
+  return timeScenes(scenes).flatMap((s) => {
+    const coming = Math.min(pushOf(s, push), s.seconds);
+    return coming > 0 ? [{ start: s.start, end: s.start + coming }] : [];
+  });
+}
+
+// The subframes of frame t and their weights (summing to 1). Outside a push: t alone. Inside: BLUR_SUBFRAMES times from
+// t back to t - shutter, evenly, t itself first; none before the push starts (those land on its start, and equal times
+// are merged into one heavier sample), so a frame never mixes in the scene before the cut.
+export function blurSamples(scenes: MotionScene[], push: number, t: number, n = BLUR_SUBFRAMES, shutter = BLUR_SHUTTER): { at: number; weight: number }[] {
+  const win = pushWindowAt(scenes, push, t);
+  if (!win || n < 2 || !(shutter > 0)) return [{ at: t, weight: 1 }];
+  const samples: { at: number; weight: number }[] = [];
+  for (let k = 0; k < n; k++) {
+    const at = Math.max(win.start, t - (shutter * k) / (n - 1));
+    const last = samples.at(-1);
+    if (last && last.at === at) last.weight += 1 / n;
+    else samples.push({ at, weight: 1 / n });
+  }
+  return samples;
+}
+
 // The text an element shows, for the reading check.
 function shownText(scene: MotionScene, key: string): string {
   if (key === "title") return scene.template === "logo" ? "" : scene.title;
@@ -805,6 +855,9 @@ export type MotionPiece = {
   figuresOk?: string[];
   // The track's beat clock from its drums stem; none: a track has no grid.
   kickGrid?: TrackKicks | null;
+  // "Desenfoque en los cortes": motion blur during the push between scenes (blurSamples). On by default; a piece
+  // saved before it existed has none and counts as on (cutBlurOn).
+  cutBlur?: boolean;
 };
 
 export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {
@@ -825,6 +878,7 @@ export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {
     poster: null,
     readingOk: [],
     figuresOk: [],
+    cutBlur: true,
   };
 }
 
