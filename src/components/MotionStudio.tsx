@@ -58,6 +58,7 @@ import {
   hostScenes,
 } from "../../shared/motion.ts";
 import { explainerHost } from "../../shared/series.ts";
+import { WORLD_PLACES, WORLD_PLACE_LABEL } from "../../shared/world.ts";
 import { generatedVoice, noteSummary } from "../../shared/motionNote.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { applyFixes, describeScenes, MAX_ROUNDS, passes, qualityKey, type QualityRound, type QualityState } from "../../shared/motionQuality.ts";
@@ -132,12 +133,12 @@ function pieceMarkdown(piece: MotionPiece, scenes: MotionScene[]): string {
 
 ${s.caption ? `**Texto para publicar:** ${s.caption}
 
-` : ""}**Tono:** ${MOTION_TONE_LABEL[s.tone ?? "warm"]}
+` : ""}**Tono:** ${MOTION_TONE_LABEL[s.tone ?? "warm"]}${s.world ? ` · **Mundo:** ${WORLD_PLACE_LABEL[s.world]}` : ""}
 
 ${timeScenes(scenes)
   .map(
     (x) =>
-      `## ${x.index + 1}. ${MOTION_TEMPLATE_LABEL[x.template]} · ${x.start.toFixed(1)}–${x.end.toFixed(1)} s${labelled(x) ? ` · **${DISCLOSURE_TAG[x.disclosure as "concept" | "simulation"]}**` : ""}\n\n${beyondNow(x) ? `- **No está en «Lo que existe hoy»:** ${x.beyond!.what}\n` : ""}- **Título:** ${x.title}\n${x.text ? `- **Texto:** ${x.text}\n` : ""}${x.items.length ? `- **Elementos:** ${x.items.join(" · ")}\n` : ""}${x.asset ? `- **Imagen:** ${x.asset}${x.assetB ? ` → ${x.assetB}` : ""}\n` : ""}${x.voice ? `- **Voz** (${x.emotion}): “${x.voice}”\n` : ""}`,
+      `## ${x.index + 1}. ${MOTION_TEMPLATE_LABEL[x.template]} · ${x.start.toFixed(1)}–${x.end.toFixed(1)} s${labelled(x) ? ` · **${DISCLOSURE_TAG[x.disclosure as "concept" | "simulation"]}**` : ""}\n\n${beyondNow(x) ? `- **No está en «Lo que existe hoy»:** ${x.beyond!.what}\n` : ""}- **Título:** ${x.title}\n${x.text ? `- **Texto:** ${x.text}\n` : ""}${x.items.length ? `- **Elementos:** ${x.items.join(" · ")}\n` : ""}${x.asset ? `- **Imagen:** ${x.asset}${x.assetB ? ` → ${x.assetB}` : ""}\n` : ""}${x.world ? `- **Lugar:** ${x.world === "none" ? "ninguno" : WORLD_PLACE_LABEL[x.world]}\n` : ""}${x.voice ? `- **Voz** (${x.emotion}): “${x.voice}”\n` : ""}`,
   )
   .join("\n")}
 `;
@@ -1419,6 +1420,18 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
             </Field>
 
             <Field
+              label="Mundo ilustrado"
+              group
+              hint="Un lugar dibujado con formas planas en los colores de la marca, detrás de todas las escenas. Se mueve con la cámara y nunca queda nada cargado detrás de las palabras. Cada escena puede cambiarlo."
+            >
+              <Segmented
+                value={script.world ?? "none"}
+                onChange={(v) => setScript({ ...script, world: v === "none" ? undefined : v })}
+                options={[{ value: "none" as const, label: "Ninguno" }, ...WORLD_PLACES.map((p) => ({ value: p, label: WORLD_PLACE_LABEL[p] }))]}
+              />
+            </Field>
+
+            <Field
               label="Texto para publicar"
               hint="De 1 a 3 frases para pegar en X, LinkedIn o Instagram, en el tono de la pieza. Lo que no esté confirmado va con [VERIFY]."
             >
@@ -1759,6 +1772,24 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                       {MOTION_CAMERAS.map((c) => (
                         <option key={c} value={c}>
                           Cámara{raw.cameraBy === "ai" && c === (raw.camera ?? "hold") ? " (IA)" : ""}: {MOTION_CAMERA_LABEL[c]}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className={`${smallInput} py-1 text-xs`}
+                      value={raw.world ?? "piece"}
+                      aria-label="Lugar"
+                      title="El mundo ilustrado detrás de esta escena. «Como la pieza» usa el de toda la pieza."
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        updateScene(s.id, { world: v === "none" || (WORLD_PLACES as readonly string[]).includes(v) ? (v as MotionScene["world"]) : undefined });
+                      }}
+                    >
+                      <option value="piece">Lugar: Como la pieza ({script.world ? WORLD_PLACE_LABEL[script.world] : "ninguno"})</option>
+                      <option value="none">Lugar: Ninguno</option>
+                      {WORLD_PLACES.map((p) => (
+                        <option key={p} value={p}>
+                          Lugar: {WORLD_PLACE_LABEL[p]}
                         </option>
                       ))}
                     </select>

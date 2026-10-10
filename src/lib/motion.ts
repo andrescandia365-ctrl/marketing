@@ -32,6 +32,7 @@ import {
 import { BUTTONS_FROM, PHONE_SAFE, isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import { stepDownColour, type Brand, type BrandMotion } from "../../shared/series.ts";
 import { cueAt, litWord, type SubtitleCue } from "../../shared/subtitles.ts";
+import { WORLD_DEPTH, busyClear, worldOf, worldPalette, worldShapes, worldStepDown, type WorldPlace } from "../../shared/world.ts";
 
 // screen: a real screenshot of the app (shown inside a phone or laptop).
 export type MotionAsset = { image: CanvasImageSource; width: number; height: number; name: string; screen?: boolean };
@@ -164,6 +165,11 @@ const span = (t: number, from: number, dur: number) => clamp01((t - from) / dur)
 function focus(f: Frame, s: TimedScene, key: string, lt: number): { text: string; accent: string } {
   const { text, accent, bg } = f.world.brand;
   const share = focusShare(s, key, lt);
+  // Over an illustrated world the step also keeps its contrast on the world's tones (worldStepDown).
+  if (share > 0 && worldOf(s, f.pieceWorld)) {
+    const palette = worldPalette(f.world.brand);
+    return { text: worldStepDown(text, f.world.brand, palette, share), accent: worldStepDown(accent, f.world.brand, palette, share) };
+  }
   return { text: stepDownColour(text, bg, share), accent: stepDownColour(accent, bg, share) };
 }
 
@@ -201,6 +207,10 @@ type Frame = {
   acting: Acting;
   // "Continuidad": the element (key) the carry draws instead of the scene, while it travels across the cut.
   hide?: string;
+  // "Un mundo ilustrado": the piece's place (script.world); a scene's own choice wins (worldOf).
+  pieceWorld?: WorldPlace;
+  // A measuring pass (wordBoxes): nothing is painted, so the costly drawers (a rigged character) are skipped.
+  dry?: boolean;
 };
 
 const display = (f: Frame, size: number, weight = 700) => `${weight} ${size}px "${f.world.brand.displayFont}", "Inter", system-ui, sans-serif`;
@@ -342,6 +352,110 @@ function backdrop(f: Frame) {
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
+}
+
+// ── Un mundo ilustrado ──────────────────────────────────────────────────────────
+// A 2D context that paints nothing: it keeps its own state (font, alignment, the save/restore stack) and measures
+// text on the real context with that font. A measuring pass of a scene draws on it.
+function dryContext(real: CanvasRenderingContext2D): CanvasRenderingContext2D {
+  let props: Record<string | symbol, unknown> = {};
+  const stack: Record<string | symbol, unknown>[] = [];
+  const own: Record<string | symbol, unknown> = {
+    save: () => stack.push({ ...props }),
+    restore: () => {
+      props = stack.pop() ?? props;
+    },
+    measureText: (text: string) => {
+      real.save();
+      if (typeof props.font === "string") real.font = props.font;
+      const m = real.measureText(text);
+      real.restore();
+      return m;
+    },
+    canvas: real.canvas,
+  };
+  return new Proxy(own, {
+    get: (o, k) => {
+      if (k in o) return o[k];
+      if (k in props) return props[k];
+      const v = (real as unknown as Record<string | symbol, unknown>)[k];
+      return typeof v === "function" ? () => undefined : v;
+    },
+    set: (_o, k, v) => {
+      props[k] = v;
+      return true;
+    },
+  }) as unknown as CanvasRenderingContext2D;
+}
+
+// Where a scene's words sit, in scene coordinates (before the camera): the boxes a measuring pass of the scene reports
+// for everything but its pictures, once most of its words are in and again at its end. A pure function of the scene and
+// the frame size, so the world leaves the same shapes out for the whole scene.
+function wordBoxes(f: Frame, s: TimedScene): Box[] {
+  const boxes: Box[] = [];
+  const ctx = dryContext(f.ctx);
+  const probe: Probe = (_id, key, box) => {
+    if (key !== "media" && key !== "prop") boxes.push(box);
+  };
+  for (const lt of [s.seconds * 0.6, s.seconds - 0.001]) {
+    ctx.save();
+    drawScene({ ...f, ctx, probe, hide: undefined, dry: true }, s, lt);
+    ctx.restore();
+  }
+  return boxes;
+}
+
+// What stays put on the frame whatever the camera does: the scene's subtitle (all of its line) and the AI notice.
+function fixedBoxes(f: Frame, s: TimedScene): Box[] {
+  const ctx = dryContext(f.ctx);
+  const out: Box[] = [];
+  const { box, noticeY } = overlayLayout({ ...f, ctx }, s.voice);
+  if (s.voice.trim()) out.push(box);
+  if (f.world.disclosure) out.push({ x: 0, y: noticeY - f.unit * 0.03, w: f.w, h: f.unit * 0.045 });
+  return out;
+}
+
+// The scene's place, behind everything it draws: the wall (the brand's background), then three layers of flat shapes
+// in the brand's tints (worldPalette keeps the text and accent contrast on every tone), each taking its share of the
+// scene camera's move (WORLD_DEPTH: parallax). Busy shapes never sit behind the scene's words (busyClear, checked over
+// the camera's whole move, so nothing appears or goes mid-scene). No gradient, no glow, no particles, nothing moves
+// but the camera.
+function drawWorld(f: Frame, s: TimedScene, lt: number, place: WorldPlace) {
+  const { ctx, w, h, unit, world } = f;
+  const tones = worldPalette(world.brand);
+  const cams = [0, 0.25, 0.5, 0.75, 1].map((u) => cameraAt(s.camera, u));
+  const shapes = busyClear(worldShapes(place, w, h, world.seed), wordBoxes(f, s), cams, w, h, unit * 0.03, fixedBoxes(f, s));
+  const cam = cameraAt(s.camera, lt / Math.max(0.2, s.seconds));
+  ctx.save();
+  // The place stays inside the scene's own frame, so in a push or a carry it slides with its scene and never covers
+  // the other one (the layers' reach past the frame is for the camera, inside this rect).
+  ctx.beginPath();
+  ctx.rect(0, 0, w, h);
+  ctx.clip();
+  ctx.fillStyle = tones.wall;
+  ctx.fillRect(0, 0, w, h);
+  for (const layer of [0, 1, 2] as const) {
+    const d = WORLD_DEPTH[layer];
+    const z = 1 + (cam.z - 1) * d;
+    ctx.save();
+    ctx.translate(w / 2 + cam.x * d * w, h / 2 + cam.y * d * h);
+    ctx.scale(z, z);
+    ctx.translate(-w / 2, -h / 2);
+    for (const sh of shapes) {
+      if (sh.layer !== layer) continue;
+      ctx.fillStyle = tones[sh.tone];
+      if (sh.kind === "rect") ctx.fillRect(sh.x, sh.y, sh.w, sh.h);
+      else {
+        if (sh.kind === "circle") {
+          ctx.beginPath();
+          ctx.arc(sh.x + sh.w / 2, sh.y + sh.h / 2, Math.min(sh.w, sh.h) / 2, 0, Math.PI * 2);
+        } else roundRect(ctx, sh.x, sh.y, sh.w, sh.h, Math.min(sh.r ?? 0, sh.w / 2, sh.h / 2));
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
   ctx.restore();
 }
 
@@ -965,7 +1079,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         });
       }
       put("media", cx, bottom, () => {
-        if (actor) {
+        if (actor && !f.dry) {
           return actor.draw(ctx, cx, bottom, height, Math.max(0, lt - at("media")), s.seconds, s.move ?? "walk", talkLevel(world, s, f.t, lt));
         }
         if (!puppet) {
@@ -1743,6 +1857,7 @@ export function drawMotionFrame(
     probe,
     land: landFor(script.tone, world.brand.motion),
     acting: actingFor(script.tone, world.brand.motion),
+    pieceWorld: script.world,
   };
   if (!scenes.length) {
     backdrop(f);
@@ -1783,6 +1898,10 @@ function drawPicture(f: Frame, scenes: TimedScene[], push: number) {
   // During a scene change the backdrop stays put, the same as before the camera existed.
   const drawShot = (scene: TimedScene, sceneTime: number, hit: boolean, moveSet: boolean, hide?: string) => {
     const cam = cameraAt(scene.camera, sceneTime / Math.max(0.2, scene.seconds));
+    // "Un mundo ilustrado": the scene's place is part of its set, so it moves with it in every change (the push, the
+    // carry, "Pasar a través") and takes the camera layer by layer.
+    const place = worldOf(scene, f.pieceWorld);
+    if (place) drawWorld(f, scene, sceneTime, place);
     ctx.save();
     ctx.translate(w / 2 + cam.x * w, h / 2 + cam.y * h);
     ctx.scale(cam.z, cam.z);
@@ -1802,7 +1921,7 @@ function drawPicture(f: Frame, scenes: TimedScene[], push: number) {
             }
           : undefined,
     };
-    if (moveSet) backdrop(shot);
+    if (moveSet && !place) backdrop(shot);
     drawScene(shot, scene, sceneTime);
     ctx.restore();
   };

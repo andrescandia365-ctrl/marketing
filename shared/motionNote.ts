@@ -14,6 +14,7 @@ import {
   type MotionScene,
   type MotionScript,
 } from "./motion.ts";
+import { WORLD_PLACES, worldOf, type SceneWorld, type WorldPlace } from "./world.ts";
 
 // The current script as the studio sends it. Old saved scenes may lack the later fields: they get the values the
 // studio already reads them with; everything else passes through untouched.
@@ -25,6 +26,8 @@ export const MotionScriptInput = z
     note: z.string().default(""),
     caption: z.string().optional(),
     tone: z.enum(MOTION_TONES).optional(),
+    // Unknown places read as none.
+    world: z.enum(WORLD_PLACES).optional().catch(undefined),
     music: z.object({ mood: z.enum(MOTION_MOODS), bpm: z.number() }),
     scenes: z
       .array(
@@ -43,6 +46,7 @@ export const MotionScriptInput = z
             zoom: z.number().default(2),
             voice: z.string().default(""),
             emotion: z.string().default(""),
+            world: z.enum([...WORLD_PLACES, "none"]).optional().catch(undefined),
           })
           .passthrough(),
       )
@@ -59,6 +63,7 @@ export function noteView(script: MotionScript): string {
       title: script.title,
       music: script.music,
       caption: script.caption ?? "",
+      world: script.world ?? "none",
       scenes: script.scenes.map((s) => ({
         id: s.id,
         template: s.template,
@@ -79,6 +84,7 @@ export function noteView(script: MotionScript): string {
         emotion: s.emotion,
         disclosure: s.disclosure ?? "real",
         beyondToday: s.beyond?.what ?? "",
+        world: worldOf(s, script.world) ?? "none",
       })),
     },
     null,
@@ -107,8 +113,12 @@ const realOf = (d: MotionScene["disclosure"]) => (d === "concept" || d === "simu
 
 // The current scene with only what the writer really changed (tolerant of the rounding normalizeMotion does, and of
 // the defaults an old scene reads with). null: nothing changed.
-function changedScene(cur: MotionScene, rev: MotionScene, camera: MotionCamera | undefined): MotionScene | null {
+function changedScene(cur: MotionScene, rev: MotionScene, camera: MotionCamera | undefined, worlds: { cur?: WorldPlace; rev?: WorldPlace }): MotionScene | null {
   const patch: Partial<MotionScene> = {};
+  // The place the scene really sits in, before and after; when it changed, the scene keeps its own choice (the piece's
+  // place stays the current one).
+  const place = worldOf(rev, worlds.rev);
+  if (place !== worldOf(cur, worlds.cur)) patch.world = (place ?? "none") === (worlds.cur ?? "none") ? undefined : (place ?? "none");
   if (rev.template !== cur.template) patch.template = rev.template;
   if (!near(rev.seconds, cur.seconds, 0.25)) patch.seconds = rev.seconds;
   for (const k of ["title", "text", "asset", "assetB", "voice", "emotion"] as const) if (rev[k].trim() !== (cur[k] ?? "").trim()) patch[k] = rev[k];
@@ -133,6 +143,7 @@ function changedScene(cur: MotionScene, rev: MotionScene, camera: MotionCamera |
   if (realOf(rev.disclosure) !== realOf(cur.disclosure)) patch.disclosure = rev.disclosure ?? "real";
   if (!Object.keys(patch).length) return null;
   const next: MotionScene = { ...cur, ...patch };
+  if ("world" in patch && patch.world === undefined) delete next.world;
   // The writer's own flag for what it now shows; else the old one, which stops applying once what it shows changed.
   if (rev.beyond) next.beyond = rev.beyond;
   // Hand tweaks stay on the elements the scene still has; another template is another layout.
@@ -158,10 +169,14 @@ export function mergeNote(current: MotionScript, revised: MotionScript, links: N
     const cur = byId.get(from);
     if (!cur || used.has(from)) {
       added.push(rev.id);
-      return rev;
+      // A new scene sits where the writer put it, against the piece's place, which stays the current one.
+      const place = worldOf(rev, revised.world);
+      const own: SceneWorld | undefined = (place ?? "none") === (current.world ?? "none") ? undefined : (place ?? "none");
+      const { world: _w, ...plain } = rev;
+      return own ? { ...plain, world: own } : plain;
     }
     used.add(from);
-    const next = changedScene(cur, rev, links[i]?.camera);
+    const next = changedScene(cur, rev, links[i]?.camera, { cur: current.world, rev: revised.world });
     if (!next) return cur;
     changed.push(cur.id);
     if (next.voice.trim() !== cur.voice.trim()) voiceChanged.push(cur.id);
@@ -171,7 +186,8 @@ export function mergeNote(current: MotionScript, revised: MotionScript, links: N
   const tone = current.tone ?? revised.tone;
   const music = revised.music.mood === current.music.mood && revised.music.bpm === current.music.bpm ? current.music : revised.music;
   return {
-    script: { ...current, ...revised, music, tone, scenes: planCameras(scenes, tone) },
+    // The piece's place stays (a scene the note moves elsewhere carries its own).
+    script: { ...current, ...revised, music, tone, world: current.world, scenes: planCameras(scenes, tone) },
     changed,
     added,
     removed,

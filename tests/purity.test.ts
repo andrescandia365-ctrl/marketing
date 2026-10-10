@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 const DRAWING = [
   "src/lib/motion.ts",
+  "shared/world.ts",
   "src/lib/puppet.ts",
   "src/lib/actor.ts",
   "src/lib/lyricRender.ts",

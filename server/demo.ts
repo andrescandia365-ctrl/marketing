@@ -308,7 +308,7 @@ export function demoMotion(brief: Brief, target: number | null): MotionScript {
         // "Lo que falta aparece arriba" is not on IMAN's "Lo que existe hoy": the sample shows it as a concept, labelled.
         { template: "zoom", seconds: 3.5, title: "Lo que falta", text: "", items: [], asset: screen, focusX: 0.5, focusY: 0.35, zoom: 2.2, entry: "through", voice: "Lo que falta aparece arriba.", emotion: "clara", disclosure: "concept", beyondToday: "La lista de lo que falta arriba de todo" },
         { template: "slots", seconds: 3, title: "Ya sabés qué queda", text: "", items: [], asset: "", voice: "Una menos.", emotion: "segura" },
-        { template: "steps", seconds: 4, title: "Pedí antes del corte", text: "", items: ["Abrí Stock", "Marcá lo que falta", "Mandá el pedido"], asset: "", voice: "Tres pasos y el pedido sale.", emotion: "segura" },
+        { template: "steps", seconds: 4, title: "Pedí antes del corte", text: "", items: ["Abrí Stock", "Marcá lo que falta", "Mandá el pedido"], asset: "", world: "desk", voice: "Tres pasos y el pedido sale.", emotion: "segura" },
         { template: "slots", seconds: 3, title: "Y lo que falta, pedido", text: "", items: [], asset: "", voice: "Y lo que falta, pedido.", emotion: "aliviada" },
         { template: "stat", seconds: 4, title: "3 minutos", text: "para armar el pedido [VERIFY]", items: [], asset: "", voice: "", emotion: "" },
         { template: "logo", seconds: 4, title: series?.name ?? "IMAN", text: series?.tagline ?? "", items: ["Probalo en tu kiosco"], asset: "", voice: "Números claros.", emotion: "cálida" },
@@ -334,6 +334,8 @@ export function demoMotion(brief: Brief, target: number | null): MotionScript {
       problem: shop ? "El frío que entra por abajo de la puerta" : "Armar el pedido antes del corte del proveedor",
       title: shop ? "El burlete en 15 segundos" : "Pedir antes del corte",
       durationNote: "Ejemplo de muestra, sin clave de IA.",
+      // "Un mundo ilustrado": the home for a product, the store for the app (its steps happen at the desk).
+      world: shop ? "home" : "store",
       scenes: withCharacter.map((s) => ({ assetB: "", gesture: "", focusX: 0.5, focusY: 0.5, zoom: 2, ...s, seconds: s.seconds * scale })),
       music: { mood: "drive", bpm: 112 },
       note: "Guion de muestra. Los datos marcados [VERIFY] hay que confirmarlos.",

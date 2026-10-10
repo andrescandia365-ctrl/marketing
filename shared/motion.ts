@@ -4,6 +4,7 @@
 import type { HeardWordTimes } from "./subtitles.ts";
 import { z } from "zod";
 import type { QualityState } from "./motionQuality.ts";
+import { pickWorld, type SceneWorld, type WorldPlace } from "./world.ts";
 
 export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "contradiction", "notify", "flow", "slots", "product", "stat", "logo"] as const;
 export type MotionTemplate = (typeof MOTION_TEMPLATES)[number];
@@ -137,6 +138,10 @@ const SceneWire = z.object({
     .describe(
       "Your own check, in Spanish: if this scene shows or says a feature, screen, result or capability that is not on the series' working-today list, what it is, in a few words; else empty. Fill it even when disclosure is concept or simulation.",
     ),
+  world: z
+    .string()
+    .optional()
+    .describe("The illustrated place behind this scene when it differs from the piece's world: store, street, home, desk, or none (the plain background). Empty: the piece's world."),
 });
 
 export const MotionScriptSchema = z.object({
@@ -144,6 +149,12 @@ export const MotionScriptSchema = z.object({
   title: z.string().describe("A short title for the video, in Spanish."),
   durationNote: z.string().describe("In Spanish: why this length."),
   scenes: z.array(SceneWire),
+  world: z
+    .string()
+    .optional()
+    .describe(
+      "The flat illustrated place the scenes sit in, drawn by the app in the brand's colours: store (shelves, counter, fridge), street (shop fronts, an awning), home (window, sofa, shelf), desk (monitor, desk, notes) or none (the plain background).",
+    ),
   music: z.object({
     mood: z.string().describe("calm, drive or bright."),
     bpm: z.number().describe("Tempo of the synthesized score, 80 to 130."),
@@ -173,9 +184,12 @@ export const MotionNoteSchema = MotionScriptSchema.extend({
 export type Spot = { dx?: number; dy?: number; scale?: number };
 export type Tweak = { at?: number; v?: Spot; h?: Spot };
 
-export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture" | "entry" | "reveal" | "camera" | "disclosure" | "beyondToday"> & {
+export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture" | "entry" | "reveal" | "camera" | "disclosure" | "beyondToday" | "world"> & {
   id: string;
   template: MotionTemplate;
+  // "Un mundo ilustrado": this scene's own place, or "none" (plain) when the piece has one. Older scenes have none:
+  // the piece's (shared/world.ts, worldOf).
+  world?: SceneWorld;
   // CONCEPTO / SIMULACIÓN on the scene (a hard rule: only "Lo que existe hoy" is shown as real). Older scenes have
   // none: real.
   disclosure?: SceneDisclosure;
@@ -200,8 +214,10 @@ export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture"
   // `at` always wins over it.
   onBeat?: Record<string, number>;
 };
-export type MotionScript = Omit<z.infer<typeof MotionScriptSchema>, "scenes" | "music" | "caption"> & {
+export type MotionScript = Omit<z.infer<typeof MotionScriptSchema>, "scenes" | "music" | "caption" | "world"> & {
   scenes: MotionScene[];
+  // The piece's illustrated place (worldOf). Older scripts have none: the plain background.
+  world?: WorldPlace;
   music: { mood: MotionMood; bpm: number };
   // Older saved scripts have neither: no caption, the warm tone.
   caption?: string;
@@ -480,11 +496,21 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?:
   // "Casilleros": only the first slots scene names the boxes; a later one that repeats them would start a new row, so
   // its items go (it fills the next box).
   const namer = wire.scenes.findIndex((s) => pickTemplate(s.template) === "slots" && s.items.some((i) => i.trim()));
+  // "Un mundo ilustrado": the piece's place, and a scene's own only where it differs from it.
+  const { world: wireWorld, ...rest } = wire;
+  const picked = pickWorld(wireWorld);
+  const pieceWorld = picked === "none" ? undefined : picked;
+  const sceneWorld = (value: string | undefined): SceneWorld | undefined => {
+    const v = pickWorld(value);
+    return v === undefined || v === pieceWorld || (v === "none" && !pieceWorld) ? undefined : v;
+  };
   return {
-    ...wire,
+    ...rest,
+    ...(pieceWorld && { world: pieceWorld }),
     scenes: planCameras(
-      wire.scenes.map(({ disclosure, beyondToday, ...s }, i) => withBeyond({
+      wire.scenes.map(({ disclosure, beyondToday, world, ...s }, i) => withBeyond({
         ...s,
+        ...(sceneWorld(world) && { world: sceneWorld(world) }),
         id: sceneId(),
         disclosure: pickDisclosure(disclosure),
         template: pickTemplate(s.template),

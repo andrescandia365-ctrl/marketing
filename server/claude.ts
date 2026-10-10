@@ -49,6 +49,7 @@ import {
 import { LyricPlatesSchema, type LyricPlatesDraft } from "../shared/plates.ts";
 import { LENGTHS } from "../shared/template.ts";
 import { CAST, PRACTICES, WORKS_TODAY, explainerHost } from "../shared/series.ts";
+import { pickWorld, worldLean } from "../shared/world.ts";
 import { momentsForWriter } from "../shared/calendar.ts";
 import { getSeries } from "./series.ts";
 import { askKimi, listChatModels, type ChatTarget, type ListedModel } from "./kimi.ts";
@@ -780,6 +781,7 @@ ${
 - Continuity: when the next scene says more about the same picture (the real screen, then a zoom or labels on it; the product, then its callouts; the host presenting the screen, then the screen), give both scenes the same asset: the app carries that picture across the cut from where it was to where it settles (entry "cut" lets it do so by itself; "match" asks for it). Leave it to the scenes that really continue; a new idea gets its own picture.
 - In beforeAfter, reveal "iris" when the change starts in one spot and spreads (set focusX, focusY on that spot); "wipe" when it is a plain side-by-side.
 - camera, the move inside each scene: hold (still), push (slowly closer), pull (slowly back to the whole), pan (slides across), drift (floats a little). Choose it for what the scene shows and vary it across the piece; never the same move three scenes in a row. Hold on scenes that are mostly words to read (a hook with no picture, type, steps, contradiction, stat, logo) and on zoom, which makes its own move: words never move while they are read. Push in on the product or the real screen. callouts and beforeAfter only hold, push or pull, so their labels stay pinned to the picture. Drift and pan suit a character or a picture.${brief.tone === "dry" ? " This piece is dry: mostly hold, and a slow push on the product or the real screen; no pull, pan or drift." : ""}
+- world, the flat illustrated place the scenes sit in, drawn by the app in tints of the brand's own colours, quiet behind the words: store (shelves, counter, fridge), street (shop fronts, an awning), home (window, sofa, shelf), desk (monitor, desk, notes) or none (the plain background). Pick the place where the problem lives and set it once for the piece${getSeries(brief.series)?.type === "ecommerce" ? "; this series sells products for the home, so lean to home" : "; this series is software for a business, so lean to store (the shop floor) or desk (the back office)"}. Give a scene its own world only when it happens somewhere else (the street outside before the store), or none where the scene needs nothing behind it. The place is a setting, never a claim: it never shows a feature, a number or a word.
 - The last scene is the logo with a soft call to action. Its line calls back to the hook: the same problem, now solved, not a new idea.
 ${brief.narrator === "without" ? "- No narrator: leave every scene's voice and emotion empty. Titles, labels, the typed text and the product in use carry the meaning; keep it readable without a voice.\n" : ""}- Pace for the brief's comic voice (${brief.tone}): ${TONE_PACE[brief.tone]}
 - The product and the logo are the big moments: they land on the music's strongest hits (the app moves their cuts there).
@@ -791,11 +793,10 @@ ${brief.narrator === "without" ? "- No narrator: leave every scene's voice and e
 // studio's rules: hook in 2 s, something new every 2 to 4 s, no stock defaults, one accent, the brand's fonts.
 export async function motionScript(brief: Brief, target: number | null, layers: number): Promise<MotionScript> {
   const { series, host, cast, characters } = explainerCast(brief);
-  const motion = normalizeMotion(
-    await ask(
-      brief,
-      false,
-      `Brief:
+  const wire = await ask(
+    brief,
+    false,
+    `Brief:
 ${describeBrief(brief)}
 
 Write a motion-graphics explainer, not a story: ${series?.type === "ecommerce" ? "this episode's product, what it is and what it fixes at home" : "how the app solves one concrete problem, shown on its real screens"}. ${target ? `It lasts ${target} seconds in total.` : "Choose the length from how much there is to explain (15 to 60 seconds) and say why in durationNote."}
@@ -803,12 +804,14 @@ Write a motion-graphics explainer, not a story: ${series?.type === "ecommerce" ?
 ${castBlock(cast, layers)}
 
 ${explainerRules(brief, host)}`,
-      MotionScriptSchema,
-    ),
-    brief.tone,
+    MotionScriptSchema,
   );
-  // The series' explainer character hosts every character scene, whatever id the writer put there.
-  return { ...motion, scenes: hostScenes(motion.scenes, host?.id, characters, false), tone: brief.tone };
+  const wireWorld = wire.world;
+  const motion = normalizeMotion(wire, brief.tone);
+  // The series' explainer character hosts every character scene, whatever id the writer put there. A writer that gave
+  // no place at all (not even none) gets the one the series leans to.
+  const world = motion.world ?? (pickWorld(wireWorld) === "none" ? undefined : worldLean(series?.type));
+  return { ...motion, ...(world && { world }), scenes: hostScenes(motion.scenes, host?.id, characters, false), tone: brief.tone };
 }
 
 // "Nota del director" for an explainer: the writer returns the whole script with only what the note asks changed,

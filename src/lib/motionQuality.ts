@@ -22,7 +22,8 @@ import {
   type MotionScript,
   type TimedScene,
 } from "../../shared/motion.ts";
-import { CONTRAST_ACCENT, CONTRAST_TEXT, STEP_DOWN_CONTRAST, brandContrast, stepDownContrast, type Brand } from "../../shared/series.ts";
+import { CONTRAST_ACCENT, CONTRAST_TEXT, STEP_DOWN_CONTRAST, brandContrast, contrastRatio, stepDownContrast, type Brand } from "../../shared/series.ts";
+import { WORLD_PLACE_LABEL, worldOf, worldPalette } from "../../shared/world.ts";
 import { OVERLAP, SAFE_BAND_LABEL, overlapShare, safeBands, type SafeBand } from "../../shared/safeZone.ts";
 import { disclosureBox, drawMotionFrame, sceneAt, scriptDuration, subtitleBox, type Box, type MotionWorld } from "./motion.ts";
 
@@ -260,6 +261,19 @@ export function measureFacts(
     lines.push(
       `Brand contrast (WCAG): text on background ${c.text.toFixed(1)}:1 (needs ${CONTRAST_TEXT}:1), accent on background ${c.accent.toFixed(1)}:1 (needs ${CONTRAST_ACCENT}:1 for big words and numbers).`,
     );
+    // "Un mundo ilustrado": the place behind the scenes is the setting, on purpose; say what it keeps.
+    const placed = timed.flatMap((s) => {
+      const place = worldOf(s, script.world);
+      return place ? [`scene ${s.index + 1} ${place} (${WORLD_PLACE_LABEL[place]})`] : [];
+    });
+    if (placed.length) {
+      const p = worldPalette(brand);
+      const tones = [p.wall, p.far, p.mid, p.near, p.detail];
+      const least = (colour: string) => Math.min(...tones.map((t) => contrastRatio(colour, t)));
+      lines.push(
+        `Illustrated world, on purpose (${placed.join(", ")}): flat shapes of a place in tints of the brand's background, moving with the camera by depth; every tone keeps text ${least(brand.text).toFixed(1)}:1 and accent ${least(brand.accent).toFixed(1)}:1, and small details are left out wherever words sit. It is the setting, not filler or a fault; judge it only if it makes a word hard to read.`,
+      );
+    }
     // "Foco de a uno": earlier labels are dimmer on the sheet on purpose; say how far, so it is not read as a fault.
     const focused = timed.filter((s) => STEP_DOWN_OVER[s.template] !== undefined && itemsOf(s).filter((i) => i.trim()).length > 1);
     if (focused.length) {
