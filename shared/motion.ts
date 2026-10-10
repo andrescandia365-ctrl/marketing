@@ -61,6 +61,27 @@ export function pickGesture(value: string | undefined): MotionGesture {
   return "present";
 }
 
+// "Personaje de los explicativos": the series' host takes the character scenes. `characters` are the cast's
+// character ids; with `keepOthers` (the studio) a scene that already has another character keeps it, without it (the
+// writer) every character scene is the host's, so it is the same one in every piece. What was in `asset` when it is
+// not a character (a screen, the product) becomes what the host presents, unless the scene already presents
+// something. No host: the scenes as they are.
+export function hostScenes<S extends { template: string; asset: string; assetB?: string }>(
+  scenes: S[],
+  host: string | null | undefined,
+  characters: readonly string[],
+  keepOthers: boolean,
+): S[] {
+  if (!host) return scenes;
+  return scenes.map((s) => {
+    if (s.template !== "character" || s.asset === host) return s;
+    const isCharacter = characters.includes(s.asset);
+    if (isCharacter && keepOthers) return s;
+    const shown = s.assetB || (s.asset && !isCharacter ? s.asset : "");
+    return { ...s, asset: host, assetB: shown === host ? "" : shown };
+  });
+}
+
 export const MOTION_MOODS = ["calm", "drive", "bright"] as const;
 export type MotionMood = (typeof MOTION_MOODS)[number];
 export const MOTION_MOOD_LABEL: Record<MotionMood, string> = { calm: "Tranquila", drive: "Con empuje", bright: "Alegre" };

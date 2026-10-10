@@ -2,6 +2,7 @@
 // IMAN short and do not change with what the person types; revisions in sample mode return them unchanged.
 import type { MotionReview } from "../shared/motionQuality.ts";
 import { normalizeMotion, type MotionScript } from "../shared/motion.ts";
+import { explainerHost } from "../shared/series.ts";
 import type { Board, Brief, HookVariant, Menu, Story } from "../shared/schema.ts";
 import { getSeries } from "./series.ts";
 
@@ -305,8 +306,12 @@ export function demoMotion(brief: Brief, target: number | null): MotionScript {
         { template: "stat", seconds: 4, title: "3 minutos", text: "para armar el pedido [VERIFY]", items: [], asset: "", voice: "", emotion: "" },
         { template: "logo", seconds: 4, title: series?.name ?? "IMAN", text: series?.tagline ?? "", items: ["Probalo en tu kiosco"], asset: "", voice: "Números claros.", emotion: "cálida" },
       ];
-  // A character with a 3D puppet (or at least an image) presents what comes next, right after the hook.
-  const host = cast.find((m) => m.kind === "character" && m.puppet.layers.length) ?? cast.find((m) => m.kind === "character" && m.image);
+  // The series' explainer character (or else a character with a 3D puppet, or at least an image) presents what comes
+  // next, right after the hook.
+  const host =
+    (series ? explainerHost(series) : null) ??
+    cast.find((m) => m.kind === "character" && m.puppet.layers.length) ??
+    cast.find((m) => m.kind === "character" && m.image);
   const withCharacter = host
     ? [
         scenes[0],

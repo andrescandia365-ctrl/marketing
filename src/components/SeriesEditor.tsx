@@ -22,6 +22,8 @@ import {
   stepDownContrast,
   type BrandMotion,
   castRef,
+  drawableCharacter,
+  EXPLAINER_CHARACTER,
   type CastKind,
   type CastMember,
   type SeriesFields,
@@ -1129,6 +1131,37 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
                 </Button>
               </div>
               {!id && <p className="text-xs text-muted">Las imágenes se suben después de guardar la serie.</p>}
+              {(() => {
+                const hosts = fields.cast.filter(drawableCharacter);
+                const current = fields.cast.find((m) => m.id === fields.explainerCharacter);
+                return (
+                  <label className="block text-xs">
+                    <span className="font-semibold">{EXPLAINER_CHARACTER}</span>
+                    <select
+                      className={`${inputClass} mt-0.5 py-1`}
+                      value={fields.explainerCharacter}
+                      onChange={(e) => set("explainerCharacter", e.target.value)}
+                      disabled={!hosts.length && !fields.explainerCharacter}
+                    >
+                      <option value="">Ninguno fijo: la IA elige en cada pieza</option>
+                      {hosts.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                          {m.rig?.file ? " (camina)" : m.puppet.layers.length ? " (títere 3D)" : " (imagen)"}
+                        </option>
+                      ))}
+                      {fields.explainerCharacter && !hosts.some((m) => m.id === fields.explainerCharacter) && (
+                        <option value={fields.explainerCharacter}>{current ? `${current.name} (sin imagen ni títere)` : "Ya no está en el elenco"}</option>
+                      )}
+                    </select>
+                    <span className="mt-0.5 block text-muted">
+                      {hosts.length
+                        ? "El mismo personaje presenta en todos los explicativos de la serie, así la gente lo reconoce."
+                        : "Subí la imagen o el títere de un personaje para elegirlo acá."}
+                    </span>
+                  </label>
+                );
+              })()}
             </div>
           </Field>
         </>

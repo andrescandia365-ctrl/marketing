@@ -51,7 +51,9 @@ import {
   voiceFitSeconds,
   voiceOverrun,
   SCENE_SECONDS,
+  hostScenes,
 } from "../../shared/motion.ts";
+import { explainerHost } from "../../shared/series.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { applyFixes, describeScenes, MAX_ROUNDS, passes, qualityKey, type QualityRound, type QualityState } from "../../shared/motionQuality.ts";
 import { api, projectFileUrl, type FinalJob, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
@@ -201,6 +203,9 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [sheets, setSheets] = useState<{ format: string; url: string }[]>([]);
   const [finalJob, setFinalJob] = useState<FinalJob | null>(null);
   const brand = series.brand;
+  // "Personaje de los explicativos": the character a scene gets when it becomes a character scene (none: as before).
+  const host = explainerHost(series)?.id ?? null;
+  const castCharacters = useMemo(() => series.cast.filter((m) => m.kind === "character").map((m) => m.id), [series.cast]);
   const script = piece.script;
   const scriptRef = useRef(script);
   scriptRef.current = script;
@@ -788,7 +793,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           applied = fixed.applied;
           if (applied.length) {
             remember(`quality-${Date.now()}`);
-            working = fixed.script;
+            // A scene the reviewer turned into a character scene gets the series' character.
+            working = { ...fixed.script, scenes: hostScenes(fixed.script.scenes, host, castCharacters, true) };
             const next = working;
             setPiece((p) => ({ ...p, script: next }));
           }
@@ -1568,7 +1574,17 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                     >
                       {s.index + 1} · {s.start.toFixed(1)}–{s.end.toFixed(1)} s
                     </button>
-                    <select className={`${smallInput} py-1 text-xs`} value={raw.template} aria-label="Plantilla" onChange={(e) => updateScene(s.id, { template: e.target.value as MotionScene["template"] })}>
+                    <select
+                      className={`${smallInput} py-1 text-xs`}
+                      value={raw.template}
+                      aria-label="Plantilla"
+                      onChange={(e) => {
+                        // A new character scene gets the series' explainer character.
+                        const template = e.target.value as MotionScene["template"];
+                        const [hosted] = hostScenes([{ ...raw, template }], host, castCharacters, true);
+                        updateScene(s.id, hosted.asset === raw.asset ? { template } : { template, asset: hosted.asset, assetB: hosted.assetB });
+                      }}
+                    >
                       {MOTION_TEMPLATES.map((t) => (
                         <option key={t} value={t}>
                           {MOTION_TEMPLATE_LABEL[t]}

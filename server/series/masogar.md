@@ -4,6 +4,7 @@ Frase: porque el hogar es un sentimiento
 Tipo: E-commerce (un producto distinto en cada episodio)
 Estilo de texto: {"subtitleSize":100,"headlineSize":100,"textColor":"#ffffff","headlineColor":"#ffffff","backing":"shadow","backingColor":"#000000"}
 Marca (logo, colores y fuentes para motion graphics): {"bg":"#111418","text":"#f4f1ea","accent":"#00bd74","displayFont":"Space Grotesk","uiFont":"IBM Plex Sans","logo":""}
+Personaje de los explicativos: mara (Mara)
 
 ## Qué es
 Una tienda para el hogar que vende MUCHOS productos para la casa. Cada episodio presenta un producto ("el producto X"), que cambia de episodio a episodio.

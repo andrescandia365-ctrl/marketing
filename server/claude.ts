@@ -33,7 +33,7 @@ import {
 } from "../shared/schema.ts";
 import { EMPTY_BRIEF } from "../shared/example.ts";
 import type { SiteFacts } from "./brandWeb.ts";
-import { MotionScriptSchema, READ_LETTERS_PER_SECOND, normalizeMotion, readingNeed, type MotionScript } from "../shared/motion.ts";
+import { MotionScriptSchema, READ_LETTERS_PER_SECOND, hostScenes, normalizeMotion, readingNeed, type MotionScript } from "../shared/motion.ts";
 import { MotionReviewSchema, normalizeReview, type MotionReview } from "../shared/motionQuality.ts";
 import {
   BackgroundPromptsSchema,
@@ -47,7 +47,7 @@ import {
 } from "../shared/lyrics.ts";
 import { LyricPlatesSchema, type LyricPlatesDraft } from "../shared/plates.ts";
 import { LENGTHS } from "../shared/template.ts";
-import { CAST, PRACTICES, WORKS_TODAY } from "../shared/series.ts";
+import { CAST, PRACTICES, WORKS_TODAY, explainerHost } from "../shared/series.ts";
 import { momentsForWriter } from "../shared/calendar.ts";
 import { getSeries } from "./series.ts";
 import { askKimi, listChatModels, type ChatTarget, type ListedModel } from "./kimi.ts";
@@ -738,8 +738,9 @@ The views: each panel as a separate standalone prompt with the full description.
 // studio's rules: hook in 2 s, something new every 2 to 4 s, no stock defaults, one accent, the brand's fonts.
 export async function motionScript(brief: Brief, target: number | null, layers: number): Promise<MotionScript> {
   const series = getSeries(brief.series);
+  const host = series ? explainerHost(series) : null;
   const cast = (series?.cast ?? [])
-    .map((m) => `- ${m.id} (${m.kind}${m.image ? ", has image" : ", no image yet"}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}): ${m.name}. ${m.identity}`)
+    .map((m) => `- ${m.id} (${m.kind}${m.image ? ", has image" : ", no image yet"}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}${m.id === host?.id ? ", the series' explainer character" : ""}): ${m.name}. ${m.identity}`)
     .join("\n");
   const motion = normalizeMotion(
     await ask(
@@ -764,7 +765,11 @@ The studio's rules:
 - Only what the series lists as working today is shown as real; never invent a feature, a price or a number (leave items empty and note it).
 - Grade every scene against that list: in beyondToday say, in a few Spanish words, anything it shows or says that is not on it (a roadmap feature, a screen that does not exist, a result the product does not give today), else leave it empty. Real cast screens and the cast product shown as they are count as real. A scene that does show something beyond today sets disclosure concept (an idea: how it could look) or simulation (a mock run of something not live), and the app labels it CONCEPTO or SIMULACIÓN on screen; every other scene is real. Lead with what works today; a concept, if any, comes after it and never as the payoff.
 - Voice lines in Rioplatense Spanish, each with its emotion, fitting its scene at about 2.5 words per second.
-- A character from the cast (a 3D puppet, or one with an image) can host with the character template: it says its scene's voice line (its mouth moves), makes one gesture (presenta, saluda, señala, festeja, se sorprende) and can point at or present a real screen or the product (assetB). Use it once or twice, to guide, never to replace showing the product.
+${
+  host
+    ? `- The series has a fixed explainer character: ${host.id}, ${host.name}${host.note ? ` (${host.note})` : ""}. It is the same host in every explainer of the series, so the audience knows it. Every character scene uses it (asset ${host.id}), never another character. Bring it back at least once in this piece where a character scene fits (to present the product or point at the real screen), and at most twice: it guides, it never replaces showing the product. With the character template it says its scene's voice line (its mouth moves), makes one gesture (presenta, saluda, señala, festeja, se sorprende) and can point at or present a real screen or the product (assetB). Its voice lines sound like the same person every time.`
+    : "- A character from the cast (a 3D puppet, or one with an image) can host with the character template: it says its scene's voice line (its mouth moves), makes one gesture (presenta, saluda, señala, festeja, se sorprende) and can point at or present a real screen or the product (assetB). Use it once or twice, to guide, never to replace showing the product."
+}
 - The Contradiction (contradiction template), when the pain is a mismatch people already live with: items[0] what the system, the label or the habit says, items[1] what really happens; the first gets struck through. Build it only on the series' "Cómo se trabaja hoy" list and the brief, never on an invented habit, and with real numbers only.
 - Travel between scales when it helps the idea: from the whole to the detail (the shelf, the product on it, its expiry date) or back out to the whole. Make that move with entry "through" on the scene that opens inside the previous one (the camera dives into its main thing), once or twice per piece, never on every cut.
 - In beforeAfter, reveal "iris" when the change starts in one spot and spreads (set focusX, focusY on that spot); "wipe" when it is a plain side-by-side.
@@ -778,7 +783,9 @@ ${brief.narrator === "without" ? "- No narrator: leave every scene's voice and e
     ),
     brief.tone,
   );
-  return { ...motion, tone: brief.tone };
+  // The series' explainer character hosts every character scene, whatever id the writer put there.
+  const characters = (series?.cast ?? []).filter((m) => m.kind === "character").map((m) => m.id);
+  return { ...motion, scenes: hostScenes(motion.scenes, host?.id, characters, false), tone: brief.tone };
 }
 
 // "Traer la marca desde su web": the writer reads what the page uses and says, and proposes the brand kit.

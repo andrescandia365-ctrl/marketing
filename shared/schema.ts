@@ -485,6 +485,8 @@ export type SeriesInfo = {
   cast: CastMember[];
   // "Momentos del calendario": "cuándo: qué pasa", one per line (shared/calendar.ts).
   moments: string[];
+  // "Personaje de los explicativos": the cast id of the explainers' host ("" or missing: none).
+  explainerCharacter?: string;
 };
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };
 

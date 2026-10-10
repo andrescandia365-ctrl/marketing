@@ -46,6 +46,7 @@ function toSeries(id: string, text: string): Series {
     brand: f.brand,
     cast: f.cast,
     moments: f.moments,
+    explainerCharacter: f.explainerCharacter,
     text,
   };
 }
@@ -109,7 +110,9 @@ function keepPuppet(old: CastMember | undefined, next: CastMember): CastMember["
 // The series as the app saves it from "Editar serie", with each character's puppet kept.
 export function saveSeriesFromApp(id: string, fields: SeriesFields) {
   const old = getSeriesFields(id).cast;
-  saveSeries(id, { ...fields, cast: fields.cast.map((m) => ({ ...m, puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m) })) });
+  // An explainer character who left the cast is no longer the series' host.
+  const host = fields.cast.some((m) => m.id === fields.explainerCharacter && m.kind === "character") ? fields.explainerCharacter : "";
+  saveSeries(id, { ...fields, explainerCharacter: host, cast: fields.cast.map((m) => ({ ...m, puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m) })) });
 }
 
 // Adds a cast member to the series, or replaces the one with the same id (keeping its image if none is given).

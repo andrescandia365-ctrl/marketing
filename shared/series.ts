@@ -336,6 +336,9 @@ export const SeriesFieldsSchema = z.object({
   look: SeriesLookSchema,
   brand: BrandSchema,
   cast: z.array(CastMemberSchema).max(60),
+  // "Personaje de los explicativos": the cast id of the character who hosts every explainer ("": none, the writer
+  // and the studio pick as before).
+  explainerCharacter: z.string().max(40).default(""),
 });
 export type SeriesFields = z.infer<typeof SeriesFieldsSchema>;
 
@@ -359,6 +362,7 @@ export const EMPTY_SERIES: SeriesFields = {
   look: EMPTY_LOOK,
   brand: DEFAULT_BRAND,
   cast: [],
+  explainerCharacter: "",
 };
 
 // The heading each field is written under. The writer is told that the WORKS_TODAY list is the only thing
@@ -368,6 +372,18 @@ export const PRACTICES = "Cómo se trabaja hoy";
 export const LOOP = "El loop de la serie";
 export const CAST = "Elenco fijo";
 export const MOMENTS = "Momentos del calendario";
+export const EXPLAINER_CHARACTER = "Personaje de los explicativos";
+
+// A cast character the explainers can draw: a puppet, an image (a puppet of one piece) or a rigged GLB.
+export const drawableCharacter = (m: CastMember) => m.kind === "character" && Boolean(m.image || m.puppet?.layers.length || m.rig?.file);
+
+// The series' explainer character, when it is set and still a drawable character of its cast.
+export function explainerHost(series: { cast: CastMember[]; explainerCharacter?: string }): CastMember | null {
+  const id = series.explainerCharacter?.trim();
+  if (!id) return null;
+  const m = series.cast.find((x) => x.id === id);
+  return m && drawableCharacter(m) ? m : null;
+}
 const LISTS = ["worksToday", "practices", "loop", "moments"] as const;
 type ListKey = (typeof LISTS)[number];
 const isList = (key: string): key is ListKey => (LISTS as readonly string[]).includes(key);
@@ -384,6 +400,14 @@ const SECTIONS = [
   ["audience", "Quién mira"],
 ] as const;
 
+// The id first (what the app reads back), then the name for whoever reads the bible.
+function explainerLine(f: SeriesFields): string[] {
+  const id = f.explainerCharacter.trim();
+  if (!id) return [];
+  const name = f.cast.find((m) => m.id === id)?.name;
+  return [`${EXPLAINER_CHARACTER}: ${id}${name ? ` (${name})` : ""}`];
+}
+
 export function seriesToMarkdown(f: SeriesFields): string {
   const parts = [
     `# ${f.name.trim()}`,
@@ -394,6 +418,7 @@ export function seriesToMarkdown(f: SeriesFields): string {
     ...(f.type === "music" ? [`Estilo de letra: ${JSON.stringify(f.lyricStyle)}`] : []),
     ...(hasLook(f.look) ? [`Look (cámara y defectos, en todos los prompts): ${JSON.stringify(f.look)}`] : []),
     `Marca (logo, colores y fuentes para motion graphics): ${JSON.stringify(f.brand)}`,
+    ...explainerLine(f),
   ];
   for (const [key, heading] of SECTIONS) {
     const body = isList(key) ? f[key].map((w) => `- ${w}`).join("\n") : f[key].trim();
@@ -460,6 +485,9 @@ export function markdownToSeries(text: string, fallbackName: string): SeriesFiel
       // A hand-edited line that is not JSON keeps the default style.
     }
   }
+
+  // Only the id is read back; the name in brackets is for people.
+  fields.explainerCharacter = text.match(new RegExp(`^${EXPLAINER_CHARACTER}:[ \\t]*([a-z0-9-]{1,40})`, "im"))?.[1].toLowerCase() ?? "";
 
   const other: string[] = [];
   const chunks = text.split(/^## /m).slice(1);
