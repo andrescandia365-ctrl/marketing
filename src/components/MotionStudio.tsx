@@ -331,7 +331,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const gaps = quietGaps(scenes, push);
   const key = (g: { from: number; to: number }) => `${g.from.toFixed(1)}-${g.to.toFixed(1)}`;
   const openGaps = gaps.filter((g) => !piece.dismissed.includes(key(g)));
-  // Lines on screen too briefly to read (about 0.3 s per word once fully in).
+  // Lines on screen too briefly to read (about 0.3 s per word once fully in, more when the words are long).
   const openReading = readingIssues(scenes, push).filter((r) => !(piece.readingOk ?? []).includes(readingKey(r)));
   // Numbers on screen without a source in "Lo que existe hoy" or the brief, and "[VERIFY]" left on screen.
   const figureSources = useMemo(

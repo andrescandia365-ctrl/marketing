@@ -524,11 +524,21 @@ function shownText(scene: MotionScene, key: string): string {
   return "";
 }
 
+// Reading speed for short on-screen text, in letters and digits per second (spaces and punctuation are free).
+// 15 a second is 0.3 s per word for words of 4.5 letters, about the average of running Spanish with its short "de",
+// "el", "que", so ordinary lines keep the word rule; it is close to the ~17 characters a second, spaces included,
+// that subtitle guides allow adults. A rule of thumb [NOT SURE], not measured on our pieces.
+export const READ_LETTERS_PER_SECOND = 15;
+
 // Reading time: a line to read stays fully on screen and still about 0.3 s per word (a sentence at least 1.2 s,
-// a 1-3 word label 0.8 s), counted from when the whole line is in. The voice's subtitle is on all through its scene.
+// a 1-3 word label 0.8 s), counted from when the whole line is in, and never less than its letters take: Spanish
+// words run long, and "Planificación automatizada" (2 words, 25 letters) needs 1.7 s where "Se lava" keeps 0.8 s.
+// The letters' time is rounded to the tenth, as the studio shows it. The voice's subtitle is on all through its scene.
 export function readingNeed(text: string): number {
   const n = text.split(/\s+/).filter(Boolean).length;
-  return n <= 3 ? 0.8 : Math.max(1.2, 0.3 * n);
+  const byWords = n <= 3 ? 0.8 : Math.max(1.2, 0.3 * n);
+  const letters = text.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
+  return Math.max(byWords, Math.round((letters / READ_LETTERS_PER_SECOND) * 10) / 10);
 }
 
 export type ReadingIssue = { sceneId: string; index: number; key: string; label: string; text: string; needs: number; has: number };

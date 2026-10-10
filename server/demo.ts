@@ -301,8 +301,8 @@ export function demoMotion(brief: Brief, target: number | null): MotionScript {
         { template: "type", seconds: 4.5, title: "yerba 1 kg", text: "Quedan 3: pedila antes del corte.", items: ["Buscar producto", "Buscar"], asset: "", voice: "Buscás la yerba y ves cuántas quedan.", emotion: "clara" },
         { template: "zoom", seconds: 3.5, title: "Lo que falta", text: "", items: [], asset: screen, focusX: 0.5, focusY: 0.35, zoom: 2.2, entry: "through", voice: "Lo que falta aparece arriba.", emotion: "clara" },
         { template: "steps", seconds: 4, title: "Pedí antes del corte", text: "", items: ["Abrí Stock", "Marcá lo que falta", "Mandá el pedido"], asset: "", voice: "Tres pasos y el pedido sale.", emotion: "segura" },
-        { template: "stat", seconds: 3.5, title: "3 minutos", text: "para armar el pedido [VERIFY]", items: [], asset: "", voice: "", emotion: "" },
-        { template: "logo", seconds: 3, title: series?.name ?? "IMAN", text: series?.tagline ?? "", items: ["Probalo en tu kiosco"], asset: "", voice: "Números claros.", emotion: "cálida" },
+        { template: "stat", seconds: 4, title: "3 minutos", text: "para armar el pedido [VERIFY]", items: [], asset: "", voice: "", emotion: "" },
+        { template: "logo", seconds: 4, title: series?.name ?? "IMAN", text: series?.tagline ?? "", items: ["Probalo en tu kiosco"], asset: "", voice: "Números claros.", emotion: "cálida" },
       ];
   // A character with a 3D puppet (or at least an image) presents what comes next, right after the hook.
   const host = cast.find((m) => m.kind === "character" && m.puppet.layers.length) ?? cast.find((m) => m.kind === "character" && m.image);
