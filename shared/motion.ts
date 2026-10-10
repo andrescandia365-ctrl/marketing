@@ -584,6 +584,34 @@ export function elementTimes(scene: MotionScene): Record<string, number> {
   return Object.fromEntries(sceneElements(scene).map((e) => [e.key, e.at]));
 }
 
+// "Foco de a uno": in a set of labels that arrive one after another, only the newest is at full strength. How far
+// element i has stepped down at time lt (0: full strength, 1: all the way down), given when each element of the set
+// arrives (`times`, in any order: a hand-set time can put a later label first). It steps down while the next one to
+// arrive after it comes in (`over`, that one's entrance), eased, and stays down. Elements that arrive together share
+// the focus; one that never arrives (Infinity) takes it from nobody. Pure, so any template can use it.
+export function stepDownShare(times: number[], i: number, lt: number, over: number): number {
+  const own = times[i];
+  if (own === undefined || !Number.isFinite(own)) return 0;
+  const next = times.reduce((best, t) => (t > own + 1e-6 && t < best ? t : best), Infinity);
+  if (!Number.isFinite(next) || lt < next) return 0;
+  const x = over > 0 ? Math.min(1, (lt - next) / over) : 1;
+  return x * x * (3 - 2 * x);
+}
+
+// The templates whose labels take turns at full strength, and how long the step down takes (the newcomer's entrance).
+export const STEP_DOWN_OVER: Partial<Record<MotionTemplate, number>> = { callouts: 0.45, steps: 0.5 };
+
+// stepDownShare for one of a scene's labels or steps (`item0`, `item1`…) at scene time lt; 0 for anything else. An
+// empty label never takes the focus. The renderer and the contact sheet read the same value.
+export function focusShare(scene: MotionScene, key: string, lt: number): number {
+  const over = STEP_DOWN_OVER[scene.template];
+  const m = /^item(\d+)$/.exec(key);
+  if (over === undefined || !m) return 0;
+  const T = elementTimes(scene);
+  const times = scene.items.map((item, k) => (item.trim() && `item${k}` in T ? T[`item${k}`] : Infinity));
+  return stepDownShare(times, Number(m[1]), lt, over);
+}
+
 // How far a scene's voice runs past the scene's end, in seconds (0 or less: it fits). The line starts at the voice mark.
 // What runs past is faded out at the scene's end in the mix, so it never talks over the next scene.
 export function voiceOverrun(scene: MotionScene, voiceSeconds: number): number {

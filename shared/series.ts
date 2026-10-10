@@ -131,6 +131,46 @@ export function brandContrast(brand: Pick<Brand, "bg" | "text" | "accent">): { t
   return { text, accent, problems };
 }
 
+// "Foco de a uno" (explainer labels and steps): an earlier label steps down by mixing toward the background, as far as
+// the 60 % the steps always had (STEP_DOWN), but never under STEP_DOWN_CONTRAST against the background (WCAG's
+// minimum for large text: it is context, not hidden). A colour already under that floor does not step down at all.
+export const STEP_DOWN = 0.4;
+export const STEP_DOWN_CONTRAST = 3;
+
+// `a` mixed toward `b` by k (0: a, 1: b), channel by channel as canvas alpha blends; #rrggbb in and out.
+export function mixHex(a: string, b: string, k: number): string {
+  const v = Math.min(1, Math.max(0, Number.isFinite(k) ? k : 0));
+  const ch = (hex: string, i: number) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  const out = [0, 1, 2].map((i) => Math.round(ch(a, i) + (ch(b, i) - ch(a, i)) * v));
+  if (out.some((n) => !Number.isFinite(n))) return a;
+  return `#${out.map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+}
+
+// How far `colour` may mix toward `bg` (0 to STEP_DOWN) with every step on the way keeping STEP_DOWN_CONTRAST.
+export function stepDownMix(colour: string, bg: string): number {
+  const steps = 20;
+  let k = 0;
+  for (let n = 1; n <= steps; n++) {
+    const next = (STEP_DOWN * n) / steps;
+    if (contrastRatio(mixHex(colour, bg, next), bg) < STEP_DOWN_CONTRAST) break;
+    k = next;
+  }
+  return k;
+}
+
+// The colour of an element `share` of the way stepped down (stepDownShare): full strength at 0.
+export function stepDownColour(colour: string, bg: string, share: number): string {
+  return share > 0 ? mixHex(colour, bg, stepDownMix(colour, bg) * Math.min(1, share)) : colour;
+}
+
+// What a label all the way stepped down keeps against the background, for the brand kit and the reviewer.
+export function stepDownContrast(brand: Pick<Brand, "bg" | "text" | "accent">): { text: number; accent: number } {
+  return {
+    text: contrastRatio(stepDownColour(brand.text, brand.bg, 1), brand.bg),
+    accent: contrastRatio(stepDownColour(brand.accent, brand.bg, 1), brand.bg),
+  };
+}
+
 // The two jobs of the playbook, plus lyric videos. Software: features that exist today, the product's loop, real
 // screens. E-commerce: a different product in every episode. Music: lyric videos, with no story.
 export const SERIES_TYPES = ["software", "ecommerce", "music"] as const;

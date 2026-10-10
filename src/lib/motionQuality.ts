@@ -1,8 +1,20 @@
 // The quality loop's eyes: the contact sheet (one frame per beat, at phone-thumbnail size, with the second under
 // each frame) and the facts the app measures itself (cuts and entrances against the beats, still stretches, the
 // hook's timing, voices that run over, elements off the frame), so the reviewer never has to guess them.
-import { READ_LETTERS_PER_SECOND, cutPush, pushOf, quietGaps, readingIssues, sceneElements, settledAt, timeScenes, type MotionScript } from "../../shared/motion.ts";
-import { CONTRAST_ACCENT, CONTRAST_TEXT, brandContrast, type Brand } from "../../shared/series.ts";
+import {
+  READ_LETTERS_PER_SECOND,
+  STEP_DOWN_OVER,
+  cutPush,
+  focusShare,
+  pushOf,
+  quietGaps,
+  readingIssues,
+  sceneElements,
+  settledAt,
+  timeScenes,
+  type MotionScript,
+} from "../../shared/motion.ts";
+import { CONTRAST_ACCENT, CONTRAST_TEXT, STEP_DOWN_CONTRAST, brandContrast, stepDownContrast, type Brand } from "../../shared/series.ts";
 import { OVERLAP, SAFE_BAND_LABEL, overlapShare, safeBands, type SafeBand } from "../../shared/safeZone.ts";
 import { drawMotionFrame, sceneAt, scriptDuration, subtitleBox, type Box, type MotionWorld } from "./motion.ts";
 
@@ -10,8 +22,9 @@ export type SheetFormat = "vertical" | "horizontal";
 export type Outside = { t: number; scene: number; key: string; format: SheetFormat };
 // Text under a phone's top bar, caption or buttons (9:16 only).
 export type Zoned = { t: number; scene: number; key: string; bands: SafeBand[] };
-// Two settled lines of text on top of each other ("subtitle" is the voice's subtitle).
-export type Overlap = { t: number; scene: number; a: string; b: string; format: SheetFormat };
+// Two settled lines of text on top of each other ("subtitle" is the voice's subtitle). `down`: which of the two is an
+// earlier label stepped down for the newest ("Foco de a uno"): still text on screen, so still an overlap.
+export type Overlap = { t: number; scene: number; a: string; b: string; format: SheetFormat; down?: string[] };
 
 // The elements that carry words to read.
 const isText = (key: string) => key === "title" || key === "text" || key === "tag" || key === "subtitle" || /^item\d+$/.test(key);
@@ -95,9 +108,12 @@ export function contactSheet(
         const bands = safeBands(box, cw, ch);
         if (bands.length) zoned.push({ t, scene: scene.index + 1, key, bands });
       }
+      const stepped = (key: string) => focusShare(scene, key, t - scene.start) > 0;
       texts.forEach((a, i) =>
         texts.slice(i + 1).forEach((b) => {
-          if (overlapShare(a.box, b.box) > OVERLAP) overlaps.push({ t, scene: scene.index + 1, a: a.key, b: b.key, format });
+          if (overlapShare(a.box, b.box) <= OVERLAP) return;
+          const down = [a.key, b.key].filter(stepped);
+          overlaps.push({ t, scene: scene.index + 1, a: a.key, b: b.key, format, ...(down.length && { down }) });
         }),
       );
     }
@@ -184,7 +200,14 @@ export function measureFacts(
   const covered = [...new Map(overlaps.map((o) => [`${o.scene}:${o.a}:${o.b}:${o.format}`, o])).values()];
   lines.push(
     `Settled text on top of other text: ${
-      covered.length ? covered.map((o) => `scene ${o.scene} ${o.a} over ${o.b} (${o.format === "vertical" ? "9:16" : "16:9"}, at ${o.t.toFixed(2)} s)`).join("; ") : "none"
+      covered.length
+        ? covered
+            .map((o) => {
+              const name = (key: string) => (o.down?.includes(key) ? `${key} (stepped down)` : key);
+              return `scene ${o.scene} ${name(o.a)} over ${name(o.b)} (${o.format === "vertical" ? "9:16" : "16:9"}, at ${o.t.toFixed(2)} s)`;
+            })
+            .join("; ")
+        : "none"
     }.`,
   );
   if (brand?.motion && brand.motion !== "even")
@@ -196,6 +219,14 @@ export function measureFacts(
     lines.push(
       `Brand contrast (WCAG): text on background ${c.text.toFixed(1)}:1 (needs ${CONTRAST_TEXT}:1), accent on background ${c.accent.toFixed(1)}:1 (needs ${CONTRAST_ACCENT}:1 for big words and numbers).`,
     );
+    // "Foco de a uno": earlier labels are dimmer on the sheet on purpose; say how far, so it is not read as a fault.
+    const focused = timed.filter((s) => STEP_DOWN_OVER[s.template] !== undefined && s.items.filter((i) => i.trim()).length > 1);
+    if (focused.length) {
+      const d = stepDownContrast(brand);
+      lines.push(
+        `Focus one at a time (${focused.map((s) => `scene ${s.index + 1} ${s.template}`).join(", ")}): when a new label or step enters, the earlier ones step down toward the background during its entrance and stay as readable context, on purpose: text ${d.text.toFixed(1)}:1 and accent ${d.accent.toFixed(1)}:1 on the background once down (a step down never goes under ${STEP_DOWN_CONTRAST}:1, WCAG large text, and a colour already under it does not step down); the newest keeps the brand's full contrast. A dimmer earlier label is not a contrast fault or a fade-out.`,
+      );
+    }
   }
   const reading = readingIssues(script.scenes, push);
   lines.push(

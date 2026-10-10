@@ -19,6 +19,7 @@ import {
   BRAND_MOTIONS,
   BRAND_MOTION_LABEL,
   brandContrast,
+  stepDownContrast,
   type BrandMotion,
   castRef,
   type CastKind,
@@ -740,6 +741,7 @@ function BrandSection({
           </div>
           {(() => {
             const contrast = brandContrast(brand);
+            const down = stepDownContrast(brand);
             return contrast.problems.length ? (
               <ul className="space-y-0.5 text-xs text-neg">
                 {contrast.problems.map((p) => (
@@ -748,7 +750,8 @@ function BrandSection({
               </ul>
             ) : (
               <p className="text-xs text-good">
-                ✓ Contraste: texto {contrast.text.toFixed(1).replace(".", ",")}:1 y acento {contrast.accent.toFixed(1).replace(".", ",")}:1 sobre el fondo.
+                ✓ Contraste: texto {contrast.text.toFixed(1).replace(".", ",")}:1 y acento {contrast.accent.toFixed(1).replace(".", ",")}:1 sobre el fondo. En los
+                rótulos y pasos de los explicativos, los que ya pasaron bajan a {down.text.toFixed(1).replace(".", ",")}:1 y se siguen leyendo.
               </p>
             );
           })()}

@@ -10,6 +10,7 @@ import {
   cameraAt,
   cutPush,
   elementTimes,
+  focusShare,
   pushOf,
   statCountText,
   timeScenes,
@@ -21,7 +22,7 @@ import {
   type TimedScene,
 } from "../../shared/motion.ts";
 import { BUTTONS_FROM, PHONE_SAFE, isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
-import type { Brand, BrandMotion } from "../../shared/series.ts";
+import { stepDownColour, type Brand, type BrandMotion } from "../../shared/series.ts";
 
 // screen: a real screenshot of the app (shown inside a phone or laptop).
 export type MotionAsset = { image: CanvasImageSource; width: number; height: number; name: string; screen?: boolean };
@@ -143,6 +144,15 @@ function idleLife(f: Frame, s: TimedScene, key: string): { dx: number; dy: numbe
   return { dx: 0, dy: breath * f.unit * 0.004 * ease, k: 1 + breath * 0.012 * ease };
 }
 const span = (t: number, from: number, dur: number) => clamp01((t - from) / dur);
+
+// "Foco de a uno": the colours of a label or step (`item0`…) at scene time lt. The newest is at full strength; an
+// earlier one steps down toward the background while a newer one enters (focusShare), and stays readable
+// (stepDownColour keeps STEP_DOWN_CONTRAST). Anything that is not a label of a callouts or steps scene: the brand's own.
+function focus(f: Frame, s: TimedScene, key: string, lt: number): { text: string; accent: string } {
+  const { text, accent, bg } = f.world.brand;
+  const share = focusShare(s, key, lt);
+  return { text: stepDownColour(text, bg, share), accent: stepDownColour(accent, bg, share) };
+}
 
 function beatPulse(beats: number[], t: number): number {
   let last = -1;
@@ -672,15 +682,17 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         const lx = vertical ? (right ? w - m : m) : w * 0.68;
         const low = phone ? Math.min(h * 0.72, floor - unit * 0.115) : h * 0.72;
         const ly = vertical ? (i < 2 ? h * 0.27 + i * unit * 0.09 : low + (i - 2) * unit * 0.09) : h * 0.3 + i * unit * 0.12;
+        // Only the newest label is at full strength: the earlier ones, their lines and dots step down as it arrives.
+        const look = focus(f, s, key, lt);
         // The line runs from the dot on the image to wherever the label is.
         const { dx, dy } = offset(key);
-        ctx.strokeStyle = world.brand.accent;
+        ctx.strokeStyle = look.accent;
         ctx.lineWidth = unit * 0.004;
         ctx.beginPath();
         ctx.moveTo(ax, ay);
         ctx.lineTo(ax + (lx + dx - ax) * q, ay + (ly + dy - ay) * q);
         ctx.stroke();
-        ctx.fillStyle = world.brand.accent;
+        ctx.fillStyle = look.accent;
         ctx.beginPath();
         ctx.arc(ax, ay, unit * 0.01, 0, Math.PI * 2);
         ctx.fill();
@@ -691,7 +703,9 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
           const bx = right ? lx - tw - pad * 2 : lx;
           const slide = (right ? 1 : -1) * (1 - q) * unit * 0.06;
           ctx.globalAlpha *= q;
-          ctx.fillStyle = world.brand.text;
+          // The label stays opaque (it may sit over the picture); its words keep the background colour, so they read
+          // against the stepped-down box as well as the box does against the background.
+          ctx.fillStyle = look.text;
           roundRect(ctx, bx + slide, ly - unit * 0.035, tw + pad * 2, unit * 0.06, unit * 0.012);
           ctx.fill();
           ctx.fillStyle = world.brand.bg;
@@ -783,10 +797,11 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         const q = land(span(lt, at(`item${i}`), 0.5));
         if (q <= 0) return;
         const y = top + i * gap;
+        // Only the newest step is at full strength; the earlier ones step down as it arrives.
+        const look = focus(f, s, `item${i}`, lt);
         put(`item${i}`, dotX, y, () => {
-          ctx.globalAlpha = i < current ? 0.6 : 1;
           ctx.translate(-(1 - clamp01(q)) * unit * 0.1, 0);
-          ctx.fillStyle = world.brand.accent;
+          ctx.fillStyle = look.accent;
           ctx.beginPath();
           ctx.arc(dotX, y, unit * 0.035 * q, 0, Math.PI * 2);
           ctx.fill();
@@ -795,7 +810,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
           ctx.textAlign = "center";
           ctx.fillText(String(i + 1), dotX, y + unit * 0.014);
           ctx.textAlign = "left";
-          ctx.fillStyle = world.brand.text;
+          ctx.fillStyle = look.text;
           ctx.font = ui(f, unit * 0.045, 600);
           ctx.fillText(item, m + unit * 0.1, y + unit * 0.016);
           return { x: m, y: y - unit * 0.04, w: unit * 0.1 + ctx.measureText(item).width, h: unit * 0.08 };
