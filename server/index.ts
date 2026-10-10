@@ -76,7 +76,7 @@ import {
   type ProviderId,
 } from "./settings.ts";
 import { getProvider, listProviders } from "./images/index.ts";
-import { CastMemberSchema, PUPPET_ROLES, PuppetPlaceSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
+import { CastMemberSchema, PUPPET_MAX_LAYERS, PUPPET_ROLES, PuppetPlaceSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
 import {
   PROJECTS_DIR,
   ProjectError,
@@ -277,7 +277,7 @@ app.put("/api/series/:id/cast/:castId/puppet", async (c) => {
           }),
         )
         .min(1)
-        .max(12),
+        .max(PUPPET_MAX_LAYERS),
     })
     .parse(await c.req.json());
   const parts = body.layers.map((layer) => {
@@ -301,7 +301,7 @@ app.patch("/api/series/:id/cast/:castId/puppet", async (c) => {
             place: PuppetPlaceSchema.nullable(),
           }),
         )
-        .max(12),
+        .max(PUPPET_MAX_LAYERS),
     })
     .parse(await c.req.json());
   const member = arrangePuppet(c.req.param("id"), c.req.param("castId"), layers);
@@ -473,7 +473,7 @@ app.post("/api/sheet", async (c) => {
       filled: [],
       note:
         template === "puppet"
-          ? "Hoja de muestra: sin clave de IA. Hacé «Para el títere» en Grok, después Segmentos → cabeza, cuerpo, brazos, boca y ojos → Descargar todo, y subí las capas en la tarjeta (Títere 3D)."
+          ? "Hoja de muestra: sin clave de IA. Hacé «Para el títere» en Grok, después Segmentos → cabeza, cuerpo, brazos, boca y ojos → Descargar todo, y subí las capas en la tarjeta (Títere 3D). Si querés, sumá de la hoja las bocas A, O y E, las caras y el cuerpo de 3/4 y de perfil como Partes sueltas."
           : "Hoja de muestra: sin clave de IA.",
       demo: true,
     });

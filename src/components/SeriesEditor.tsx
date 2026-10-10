@@ -390,6 +390,11 @@ function CastCard({
                 cabeza del cuerpo. Para que muevan los brazos o la boca, sumá esos recortes con <b>Partes sueltas</b> y
                 ponelos en su lugar con <b>Armar a mano</b>.
               </p>
+              <p className="text-muted">
+                Si la hoja del títere trae bocas y caras, sumalas también (opcional): las bocas A, O y E cambian con la
+                voz, las caras contenta, sorprendida y preocupada siguen la emoción de la frase, y el cuerpo de 3/4 o de
+                perfil aparece cuando señala o presenta algo.
+              </p>
               {mixed && !arranging && (
                 <p className="text-neg">
                   Hay partes sueltas que la app ubicó a ojo. Revisalas en Armar a mano: arrastralas a su lugar y guardá.

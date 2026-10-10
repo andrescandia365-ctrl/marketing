@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import type { LyricStyle } from "../shared/lyrics.ts";
 import type { SeriesInfo } from "../shared/schema.ts";
 import {
+  PUPPET_MAX_LAYERS,
   markdownToSeries,
   seriesId,
   seriesToMarkdown,
@@ -165,7 +166,7 @@ export function setPuppetLayer(
   const ext = { "image/png": "png", "image/webp": "webp" }[type.split(";")[0].trim()];
   if (!ext) throw new SeriesError("Las partes del títere van en PNG o WebP con fondo transparente (las capas de Segmentos).");
   const layers = [...member.puppet.layers];
-  if (!Number.isInteger(index) || index < 0 || index > layers.length || index >= 12) throw new SeriesError("Esa parte no existe.");
+  if (!Number.isInteger(index) || index < 0 || index > layers.length || index >= PUPPET_MAX_LAYERS) throw new SeriesError("Esa parte no existe.");
   const dir = join(LIBRARY_DIR, id);
   mkdirSync(dir, { recursive: true });
   const file = puppetFile(castId, index, ext);
@@ -189,7 +190,7 @@ export function replacePuppetLayers(
   const member = fields.cast.find((m) => m.id === castId);
   if (!member) throw new SeriesError("Ese integrante del elenco no existe.");
   if (member.kind !== "character") throw new SeriesError("Solo los personajes tienen títere.");
-  if (!parts.length || parts.length > 12) throw new SeriesError("El títere lleva entre 1 y 12 partes.");
+  if (!parts.length || parts.length > PUPPET_MAX_LAYERS) throw new SeriesError(`El títere lleva entre 1 y ${PUPPET_MAX_LAYERS} partes.`);
   const dir = join(LIBRARY_DIR, id);
   mkdirSync(dir, { recursive: true });
   for (const old of member.puppet.layers) rmSync(join(dir, old.file), { force: true });

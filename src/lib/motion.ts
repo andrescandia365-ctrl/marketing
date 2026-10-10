@@ -2,7 +2,7 @@
 // the brand and preloaded images only. No timers, no state carried between frames; noise is seeded (mulberry32),
 // never Math.random. The studio's banned defaults are not here: no centred title on a gradient, no
 // everything-fades-in, no corner labels or frame borders, no glow, no particle bursts.
-import { actingFor, drawPuppet, puppetPose, type Acting, type PuppetAsset } from "./puppet.ts";
+import { actingFor, drawPuppet, mouthBlockStart, puppetPose, type Acting, type PuppetAsset } from "./puppet.ts";
 import type { ActorAsset } from "./actor.ts";
 import {
   STAT_COUNT,
@@ -625,7 +625,10 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
           placeholder(f, cx - height * 0.3, bottom - height, height * 0.6, height, s.asset ? `Falta el personaje: ${s.asset}` : "Elegí un personaje");
           return { x: cx - height * 0.3, y: bottom - height, w: height * 0.6, h: height };
         }
-        const pose = puppetPose(f.t, lt, at("media"), s.gesture ?? "present", at("gesture"), talkLevel(world, s, f.t, lt), toward, world.seed + s.index * 7, f.acting);
+        // The face reads the line's emotion; the mouth's shape is picked from the voice at the start of its block.
+        const back = f.t - mouthBlockStart(f.t);
+        const face = { emotion: s.emotion ?? "", aiming: hasProp, held: talkLevel(world, s, f.t - back, lt - back) };
+        const pose = puppetPose(f.t, lt, at("media"), s.gesture ?? "present", at("gesture"), talkLevel(world, s, f.t, lt), toward, world.seed + s.index * 7, f.acting, face);
         return drawPuppet(ctx, puppet, cx, bottom, height, pose);
       });
       const titleY = topSafe(vertical ? h * 0.13 : h * 0.2, titleSize);

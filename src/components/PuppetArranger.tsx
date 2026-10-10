@@ -3,10 +3,10 @@
 // parts (an arm, the mouth from a close-up) need a person to put them back. The puppet and the videos read the same
 // places (`layerRects` in lib/puppet.ts), so what is set here is what moves in the explainer.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PUPPET_ROLE_LABEL, type CastMember, type Puppet, type PuppetLayer } from "../../shared/series.ts";
+import { PUPPET_ROLE_LABEL, PUPPET_VIEWS, type CastMember, type Puppet, type PuppetLayer } from "../../shared/series.ts";
 import { api, libraryFileUrl } from "../lib/api.ts";
 import { loadImage } from "../lib/motionProject.ts";
-import { buildPuppet, layerRects } from "../lib/puppet.ts";
+import { buildPuppet, isAlternate, layerRects } from "../lib/puppet.ts";
 import { PuppetPreview } from "./PuppetPreview.tsx";
 import { Button, Spinner } from "./ui.tsx";
 
@@ -14,7 +14,7 @@ type Box = { x: number; y: number; w: number; h: number };
 type Drag = { kind: "move" | "size" | "pivot"; index: number; startX: number; startY: number; place: { x: number; y: number; w: number }; pivot: [number, number] };
 
 // Back to front, as drawPuppet draws them.
-const ORDER = ["extra", "body", "armL", "armR", "head", "eyes", "mouth"] as const;
+const ORDER = ["view34", "viewSide", "extra", "body", "armL", "armR", "head", "faceHappy", "faceSurprised", "faceWorried", "eyes", "mouth", "mouthA", "mouthO", "mouthE"] as const;
 const W = 340;
 const H = 440;
 
@@ -87,7 +87,8 @@ export function PuppetArranger({
       const img = images[i];
       if (!r || !img) continue;
       const [x, y] = toScreen(r.x, r.y);
-      ctx.globalAlpha = i === selected ? 1 : 0.92;
+      // A face or a mouth shape sits over the part it swaps with: faint unless chosen, so both can be lined up.
+      ctx.globalAlpha = i === selected ? 1 : isAlternate(layers[i].role) && !PUPPET_VIEWS.includes(layers[i].role as never) ? 0.35 : 0.92;
       ctx.drawImage(img, x, y, r.w * view.k, r.h * view.k);
     }
     ctx.globalAlpha = 1;
@@ -237,6 +238,12 @@ export function PuppetArranger({
         Arrastrá cada parte a su lugar. El cuadrado rojo cambia el tamaño; el punto azul es donde gira (el hombro de un
         brazo, el cuello de la cabeza). Con las flechas del teclado la movés de a poco (Shift: más).
       </p>
+      {layers.some((l) => isAlternate(l.role)) && (
+        <p className="text-muted">
+          Las bocas A, O y E van justo encima de la boca, y las caras encima de la cabeza: se ven tenues hasta que las
+          elegís. El cuerpo de 3/4 y el de perfil quedan al costado; la app los pone en el lugar del cuerpo cuando gira.
+        </p>
+      )}
       <div className="flex flex-wrap items-start gap-3">
         <canvas
           ref={canvas}

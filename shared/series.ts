@@ -195,17 +195,48 @@ export const CAST_KIND_LABEL: Record<CastKind, string> = {
 // A character as a 3D-look puppet for motion graphics: the layers Grok's Segments export from one picture (all the
 // same size, so they line up), each with the body part it is. The pivot (where it turns: the neck, a shoulder) is in
 // shares of the layer's width and height; null means found from the layer's shape.
-export const PUPPET_ROLES = ["body", "head", "armL", "armR", "mouth", "eyes", "extra"] as const;
+// Optional alternates from the "puppet" sheet (all swapped in by the pose, never drawn together with what they
+// replace): the mouth shapes A, O and E (the plain mouth is the closed one), the faces happy, surprised and worried
+// (the plain head is the neutral one; a face goes over the head and hides the eyes) and the whole figure seen in 3/4
+// or in profile, facing screen right (shown while it points at something). A puppet without them acts as before.
+export const PUPPET_ROLES = [
+  "body",
+  "head",
+  "armL",
+  "armR",
+  "mouth",
+  "eyes",
+  "extra",
+  "mouthA",
+  "mouthO",
+  "mouthE",
+  "faceHappy",
+  "faceSurprised",
+  "faceWorried",
+  "view34",
+  "viewSide",
+] as const;
 export type PuppetRole = (typeof PUPPET_ROLES)[number];
 export const PUPPET_ROLE_LABEL: Record<PuppetRole, string> = {
   body: "Cuerpo",
   head: "Cabeza",
   armL: "Brazo (izquierda de la pantalla)",
   armR: "Brazo (derecha de la pantalla)",
-  mouth: "Boca",
+  mouth: "Boca (cerrada)",
   eyes: "Ojos",
   extra: "Otra (atrás)",
+  mouthA: "Boca A (bien abierta)",
+  mouthO: "Boca O (redonda)",
+  mouthE: "Boca E (estirada)",
+  faceHappy: "Cara contenta",
+  faceSurprised: "Cara sorprendida",
+  faceWorried: "Cara preocupada",
+  view34: "Cuerpo de 3/4 (mirando a la derecha)",
+  viewSide: "Cuerpo de perfil (mirando a la derecha)",
 };
+export const PUPPET_MOUTHS = ["mouthA", "mouthO", "mouthE"] as const satisfies readonly PuppetRole[];
+export const PUPPET_FACES = ["faceHappy", "faceSurprised", "faceWorried"] as const satisfies readonly PuppetRole[];
+export const PUPPET_VIEWS = ["view34", "viewSide"] as const satisfies readonly PuppetRole[];
 export const PuppetPlaceSchema = z.object({
   x: z.number().min(-2).max(3),
   y: z.number().min(-2).max(3),
@@ -225,7 +256,8 @@ export const PuppetLayerSchema = z.object({
   // a loose crop of another size gets a starting place from its role.
   place: PuppetPlaceSchema.nullable().default(null),
 });
-export const PuppetSchema = z.object({ layers: z.array(PuppetLayerSchema).max(12).default([]) });
+export const PUPPET_MAX_LAYERS = 20;
+export const PuppetSchema = z.object({ layers: z.array(PuppetLayerSchema).max(PUPPET_MAX_LAYERS).default([]) });
 export type PuppetLayer = z.infer<typeof PuppetLayerSchema>;
 export type Puppet = z.infer<typeof PuppetSchema>;
 
@@ -267,7 +299,15 @@ export function guessClip(name: string): RigMove | null {
 // The part a layer probably is, from its file name (Grok names segments by what they are).
 export function guessRole(name: string): PuppetRole {
   const n = name.toLowerCase();
-  if (/boca|mouth|lips|labio/.test(n)) return "mouth";
+  if (/3-?4|tres ?cuartos|three.?quarter/.test(n)) return "view34";
+  if (/perfil|profile|(?<![a-z])side/.test(n)) return "viewSide";
+  if (/content|feliz|happy|smil|sonri/.test(n)) return "faceHappy";
+  if (/sorpre|surpris/.test(n)) return "faceSurprised";
+  if (/preocup|worr/.test(n)) return "faceWorried";
+  if (/boca|mouth|lips|labio/.test(n)) {
+    const shape = /(?:^|[^a-z])([aoe])(?:[^a-z]|$)/.exec(n.replace(/boca|mouth|lips|labios?/g, " "));
+    return shape ? (`mouth${shape[1].toUpperCase()}` as PuppetRole) : "mouth";
+  }
   if (/ojo|eye/.test(n)) return "eyes";
   if (/brazo|arm|mano|hand/.test(n)) return /izq|left|_l\b|-l\b/.test(n) ? "armL" : "armR";
   if (/cabeza|head|cara|face|hair|pelo|cabello/.test(n)) return "head";

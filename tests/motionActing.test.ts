@@ -33,7 +33,9 @@ const AT = 2;
 // The pose g seconds after the gesture's main move starts, already in the scene (no entrance), not talking.
 const poseAt = (gesture: MotionGesture, g: number, acting: Acting, toward = 1): Pose => puppetPose(10 + AT + g, AT + g, -5, gesture, AT, 0, toward, 7, acting);
 // What the gesture adds to the pose at that moment (the same moment with the gesture far away).
-const delta = (gesture: MotionGesture, g: number, acting: Acting, field: keyof Pose, toward = 1) =>
+// The pose's continuous numbers (the face, mouth shape and view are swaps by design).
+type NumericKey = { [K in keyof Pose]: Pose[K] extends number ? K : never }[keyof Pose];
+const delta = (gesture: MotionGesture, g: number, acting: Acting, field: NumericKey, toward = 1) =>
   poseAt(gesture, g, acting, toward)[field] - puppetPose(10 + AT + g, AT + g, -5, gesture, 99, 0, toward, 7, acting)[field];
 
 const DRY = actingFor("dry", "even");
@@ -50,7 +52,7 @@ const ALL_ACTING: [string, Acting][] = [
 ];
 
 // The field the gesture mostly moves and which way its main move goes (toward the right).
-const MAIN: Record<MotionGesture, [keyof Pose, 1 | -1][]> = {
+const MAIN: Record<MotionGesture, [NumericKey, 1 | -1][]> = {
   present: [["armL", 1], ["armR", -1]],
   wave: [["armR", -1]],
   point: [["armR", -1], ["lean", 1]],
@@ -104,7 +106,8 @@ test("the pose never jumps: wind-up, move, waving, hops and the gasp are all con
         let last = poseAt(gesture, -0.5, acting, toward);
         for (let g = -0.5 + dt; g <= 3.5; g += dt) {
           const now = poseAt(gesture, g, acting, toward);
-          for (const k of Object.keys(now) as (keyof Pose)[]) {
+          for (const k of Object.keys(now) as NumericKey[]) {
+            if (typeof now[k] !== "number") continue;
             const step = Math.abs(now[k] - last[k]);
             assert.ok(step <= (limit[k] ?? 0.01), `${name} ${gesture} ${toward}: ${k} jumps ${step.toFixed(4)} at ${g.toFixed(3)} s`);
           }
@@ -118,7 +121,7 @@ test("the pose never jumps: wind-up, move, waving, hops and the gasp are all con
 test("a dry piece winds up small and never passes its mark; an absurd one goes further", () => {
   const wound = (a: Acting) => Math.abs(delta("present", 0, a, "armL"));
   assert.ok(wound(DRY) < wound(WARM) && wound(WARM) < wound(ABSURD));
-  const peak = (a: Acting, gesture: MotionGesture, field: keyof Pose, way: 1 | -1) =>
+  const peak = (a: Acting, gesture: MotionGesture, field: NumericKey, way: 1 | -1) =>
     Math.max(...Array.from({ length: 300 }, (_, i) => way * delta(gesture, i / 100, a, field)));
   for (const dry of [DRY, actingFor("dry", "springy"), actingFor("dry", "soft"), actingFor("warm", "solid")]) {
     assert.equal(dry.overshoot, 0);
