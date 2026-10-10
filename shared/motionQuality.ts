@@ -2,7 +2,7 @@
 // six things from 1 to 10, the three worst problems are fixed as edits to the script, and it repeats until every score
 // is 8 or more, up to a set number of rounds.
 import { z } from "zod";
-import { MOTION_TEMPLATES, MOTION_TEMPLATE_LABEL, planCameras, sceneElements, timeScenes, tweakScene, type MotionScene, type MotionScript, type Spot } from "./motion.ts";
+import { DISCLOSURE_TAG, MOTION_TEMPLATES, MOTION_TEMPLATE_LABEL, beyondNow, labelled, planCameras, sceneElements, timeScenes, tweakScene, type MotionScene, type MotionScript, type Spot } from "./motion.ts";
 
 export const CRITERIA = ["hook", "readability", "motion", "variety", "brand", "sync"] as const;
 export type Criterion = (typeof CRITERIA)[number];
@@ -46,6 +46,17 @@ export const MotionReviewSchema = z.object({
     )
     .describe("Exactly one score per criterion, all six."),
   fixes: z.array(FixWire).describe("The three worst problems (fewer if fewer scores are under 8), worst first, each as an edit. Empty if every score is 8 or more."),
+  beyondToday: z
+    .array(
+      z.object({
+        scene: z.number().describe("The scene, numbered from 1."),
+        what: z.string().describe("In Spanish, a few words: what it shows or says that is not on the series' working-today list."),
+      }),
+    )
+    .optional()
+    .describe(
+      "Scenes WITHOUT a concept or simulation label that show or say a feature, screen, result or capability not on the series' working-today list (\"Lo que existe hoy\"). Real cast screens and the cast product shown as they are count as real. Empty when there is none.",
+    ),
   summary: z.string().describe("In Spanish, one or two sentences on the piece as a whole."),
   poster: z
     .number()
@@ -56,7 +67,8 @@ export const MotionReviewSchema = z.object({
 export type MotionReviewWire = z.infer<typeof MotionReviewSchema>;
 export type Fix = z.infer<typeof FixWire>;
 export type Scores = Record<Criterion, { score: number; note: string }>;
-export type MotionReview = { scores: Scores; fixes: Fix[]; summary: string; poster: number | null };
+// beyond: the scenes the reviewer flagged as showing something not on "Lo que existe hoy" (flagBeyond).
+export type MotionReview = { scores: Scores; fixes: Fix[]; summary: string; poster: number | null; beyond?: { scene: number; what: string }[] };
 
 export function normalizeReview(wire: MotionReviewWire): MotionReview {
   const scores = Object.fromEntries(CRITERIA.map((c) => [c, { score: 0, note: "La IA no lo puntuó." }])) as Scores;
@@ -66,7 +78,10 @@ export function normalizeReview(wire: MotionReviewWire): MotionReview {
     if (c) scores[c] = { score: Math.round(Math.min(10, Math.max(1, Number(s.score) || 1))), note: s.note };
   }
   const poster = Number(wire.poster);
-  return { scores, fixes: wire.fixes.slice(0, MAX_FIXES), summary: wire.summary, poster: Number.isFinite(poster) && poster >= 0 ? poster : null };
+  const beyond = (wire.beyondToday ?? [])
+    .map((b) => ({ scene: Math.round(Number(b.scene)), what: String(b.what ?? "").trim() }))
+    .filter((b) => Number.isFinite(b.scene) && b.scene >= 1 && b.what);
+  return { scores, fixes: wire.fixes.slice(0, MAX_FIXES), summary: wire.summary, poster: Number.isFinite(poster) && poster >= 0 ? poster : null, beyond };
 }
 
 export const passes = (scores: Scores) => CRITERIA.every((c) => scores[c].score >= PASS);
@@ -116,7 +131,10 @@ export function describeScenes(scenes: MotionScene[]): string {
       const entry = s.index > 0 && s.entry === "through" ? ", enters by a camera journey into the previous scene's main thing" : "";
       const reveal = s.template === "beforeAfter" && s.reveal === "iris" ? ", the after grows in a circle" : "";
       const camera = s.camera && s.camera !== "hold" ? `, camera ${CAMERA_WORDS[s.camera]}` : "";
-      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}${entry}${reveal}${camera}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
+      const label = labelled(s) ? `, labelled ${DISCLOSURE_TAG[s.disclosure as "concept" | "simulation"]} on screen` : "";
+      const flagged = beyondNow(s);
+      const flag = flagged ? `, flagged by the ${flagged.by === "ia" ? "writer" : "reviewer"} as not on the working-today list ("${flagged.what}")` : "";
+      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}${entry}${reveal}${camera}${label}${flag}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
     })
     .join("\n");
 }

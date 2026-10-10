@@ -100,6 +100,18 @@ const SceneWire = z.object({
   zoom: z.number().describe("zoom only: how much to zoom in, 1.5 to 3."),
   voice: z.string().describe("The narrator's line for this scene, in the piece's language. May be empty."),
   emotion: z.string().describe("How the line is said, in Spanish."),
+  disclosure: z
+    .string()
+    .optional()
+    .describe(
+      "real (everything shown is on the series' working-today list; real cast screens and the cast product shown as they are count as real), concept (an idea or roadmap feature: how it could look) or simulation (a mock run of something that is not live). The app draws CONCEPTO or SIMULACIÓN on the scene.",
+    ),
+  beyondToday: z
+    .string()
+    .optional()
+    .describe(
+      "Your own check, in Spanish: if this scene shows or says a feature, screen, result or capability that is not on the series' working-today list, what it is, in a few words; else empty. Fill it even when disclosure is concept or simulation.",
+    ),
 });
 
 export const MotionScriptSchema = z.object({
@@ -125,9 +137,14 @@ export const MotionScriptSchema = z.object({
 export type Spot = { dx?: number; dy?: number; scale?: number };
 export type Tweak = { at?: number; v?: Spot; h?: Spot };
 
-export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture" | "entry" | "reveal" | "camera"> & {
+export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture" | "entry" | "reveal" | "camera" | "disclosure" | "beyondToday"> & {
   id: string;
   template: MotionTemplate;
+  // CONCEPTO / SIMULACIÓN on the scene (a hard rule: only "Lo que existe hoy" is shown as real). Older scenes have
+  // none: real.
+  disclosure?: SceneDisclosure;
+  // The writer or the reviewer said this scene shows something not on "Lo que existe hoy" (conceptIssues).
+  beyond?: BeyondFlag;
   // How the scene comes in. Older scenes have none: the tone's cut.
   entry?: SceneEntry;
   // beforeAfter only. Older scenes have none: the wipe.
@@ -171,6 +188,23 @@ export const SCENE_ENTRIES = ["cut", "through"] as const;
 export type SceneEntry = (typeof SCENE_ENTRIES)[number];
 export const SCENE_ENTRY_LABEL: Record<SceneEntry, string> = { cut: "Corte del tono", through: "Pasar a través" };
 export const THROUGH = 0.7;
+
+// Whether a scene shows only what exists today (real), an idea or roadmap feature (concept), or a mock run of
+// something that is not live (simulation). The renderer labels the last two, like a story's shot.
+export const SCENE_DISCLOSURES = ["real", "concept", "simulation"] as const;
+export type SceneDisclosure = (typeof SCENE_DISCLOSURES)[number];
+export const SCENE_DISCLOSURE_LABEL: Record<SceneDisclosure, string> = { real: "Real (existe hoy)", concept: "Concepto", simulation: "Simulación" };
+// What the frame says, the same words as a story's shot.
+export const DISCLOSURE_TAG: Record<Exclude<SceneDisclosure, "real">, string> = { concept: "CONCEPTO", simulation: "SIMULACIÓN" };
+// The writer's word, tolerant (English or Spanish); undefined is real.
+export function pickDisclosure(value: string | undefined): Exclude<SceneDisclosure, "real"> | undefined {
+  const v = (value ?? "").toLowerCase();
+  if (/simula|mock|demo run/.test(v)) return "simulation";
+  if (/concep|roadmap|idea|future|futur|pr[oó]xim/.test(v)) return "concept";
+  return undefined;
+}
+// The scene carries a CONCEPTO / SIMULACIÓN label.
+export const labelled = (scene: { disclosure?: SceneDisclosure }) => scene.disclosure === "concept" || scene.disclosure === "simulation";
 
 export const pickEntry = (value: string | undefined): SceneEntry | undefined => (/through|trav[eé]s|dive|zoom/i.test(value ?? "") ? "through" : undefined);
 
@@ -281,9 +315,10 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?:
   return {
     ...wire,
     scenes: planCameras(
-      wire.scenes.map((s) => ({
+      wire.scenes.map(({ disclosure, beyondToday, ...s }) => withBeyond({
         ...s,
         id: sceneId(),
+        disclosure: pickDisclosure(disclosure),
         template: pick(s.template, MOTION_TEMPLATES, "screen"),
         gesture: pickGesture(s.gesture),
         move: pickMove(s.move),
@@ -296,7 +331,7 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?:
         focusX: clamp(s.focusX, 0, 1),
         focusY: clamp(s.focusY, 0, 1),
         zoom: clamp(s.zoom || 2, 1.2, 4),
-      })),
+      }, beyondToday ?? "", "ia")),
       tone,
     ),
     music: { mood: pick(wire.music.mood, MOTION_MOODS, "drive"), bpm: Math.round(clamp(wire.music.bpm, 80, 130)) },
@@ -304,6 +339,74 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?:
 }
 
 export type TimedScene = MotionScene & { index: number; start: number; end: number };
+
+// ── CONCEPTO / SIMULACIÓN ────────────────────────────────────────────────────────────────
+// Only what the series lists in "Lo que existe hoy" is shown as real (PLAYBOOK §1, §4). The writer grades each scene
+// (beyondToday) and the quality reviewer can flag one too; a flagged scene with no CONCEPTO or SIMULACIÓN label blocks
+// the render until the person labels it, changes it or confirms it is real ("Lo confirmo", conceptKey).
+
+// Who flagged it: the writer ("ia") or the quality reviewer ("revisor"). `sig` is what the scene showed then
+// (showsSig): once the person changes what the scene shows or says, the flag no longer applies.
+export type BeyondFlag = { what: string; by: "ia" | "revisor"; sig: string };
+
+// A fingerprint of what a scene shows and says: its template, words, pictures and voice (not its timing or place).
+export function showsSig(scene: Pick<MotionScene, "template" | "title" | "text" | "items" | "asset" | "assetB" | "voice">): string {
+  const text = JSON.stringify([scene.template, scene.title.trim(), scene.text.trim(), scene.items.map((i) => i.trim()), scene.asset, scene.assetB, scene.voice.trim()]);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
+
+// The scene with a flag for what it shows beyond today (empty `what`: unchanged).
+export function withBeyond<S extends MotionScene>(scene: S, what: string, by: BeyondFlag["by"]): S {
+  const clean = what.trim().slice(0, 200);
+  return clean ? { ...scene, beyond: { what: clean, by, sig: showsSig(scene) } } : scene;
+}
+
+// The reviewer's flags (scene numbers from 1, in the script's order) put on the script's scenes. A scene already
+// flagged keeps the writer's words; one that is gone or out of range is skipped.
+export function flagBeyond(script: MotionScript, flags: { scene: number; what: string }[]): MotionScript {
+  let changed = false;
+  const scenes = script.scenes.map((s, i) => {
+    const flag = flags.find((f) => Math.round(f.scene) - 1 === i && f.what.trim());
+    if (!flag || beyondNow(s)) return s;
+    changed = true;
+    return withBeyond(s, flag.what, "revisor");
+  });
+  return changed ? { ...script, scenes } : script;
+}
+
+// The scene's flag while it still applies (the scene shows what it showed when flagged), else null.
+export const beyondNow = (scene: MotionScene): BeyondFlag | null => (scene.beyond && scene.beyond.sig === showsSig(scene) ? scene.beyond : null);
+
+export type ConceptIssue = { sceneId: string; index: number; what: string; by: BeyondFlag["by"] };
+export const conceptKey = (i: ConceptIssue) => `concepto:${i.sceneId}:${i.what}`;
+
+// Scenes flagged as showing something not on "Lo que existe hoy" that still look real (no CONCEPTO or SIMULACIÓN
+// label), while the flag still applies (the scene shows what it showed when flagged). `ok`: keys the person confirmed.
+export function conceptIssues(scenes: MotionScene[], ok: readonly string[] = []): ConceptIssue[] {
+  return scenes.flatMap((s, index) => {
+    if (!beyondNow(s) || labelled(s)) return [];
+    const issue: ConceptIssue = { sceneId: s.id, index, what: s.beyond!.what, by: s.beyond!.by };
+    return ok.includes(conceptKey(issue)) ? [] : [issue];
+  });
+}
+
+// The label frame t shows: the scene on screen's, and while a scene comes in over the one before (pushOf), the
+// outgoing scene's when only that one is labelled, so a concept never shows unlabelled. Null: no label.
+export function disclosureAt(scenes: MotionScene[], push: number, t: number): Exclude<SceneDisclosure, "real"> | null {
+  const timed = timeScenes(scenes);
+  if (!timed.length) return null;
+  const found = timed.findIndex((s) => t >= s.start && t < s.end);
+  const s = timed[found < 0 ? timed.length - 1 : found];
+  if (labelled(s)) return s.disclosure as Exclude<SceneDisclosure, "real">;
+  const prev = timed[s.index - 1];
+  if (prev && labelled(prev) && t - s.start < Math.min(pushOf(s, push), s.seconds)) return prev.disclosure as Exclude<SceneDisclosure, "real">;
+  return null;
+}
 
 export function timeScenes(scenes: MotionScene[]): TimedScene[] {
   let t = 0;
@@ -853,6 +956,8 @@ export type MotionPiece = {
   readingOk?: string[];
   // Numbers on screen the person confirmed although "Lo que existe hoy" and the brief do not have them (figureKey).
   figuresOk?: string[];
+  // Scenes flagged as beyond "Lo que existe hoy" that the person confirmed are real (conceptKey).
+  conceptsOk?: string[];
   // The track's beat clock from its drums stem; none: a track has no grid.
   kickGrid?: TrackKicks | null;
   // "Desenfoque en los cortes": motion blur during the push between scenes (blurSamples). On by default; a piece
@@ -878,6 +983,7 @@ export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {
     poster: null,
     readingOk: [],
     figuresOk: [],
+    conceptsOk: [],
     cutBlur: true,
   };
 }

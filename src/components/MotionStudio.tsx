@@ -19,7 +19,15 @@ import {
   MOTION_TEMPLATE_LABEL,
   MOTION_TONES,
   MOTION_TONE_LABEL,
+  DISCLOSURE_TAG,
+  SCENE_DISCLOSURES,
+  SCENE_DISCLOSURE_LABEL,
   blankScene,
+  beyondNow,
+  conceptIssues,
+  conceptKey,
+  flagBeyond,
+  labelled,
   cutBlurOn,
   cutPush,
   elementTimes,
@@ -120,7 +128,7 @@ ${s.caption ? `**Texto para publicar:** ${s.caption}
 ${timeScenes(scenes)
   .map(
     (x) =>
-      `## ${x.index + 1}. ${MOTION_TEMPLATE_LABEL[x.template]} · ${x.start.toFixed(1)}–${x.end.toFixed(1)} s\n\n- **Título:** ${x.title}\n${x.text ? `- **Texto:** ${x.text}\n` : ""}${x.items.length ? `- **Elementos:** ${x.items.join(" · ")}\n` : ""}${x.asset ? `- **Imagen:** ${x.asset}${x.assetB ? ` → ${x.assetB}` : ""}\n` : ""}${x.voice ? `- **Voz** (${x.emotion}): “${x.voice}”\n` : ""}`,
+      `## ${x.index + 1}. ${MOTION_TEMPLATE_LABEL[x.template]} · ${x.start.toFixed(1)}–${x.end.toFixed(1)} s${labelled(x) ? ` · **${DISCLOSURE_TAG[x.disclosure as "concept" | "simulation"]}**` : ""}\n\n${beyondNow(x) ? `- **No está en «Lo que existe hoy»:** ${x.beyond!.what}\n` : ""}- **Título:** ${x.title}\n${x.text ? `- **Texto:** ${x.text}\n` : ""}${x.items.length ? `- **Elementos:** ${x.items.join(" · ")}\n` : ""}${x.asset ? `- **Imagen:** ${x.asset}${x.assetB ? ` → ${x.assetB}` : ""}\n` : ""}${x.voice ? `- **Voz** (${x.emotion}): “${x.voice}”\n` : ""}`,
   )
   .join("\n")}
 `;
@@ -348,7 +356,9 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   );
   const openFigures =
     seriesFacts === null ? [] : figureIssues(scenes, figureSources).filter((i) => i.verify || !(piece.figuresOk ?? []).includes(figureKey(i)));
-  const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0;
+  // Scenes the writer or the reviewer flagged as beyond "Lo que existe hoy" with no CONCEPTO / SIMULACIÓN label.
+  const openConcepts = conceptIssues(scenes, piece.conceptsOk ?? []);
+  const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0 || openConcepts.length > 0;
   // The thumbnail: frame 0 of every render.
   const posterT = posterTime(scenes, piece.poster, push);
   const posterRef = useRef<HTMLCanvasElement>(null);
@@ -759,6 +769,13 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           earlier.join("\n"),
         );
         passed = passes(review.scores);
+        // What the reviewer saw beyond "Lo que existe hoy" stays on its scene until the person labels, changes or
+        // confirms it (the render waits for that).
+        const flagged = flagBeyond(working, review.beyond ?? []);
+        if (flagged !== working) {
+          working = flagged;
+          setPiece((p) => ({ ...p, script: flagged }));
+        }
         // The AI picks the thumbnail unless the person already did.
         if (review.poster !== null && piece.poster?.by !== "vos") {
           poster = { t: review.poster, by: "ia" };
@@ -1118,6 +1135,49 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                 <p className="font-semibold text-good">✓ Cada número tiene fuente.</p>
               )}
             </div>
+
+            {openConcepts.length > 0 && (
+              <div className="rounded-xl border border-neg/40 bg-neg-soft p-3 text-sm">
+                <p className="font-semibold text-neg">
+                  Lo que existe hoy: {openConcepts.length} escena(s) muestran algo que no está en la serie y se ven como reales. No se puede generar hasta
+                  arreglarlo.
+                </p>
+                <ul className="mt-1 space-y-1">
+                  {openConcepts.map((i) => (
+                    <li key={conceptKey(i)} className="flex flex-wrap items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        className="text-left hover:underline"
+                        onClick={() => {
+                          const at = timeScenes(scenes).find((x) => x.id === i.sceneId);
+                          if (at) seek(at.start + Math.min(1, at.seconds / 2));
+                          setSelected({ sceneId: i.sceneId, key: null });
+                        }}
+                      >
+                        Escena {i.index + 1}: “{i.what}” no está en «Lo que existe hoy» (lo marcó {i.by === "ia" ? "la IA al escribir" : "la revisión"}). Marcala como
+                        concepto o simulación, o cambiá la escena.
+                      </button>
+                      <span className="flex gap-2">
+                        <button type="button" className="text-xs font-semibold text-ink hover:underline" onClick={() => updateScene(i.sceneId, { disclosure: "concept" })}>
+                          Concepto
+                        </button>
+                        <button type="button" className="text-xs font-semibold text-ink hover:underline" onClick={() => updateScene(i.sceneId, { disclosure: "simulation" })}>
+                          Simulación
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-muted hover:text-ink"
+                          title="Existe hoy: sumalo también a «Lo que existe hoy» de la serie"
+                          onClick={() => set({ conceptsOk: [...(piece.conceptsOk ?? []), conceptKey(i)] })}
+                        >
+                          Lo confirmo
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-white p-3 text-sm">
               <canvas
@@ -1543,6 +1603,19 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                         ))}
                       </select>
                     )}
+                    <select
+                      className={`${smallInput} py-1 text-xs ${labelled(raw) ? "border-neg/50 font-semibold" : ""}`}
+                      value={raw.disclosure ?? "real"}
+                      aria-label="Qué muestra"
+                      title="Solo lo que está en «Lo que existe hoy» se muestra como real. Concepto o Simulación pone el rótulo en pantalla mientras dura la escena."
+                      onChange={(e) => updateScene(s.id, { disclosure: e.target.value === "real" ? undefined : (e.target.value as MotionScene["disclosure"]) })}
+                    >
+                      {SCENE_DISCLOSURES.map((c) => (
+                        <option key={c} value={c}>
+                          {SCENE_DISCLOSURE_LABEL[c]}
+                        </option>
+                      ))}
+                    </select>
                     <label className="flex items-center gap-1 text-xs">
                       <input
                         type="number"

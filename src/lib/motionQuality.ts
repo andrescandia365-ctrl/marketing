@@ -4,10 +4,13 @@
 import {
   BLUR_SHUTTER,
   BLUR_SUBFRAMES,
+  DISCLOSURE_TAG,
   READ_LETTERS_PER_SECOND,
   STEP_DOWN_OVER,
   cutPush,
   focusShare,
+  beyondNow,
+  labelled,
   pushOf,
   pushWindows,
   quietGaps,
@@ -19,18 +22,19 @@ import {
 } from "../../shared/motion.ts";
 import { CONTRAST_ACCENT, CONTRAST_TEXT, STEP_DOWN_CONTRAST, brandContrast, stepDownContrast, type Brand } from "../../shared/series.ts";
 import { OVERLAP, SAFE_BAND_LABEL, overlapShare, safeBands, type SafeBand } from "../../shared/safeZone.ts";
-import { drawMotionFrame, sceneAt, scriptDuration, subtitleBox, type Box, type MotionWorld } from "./motion.ts";
+import { disclosureBox, drawMotionFrame, sceneAt, scriptDuration, subtitleBox, type Box, type MotionWorld } from "./motion.ts";
 
 export type SheetFormat = "vertical" | "horizontal";
 export type Outside = { t: number; scene: number; key: string; format: SheetFormat };
 // Text under a phone's top bar, caption or buttons (9:16 only).
 export type Zoned = { t: number; scene: number; key: string; bands: SafeBand[] };
-// Two settled lines of text on top of each other ("subtitle" is the voice's subtitle). `down`: which of the two is an
+// Two settled lines of text on top of each other ("subtitle" is the voice's subtitle, "label" the CONCEPTO /
+// SIMULACIÓN label). `down`: which of the two is an
 // earlier label stepped down for the newest ("Foco de a uno"): still text on screen, so still an overlap.
 export type Overlap = { t: number; scene: number; a: string; b: string; format: SheetFormat; down?: string[] };
 
 // The elements that carry words to read.
-const isText = (key: string) => key === "title" || key === "text" || key === "tag" || key === "subtitle" || /^item\d+$/.test(key);
+const isText = (key: string) => key === "title" || key === "text" || key === "tag" || key === "subtitle" || key === "label" || /^item\d+$/.test(key);
 
 
 const MAX_FRAMES = 28;
@@ -106,7 +110,8 @@ export function contactSheet(
           return isText(key) && el !== undefined && t - scene.start >= settledAt(scene, el, pushOf(scene, push));
         });
       const sub = t - scene.start >= pushOf(scene, push) ? subtitleBox(fctx, cw, ch, t, script, world) : null;
-      const texts = sub ? [...settled, { key: "subtitle", box: sub }] : settled;
+      const label = disclosureBox(fctx, cw, ch, t, script, world);
+      const texts = [...settled, ...(sub ? [{ key: "subtitle", box: sub }] : []), ...(label ? [{ key: "label", box: label }] : [])];
       for (const { key, box } of settled) {
         const bands = safeBands(box, cw, ch);
         if (bands.length) zoned.push({ t, scene: scene.index + 1, key, bands });
@@ -238,6 +243,16 @@ export function measureFacts(
       );
     }
   }
+  // CONCEPTO / SIMULACIÓN: what the frames show on purpose, and what was flagged as beyond "Lo que existe hoy".
+  const tagged = timed.filter((s) => labelled(s));
+  const flagged = timed.filter((s) => beyondNow(s) && !labelled(s));
+  lines.push(
+    `Concept / simulation labels (a hard rule: only what the series lists as working today is shown as real; the app draws the label in the top right corner, inside the 9:16 safe zone, and keeps that scene's title under it; it cannot move or go): ${
+      tagged.length ? tagged.map((s) => `scene ${s.index + 1} ${DISCLOSURE_TAG[s.disclosure as "concept" | "simulation"]}`).join(", ") : "none"
+    }. Scenes already flagged as showing something not on the working-today list, with no label yet: ${
+      flagged.length ? flagged.map((s) => `scene ${s.index + 1} ("${s.beyond!.what}")`).join("; ") : "none"
+    }.`,
+  );
   const reading = readingIssues(script.scenes, push);
   lines.push(
     `Lines on screen too briefly to read (need about 0.3 s per word once fully in, 0.8 s for a 1-3 word label, and 1 s per ${READ_LETTERS_PER_SECOND} letters when the words are long): ${

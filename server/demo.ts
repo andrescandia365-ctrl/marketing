@@ -299,7 +299,8 @@ export function demoMotion(brief: Brief, target: number | null): MotionScript {
         { template: "hook", seconds: 3.5, title: "El corte es a las 18", text: "Y se arma a ojo.", items: [], asset: "", camera: "hold", voice: "El proveedor corta a las seis.", emotion: "apurada" },
         { template: "screen", seconds: 3.5, title: "Stock en el celular", text: "Lo que queda, sin contar.", items: [], asset: screen, camera: "push", voice: "En el celular ves lo que queda.", emotion: "tranquila" },
         { template: "type", seconds: 4.5, title: "yerba 1 kg", text: "Quedan 3: pedila antes del corte.", items: ["Buscar producto", "Buscar"], asset: "", voice: "Buscás la yerba y ves cuántas quedan.", emotion: "clara" },
-        { template: "zoom", seconds: 3.5, title: "Lo que falta", text: "", items: [], asset: screen, focusX: 0.5, focusY: 0.35, zoom: 2.2, entry: "through", voice: "Lo que falta aparece arriba.", emotion: "clara" },
+        // "Lo que falta aparece arriba" is not on IMAN's "Lo que existe hoy": the sample shows it as a concept, labelled.
+        { template: "zoom", seconds: 3.5, title: "Lo que falta", text: "", items: [], asset: screen, focusX: 0.5, focusY: 0.35, zoom: 2.2, entry: "through", voice: "Lo que falta aparece arriba.", emotion: "clara", disclosure: "concept", beyondToday: "La lista de lo que falta arriba de todo" },
         { template: "steps", seconds: 4, title: "Pedí antes del corte", text: "", items: ["Abrí Stock", "Marcá lo que falta", "Mandá el pedido"], asset: "", voice: "Tres pasos y el pedido sale.", emotion: "segura" },
         { template: "stat", seconds: 4, title: "3 minutos", text: "para armar el pedido [VERIFY]", items: [], asset: "", voice: "", emotion: "" },
         { template: "logo", seconds: 4, title: series?.name ?? "IMAN", text: series?.tagline ?? "", items: ["Probalo en tu kiosco"], asset: "", voice: "Números claros.", emotion: "cálida" },

@@ -9,9 +9,12 @@ import {
   TYPE_CPS,
   blurSamples,
   cameraAt,
+  DISCLOSURE_TAG,
   cutPush,
+  disclosureAt,
   elementTimes,
   focusShare,
+  labelled,
   pushOf,
   statCountText,
   timeScenes,
@@ -390,6 +393,55 @@ function footer(f: Frame) {
   ctx.restore();
 }
 
+// The CONCEPTO / SIMULACIÓN label (a hard rule), the story's look: white capitals on a dark box in the top right
+// corner, inside the 9:16 safe zone (below the top bar, left of the button column). It never moves with the camera
+// or the cut, and it appears with its scene (disclosureAt).
+function labelLayout(ctx: CanvasRenderingContext2D, w: number, h: number, world: MotionWorld, tag: string) {
+  const unit = Math.min(w, h);
+  const size = unit * 0.028;
+  const pad = unit * 0.018;
+  const phone = isPhoneFrame(w, h);
+  const safe = safeRect(w, h);
+  ctx.font = `700 ${size}px "${world.brand.uiFont}", "Inter", system-ui, sans-serif`;
+  const tw = ctx.measureText(tag).width;
+  const right = phone ? safe.x + safe.w : w;
+  const top = phone ? safe.y : 0;
+  const box: Box = { x: right - tw - pad * 3, y: top + pad * 2, w: tw + pad * 2, h: size + pad * 1.4 };
+  return { box, size, textX: right - tw - pad * 2, textY: top + pad * 2.7 };
+}
+
+// Where a labelled scene's own words start at the latest: under the label (labelLayout's box and a small gap).
+export function labelFloor(w: number, h: number): number {
+  const unit = Math.min(w, h);
+  return (isPhoneFrame(w, h) ? safeRect(w, h).y : 0) + unit * (0.018 * 2 + 0.028 + 0.018 * 1.4 + 0.02);
+}
+
+function disclosureLabel(f: Frame, scenes: TimedScene[], push: number) {
+  const which = disclosureAt(scenes, push, f.t);
+  if (!which) return;
+  const { ctx, w, h, world } = f;
+  const tag = DISCLOSURE_TAG[which];
+  ctx.save();
+  const { box, textX, textY } = labelLayout(ctx, w, h, world, tag);
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(box.x, box.y, box.w, box.h);
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText(tag, textX, textY);
+  ctx.restore();
+}
+
+// The label's box at piece time t, for the overlap check. Null when frame t has no label.
+export function disclosureBox(ctx: CanvasRenderingContext2D, w: number, h: number, t: number, script: MotionScript, world: MotionWorld): Box | null {
+  const which = disclosureAt(script.scenes, cutPush(script.tone), t);
+  if (!which) return null;
+  ctx.save();
+  const { box } = labelLayout(ctx, w, h, world, DISCLOSURE_TAG[which]);
+  ctx.restore();
+  return box;
+}
+
 // The subtitle's box at piece time t (the voice of the scene on screen), for the overlap check. Empty when silent.
 export function subtitleBox(ctx: CanvasRenderingContext2D, w: number, h: number, t: number, script: MotionScript, world: MotionWorld): Box | null {
   const scenes = timeScenes(script.scenes);
@@ -449,7 +501,9 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
     : h;
   const titleSize = unit * (vertical ? 0.1 : 0.085);
   // On a 9:16 frame a title near the top starts below the platforms' top bar (shared/safeZone.ts).
-  const topSafe = (y: number, size: number) => (isPhoneFrame(w, h) ? Math.max(y, h * PHONE_SAFE.top + size * 0.95) : y);
+  // A scene labelled CONCEPTO or SIMULACIÓN keeps its title under the label, on both formats.
+  const topSafe = (y: number, size: number) =>
+    Math.max(isPhoneFrame(w, h) ? Math.max(y, h * PHONE_SAFE.top + size * 0.95) : y, labelled(s) ? labelFloor(w, h) + size * 0.95 : 0);
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
@@ -497,7 +551,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         const b = device(f, asset, 0, 0, vertical ? h * 0.52 : h * 0.62, missing);
         return { x: cx + b.x, y: cy + b.y, w: b.w, h: b.h };
       });
-      const titleY = vertical ? topSafe(h * 0.12, titleSize) : h * 0.3;
+      const titleY = topSafe(vertical ? h * 0.12 : h * 0.3, titleSize);
       const hTitle = title(m, titleY, titleSize, vertical ? w - m * 2 : w * 0.38);
       text(m, titleY + hTitle, unit * 0.04, vertical ? w - m * 2 : w * 0.36, outCubic(span(lt, at("text"), 0.5)));
       break;
@@ -534,7 +588,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         }
         return { x: cx - dw / 2, y: cy - devH / 2, w: dw, h: devH };
       });
-      title(m, vertical ? topSafe(h * 0.15, titleSize * 0.9) : h * 0.16, titleSize * 0.9, w - m * 2);
+      title(m, topSafe(vertical ? h * 0.15 : h * 0.16, titleSize * 0.9), titleSize * 0.9, w - m * 2);
       break;
     }
     case "character": {
@@ -574,7 +628,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         const pose = puppetPose(f.t, lt, at("media"), s.gesture ?? "present", at("gesture"), talkLevel(world, s, f.t, lt), toward, world.seed + s.index * 7, f.acting);
         return drawPuppet(ctx, puppet, cx, bottom, height, pose);
       });
-      const titleY = vertical ? topSafe(h * 0.13, titleSize) : h * 0.2;
+      const titleY = topSafe(vertical ? h * 0.13 : h * 0.2, titleSize);
       const hTitle = title(m, titleY, titleSize, vertical ? w - m * 2 : w * 0.4);
       text(m, titleY + hTitle + unit * 0.02, unit * 0.042, vertical ? w - m * 2 : w * 0.38, outCubic(span(lt, at("text"), 0.5)));
       break;
@@ -675,7 +729,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         const b = drawImage(f, asset, 0, 0, vertical ? w * 0.62 : w * 0.38, vertical ? h * 0.38 : h * 0.6, missing);
         return { x: cx + b.x, y: cy + b.y, w: b.w, h: b.h };
       });
-      title(m, vertical ? topSafe(h * 0.14, titleSize * 0.85) : h * 0.15, titleSize * 0.85, w - m * 2);
+      title(m, topSafe(vertical ? h * 0.14 : h * 0.15, titleSize * 0.85), titleSize * 0.85, w - m * 2);
       s.items.forEach((item, i) => {
         const key = `item${i}`;
         const q = outCubic(span(lt, at(key), 0.45));
@@ -723,7 +777,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
     case "contradiction": {
       // The Contradiction (PLAYBOOK §2.5): what is said, then what really happens, and the first gets struck
       // through. Each statement rises out of its own mask; the real one carries the accent bar.
-      title(m, vertical ? topSafe(h * 0.16, titleSize * 0.9) : h * 0.18, titleSize * 0.9, w - m * 2);
+      title(m, topSafe(vertical ? h * 0.16 : h * 0.18, titleSize * 0.9), titleSize * 0.9, w - m * 2);
       const size = unit * (vertical ? 0.07 : 0.06);
       // On a phone frame the statements stay left of the platform's buttons.
       const maxW = phone ? Math.min(w - m * 2, safe.x + safe.w - m) : vertical ? w - m * 2 : w * 0.62;
@@ -777,7 +831,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       break;
     }
     case "steps": {
-      title(m, vertical ? topSafe(h * 0.16, titleSize * 0.9) : h * 0.18, titleSize * 0.9, w - m * 2);
+      title(m, topSafe(vertical ? h * 0.16 : h * 0.18, titleSize * 0.9), titleSize * 0.9, w - m * 2);
       const top = vertical ? h * 0.3 : h * 0.34;
       const gap = unit * (vertical ? 0.13 : 0.12);
       const dotX = m + unit * 0.035;
@@ -828,7 +882,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       break;
     }
     case "beforeAfter": {
-      title(m, vertical ? topSafe(h * 0.14, titleSize * 0.85) : h * 0.15, titleSize * 0.85, w - m * 2);
+      title(m, topSafe(vertical ? h * 0.14 : h * 0.15, titleSize * 0.85), titleSize * 0.85, w - m * 2);
       const areaY = vertical ? h * 0.22 : h * 0.24;
       const area = { x: m, y: areaY, w: w - m * 2, h: vertical ? Math.min(h * 0.55, floor - unit * 0.1 - areaY) : h * 0.6 };
       put("media", area.x + area.w / 2, area.y + area.h / 2, () => {
@@ -897,7 +951,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         const b = drawImage(f, asset, 0, 0, vertical ? w * 0.75 : w * 0.45, imageH, missing);
         return { x: cx + b.x, y: cy + b.y, w: b.w, h: b.h };
       });
-      title(m, vertical ? topSafe(h * 0.15, titleSize) : h * 0.18, titleSize, w - m * 2);
+      title(m, topSafe(vertical ? h * 0.15 : h * 0.18, titleSize), titleSize, w - m * 2);
       const tag = s.items[0];
       if (tag) {
         const q = land(span(lt, at("tag"), 0.5));
@@ -1117,6 +1171,7 @@ export function drawMotionFrame(
   } else drawPicture(f, scenes, push);
   subtitle(f, scenes[sceneAt(scenes, t)].voice);
   footer(f);
+  disclosureLabel(f, scenes, push);
 }
 
 // The picture of frame f.t without the subtitle and the AI notice: the set, then the scene on screen or the change
