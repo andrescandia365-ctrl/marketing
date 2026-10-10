@@ -48,6 +48,7 @@ const MotionStudio = lazy(() => import("./components/MotionStudio.tsx").then((m)
 const LyricStudio = lazy(() => import("./components/LyricStudio.tsx").then((m) => ({ default: m.LyricStudio })));
 const AdsStudio = lazy(() => import("./components/ads/AdsStudio.tsx").then((m) => ({ default: m.AdsStudio })));
 const SeriesEditor = lazy(() => import("./components/SeriesEditor.tsx").then((m) => ({ default: m.SeriesEditor })));
+const EpisodesPanel = lazy(() => import("./components/EpisodesPanel.tsx").then((m) => ({ default: m.EpisodesPanel })));
 const ModelsPanel = lazy(() => import("./components/ModelsPanel.tsx").then((m) => ({ default: m.ModelsPanel })));
 
 // A part downloaded on demand: a spinner while it arrives, a notice instead of a blank screen if it never does.
@@ -129,6 +130,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [showModels, setShowModels] = useState(false);
+  const [showEpisodes, setShowEpisodes] = useState(false);
   const [section, setSection] = useState<Section>(loadSection);
   const [hookVariants, setHookVariants] = useState<HookVariant[] | null>(null);
   const [writingHooks, setWritingHooks] = useState(false);
@@ -1150,6 +1152,14 @@ export function App() {
                 + Nueva pieza
               </Button>
             )}
+            <Button
+              variant="ghost"
+              className="px-2 py-1 text-xs"
+              title="Episodios estudiados: el registro de episodios del playbook (§2.6)"
+              onClick={() => setShowEpisodes(true)}
+            >
+              Episodios
+            </Button>
             <button
               type="button"
               onClick={() => setShowModels(true)}
@@ -1166,6 +1176,12 @@ export function App() {
           </div>
         )}
       </header>
+
+      {showEpisodes && (
+        <Lazy>
+          <EpisodesPanel onClose={() => setShowEpisodes(false)} onModels={() => (setShowEpisodes(false), setShowModels(true))} />
+        </Lazy>
+      )}
 
       {showModels && (
         <Lazy>

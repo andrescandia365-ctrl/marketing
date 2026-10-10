@@ -66,6 +66,14 @@ export const libraryFileUrl = (seriesId: string, file: string, version = 0) =>
   `/api/series/${enc(seriesId)}/files/${enc(file)}${version ? `?v=${version}` : ""}`;
 export const projectFileUrl = (id: string, file: string) => `/api/projects/${enc(id)}/files/${enc(file)}`;
 
+export type EpisodesView = {
+  episodes: { n: number; title: string; moves: string[] }[];
+  next: number;
+  moves: { name: string; episodes: number[]; inPlaybook: boolean; propose: boolean }[];
+  repeatMin: number;
+  drift: string;
+};
+
 async function call<T>(path: string, body?: unknown, method?: "PUT" | "PATCH" | "DELETE"): Promise<T> {
   const res = await fetch(path, {
     method: method ?? (body === undefined ? "GET" : "POST"),
@@ -262,6 +270,10 @@ export const api = {
   demucs: () => call<{ demucs: DemucsStatus; ffmpeg: boolean }>("/api/tools/demucs"),
   testDemucs: () => call<{ seconds: number; command: string }>("/api/tools/demucs/test", {}),
   saveDemucsBin: (bin: string | null) => call<{ demucs: DemucsStatus; ffmpeg: boolean }>("/api/tools/demucs", { bin }, "PUT"),
+  // "Episodios estudiados": PLAYBOOK.md §2.6 (only answers from this computer).
+  episodes: () => call<EpisodesView & Demo>("/api/episodes"),
+  draftEpisode: (summary: string) => call<{ n: number; entry: string } & Demo>("/api/episodes/draft", { summary }),
+  addEpisode: (entry: string) => call<{ n: number; record: "recorded" | "patched" | "left"; view: EpisodesView }>("/api/episodes", { entry, ok: true }),
   // Modelos (only answers from this computer).
   settings: () => call<SettingsView>("/api/settings"),
   saveKey: (name: string, key: string | null) => call<SettingsView>("/api/settings/key", { name, key }, "PUT"),

@@ -78,6 +78,8 @@ import {
   type ProviderId,
 } from "./settings.ts";
 import { getProvider, listProviders } from "./images/index.ts";
+import { addEpisode, draftEpisode, episodesView } from "./episodes.ts";
+import { ENTRY_MAX, EpisodeError, SUMMARY_MAX } from "../shared/episodes.ts";
 import { CastMemberSchema, PUPPET_MAX_LAYERS, PUPPET_ROLES, PuppetPlaceSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
 import {
   PROJECTS_DIR,
@@ -143,7 +145,7 @@ app.onError((error, c) => {
     return c.json({ error: error.message }, 400);
   }
   if (error instanceof VoiceError || error instanceof LyricsError) return c.json({ error: error.message }, 502);
-  if (error instanceof ClockError || error instanceof BrandWebError || error instanceof AdsError) return c.json({ error: error.message }, 400);
+  if (error instanceof ClockError || error instanceof BrandWebError || error instanceof AdsError || error instanceof EpisodeError) return c.json({ error: error.message }, 400);
   // Which field and what is wrong with it: an old project with a renamed field says which one.
   if (error instanceof z.ZodError) return c.json({ error: checkErrorText(error) }, 400);
   console.error(error);
@@ -634,6 +636,23 @@ app.put("/api/tools/demucs", async (c) => {
   await setEnv({ DEMUCS_BIN: bin ? checkDemucsBin(bin) : null });
   return c.json({ demucs: demucsStatus(true), ffmpeg: ffmpegAvailable() });
 });
+// "Episodios estudiados" (PLAYBOOK.md §2.6): it writes the research file and its snapshot, so only from the app on this
+// computer. A draft needs the writer; the append needs the person's ok and never touches server/playbook.md.
+app.use("/api/episodes", onlyHere("El registro de episodios se cambia solo desde la app en esta compu."));
+app.use("/api/episodes/*", onlyHere("El registro de episodios se cambia solo desde la app en esta compu."));
+app.get("/api/episodes", (c) => c.json({ ...episodesView(), demo: demo() }));
+app.post("/api/episodes/draft", async (c) => {
+  const { summary } = z.object({ summary: z.string().trim().min(1).max(SUMMARY_MAX) }).parse(await c.req.json());
+  if (demo()) {
+    return c.json({ error: "Para pasar un resumen a la plantilla hace falta una IA conectada: cargá una clave en Modelos. Mientras, podés escribir la ficha a mano." }, 400);
+  }
+  return c.json({ ...(await draftEpisode(summary)), demo: false });
+});
+app.post("/api/episodes", async (c) => {
+  const { entry } = z.object({ entry: z.string().min(1).max(ENTRY_MAX), ok: z.literal(true) }).parse(await c.req.json());
+  return c.json(addEpisode(entry));
+});
+
 // "Exportar .zip" / "Importar .zip" (projectZip.ts): a whole project folder as one file. Only from the app on this
 // computer: the export hands out every file of a piece, and the import writes a new folder.
 app.use("/api/projects/:id/export", onlyHere("Los proyectos se exportan solo desde la app en esta compu."));
