@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useRef, useState, type ReactNode } from "react";
-import { DEFAULT_AUDIO, voiceModeOf, type AudioSettings, type CharacterVoice, type VoiceMode } from "../shared/audio.ts";
+import { DEFAULT_AUDIO, lineEmotion, voiceModeOf, type AudioSettings, type CharacterVoice, type VoiceMode } from "../shared/audio.ts";
 import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/checks.ts";
-import { SKETCH_BASE, buildCopyPrompt } from "../shared/prompt.ts";
+import { SKETCH_BASE, buildCopyPrompt, lookPhrase } from "../shared/prompt.ts";
 import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
 import { migrateBoard, migrateStory, type Board, type Brief, type HookVariant, type Menu, type Setup, type Shot, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
 import { DEFAULT_TEXT_STYLE, castRef, hasLook, seriesId, type CastMember, type TextStyle } from "../shared/series.ts";
@@ -644,7 +644,7 @@ export function App() {
     const shot = board.shots[index];
     setShotMedia(index, { loading: true, error: undefined });
     try {
-      const { dataUrl } = await api.image(provider, shot.visualPrompt, board.style, pieceBrief.format, shot.beat);
+      const { dataUrl } = await api.image(provider, shot.visualPrompt, board.style, pieceBrief.format, shot.beat, lookPhrase(pieceSeries?.look));
       setShotMedia(index, { image: dataUrl, loading: false });
       const blob = await (await fetch(dataUrl)).blob();
       await keep(index, (id) => api.uploadMedia(id, index, "image", blob));
@@ -765,7 +765,7 @@ export function App() {
     if (!shot) return;
     const own = audio.characters[shot.speaker];
     // Said with its story line's emotion.
-    const emotion = story?.topics.flatMap((t) => t.lines).find((l) => l.text.trim() === shot.voiceover.trim())?.emotion ?? "";
+    const emotion = lineEmotion(story, shot.voiceover);
     const blob = await api.speak(shot.voiceover, own?.ttsVoice ?? "", pieceBrief.language, emotion);
     await addAudio(index, "voice", blob, `toma-${index + 1}-voz-generada.mp3`);
   }
@@ -1486,6 +1486,7 @@ export function App() {
                 library={library}
                 voice={{
                   language: pieceBrief.language,
+                  emotionOf: (line: string) => lineEmotion(story, line),
                   audio,
                   voiceAvailable: status?.voice.available ?? false,
                   onMode: setVoiceMode,

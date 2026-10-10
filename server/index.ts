@@ -1046,6 +1046,7 @@ app.post("/api/image", async (c) => {
       style: z.string(),
       aspect: z.enum(["vertical", "horizontal"]),
       beat: z.string(),
+      look: z.string().max(2400).default(""),
     })
     .parse(await c.req.json());
   const provider = getProvider(req.provider);

@@ -185,6 +185,8 @@ export type VoiceRowProps = {
   // What is heard inside Grok's clip, and how loud the clip plays in the video.
   onClipSound: (index: number, sound: ClipSound) => void;
   onClipLevel: (index: number, level: ClipLevel) => void;
+  // The story's written emotion for a line ("" when none), for Grok's speaking prompt.
+  emotionOf?: (line: string) => string;
 };
 
 // How this shot's line is heard, plus an optional sound effect.
@@ -247,7 +249,7 @@ export function VoiceRow(props: VoiceRowProps) {
             text={
               shot.timeline?.length
                 ? clipPrompt(audio, shot, index)
-                : speakingPrompt(clipPrompt(audio, shot, index), speaker?.name ?? "The character", line, own?.grokVoice ?? "", language)
+                : speakingPrompt(clipPrompt(audio, shot, index), speaker?.name ?? "The character", line, own?.grokVoice ?? "", language, props.emotionOf?.(line) ?? "")
             }
           />
         </div>

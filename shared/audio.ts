@@ -1,5 +1,5 @@
 // How each line is heard, and the piece's music. Saved with the project.
-import type { Shot } from "./schema.ts";
+import type { Shot, Story } from "./schema.ts";
 
 // subtitles: only the subtitle. grok: the clip carries the voice (Grok says the line). generated: a synthetic voice
 // made by the app. recorded: the person's own voice, recorded in the app or uploaded.
@@ -102,12 +102,21 @@ export function voiceModeOf(audio: AudioSettings, shot: Shot, index: number): Vo
 
 // The shot's video prompt with the line spoken on screen, for when Grok says it. The app normally asks for
 // silent clips, so the "no speech" part is taken out.
-export function speakingPrompt(videoPrompt: string, name: string, line: string, voice: string, language: "es" | "en"): string {
+// The line's written emotion goes in as a short tone note, in the story's own words.
+export function speakingPrompt(videoPrompt: string, name: string, line: string, voice: string, language: "es" | "en", emotion = ""): string {
   const base = videoPrompt
     .replace(/,?\s*no (?:speech|dialogue|talking|voices?)\b/gi, "")
     .replace(/,?\s*nobody speaks\b/gi, "")
     .replace(/\s+\./g, ".")
     .trim();
   const tongue = language === "es" ? "Rioplatense Spanish (Buenos Aires accent)" : "English";
-  return `${base} ${name} says, in ${tongue}, lips in sync${voice ? `, with the voice ${voice}` : ""}: "${line.trim()}"`;
+  const tone = emotion.trim().replace(/[.:;,]+$/, "").replace(/"/g, "'");
+  return `${base} ${name} says, in ${tongue}${tone ? `, tone: ${tone}` : ""}, lips in sync${voice ? `, with the voice ${voice}` : ""}: "${line.trim()}"`;
+}
+
+// The emotion the story wrote for a shot's line (the story line with the same text), "" when none matches.
+export function lineEmotion(story: Pick<Story, "topics"> | null | undefined, voiceover: string): string {
+  const said = voiceover.trim();
+  if (!said || !story) return "";
+  return story.topics.flatMap((t) => t.lines).find((l) => l.text.trim() === said)?.emotion?.trim() ?? "";
 }

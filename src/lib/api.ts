@@ -151,8 +151,8 @@ export const api = {
     call<{ board: Board } & Demo>("/api/board/revise", { brief, story, board, note, shotNotes }),
   rewriteShot: (brief: Brief, story: Story, board: Board, index: number, note: string) =>
     call<{ shot: Shot } & Demo>("/api/shot/rewrite", { brief, story, board, index, note }),
-  image: (provider: string, prompt: string, style: string, aspect: Brief["format"], beat: string) =>
-    call<{ dataUrl: string }>("/api/image", { provider, prompt, style, aspect, beat }),
+  image: (provider: string, prompt: string, style: string, aspect: Brief["format"], beat: string, look = "") =>
+    call<{ dataUrl: string }>("/api/image", { provider, prompt, style, aspect, beat, look }),
   seriesFields: (id: string) => call<{ fields: SeriesFields }>(`/api/series/${encodeURIComponent(id)}`),
   saveSeries: (id: string, fields: SeriesFields) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${encodeURIComponent(id)}`, { fields }, "PUT"),

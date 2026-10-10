@@ -1,7 +1,23 @@
-// The full text sent to an image generator API for a single shot.
-export function buildImagePrompt(prompt: string, style: string): string {
+import type { SeriesLook } from "./series.ts";
+
+// The series look as one line of camera words and flaws, in the order the look is written ("" with no look).
+export function lookPhrase(look?: SeriesLook): string {
+  if (!look) return "";
+  return [look.camera, look.flash, look.grain, look.focus, look.light, look.extra]
+    .map((v) => v.trim().replace(/[.;,]+$/, ""))
+    .filter(Boolean)
+    .join("; ");
+}
+
+// With no series look, an honest photo with its flaws, never the polished "cinematic" kind (polishWords).
+export const PLAIN_PHOTO = "Ordinary unretouched photograph from a real camera, natural light, slight noise, real skin and surfaces";
+
+// The full text sent to an image generator API for a single shot. The series look leads the closing words; without
+// one, the plain photo line does.
+export function buildImagePrompt(prompt: string, style: string, look = ""): string {
   const parts = [prompt, style].map((p) => p.trim().replace(/\.+$/, "")).filter(Boolean);
-  return `${parts.join(". ")}. Photographic, cinematic still. No text, letters, signs, logos or brand names in the image. No real public figures.`;
+  const camera = look.trim() ? `Look: ${look.trim().replace(/\.+$/, "")}` : PLAIN_PHOTO;
+  return `${parts.join(". ")}. ${camera}. No text, letters, signs, logos or brand names in the image. No real public figures.`;
 }
 
 // Storyboard sketches made with an image tool live in the project's image slots SKETCH_BASE + shot index.
