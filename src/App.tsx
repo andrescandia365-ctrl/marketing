@@ -6,6 +6,7 @@ import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
 import { migrateBoard, migrateStory, type Board, type Brief, type HookVariant, type Menu, type Setup, type Shot, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
 import { DEFAULT_TEXT_STYLE, castRef, hasLook, seriesId, type CastMember, type TextStyle } from "../shared/series.ts";
 import { BEAT_INFO, formatTime, timeShots } from "../shared/template.ts";
+import { propagateSetupIdentity, undoSetupIdentity, type SetupIdentityEdit } from "../shared/setupEdit.ts";
 import { VoicesPanel, audioDuration, type AudioFile } from "./components/Audio.tsx";
 import { BriefForm } from "./components/BriefForm.tsx";
 import { MenuPicker } from "./components/MenuPicker.tsx";
@@ -22,6 +23,7 @@ import {
   StoryNotes,
   Timeline,
   type ClipFile,
+  type SetupIdentityResult,
   type LibraryEntry,
   type MediaState,
 } from "./components/ScriptView.tsx";
@@ -136,6 +138,8 @@ export function App() {
   const [story, setStory] = useState<Story | null>(null);
   const [storyRound, setStoryRound] = useState(1);
   const [board, setBoard] = useState<Board | null>(null);
+  // The last setup description carried into the shots, kept to undo it.
+  const [setupUndo, setSetupUndo] = useState<{ edit: SetupIdentityEdit; member: CastMember | null } | null>(null);
   const [boardRound, setBoardRound] = useState(1);
   const [boardApproved, setBoardApproved] = useState(false);
   const [demo, setDemo] = useState(false);
@@ -462,6 +466,7 @@ export function App() {
     setStory(null);
     setStoryRound(1);
     setBoard(null);
+    setSetupUndo(null);
     setBoardRound(1);
     setBoardApproved(false);
     setMedia({});
@@ -509,6 +514,7 @@ export function App() {
     setStory(st.story ? migrateStory(st.story) : null);
     setStoryRound(st.storyRound ?? 1);
     setBoard(st.board ? migrateBoard(st.board) : null);
+    setSetupUndo(null);
     setBoardRound(st.boardRound ?? 1);
     setBoardApproved(st.boardApproved ?? false);
     setLog(st.log ?? []);
@@ -617,6 +623,7 @@ export function App() {
     setStory(result.story);
     setStoryRound(1);
     setBoard(null);
+    setSetupUndo(null);
     setBoardApproved(false);
     setDemo(result.demo);
     addLog({
@@ -653,6 +660,7 @@ export function App() {
     const result = await run("board", () => api.board(pieceBrief, story));
     if (!result) return;
     setBoard(result.board);
+    setSetupUndo(null);
     setBoardRound(1);
     setBoardApproved(false);
     setMedia({});
@@ -670,6 +678,7 @@ export function App() {
     const result = await run(kind, () => api.reviseBoard(pieceBrief, story, board, note, shotNotes));
     if (!result) return false;
     setBoard(result.board);
+    setSetupUndo(null);
     setBoardRound((r) => r + 1);
     const notes = [note && `“${note}”`, ...shotNotes.map((n) => `toma ${n.index + 1}: “${n.note}”`)].filter(Boolean);
     addLog({
@@ -900,6 +909,50 @@ export function App() {
       setLibraryVersion((v) => v + 1);
       addLog({ text: `Imagen fija de ${setup.name} actualizada` });
     }
+  }
+
+  // Changes a setup's description in every shot that writes it, and in the series' cast when asked.
+  // The last change can be undone (its prompts, and the cast member's line if it was saved there).
+  async function editSetupIdentity(setup: Setup, identity: string, toSeries: boolean): Promise<SetupIdentityResult> {
+    if (!board) throw new Error("No hay storyboard.");
+    const result = propagateSetupIdentity(board, setup.id, identity);
+    if (!result) return { changed: [], missing: [] };
+    const member = toSeries && setup.castId ? pieceSeries?.cast.find((m) => m.id === setup.castId) : undefined;
+    if (member) {
+      const { series } = await api.upsertCast(pieceBrief.series, { ...member, identity: result.edit.after });
+      setStatus((s) => (s ? { ...s, series } : s));
+    }
+    setBoard(result.board);
+    setSetupUndo({ edit: result.edit, member: member ?? null });
+    const { changed, missing } = result.edit;
+    addLog({
+      text: `Descripción de ${setup.name}: “${result.edit.after}”`,
+      outcome:
+        (changed.length ? `cambiada en las tomas ${changed.map((i) => i + 1).join(", ")}` : "no estaba escrita en ninguna toma") +
+        (missing.length ? `; revisar a mano las tomas ${missing.map((i) => i + 1).join(", ")}` : "") +
+        (member ? `; guardada en el elenco de ${pieceSeries?.name ?? "la serie"}` : ""),
+    });
+    return { changed, missing };
+  }
+
+  async function undoSetupEdit(): Promise<number[]> {
+    if (!board || !setupUndo) return [];
+    const { edit, member } = setupUndo;
+    const { board: back, kept } = undoSetupIdentity(board, edit);
+    const current = member ? pieceSeries?.cast.find((m) => m.id === member.id) : undefined;
+    // The series line goes back only while it is still the one this change wrote.
+    if (member && current && current.identity === edit.after) {
+      const { series } = await api.upsertCast(pieceBrief.series, { ...current, identity: member.identity });
+      setStatus((s) => (s ? { ...s, series } : s));
+    }
+    setBoard(back);
+    setSetupUndo(null);
+    const name = back.setups.find((x) => x.id === edit.setupId)?.name ?? edit.setupId;
+    addLog({
+      text: `Deshecho el cambio de descripción de ${name}`,
+      outcome: kept.length ? `las tomas ${kept.map((i) => i + 1).join(", ")} quedan como las editaste después` : "todo como antes",
+    });
+    return kept;
   }
 
   async function saveStyle(style: TextStyle) {
@@ -1601,6 +1654,9 @@ export function App() {
                 seriesName={pieceSeries?.name ?? ""}
                 library={library}
                 onFix={fixSetup}
+                onIdentity={editSetupIdentity}
+                undoSetupId={setupUndo?.edit.setupId ?? ""}
+                onUndoIdentity={undoSetupEdit}
               />
               <Button variant="ghost" className="w-full" onClick={sendToAds} disabled={sent === story.title}>
                 {sent === story.title ? "Enviado a Publicidad ✓" : "Enviar a Publicidad (hook)"}

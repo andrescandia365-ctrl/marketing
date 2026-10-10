@@ -808,9 +808,162 @@ type SetupsProps = {
   library: Record<string, LibraryEntry>;
   // Saves a setup into the series' fixed cast (with an image), or replaces the image of a linked one.
   onFix: (setup: Setup, kind: CastMember["kind"], image: Blob | null) => Promise<void>;
+  // Changes the setup's description in every shot that writes it (and in the series' cast when asked).
+  onIdentity?: (setup: Setup, identity: string, toSeries: boolean) => Promise<SetupIdentityResult>;
+  // The setup whose last description change can still be undone.
+  undoSetupId?: string;
+  // Undoes it; answers the shots edited by hand since, which stay as they are.
+  onUndoIdentity?: () => Promise<number[]>;
 };
 
-function SetupRow({ setup, board, media, toolName, seriesName, library, onFix }: SetupsProps & { setup: Setup }) {
+// Shot indexes (from 0) whose prompts took the new description, and those that list the setup without writing it.
+export type SetupIdentityResult = { changed: number[]; missing: number[] };
+
+const shotList = (indexes: number[]) => indexes.map((i) => i + 1).join(", ");
+
+// One description for the setup, carried into every shot's prompts.
+function IdentityEditor({
+  setup,
+  shots,
+  member,
+  seriesName,
+  onIdentity,
+  canUndo,
+  onUndoIdentity,
+}: {
+  setup: Setup;
+  shots: number;
+  member: boolean;
+  seriesName: string;
+  onIdentity: NonNullable<SetupsProps["onIdentity"]>;
+  canUndo: boolean;
+  onUndoIdentity?: SetupsProps["onUndoIdentity"];
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState(setup.identity);
+  const [toSeries, setToSeries] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState("");
+  const [error, setError] = useState("");
+
+  async function apply() {
+    setBusy(true);
+    setError("");
+    try {
+      const { changed, missing } = await onIdentity(setup, text, member && toSeries);
+      setResult(
+        (changed.length
+          ? `Listo: cambiada en ${changed.length === 1 ? "la toma" : "las tomas"} ${shotList(changed)}.`
+          : "La descripción quedó cambiada, pero no estaba escrita en ningún prompt.") +
+          (missing.length
+            ? ` En ${missing.length === 1 ? "la toma" : "las tomas"} ${shotList(missing)} no encontré la descripción vieja: revisá ${missing.length === 1 ? "su prompt" : "sus prompts"} a mano.`
+            : ""),
+      );
+      setOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function undo() {
+    if (!onUndoIdentity) return;
+    setBusy(true);
+    setError("");
+    try {
+      const kept = await onUndoIdentity();
+      setResult(
+        kept.length
+          ? `Deshecho. ${kept.length === 1 ? "La toma" : "Las tomas"} ${shotList(kept)} ${kept.length === 1 ? "queda" : "quedan"} como ${kept.length === 1 ? "la editaste" : "las editaste"} después.`
+          : "Deshecho: todo quedó como antes.",
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const same = text.trim() === setup.identity.trim();
+  return (
+    <div className="space-y-1">
+      {open ? (
+        <div className="space-y-1 rounded-lg border border-line p-2">
+          <textarea
+            className="w-full rounded border border-line bg-white px-2 py-1 font-mono text-xs"
+            rows={3}
+            value={text}
+            maxLength={600}
+            aria-label={`Descripción de ${setup.name}`}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <p className="text-xs text-muted">En inglés, como la escribe la IA: va palabra por palabra en cada prompt de imagen y video.</p>
+          {member && (
+            <label className="flex items-start gap-1 text-xs">
+              <input type="checkbox" checked={toSeries} onChange={(e) => setToSeries(e.target.checked)} className="mt-0.5" />
+              <span>También guardarla en el elenco de {seriesName || "la serie"} (la usan los próximos episodios)</span>
+            </label>
+          )}
+          <div className="flex flex-wrap gap-1">
+            <Button variant="secondary" className="px-2 py-1 text-xs" disabled={busy || same || !text.trim()} onClick={apply}>
+              {busy ? <Spinner /> : shots > 1 ? `Cambiar en sus ${shots} tomas` : shots === 1 ? "Cambiar en su toma" : "Cambiar"}
+            </Button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setOpen(false)}
+              className="rounded px-2 py-1 text-xs font-semibold text-muted hover:bg-black/5 hover:text-ink"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-1">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setText(setup.identity);
+              setResult("");
+              setOpen(true);
+            }}
+            className="rounded px-2 py-1 text-xs font-semibold text-muted hover:bg-black/5 hover:text-ink"
+            title="Cambiá la descripción una vez y llega a todas las tomas donde aparece"
+          >
+            Cambiar descripción
+          </button>
+          {canUndo && onUndoIdentity && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={undo}
+              className="rounded px-2 py-1 text-xs font-semibold text-muted hover:bg-black/5 hover:text-ink"
+            >
+              {busy ? <Spinner /> : "↶ Deshacer el cambio"}
+            </button>
+          )}
+        </div>
+      )}
+      {result && <p className="text-xs text-muted">{result}</p>}
+      {error && <p className="text-xs text-neg">{error}</p>}
+    </div>
+  );
+}
+
+function SetupRow({
+  setup,
+  board,
+  media,
+  toolName,
+  seriesName,
+  library,
+  onFix,
+  onIdentity,
+  undoSetupId,
+  onUndoIdentity,
+}: SetupsProps & { setup: Setup }) {
   const shots = timeShots(board.shots).filter((sh) => sh.setups.includes(setup.id));
   const withImage = shots.filter((sh) => media[sh.index]?.image);
   const member = setup.castId ? library[setup.castId] : undefined;
@@ -931,6 +1084,17 @@ function SetupRow({ setup, board, media, toolName, seriesName, library, onFix }:
             }}
           />
         </div>
+        {onIdentity && (
+          <IdentityEditor
+            setup={setup}
+            shots={shots.length}
+            member={Boolean(member)}
+            seriesName={seriesName}
+            onIdentity={onIdentity}
+            canUndo={undoSetupId === setup.id}
+            onUndoIdentity={onUndoIdentity}
+          />
+        )}
         {error && <p className="text-xs text-neg">{error}</p>}
       </div>
     </li>
