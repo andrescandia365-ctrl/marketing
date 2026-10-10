@@ -543,6 +543,15 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   13. **Storyboard del explicativo:** una viñeta por escena con el cuadro, lo que se dice, lo que suena, cómo entra y
       la cámara. Se baja como .md y como una hoja .png.
 - **Probado en un render real** (muestra de IMAN, 9:16): 1221 de 1221 cuadros, -14,1 LUFS, con su .srt al lado.
+- **Revisión del código (10 Oct 2026):** se confirmaron y arreglaron 10 errores:
+  - El mundo ilustrado dejaba detalles detrás del campo que se tipea y de los nombres de los Casilleros. Además
+    quedaba el marco del monitor como un bloque liso detrás del subtítulo: ahora cada objeto sale entero o no sale.
+  - Un rótulo de CONCEPTO marcado por la revisión no frenaba el render en la misma corrida, y al cambiar el personaje
+    de una escena el aviso se perdía.
+  - Una nota del director traía de vuelta avisos ya resueltos y borraba la segunda fila de Casilleros.
+  - Una voz nueva podía pisar el archivo que «Deshacer» restaura, y una respuesta vieja de la escucha podía pisar los
+    tiempos de la voz nueva.
+  - Un archivo de títere con "34" en el nombre (por ejemplo, una hora) se tomaba como la vista de 3/4.
 
 ### 63. Lo que se aprende de Kurzgesagt (9 Oct 2026) — **Construido 1 a 5 (9 Oct 2026, "Go")**
 - **De dónde sale:** te encanta Kurzgesagt. Tomamos su oficio, no su estética: ni su pájaro, ni su paleta, ni su nombre en una pieza, ni el brillo (el estudio lo prohíbe).
