@@ -301,7 +301,14 @@ export const ShotWireSchema = z.object({
     .describe(
       "One of: single (one image, then animate it), transform (the clip moves from an initial to a final frame, optionally through a middle one), screen (a real screenshot of the product, no image prompt).",
     ),
-  screen: z.string().describe("screen only: the id of the real screen from the series' fixed cast. Empty otherwise."),
+  screen: z
+    .string()
+    .describe("screen, or a transform with screenAt: the id of the real screen from the series' fixed cast. Empty otherwise."),
+  screenAt: z
+    .string()
+    .describe(
+      "transform only: \"end\" when the final frame is the real screen in screen (the clip moves from the AI scene into the real screenshot; endPrompt empty), \"start\" when the initial frame is (the clip leaves the screenshot into the scene; endPrompt is that scene). Empty otherwise.",
+    ),
   visualPrompt: z
     .string()
     .describe(
@@ -341,9 +348,11 @@ export type TimelineBeat = z.infer<typeof ShotWireSchema>["timeline"][number];
 export const SHOT_KINDS = ["single", "transform", "screen"] as const;
 export type ShotKind = (typeof SHOT_KINDS)[number];
 
-export type Shot = Omit<z.infer<typeof ShotWireSchema>, "beat" | "disclosure" | "kind"> & {
+export type ScreenAt = "" | "start" | "end";
+export type Shot = Omit<z.infer<typeof ShotWireSchema>, "beat" | "disclosure" | "kind" | "screenAt"> & {
   beat: Beat;
   kind: ShotKind;
+  screenAt: ScreenAt;
   disclosure: "none" | "concept" | "simulation";
 };
 
@@ -427,11 +436,16 @@ export function normalizeShot(wire: z.infer<typeof ShotWireSchema>): Shot {
     .filter((b) => b.to > b.from)
     .sort((a, b) => a.from - b.from);
   let kind = pick(wire.kind, SHOT_KINDS, "single");
+  const at = (wire.screenAt ?? "").toLowerCase();
+  // A real screen as one end of a transform needs a screen id; the other end stays an AI frame.
+  let screenAt: ScreenAt = kind === "transform" && wire.screen.trim() ? (at.includes("end") ? "end" : at.includes("start") ? "start" : "") : "";
   if (kind === "screen" && !wire.screen.trim()) kind = "single";
-  if (kind === "transform" && !wire.endPrompt.trim()) kind = "single";
+  if (kind === "transform" && !wire.endPrompt.trim() && screenAt !== "end") kind = "single";
+  if (kind !== "transform") screenAt = "";
   return {
     ...wire,
     kind,
+    screenAt,
     setups: wire.setups.map((x) => x.trim()).filter(Boolean),
     editFrom: Math.max(0, Math.round(wire.editFrom || 0)),
     beat: pick(wire.beat, BEATS, "negative"),
@@ -459,6 +473,7 @@ export function migrateBoard(board: Board): Board {
         setups: old.setups ?? (old.setup ? [old.setup] : []),
         kind: old.kind ?? "single",
         screen: old.screen ?? "",
+        screenAt: old.screenAt ?? "",
         middlePrompt: old.middlePrompt ?? "",
         endPrompt: old.endPrompt ?? "",
         editFrom: old.editFrom ?? 0,

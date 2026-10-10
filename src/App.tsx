@@ -6,6 +6,7 @@ import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
 import { migrateBoard, migrateStory, type Board, type Brief, type HookVariant, type Menu, type Setup, type Shot, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
 import { DEFAULT_TEXT_STYLE, castRef, hasLook, seriesId, type CastMember, type TextStyle } from "../shared/series.ts";
 import { BEAT_INFO, formatTime, timeShots } from "../shared/template.ts";
+import { generatesImage, shotFrames, type FrameSource } from "../shared/transformScreen.ts";
 import { propagateSetupIdentity, undoSetupIdentity, type SetupIdentityEdit } from "../shared/setupEdit.ts";
 import { VoicesPanel, audioDuration, type AudioFile } from "./components/Audio.tsx";
 import { BriefForm } from "./components/BriefForm.tsx";
@@ -698,6 +699,8 @@ export function App() {
   async function generateImage(index: number) {
     if (!board) return;
     const shot = board.shots[index];
+    // A real screen (a screen shot, or a transform that starts on one) is the cast's screenshot, never generated.
+    if (!generatesImage(shot)) return;
     setShotMedia(index, { loading: true, error: undefined });
     try {
       const { dataUrl } = await api.image(provider, shot.visualPrompt, board.style, pieceBrief.format, shot.beat, lookPhrase(pieceSeries?.look));
@@ -971,6 +974,9 @@ export function App() {
     }
   }
 
+  // A transform's end can be a real screen from the cast: it is used as it is, never generated.
+  const frameCopy = (f: FrameSource) =>
+    f.from === "screen" ? `(Pantalla real: ${library[f.screen]?.name ?? f.screen}, no se genera)` : buildCopyPrompt(f.prompt, pieceBrief.format);
   const allPrompts = (kind: "image" | "video") =>
     board
       ? timeShots(board.shots)
@@ -983,9 +989,9 @@ export function App() {
                   ? `(Pantalla real: ${library[s.screen]?.name ?? s.screen}, no se genera)`
                   : s.kind === "transform"
                     ? [
-                        `Inicial: ${buildCopyPrompt(s.visualPrompt, pieceBrief.format)}`,
+                        `Inicial: ${frameCopy(shotFrames(s).start)}`,
                         s.middlePrompt && `Intermedia: ${buildCopyPrompt(s.middlePrompt, pieceBrief.format)}`,
-                        `Final: ${buildCopyPrompt(s.endPrompt, pieceBrief.format)}`,
+                        `Final: ${frameCopy(shotFrames(s).end!)}`,
                       ]
                         .filter(Boolean)
                         .join("\n")
@@ -1002,7 +1008,7 @@ export function App() {
     (board?.shots ?? []).map((shot, i) => [
       i,
       {
-        image: media[i]?.image ?? (shot.kind === "screen" ? library[shot.screen]?.url : undefined),
+        image: media[i]?.image ?? (shotFrames(shot).start.from === "screen" ? library[shot.screen]?.url : undefined),
         clip: media[i]?.clip?.blob,
         voice: modes[i] === "generated" || modes[i] === "recorded" ? media[i]?.voice?.blob : undefined,
         sfx: media[i]?.sfx?.blob,

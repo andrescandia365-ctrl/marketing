@@ -5,6 +5,7 @@ import { buildCopyPrompt } from "../../shared/prompt.ts";
 import { SHOT_LENGTHS, type Board, type Brief, type ImageReview, type SegmentEdit, type Setup, type Shot, type Story } from "../../shared/schema.ts";
 import type { CastMember } from "../../shared/series.ts";
 import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
+import { generatesImage, transformScreen, withScreenMove } from "../../shared/transformScreen.ts";
 import { copyText } from "../lib/files.ts";
 import { formatElapsed, type LogEntry } from "../lib/markdown.ts";
 import { SpeakButton, VoiceRow, type AudioFile, type VoiceRowProps } from "./Audio.tsx";
@@ -370,8 +371,13 @@ function ShotCard(props: CardProps) {
   const vertical = brief.format === "vertical";
   const setup = board.setups.find((s) => s.id === shot.setups[0]);
   const screen = shot.kind === "screen" ? library[shot.screen] : undefined;
-  // A screen shot shows the real screenshot from the series unless the person uploaded another image.
-  const image = media.image ?? screen?.url;
+  // A transform can start or end on a real screen from the cast: that frame is the screenshot, never generated.
+  const realEnd = transformScreen(shot);
+  const realScreen = realEnd ? library[realEnd.screen] : undefined;
+  const screens = Object.values(library).filter((m) => m.kind === "screen");
+  // A screen shot (or a transform that starts on a real screen) shows the real screenshot from the series unless
+  // the person uploaded another image.
+  const image = media.image ?? screen?.url ?? (realEnd?.at === "start" ? realScreen?.url : undefined);
   const who = story.characters.find((c) => c.id === shot.speaker);
   const set = <K extends keyof Shot>(key: K, value: Shot[K]) => onShotChange(shot.index, { ...shot, [key]: value });
 
@@ -409,6 +415,12 @@ function ShotCard(props: CardProps) {
     setRewriting(false);
     if (ok) setNote("");
   }
+
+  // "Final: pantalla real": the end (or start) frame becomes a cast screenshot and the video prompt says so.
+  const setRealScreen = (at: Shot["screenAt"], id: string) => {
+    const name = library[id]?.name ?? id;
+    onShotChange(shot.index, { ...shot, screenAt: id ? at : "", screen: id && at ? id : "", videoPrompt: withScreenMove(shot.videoPrompt, id ? at : "", name) });
+  };
 
   const setSeconds = (seconds: number) =>
     onShotChange(shot.index, { ...shot, seconds, toolSettings: shot.toolSettings.replace(/\d+(\.\d+)?\s*s\b/, `${seconds} s`) });
@@ -528,7 +540,22 @@ function ShotCard(props: CardProps) {
             <p className="text-xs text-muted">
               En {toolName}: cargá la imagen inicial{shot.middlePrompt ? ", la intermedia" : ""} y la final en la barra del
               clip, y pegá el prompt de video.
+              {realEnd &&
+                (realScreen
+                  ? ` La ${realEnd.at === "end" ? "final" : "inicial"} es la captura real de ${realScreen.name}: no se genera con IA.`
+                  : ` Falta la pantalla "${realEnd.screen}" en el elenco de la serie.`)}
             </p>
+          )}
+          {realEnd?.at === "end" && realScreen?.url && (
+            <a
+              href={realScreen.url}
+              download={`${realScreen.id}.png`}
+              className="block overflow-hidden rounded-md border border-line text-xs"
+              title="Bajala y cargala como imagen final en la barra del clip"
+            >
+              <img src={realScreen.url} alt="" className="max-h-28 w-full object-contain bg-paper" />
+              <span className="block px-2 py-1 font-semibold">Imagen final: {realScreen.name} (bajar)</span>
+            </a>
           )}
           {shot.kind === "screen" && (
             <p className="text-xs text-muted">
@@ -537,7 +564,8 @@ function ShotCard(props: CardProps) {
           )}
           <button
             type="button"
-            disabled={media.loading}
+            disabled={media.loading || !generatesImage(shot)}
+            title={generatesImage(shot) ? undefined : "Es una pantalla real: no se genera con IA"}
             onClick={() => onGenerate(shot.index)}
             className="w-full rounded-md py-1 text-xs font-semibold text-muted hover:bg-black/5 hover:text-ink disabled:opacity-50"
           >
@@ -578,7 +606,34 @@ function ShotCard(props: CardProps) {
               </ol>
             </div>
           )}
-          {shot.kind !== "screen" && (
+          {shot.kind === "transform" && (
+            <label className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-semibold text-muted">Pantalla real en la transformación</span>
+              <select
+                value={shot.screenAt ? `${shot.screenAt}:${shot.screen}` : ""}
+                onChange={(e) => {
+                  const [at, id] = e.target.value.split(":") as [Shot["screenAt"], string | undefined];
+                  setRealScreen(at, id ?? "");
+                }}
+                className="rounded border border-line bg-white px-1.5 py-0.5"
+                title="Una punta del clip puede ser una captura real de la serie (nunca dibujada por IA)"
+              >
+                <option value="">Ninguna: las dos imágenes con IA</option>
+                {screens.map((m) => (
+                  <option key={`end:${m.id}`} value={`end:${m.id}`}>
+                    Final: pantalla real · {m.name}
+                  </option>
+                ))}
+                {screens.map((m) => (
+                  <option key={`start:${m.id}`} value={`start:${m.id}`}>
+                    Inicial: pantalla real · {m.name}
+                  </option>
+                ))}
+              </select>
+              {screens.length === 0 && <span className="text-muted">(la serie no tiene pantallas reales en el elenco)</span>}
+            </label>
+          )}
+          {shot.kind !== "screen" && realEnd?.at !== "start" && (
             <PromptBox
               label={shot.kind === "transform" ? "Imagen inicial" : "Prompt de imagen"}
               hint={shot.kind === "transform" ? "el Malo, el arranque" : "se hace primero"}
@@ -589,7 +644,7 @@ function ShotCard(props: CardProps) {
               onChange={(v) => set("visualPrompt", v)}
             />
           )}
-          {shot.editFrom > 0 && shot.kind !== "screen" && (
+          {shot.editFrom > 0 && shot.kind !== "screen" && realEnd?.at !== "start" && (
             <PromptBox
               label={`Editar la imagen de la toma ${shot.editFrom}`}
               hint="mismo personaje, solo cambia esto"
@@ -610,21 +665,31 @@ function ShotCard(props: CardProps) {
                 still
                 onChange={(v) => set("middlePrompt", v)}
               />
-              <PromptBox
-                label="Imagen final"
-                hint="el Bueno, el cierre"
-                value={shot.endPrompt}
-                copy={buildCopyPrompt(shot.endPrompt, brief.format)}
-                rows={3}
-                still
-                onChange={(v) => set("endPrompt", v)}
-              />
+              {realEnd?.at !== "end" && (
+                <PromptBox
+                  label="Imagen final"
+                  hint={realEnd ? "la escena a la que sale la pantalla" : "el Bueno, el cierre"}
+                  value={shot.endPrompt}
+                  copy={buildCopyPrompt(shot.endPrompt, brief.format)}
+                  rows={3}
+                  still
+                  onChange={(v) => set("endPrompt", v)}
+                />
+              )}
             </>
           )}
           {(shot.kind !== "screen" || shot.videoPrompt) && (
             <PromptBox
               label="Prompt de video"
-              hint={shot.kind === "transform" ? "el cambio de una imagen a la otra" : "anima la imagen"}
+              hint={
+                realEnd
+                  ? realEnd.at === "end"
+                    ? "de la escena a la pantalla real"
+                    : "de la pantalla real a la escena"
+                  : shot.kind === "transform"
+                    ? "el cambio de una imagen a la otra"
+                    : "anima la imagen"
+              }
               value={shot.videoPrompt}
               // What is heard inside the clip (the voice row's "Sonido dentro del clip") replaces its "Audio:" line.
               copy={clipPrompt(voice.audio, shot, shot.index)}

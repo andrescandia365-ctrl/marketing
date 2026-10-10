@@ -268,7 +268,7 @@ export function boardChecks(board: Board, castKinds: Record<string, CastKind> = 
     const inUse = board.shots.some(
       (s) =>
         s.beat === "good" &&
-        (s.kind === "screen" || s.setups.some((id) => showable.has(board.setups.find((x) => x.id === id)?.castId ?? ""))),
+        (s.kind === "screen" || (s.kind === "transform" && Boolean(s.screenAt)) || s.setups.some((id) => showable.has(board.setups.find((x) => x.id === id)?.castId ?? ""))),
     );
     if (!inUse) {
       problems.push({

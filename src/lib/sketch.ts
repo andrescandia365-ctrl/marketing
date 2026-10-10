@@ -22,7 +22,9 @@ export function sketchSetups(shot: TimedShot, setups: Record<string, Setup>, cas
     const kind = (["character", "place", "product", "screen"].includes(known ?? "") ? known : person ? "character" : place ? "place" : "other") as SketchSetup["kind"];
     return [{ name: s.name, kind }];
   });
-  if (shot.kind === "screen" && !list.some((s) => s.kind === "screen")) list.push({ name: "Pantalla real", kind: "screen" });
+  // A transform that starts or ends on a real screen shows it too.
+  if ((shot.kind === "screen" || (shot.kind === "transform" && shot.screenAt)) && !list.some((s) => s.kind === "screen"))
+    list.push({ name: "Pantalla real", kind: "screen" });
   return list;
 }
 

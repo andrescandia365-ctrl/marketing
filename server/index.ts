@@ -152,7 +152,7 @@ function fillOld(value: unknown): unknown {
   return {
     ...v,
     ...(v.topics && { topics: v.topics.map((t) => ({ moves: [], ...t, lines: t.lines?.map((l) => ({ emotion: "", ...l })) })) }),
-    ...(v.shots && { shots: v.shots.map((s) => ({ timeline: [], ...s })) }),
+    ...(v.shots && { shots: v.shots.map((s) => ({ timeline: [], screenAt: "", ...s })) }),
   };
 }
 function fillStory(value: unknown): unknown {
@@ -537,7 +537,7 @@ app.post("/api/product-shot", async (c) => {
 const WATERMARK = /marca de agua|watermark|logo de grok|firma de la ia|metadat/i;
 app.post("/api/shot/segment", async (c) => {
   const { brief, shot, note } = z
-    .object({ brief: BriefSchema, shot: z.preprocess((s) => (s && typeof s === "object" ? { timeline: [], ...s } : s), ShotWireSchema).transform(normalizeShot), note: z.string().trim().min(1).max(500) })
+    .object({ brief: BriefSchema, shot: z.preprocess((s) => (s && typeof s === "object" ? { timeline: [], screenAt: "", ...s } : s), ShotWireSchema).transform(normalizeShot), note: z.string().trim().min(1).max(500) })
     .parse(await c.req.json());
   if (WATERMARK.test(note)) {
     throw new WriterError("Eso no: los segmentos no se usan para tapar ni borrar la marca de agua o la identificación de la IA.");

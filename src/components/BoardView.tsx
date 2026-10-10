@@ -500,7 +500,7 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
                   ) : (
                     <p className="text-muted">
                       {s.kind === "transform" && <b className="text-ink">Inicial: </b>}
-                      {s.visualPrompt}
+                      {s.kind === "transform" && s.screenAt === "start" ? `captura real (${s.screen}), no se genera` : s.visualPrompt}
                       {s.kind === "transform" && s.middlePrompt && (
                         <>
                           <br />
@@ -512,7 +512,7 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
                         <>
                           <br />
                           <b className="text-ink">Final: </b>
-                          {s.endPrompt}
+                          {s.screenAt === "end" ? `captura real (${s.screen}), no se genera` : s.endPrompt}
                         </>
                       )}
                     </p>

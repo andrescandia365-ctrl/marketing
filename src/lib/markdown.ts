@@ -4,8 +4,14 @@ import { MOVE_LABEL } from "../../shared/moves.ts";
 import type { Board, Brief, Story } from "../../shared/schema.ts";
 import { appSketchFile, buildCopyPrompt, sketchPrompt } from "../../shared/prompt.ts";
 import { BEAT_INFO, ROLE_LABEL, formatTime, timeShots, totalSeconds } from "../../shared/template.ts";
+import { shotFrames, type FrameSource } from "../../shared/transformScreen.ts";
 
 export type LogEntry = { at: number; shot?: number; text: string; outcome?: string };
+
+// One frame of a shot as pieza.md lists it: the image prompt, or the real screen that is used as it is.
+function frameText(frame: FrameSource, format: Brief["format"]): string {
+  return frame.from === "screen" ? `pantalla real ${frame.screen} (captura de la serie, no se genera con IA)` : buildCopyPrompt(frame.prompt, format);
+}
 
 export function formatElapsed(ms: number): string {
   const m = Math.floor(ms / 60000);
@@ -121,10 +127,10 @@ export function pieceToMarkdown(
         s.onScreenText ? `- **Headline:** ${s.onScreenText}` : "",
         `- **En ${toolName}:** ${s.toolSettings}`,
         s.kind === "screen" ? `- **Pantalla real:** ${s.screen}` : "",
-        s.kind !== "screen" ? `- **${s.kind === "transform" ? "Imagen inicial" : "Prompt de imagen"}:** ${buildCopyPrompt(s.visualPrompt, brief.format)}` : "",
-        s.editFrom ? `- **Editar la imagen de la toma ${s.editFrom}:** ${s.editPrompt}` : "",
+        s.kind !== "screen" ? `- **${s.kind === "transform" ? "Imagen inicial" : "Prompt de imagen"}:** ${frameText(shotFrames(s).start, brief.format)}` : "",
+        s.editFrom && shotFrames(s).start.from === "prompt" ? `- **Editar la imagen de la toma ${s.editFrom}:** ${s.editPrompt}` : "",
         s.kind === "transform" && s.middlePrompt ? `- **Imagen intermedia:** ${buildCopyPrompt(s.middlePrompt, brief.format)}` : "",
-        s.kind === "transform" ? `- **Imagen final:** ${buildCopyPrompt(s.endPrompt, brief.format)}` : "",
+        s.kind === "transform" ? `- **Imagen final:** ${frameText(shotFrames(s).end!, brief.format)}` : "",
         sketches ? sketchLine(s.index, sketches) : "",
         s.kind !== "screen" ? `- **Prompt de boceto:** ${sketchPrompt(s.visualPrompt, brief.format)}` : "",
         s.videoPrompt ? `- **Prompt de video:** ${audio ? clipPrompt(audio, s, s.index) : s.videoPrompt}` : "",
