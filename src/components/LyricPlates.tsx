@@ -118,7 +118,7 @@ function PlateThumb({ piece, cuts, plate, width, height }: { piece: LyricPiece; 
     const canvas = ref.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
-    drawLyricFrame(ctx, canvas.width, canvas.height, at, { ...piece, plateOn: true }, null, [], [], {}, cuts);
+    drawLyricFrame(ctx, canvas.width, canvas.height, at, { ...piece, plateOn: true }, null, undefined, [], {}, cuts);
   }, [piece, cuts, plate, at, key, width, height]);
   return <canvas ref={ref} width={width} height={height} className="rounded-lg border border-line" />;
 }

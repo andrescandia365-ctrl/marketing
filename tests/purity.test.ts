@@ -11,6 +11,7 @@ const DRAWING = [
   "src/lib/actor.ts",
   "src/lib/lyricRender.ts",
   "src/lib/plateDraw.ts",
+  "shared/lyricPulse.ts",
   "src/lib/sketch.ts",
   "shared/syncDraw.ts",
   "shared/subtitles.ts",

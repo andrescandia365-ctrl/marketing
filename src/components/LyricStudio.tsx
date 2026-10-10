@@ -34,6 +34,7 @@ import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { api, projectFileUrl, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
 import { blobToDataUrl } from "../lib/files.ts";
 import type { MotionAsset } from "../lib/motion.ts";
+import { lyricPulse, pulseNote, type LyricPulse } from "../../shared/lyricPulse.ts";
 import { decodeSong, drawLyricFrame, loadLyricFonts, renderLyricVideo, songBeats, type Backdrop, type ElementGlyph } from "../lib/lyricRender.ts";
 import { rasterSvg } from "../lib/svgSanitize.ts";
 import { ClockPanel } from "./ClockPanel.tsx";
@@ -108,8 +109,9 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
   const [elementImages, setElementImages] = useState<Record<number, HTMLImageElement>>({});
   const [bgClips, setBgClips] = useState<BgClip[]>([]);
   const [busy, setBusy] = useState<null | "sync" | "ideas" | "second" | "elements" | "plates" | "render" | "upload" | "style" | "prompts" | "lrc">(null);
-  // Downbeats from the Reloj. Plate cuts use these, and never peaks off the master.
-  const [cuts, setCuts] = useState<number[]>([]);
+  // The Reloj's grid. Plate cuts use its downbeats, and never peaks off the master; the pulse uses its kicks.
+  const [grid, setGrid] = useState<{ usable: boolean; kicks: number[]; downbeats: number[] } | null>(null);
+  const cuts = useMemo(() => (grid?.usable && grid.downbeats.length ? grid.downbeats : []), [grid]);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   // The automatic sync hears the vocal stem Demucs splits (worth it when the music covers the voice).
@@ -131,7 +133,10 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
   // What "Seguir → sincronizar" still needs, said next to it.
   const missingSong = [!song && "subir la canción", !texts.length && "escribir la letra"].filter(Boolean);
   const stale = piece.lines.length > 0 && piece.lines.map((l) => l.text).join("\n") !== texts.join("\n");
-  const beats = useMemo(() => (buffer ? songBeats(buffer) : []), [buffer]);
+  // The master's peaks only matter while there is no kick grid (shared/lyricPulse.ts).
+  const kickGrid = !!(grid?.usable && grid.kicks.length);
+  const masterBeats = useMemo(() => (buffer && !kickGrid ? songBeats(buffer) : []), [buffer, kickGrid]);
+  const beats = useMemo(() => lyricPulse(masterBeats, grid), [masterBeats, grid]);
 
   useEffect(() => () => urls.current.forEach((u) => URL.revokeObjectURL(u)), []);
   const objectUrl = (blob: Blob) => {
@@ -209,8 +214,8 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
       .readClock(projectId)
       .then((found) => {
         if (cancel) return;
-        const grid = found?.sync.grid;
-        setCuts(grid?.usable && grid.downbeats.length ? grid.downbeats : []);
+        const g = found?.sync.grid;
+        setGrid(g ? { usable: g.usable, kicks: g.kicks ?? [], downbeats: g.downbeats ?? [] } : null);
       })
       .catch(() => undefined);
     return () => {
@@ -863,6 +868,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
           song={song}
           beats={beats}
           cuts={cuts}
+          grid={grid}
           audio={audioRef}
           bgImage={bgImage}
           bgClips={bgClips}
@@ -1181,8 +1187,9 @@ function LineEditor({
 type VideoTabProps = {
   piece: LyricPiece;
   song: AudioFile | null;
-  beats: number[];
+  beats: LyricPulse;
   cuts: number[];
+  grid: { usable: boolean; kicks: number[]; downbeats: number[] } | null;
   audio: React.RefObject<HTMLAudioElement | null>;
   bgImage: HTMLImageElement | null;
   bgClips: BgClip[];
@@ -1274,6 +1281,7 @@ function VideoTab(props: VideoTabProps) {
           { ...piece, format },
           (f) => setProgress((n + f) / formats.length),
           cuts,
+          props.grid,
         );
         let saved = "";
         if (props.projectId) {
@@ -1338,6 +1346,7 @@ function VideoTab(props: VideoTabProps) {
             ]}
           />
         </Field>
+        {song && beats.source !== "none" && <p className="text-xs text-muted">{pulseNote(beats.source)}</p>}
         {style.background === "layers" && (
           <div className="space-y-2">
             <p className="text-xs text-muted">
