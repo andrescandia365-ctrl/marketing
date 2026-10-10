@@ -56,6 +56,8 @@ import { getSeries } from "./series.ts";
 import { askKimi, listChatModels, type ChatTarget, type ListedModel } from "./kimi.ts";
 import { baseUrlOf, claudeEffort, keyOf, labelOf, visionChoice, writerChoice, EFFORTS, type Effort, type ProviderId } from "./settings.ts";
 import { getTool } from "./tools.ts";
+import { meter } from "./usage.ts";
+import { claudeUsage } from "../shared/usage.ts";
 import { offerOf } from "./ads.ts";
 import { offerBlock } from "../shared/ads.ts";
 import { settleScreenShot } from "../shared/transformScreen.ts";
@@ -245,8 +247,30 @@ async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z
 }
 
 // The system blocks: the first (engine and playbook) is cached; the series and tool blocks come after it.
+// Every reply's tokens go to the usage log (server/usage.ts), the failed requests' too.
 export async function askWith<T>(who: Writer, system: string[], prompt: string, schema: z.ZodType<T>, pictures: Picture[] = []): Promise<T> {
-  if (who.provider !== "claude") return askKimi(chatTarget(who), system, prompt, schema, pictures);
+  const used = meter(who.provider, who.model);
+  let ok = false;
+  try {
+    const reply =
+      who.provider === "claude"
+        ? await askClaude(who, system, prompt, schema, pictures, used.add)
+        : await askKimi(chatTarget(who), system, prompt, schema, pictures, used.add);
+    ok = true;
+    return reply;
+  } finally {
+    await used.done(ok);
+  }
+}
+
+async function askClaude<T>(
+  who: Writer,
+  system: string[],
+  prompt: string,
+  schema: z.ZodType<T>,
+  pictures: Picture[],
+  usage: ReturnType<typeof meter>["add"],
+): Promise<T> {
   const caps = capsOf(who.model);
   if (!caps.structured) {
     throw new WriterError(`${who.model} no devuelve respuestas con forma fija, y la app las necesita. Elegí otro modelo de Claude en Modelos.`);
@@ -286,6 +310,7 @@ export async function askWith<T>(who: Writer, system: string[], prompt: string, 
   } catch (error) {
     throw claudeError(error);
   }
+  usage(claudeUsage(message.usage), undefined, message.model);
 
   if (message.stop_reason === "refusal") {
     throw new WriterError("Claude no aceptó este pedido. Reformulalo y probá de nuevo.");

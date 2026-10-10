@@ -127,10 +127,15 @@ import { AdsError } from "./ads.ts";
 import { checkErrorText } from "../shared/errors.ts";
 import { MAX_ZIP_TOTAL, exportProjectZip, importProjectZip } from "./projectZip.ts";
 import { adsRoutes } from "./adsRoutes.ts";
+import { usageScope, usageView } from "./usage.ts";
+import { usageKind } from "../shared/usage.ts";
 import { MotionScriptInput } from "../shared/motionNote.ts";
 import type { MotionScript } from "../shared/motion.ts";
 
 const app = new Hono();
+
+// Each writer request is logged under the kind of the route that asked (Modelos → Tokens por pedido).
+app.use("/api/*", (c, next) => usageScope.run({ kind: usageKind(c.req.path) }, next));
 
 app.onError((error, c) => {
   if (error instanceof WriterError || error instanceof KimiError) return c.json({ error: error.message }, 502);
@@ -801,6 +806,9 @@ app.post("/api/settings/test", async (c) => {
   if (!ready(id)) throw new SettingsError(`Primero cargá la clave de ${labelOf(id)}.`);
   return c.json({ result: await testModel({ provider: id, label: labelOf(id), model }, vision) });
 });
+
+// Tokens of the last writer requests, newest first, and the average of each kind.
+app.get("/api/settings/usage", async (c) => c.json(await usageView()));
 
 // The motion quality loop: the reviewer scores the contact sheet(s) against the app's measurements.
 app.post("/api/motion/review", async (c) => {

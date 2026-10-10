@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ListedModel, SettingsView } from "../../shared/schema.ts";
 import { DEMUCS_COST, DEMUCS_ENV, DEMUCS_INSTALL, DEMUCS_INSTALL_NEWER, DEMUCS_NOT_NEEDED, DEMUCS_USES } from "../../shared/demucs.ts";
 import { api, type DemucsStatus } from "../lib/api.ts";
+import { totalTokens, type KindAverage, type UsageEntry } from "../../shared/usage.ts";
 import { Button, Notice, Spinner, inputClass } from "./ui.tsx";
 
 const EFFORT_LABEL: Record<string, string> = { low: "Bajo", medium: "Medio", high: "Alto", xhigh: "Muy alto", max: "Máximo" };
@@ -63,6 +64,7 @@ export function ModelsPanel({ onClose, onChanged }: { onClose: () => void; onCha
           </>
         )}
         <DemucsSection onChanged={onChanged} />
+        <UsageSection />
       </aside>
     </div>
   );
@@ -525,6 +527,122 @@ function DemucsSection({ onChanged }: { onChanged: () => void }) {
         )}
         {tested && <span className="text-sm text-good">{tested}</span>}
       </div>
+    </section>
+  );
+}
+
+// Tokens of the last writer requests, as each provider reported them, and what each kind of request uses on average.
+// Tokens, not money: a price only when the provider sends one.
+const tokensText = (n: number) => n.toLocaleString("es-AR");
+const roughTokens = (n: number) => (n >= 1000 ? `~${(Math.round(n / 100) * 100).toLocaleString("es-AR")}` : tokensText(n));
+const timeText = (iso: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+};
+
+function UsageSection() {
+  const [data, setData] = useState<{ entries: UsageEntry[]; averages: KindAverage[] } | null>(null);
+  const [error, setError] = useState("");
+  const [all, setAll] = useState(false);
+  const load = () => {
+    setError("");
+    api.usage().then(setData, (e) => setError(message(e)));
+  };
+  useEffect(load, []);
+  const shown = data ? (all ? data.entries : data.entries.slice(0, 12)) : [];
+  return (
+    <section className="space-y-3 rounded-xl border border-line bg-white p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="font-bold">Tokens por pedido</h3>
+          <p className="text-xs text-muted">
+            Lo que cada pedido a la IA usó, según lo que devuelve el proveedor (los últimos 200). Con Claude, la parte fija va en caché y sale más
+            barata; con los demás se manda entera cada vez. Son tokens, no plata: el precio aparece solo si el proveedor lo dice.
+          </p>
+        </div>
+        <Button variant="ghost" className="shrink-0 px-2 py-1 text-xs" onClick={load}>
+          Actualizar
+        </Button>
+      </div>
+      {error && <Notice tone="error">{error}</Notice>}
+      {!data ? (
+        !error && (
+          <p className="text-sm text-muted">
+            <Spinner /> Cargando…
+          </p>
+        )
+      ) : data.entries.length === 0 ? (
+        <p className="text-sm text-muted">Todavía no hay pedidos. Aparecen acá cuando la IA escribe algo (en modo de muestra no se usa ninguna).</p>
+      ) : (
+        <>
+          {data.averages.length > 0 && (
+            <div className="space-y-1">
+              <h4 className="text-sm font-semibold">En promedio</h4>
+              <ul className="grid gap-x-4 gap-y-0.5 text-xs sm:grid-cols-2">
+                {data.averages.map((a) => (
+                  <li key={a.kind} className="flex justify-between gap-2" title={`Entrada ${tokensText(a.input)} · caché ${tokensText(a.cacheRead + a.cacheWrite)} · salida ${tokensText(a.output)}`}>
+                    <span>{a.kind}</span>
+                    <span className="tabular-nums text-muted">
+                      {roughTokens(a.total)} tokens{a.count > 1 ? ` (${a.count} pedidos)` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs tabular-nums">
+              <thead className="text-left text-muted">
+                <tr>
+                  <th className="py-1 pr-2 font-semibold">Cuándo</th>
+                  <th className="py-1 pr-2 font-semibold">Qué</th>
+                  <th className="py-1 pr-2 text-right font-semibold" title="Lo que se mandó y se leyó entero">Entrada</th>
+                  <th className="py-1 pr-2 text-right font-semibold" title="Leído de la caché + escrito en la caché">Caché</th>
+                  <th className="py-1 pr-2 text-right font-semibold" title="La respuesta, con lo que pensó">Salida</th>
+                  <th className="py-1 text-right font-semibold">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((e, i) => (
+                  <tr key={`${e.at}-${i}`} className="border-t border-line/60 align-top">
+                    <td className="whitespace-nowrap py-1 pr-2 text-muted">{timeText(e.at)}</td>
+                    <td className="py-1 pr-2">
+                      {e.kind}
+                      <span className="block text-[11px] text-muted">
+                        {e.model}
+                        {e.calls > 1 ? ` · ${e.calls} intentos` : ""}
+                        {e.ok ? "" : " · terminó con error"}
+                        {e.cost !== undefined ? ` · US$ ${e.cost.toFixed(4)} según el proveedor` : ""}
+                      </span>
+                    </td>
+                    {e.tokens ? (
+                      <>
+                        <td className="py-1 pr-2 text-right">{tokensText(e.tokens.input)}</td>
+                        <td className="py-1 pr-2 text-right" title={`Leído ${tokensText(e.tokens.cacheRead)} · escrito ${tokensText(e.tokens.cacheWrite)}`}>
+                          {tokensText(e.tokens.cacheRead + e.tokens.cacheWrite)}
+                        </td>
+                        <td className="py-1 pr-2 text-right" title={e.tokens.reasoning ? `${tokensText(e.tokens.reasoning)} pensando` : undefined}>
+                          {tokensText(e.tokens.output)}
+                        </td>
+                        <td className="py-1 text-right font-semibold">{tokensText(totalTokens(e.tokens))}</td>
+                      </>
+                    ) : (
+                      <td colSpan={4} className="py-1 text-right text-muted">
+                        El proveedor no dijo cuántos
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {data.entries.length > 12 && (
+            <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => setAll(!all)}>
+              {all ? "Ver menos" : `Ver los ${data.entries.length}`}
+            </Button>
+          )}
+        </>
+      )}
     </section>
   );
 }

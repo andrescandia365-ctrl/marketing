@@ -22,6 +22,7 @@ import type { NoteMerge } from "../../shared/motionNote.ts";
 import type { MotionReview } from "../../shared/motionQuality.ts";
 import type { BackgroundPrompts, LyricElement, LyricLanguage, LyricLine, LyricPlate, LyricStyle, SecondLanguage } from "../../shared/lyrics.ts";
 import type { SyncDoc } from "../../shared/clock.ts";
+import type { KindAverage, UsageEntry } from "../../shared/usage.ts";
 import type { Brand, CastMember, PuppetLayer, SeriesFields, TextStyle } from "../../shared/series.ts";
 import type { RoomCard } from "../../shared/room.ts";
 import type { AdCombo, AdsState, Batch, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
@@ -270,6 +271,7 @@ export const api = {
   models: (provider: string) => call<{ models: ListedModel[] }>(`/api/settings/models?provider=${enc(provider)}`),
   efforts: (model: string) => call<{ efforts: string[] }>(`/api/settings/efforts?model=${enc(model)}`),
   testModel: (provider: string, model: string, vision: boolean) => call<{ result: string }>("/api/settings/test", { provider, model, vision }),
+  usage: () => call<{ entries: UsageEntry[]; averages: KindAverage[] }>("/api/settings/usage"),
   uploadLogo: (seriesId: string, image: Blob) =>
     upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/logo`, image, image.type),
   saveLyricStyle: (id: string, lyricStyle: LyricStyle) =>
