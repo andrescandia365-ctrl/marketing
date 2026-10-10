@@ -83,9 +83,16 @@ export function hostScenes<S extends { template: string; asset: string; assetB?:
     const isCharacter = characters.includes(s.asset);
     if (isCharacter && keepOthers) return s;
     const shown = s.assetB || (s.asset && !isCharacter ? s.asset : "");
-    return { ...s, asset: host, assetB: shown === host ? "" : shown };
+    const next = { ...s, asset: host, assetB: shown === host ? "" : shown };
+    // A CONCEPTO flag that applied before the host stepped in still applies: the host only presents what was there.
+    const flagged = next as unknown as Partial<MotionScene>;
+    if (flagged.beyond && isSigned(flagged) && flagged.beyond.sig === showsSig(s as unknown as MotionScene)) {
+      flagged.beyond = { ...flagged.beyond, sig: showsSig(next as unknown as MotionScene) };
+    }
+    return next;
   });
 }
+const isSigned = (s: Partial<MotionScene>): boolean => typeof s.title === "string" && typeof s.text === "string" && Array.isArray(s.items) && typeof s.voice === "string";
 
 export const MOTION_MOODS = ["calm", "drive", "bright"] as const;
 export type MotionMood = (typeof MOTION_MOODS)[number];
@@ -488,7 +495,9 @@ export function slotsPlan(scenes: Pick<MotionScene, "template" | "items">[], ind
 }
 
 // The writer's script as the app plays it. `tone` (the brief's) only decides the cameras the writer chose (planCameras).
-export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?: MotionTone): MotionScript {
+// `revising` (a director's note): the writer echoes the current script, so a later slots scene with names is the
+// person's own second row and keeps them.
+export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?: MotionTone, opts: { revising?: boolean } = {}): MotionScript {
   const pick = <T extends string>(value: string, list: readonly T[], fallback: T): T =>
     list.find((v) => value.toLowerCase().replace(/[^a-z]/g, "") === v.toLowerCase()) ??
     list.find((v) => value.toLowerCase().includes(v.toLowerCase())) ??
@@ -521,7 +530,7 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?:
         camera: pickCamera(s.camera),
         cameraBy: "ai" as const,
         seconds: Math.round(clamp(s.seconds, 2, 8) * 2) / 2,
-        items: namer >= 0 && i > namer && pickTemplate(s.template) === "slots" ? [] : s.items.map((x) => x.trim()).filter(Boolean).slice(0, 5),
+        items: !opts.revising && namer >= 0 && i > namer && pickTemplate(s.template) === "slots" ? [] : s.items.map((x) => x.trim()).filter(Boolean).slice(0, 5),
         focusX: clamp(s.focusX, 0, 1),
         focusY: clamp(s.focusY, 0, 1),
         zoom: clamp(s.zoom || 2, 1.2, 4),

@@ -838,7 +838,7 @@ ${explainerRules(brief, host)}`,
   );
   if (!wire.scenes.length) throw new WriterError("La IA devolvió el guion sin escenas. Probá de nuevo o escribí la nota de otra forma.");
   const links = wire.scenes.map((s) => ({ from: s.from, camera: pickCamera(s.camera) }));
-  const revised = normalizeMotion({ ...wire, scenes: wire.scenes.map(({ from: _from, ...s }) => s) }, current.tone ?? brief.tone);
+  const revised = normalizeMotion({ ...wire, scenes: wire.scenes.map(({ from: _from, ...s }) => s) }, current.tone ?? brief.tone, { revising: true });
   // keepOthers as in the studio: a character the person chose for a scene stays.
   const hosted = { ...revised, scenes: hostScenes(revised.scenes, host?.id, characters, true), tone: current.tone ?? brief.tone };
   return mergeNote(current, hosted, links);
