@@ -2,36 +2,10 @@
 // edits them, adds voice and music, previews with sound and renders. Follows the studio's rules: frames are a pure
 // function of time, something new every 2 to 4 seconds (a check that blocks rendering), hits on the beat grid,
 // -14 LUFS.
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  DURATIONS,
-  MOTION_CAMERAS,
-  MOTION_CAMERA_LABEL,
-  SCENE_ENTRIES,
-  SCENE_ENTRY_LABEL,
-  samePicture,
-  BEFORE_AFTER_REVEALS,
-  BEFORE_AFTER_REVEAL_LABEL,
-  MOTION_GESTURES,
-  MOTION_GESTURE_LABEL, MOTION_MOVES, MOTION_MOVE_LABEL,
-  MOTION_MOODS,
-  MOTION_MOOD_LABEL,
-  MOTION_TEMPLATES,
-  ITEMS_HINT,
-  TITLE_HINT,
-  slotsNote,
-  MOTION_TEMPLATE_LABEL,
-  MOTION_TONES,
-  MOTION_TONE_LABEL,
-  DISCLOSURE_TAG,
-  SCENE_DISCLOSURES,
-  SCENE_DISCLOSURE_LABEL,
-  blankScene,
-  beyondNow,
   conceptIssues,
-  conceptKey,
   flagBeyond,
-  labelled,
   cutBlurOn,
   cutPush,
   elementTimes,
@@ -45,10 +19,8 @@ import {
   planCameras,
   quietGaps,
   revealTimes,
-  sceneElements,
   timeScenes,
   tweakScene,
-  type MotionGesture,
   type MotionPiece,
   type MotionScene,
   type MotionScript,
@@ -58,19 +30,17 @@ import {
   hostScenes,
 } from "../../shared/motion.ts";
 import { explainerHost } from "../../shared/series.ts";
-import { WORLD_PLACES, WORLD_PLACE_LABEL } from "../../shared/world.ts";
 import { generatedVoice, noteSummary } from "../../shared/motionNote.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { applyFixes, conceptsBlockRender, describeScenes, MAX_ROUNDS, passes, qualityKey, type QualityRound, type QualityState } from "../../shared/motionQuality.ts";
-import { api, projectFileUrl, type FinalJob, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
+import { api, type FinalJob, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
 import { encodeFrames } from "../lib/encode.ts";
 import { ensureFont } from "../lib/fonts.ts";
-import { download, slug } from "../lib/markdown.ts";
+import { slug } from "../lib/markdown.ts";
 import type { PuppetAsset } from "../lib/puppet.ts";
 import type { ActorAsset } from "../lib/actor.ts";
-import { drawMotionFrame, drawPhoneGuides, sceneAt, scriptDuration, type Box, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
+import { drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
 import { TARGET_LUFS } from "../lib/motionAudio.ts";
-import { MixPlayer } from "../lib/playClock.ts";
 import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
 import {
   LAYER_BASE,
@@ -95,16 +65,20 @@ import {
   nextVoiceSlot,
 } from "../lib/motionProject.ts";
 import type { RenderResult } from "../lib/render.ts";
-import { alignWordTimes, keepHeard, subtitleWords, toSrt, wordByWordOn, wordTimesFresh, type HeardWordTimes } from "../../shared/subtitles.ts";
-import { CopyButton } from "./ScriptView.tsx";
-import { NarrationImport } from "./NarrationImport.tsx";
-import { Recorder, audioDuration, type AudioFile } from "./Audio.tsx";
+import { toSrt, wordByWordOn, wordTimesFresh } from "../../shared/subtitles.ts";
+import { audioDuration, type AudioFile } from "./Audio.tsx";
 import { Inspector, MotionTimeline, type Selection } from "./MotionTimeline.tsx";
-import { QualityPanel } from "./QualityPanel.tsx";
-import { Button, Field, Notice, PartBoundary, Segmented, Spinner, inputClass } from "./ui.tsx";
-
-// "Storyboard": downloaded only when the person opens it.
-const MotionStoryboard = lazy(() => import("./MotionStoryboard.tsx").then((m) => ({ default: m.MotionStoryboard })));
+import { MotionPreview, useMotionPreview } from "./MotionPreview.tsx";
+import { useHeardWords } from "./useHeardWords.ts";
+import { pieceMarkdown } from "../lib/motionMarkdown.ts";
+import { Notice } from "./ui.tsx";
+import { MotionChecks } from "./MotionChecks.tsx";
+import { MotionSettings } from "./MotionSettings.tsx";
+import { MotionOutputs } from "./MotionOutputs.tsx";
+import { MotionSceneList } from "./MotionSceneList.tsx";
+import { MotionScriptBar } from "./MotionScriptBar.tsx";
+import { MotionToggles } from "./MotionToggles.tsx";
+import { MotionStoryboardPanel } from "./MotionStoryboardPanel.tsx";
 
 export type MotionOpen = { piece: MotionPiece; media: Record<string, MediaRecord>; music: MediaFileRecord | null };
 
@@ -126,27 +100,7 @@ type Props = {
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const smallInput = inputClass.replace("w-full", "");
 
-function pieceMarkdown(piece: MotionPiece, scenes: MotionScene[]): string {
-  const s = piece.script;
-  if (!s) return "# Explicativo sin guion todavía\n";
-  return `# ${s.problem}
-
-**${s.title}** · ${scenes.reduce((n, x) => n + x.seconds, 0).toFixed(1)} s · música: ${piece.music === "synth" ? `sintetizada (${MOTION_MOOD_LABEL[s.music.mood]}, ${s.music.bpm} bpm)` : piece.music === "track" ? "tema propio" : "sin música"}
-
-${s.caption ? `**Texto para publicar:** ${s.caption}
-
-` : ""}**Tono:** ${MOTION_TONE_LABEL[s.tone ?? "warm"]}${s.world ? ` · **Mundo:** ${WORLD_PLACE_LABEL[s.world]}` : ""}
-
-${timeScenes(scenes)
-  .map(
-    (x) =>
-      `## ${x.index + 1}. ${MOTION_TEMPLATE_LABEL[x.template]} · ${x.start.toFixed(1)}–${x.end.toFixed(1)} s${labelled(x) ? ` · **${DISCLOSURE_TAG[x.disclosure as "concept" | "simulation"]}**` : ""}\n\n${beyondNow(x) ? `- **No está en «Lo que existe hoy»:** ${x.beyond!.what}\n` : ""}- **Título:** ${x.title}\n${x.text ? `- **Texto:** ${x.text}\n` : ""}${x.items.length ? `- **Elementos:** ${x.items.join(" · ")}\n` : ""}${x.asset ? `- **Imagen:** ${x.asset}${x.assetB ? ` → ${x.assetB}` : ""}\n` : ""}${x.world ? `- **Lugar:** ${x.world === "none" ? "ninguno" : WORLD_PLACE_LABEL[x.world]}\n` : ""}${x.voice ? `- **Voz** (${x.emotion}): “${x.voice}”\n` : ""}`,
-  )
-  .join("\n")}
-`;
-}
 
 export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, demucs, autoSync, onSaveStatus }: Props) {
   const [piece, setPiece] = useState<MotionPiece>(() =>
@@ -156,9 +110,6 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         { ...newMotionPiece(brief.format), ...(brief.narrator === "without" && { voice: "none" as const }) },
   );
   const [voices, setVoices] = useState<Record<string, AudioFile>>({});
-  // The newest voices, for answers that arrive after the voice changed.
-  const voicesRef = useRef(voices);
-  voicesRef.current = voices;
   const [layers, setLayers] = useState<HTMLImageElement[]>([]);
   const [track, setTrack] = useState<{ file: AudioFile; buffer: AudioBuffer } | null>(null);
   // "Storyboard": open or closed (closed by default, so its code loads only when asked for).
@@ -175,28 +126,11 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [note, setNote] = useState("");
   // "Nota del director": what to change in the script, the rest stays.
   const [directorNote, setDirectorNote] = useState("");
-  // The mix plays through Web Audio, whose clock drives the preview (see playClock.ts). soundFresh: the loaded mix
-  // matches the piece as it is now.
-  const playerRef = useRef<MixPlayer | null>(null);
-  const player = () => (playerRef.current ??= new MixPlayer());
-  const [playing, setPlaying] = useState(false);
-  const soundFresh = useRef(false);
-  const soundSeq = useRef(0);
   const [soundInfo, setSoundInfo] = useState("");
   const [progress, setProgress] = useState<number | null>(null);
   const [results, setResults] = useState<(RenderResult & { url: string; format: "vertical" | "horizontal"; saved: string; srt: string })[]>([]);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const urls = useRef<string[]>([]);
-  // The preview's time when the sound is not playing.
-  const timeRef = useRef(0);
-  const playheadRef = useRef<HTMLDivElement>(null);
-  const clockRef = useRef<HTMLSpanElement>(null);
-  // Where each element of the scene on screen was drawn in the last preview frame, by "sceneId:key".
-  const boxes = useRef(new Map<string, Box>());
-  const canvasDrag = useRef<{ sceneId: string; key: string; x0: number; y0: number; dx0: number; dy0: number } | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
-  const [outside, setOutside] = useState(false);
-  const outsideRef = useRef(false);
   // The series' "Lo que existe hoy" and "Cómo se trabaja hoy" (null until they load): the numbers on screen must come
   // from them or the brief.
   const [seriesFacts, setSeriesFacts] = useState<string[] | null>(null);
@@ -210,10 +144,6 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       live = false;
     };
   }, [series.id]);
-  // The phone's own interface drawn over the 9:16 preview (editor only).
-  const [guides, setGuides] = useState(true);
-  const guidesRef = useRef(guides);
-  guidesRef.current = guides;
   // Undo: earlier scripts, newest last.
   const past = useRef<MotionScript[]>([]);
   const lastMark = useRef({ tag: "", at: 0 });
@@ -293,22 +223,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     setSeconds(sceneId, seconds);
   }
 
-  function seek(t: number) {
-    timeRef.current = Math.max(0, t);
-    playerRef.current?.seek(timeRef.current);
-  }
-
-  function pause() {
-    const p = playerRef.current;
-    if (p?.playing) {
-      p.pause();
-      timeRef.current = p.time();
-    }
-    setPlaying(false);
-  }
-
   useEffect(() => () => urls.current.forEach((u) => URL.revokeObjectURL(u)), []);
-  useEffect(() => () => playerRef.current?.close(), []);
   const objectUrl = (blob: Blob) => {
     const url = URL.createObjectURL(blob);
     urls.current.push(url);
@@ -372,49 +287,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     [brand, assets, logo, beats, piece.disclosure, usesAi, puppets, actors, speech, cutBlur, subtitles],
   );
 
-  // Word times for the subtitles: each scene's voice file is heard once (whisper-1) and its words aligned to the line;
-  // a new line or a new file is heard again. Without the OpenAI key, or when it fails, the times stay estimated.
-  const hearing = useRef(new Set<string>());
-  const [heardNote, setHeardNote] = useState("");
-  useEffect(() => {
-    if (!autoSync || !script || piece.voice === "none") return;
-    const todo = script.scenes.filter((s) => {
-      const v = voices[s.id];
-      return v && s.voice.trim() && !wordTimesFresh(piece.wordTimes?.[s.id], s.voice, v.duration) && !hearing.current.has(`${s.id}|${s.voice.trim()}|${v.duration}`);
-    });
-    if (!todo.length) return;
-    for (const s of todo) hearing.current.add(`${s.id}|${s.voice.trim()}|${voices[s.id].duration}`);
-    (async () => {
-      for (const s of todo) {
-        const v = voices[s.id];
-        const text = s.voice.trim();
-        const key = `${s.id}|${text}|${v.duration}`;
-        try {
-          const heard = await api.voiceWords(v.blob, v.name, text, brief.language);
-          const aligned = alignWordTimes(subtitleWords(text), heard.words, v.duration);
-          if (!aligned) {
-            hearing.current.delete(key);
-            continue;
-          }
-          const entry: HeardWordTimes = { text, seconds: v.duration, times: aligned.times, matched: aligned.matched };
-          // Only while it is still this scene's line and voice file: an older voice's late answer is dropped (and
-          // that voice may be heard again if it comes back).
-          const current = voicesRef.current[s.id];
-          if (current !== v) hearing.current.delete(key);
-          setPiece((p) => {
-            const now = p.script?.scenes.find((x) => x.id === s.id)?.voice;
-            const next = current === v ? keepHeard(p.wordTimes ?? {}, s.id, entry, now, current.duration) : p.wordTimes;
-            return next === p.wordTimes ? p : { ...p, wordTimes: next };
-          });
-        } catch (e) {
-          hearing.current.delete(key);
-          setHeardNote(`No se pudieron escuchar las palabras de una voz (${message(e)}): sus subtítulos siguen con tiempos estimados.`);
-        }
-      }
-    })();
-    // The voices and the lines decide it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoSync, voices, script?.scenes, piece.voice]);
+  // Word times for the subtitles, heard in each scene's voice (or estimated).
+  const heardNote = useHeardWords(autoSync, piece, voices, brief.language, setPiece);
   const voiced = scenes.filter((s) => s.voice.trim());
   const heardCount = voiced.filter((s) => piece.voice !== "none" && wordTimesFresh(piece.wordTimes?.[s.id], s.voice, voices[s.id]?.duration)).length;
   const srtName = (format: "vertical" | "horizontal") => `${slug(script?.title ?? "") || "explicativo"}-${format === "vertical" ? "9x16" : "16x9"}.srt`;
@@ -471,33 +345,26 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const soundKey = JSON.stringify(
     timeScenes(scenes).map((s) => [s.start, s.template, s.carryIn ? "match" : s.entry ?? "cut", revealTimes(s), elementTimes(s).voice ?? null]),
   );
-  // A change makes the loaded mix stale. While it plays, a new mix is built after a short pause in the edits and
-  // carries on from the same second; stopped, the next ▶ builds it.
-  useEffect(() => {
-    soundFresh.current = false;
-    ++soundSeq.current;
-    if (!playerRef.current?.playing) {
-      playerRef.current?.setBuffer(null);
-      return;
-    }
-    const timer = setTimeout(refreshMix, 450);
-    return () => clearTimeout(timer);
-    // The keys below say when the mix changes; refreshMix reads the newest piece.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [soundKey, voices, piece.music, piece.voice, piece.effects, track]);
-
-  // Builds the mix of the piece as it is now and swaps it in while playing (same second). A newer change wins.
-  function refreshMix() {
-    const seq = soundSeq.current;
-    makeSoundRef
-      .current()
-      .then((buffer) => {
-        if (seq !== soundSeq.current || !buffer) return;
-        soundFresh.current = true;
-        playerRef.current?.setBuffer(buffer);
-      })
-      .catch((e) => setError(message(e)));
-  }
+  // Where things sit is kept per format (their layouts differ); when they enter is shared.
+  const fmt = piece.format === "vertical" ? "v" : "h";
+  const preview = useMotionPreview({
+    snapped,
+    world,
+    scenes,
+    total,
+    selected,
+    setSelected,
+    fmt,
+    soundKey,
+    soundDeps: [voices, piece.music, piece.voice, piece.effects, track],
+    makeSound: () => makeSound(),
+    buildSound: () => work("sound", makeSound),
+    onError: (e) => setError(message(e)),
+    remember,
+    begin,
+    tweak,
+  });
+  const { seek, timeRef, playheadRef, outside, guides, setGuides } = preview;
 
   // How loud each voice is over time, so the characters' mouths follow it.
   useEffect(() => {
@@ -513,51 +380,6 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [soundKey, voices, piece.voice]);
 
-  // Live preview: frame t follows the player while it plays, else the timeline's time. The selected element gets a
-  // dashed outline (the editor's, never in the video).
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
-  useEffect(() => {
-    let frame = 0;
-    const tick = () => {
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext("2d");
-      const mix = playerRef.current;
-      if (mix?.playing) timeRef.current = mix.time();
-      const t = timeRef.current;
-      if (canvas && ctx && snapped) {
-        const found = new Map<string, Box>();
-        drawMotionFrame(ctx, canvas.width, canvas.height, t, snapped, world, (sceneId, key, box) => found.set(`${sceneId}:${key}`, box));
-        boxes.current = found;
-        const sel = selectedRef.current;
-        const box = sel?.key ? found.get(`${sel.sceneId}:${sel.key}`) : undefined;
-        const out = Boolean(box && (box.x < -1 || box.y < -1 || box.x + box.w > canvas.width + 1 || box.y + box.h > canvas.height + 1));
-        if (out !== outsideRef.current) {
-          outsideRef.current = out;
-          setOutside(out);
-        }
-        if (guidesRef.current) drawPhoneGuides(ctx, canvas.width, canvas.height);
-        if (box) {
-          ctx.save();
-          ctx.lineWidth = 1.5;
-          ctx.setLineDash([5, 4]);
-          ctx.strokeStyle = "#ffffff";
-          ctx.strokeRect(box.x - 3, box.y - 3, box.w + 6, box.h + 6);
-          ctx.lineDashOffset = 5;
-          ctx.strokeStyle = "#5b49c9";
-          ctx.strokeRect(box.x - 3, box.y - 3, box.w + 6, box.h + 6);
-          ctx.restore();
-        }
-      }
-      const total = snapped ? scriptDuration(snapped) : 0;
-      if (playheadRef.current) playheadRef.current.style.left = `${total ? Math.min(100, (t / total) * 100) : 0}%`;
-      if (clockRef.current) clockRef.current.textContent = `${t.toFixed(1)} s`;
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [snapped, world]);
-
   // Ctrl/Cmd+Z undoes the last edit, outside text fields.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -571,64 +393,6 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-
-  // On the preview: touch an element to select it and drag it where it goes. The move is a share of the frame's
-  // short side, so it lands in the same place at 1080 px.
-  function canvasPoint(e: { clientX: number; clientY: number }) {
-    const canvas = canvasRef.current!;
-    const rect = canvas.getBoundingClientRect();
-    return { x: ((e.clientX - rect.left) / rect.width) * canvas.width, y: ((e.clientY - rect.top) / rect.height) * canvas.height };
-  }
-
-  // Where things sit is kept per format (their layouts differ); when they enter is shared.
-  const fmt = piece.format === "vertical" ? "v" : "h";
-
-  function canvasDown(e: ReactPointerEvent<HTMLCanvasElement>) {
-    pause();
-    const point = canvasPoint(e);
-    const hits = [...boxes.current.entries()].filter(([, b]) => point.x >= b.x && point.x <= b.x + b.w && point.y >= b.y && point.y <= b.y + b.h);
-    // The last drawn is on top; the smallest wins among overlapping ones.
-    const hit = hits.reverse().sort((a, b) => a[1].w * a[1].h - b[1].w * b[1].h)[0];
-    if (!hit) {
-      const timed = timeScenes(scenes);
-      const s = timed[sceneAt(timed, timeRef.current)];
-      if (s) setSelected({ sceneId: s.id, key: null });
-      return;
-    }
-    const [id, key] = hit[0].split(":");
-    setSelected({ sceneId: id, key });
-    const scene = scenes.find((x) => x.id === id);
-    const el = scene && sceneElements(scene).find((x) => x.key === key);
-    if (!el?.move) return;
-    begin();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const spot = scene!.tweaks?.[key]?.[fmt];
-    canvasDrag.current = { sceneId: id, key, x0: point.x, y0: point.y, dx0: spot?.dx ?? 0, dy0: spot?.dy ?? 0 };
-  }
-
-  function canvasMove(e: ReactPointerEvent<HTMLCanvasElement>) {
-    const d = canvasDrag.current;
-    const canvas = canvasRef.current;
-    if (!d || !canvas) return;
-    const point = canvasPoint(e);
-    const unit = Math.min(canvas.width, canvas.height);
-    const round = (x: number) => Math.round(x * 1000) / 1000;
-    tweak(d.sceneId, d.key, { [fmt]: { dx: round(d.dx0 + (point.x - d.x0) / unit), dy: round(d.dy0 + (point.y - d.y0) / unit) } });
-  }
-
-  function canvasKey(e: React.KeyboardEvent<HTMLCanvasElement>) {
-    const arrows: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-    const dir = arrows[e.key];
-    if (!dir || !selected?.key) return;
-    const scene = scenes.find((x) => x.id === selected.sceneId);
-    if (!scene || !sceneElements(scene).find((x) => x.key === selected.key)?.move) return;
-    e.preventDefault();
-    remember(`nudge-${selected.sceneId}-${selected.key}`);
-    const step = e.shiftKey ? 0.025 : 0.005;
-    const spot = scene.tweaks?.[selected.key]?.[fmt];
-    const round = (x: number) => Math.round(x * 1000) / 1000;
-    tweak(selected.sceneId, selected.key, { [fmt]: { dx: round((spot?.dx ?? 0) + dir[0] * step), dy: round((spot?.dy ?? 0) + dir[1] * step) } });
-  }
 
   async function work<T>(kind: NonNullable<typeof busy>, fn: () => Promise<T>): Promise<T | null> {
     setError("");
@@ -787,31 +551,6 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     const { buffer, lufs } = await motionSound(played, piece, voices, track?.buffer ?? null);
     setSoundInfo(`Sonido: ${Number.isFinite(lufs) ? `${lufs.toFixed(1)} LUFS (objetivo ${TARGET_LUFS})` : "sin sonido"} · ${grid.length ? `${grid.length} beats en la grilla` : "sin grilla"}.`);
     return buffer;
-  }
-  // The newest render's makeSound, for mixes built after an await or a timer.
-  const makeSoundRef = useRef(makeSound);
-  makeSoundRef.current = makeSound;
-
-  // ▶ / ❚❚: builds the mix when the loaded one is stale, then plays from the preview's second.
-  async function togglePlay() {
-    const p = player();
-    if (p.playing) return pause();
-    if (!soundFresh.current || !p.ready) {
-      const seq = soundSeq.current;
-      const buffer = await work("sound", makeSound);
-      if (!buffer) return;
-      // The piece changed while the mix was being built: the next ▶ builds it again.
-      soundFresh.current = seq === soundSeq.current;
-      p.setBuffer(buffer);
-    }
-    p.onEnd = () => {
-      timeRef.current = p.time();
-      setPlaying(false);
-    };
-    await p.play(timeRef.current < total - 0.1 ? timeRef.current : 0);
-    setPlaying(true);
-    // Something changed while the mix was being built: the newest one replaces it as it plays.
-    if (!soundFresh.current) refreshMix();
   }
 
   // ── Quality loop (the studio's rule: no full render before it) ──────────────────────────────────────────────
@@ -1045,86 +784,21 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   }
 
   const vertical = piece.format === "vertical";
-  const assetOptions = [
-    ...series.cast
-      .filter((m) => m.kind !== "character" || m.image || m.puppet?.layers.length || m.rig?.file)
-      .map((m) => ({
-        value: m.id,
-        label: `${m.name} (${m.kind === "screen" ? "pantalla" : m.kind === "product" ? "producto" : m.kind === "place" ? "lugar" : m.rig?.file ? "personaje · camina" : m.puppet?.layers.length ? "personaje · títere 3D" : "personaje"})${m.image || m.puppet?.layers.length || m.rig?.file ? "" : " · sin imagen"}`,
-      })),
-    ...layers.map((_, k) => ({ value: `layer:${k}`, label: `Capa ${k + 1} (Grok)` })),
-  ];
-
   return (
     <section className="space-y-5">
-      <div>
-        <p className="font-mono text-xs text-muted">{series.name} · explicativo (motion graphics)</p>
-        <h2 className="text-xl font-bold tracking-tight">{script?.problem || "Explicativo sin guion todavía"}</h2>
-        {script && <p className="text-sm text-muted">{script.title} · {total.toFixed(1)} s</p>}
-      </div>
-
-      <div className="flex flex-wrap items-end gap-4 rounded-xl border border-line bg-white p-4">
-        <Field label="Duración" group hint="Automática: la IA la elige según el tema. A mano: elegís los segundos.">
-          <div className="flex flex-wrap items-center gap-2">
-            <Segmented
-              value={piece.durationMode}
-              onChange={(durationMode) => set({ durationMode })}
-              options={[
-                { value: "auto", label: "Automática" },
-                { value: "manual", label: "A mano" },
-              ]}
-            />
-            {piece.durationMode === "manual" && (
-              <Segmented
-                value={String(piece.target)}
-                onChange={(v) => set({ target: Number(v) })}
-                options={DURATIONS.map((d) => ({ value: String(d), label: `${d} s` }))}
-              />
-            )}
-          </div>
-        </Field>
-        <Button onClick={writeScript} disabled={busy !== null}>
-          {busy === "write" ? (
-            <>
-              <Spinner /> Escribiendo…
-            </>
-          ) : script ? (
-            "Escribir otro guion"
-          ) : (
-            "Escribir el explicativo"
-          )}
-        </Button>
-        {script && piece.durationMode === "manual" && Math.abs(total - piece.target) > 1 && (
-          <Button variant="secondary" onClick={fitToTarget}>
-            Ajustar a {piece.target} s
-          </Button>
-        )}
-      </div>
-
-      {script && (
-        <div className="space-y-2 rounded-xl border border-line bg-white p-4">
-          <label className="block">
-            <span className="text-sm font-semibold">Nota del director</span>
-            <span className="block text-xs text-muted">Qué cambiar. La IA toca solo eso y deja el resto como está, con tus ajustes y tus voces.</span>
-            <textarea
-              className={`${inputClass} mt-1.5 text-sm`}
-              rows={2}
-              value={directorNote}
-              placeholder="ej. el gancho tarda mucho; en la escena 3 mostrá la pantalla de pedidos; sacá la estadística"
-              onChange={(e) => setDirectorNote(e.target.value)}
-            />
-          </label>
-          <Button variant="secondary" onClick={applyNote} disabled={!directorNote.trim() || busy !== null}>
-            {busy === "note" ? (
-              <>
-                <Spinner /> Aplicando la nota…
-              </>
-            ) : (
-              "Aplicar la nota"
-            )}
-          </Button>
-        </div>
-      )}
+      <MotionScriptBar
+        series={series}
+        script={script}
+        total={total}
+        piece={piece}
+        set={set}
+        busy={busy}
+        writeScript={writeScript}
+        fitToTarget={fitToTarget}
+        directorNote={directorNote}
+        setDirectorNote={setDirectorNote}
+        applyNote={applyNote}
+      />
 
       {error && <Notice tone="error">{error}</Notice>}
       {note && <Notice>{note}</Notice>}
@@ -1132,31 +806,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       {script && (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
           <div className="space-y-3">
-            <div className="flex justify-center rounded-xl bg-black/90 p-3">
-              <canvas
-                ref={canvasRef}
-                width={vertical ? 360 : 640}
-                height={vertical ? 640 : 360}
-                tabIndex={0}
-                aria-label="Vista previa del explicativo: tocá un elemento y arrastralo para moverlo"
-                className={`touch-none cursor-crosshair outline-none focus-visible:ring-2 focus-visible:ring-touch ${vertical ? "h-[640px] max-h-[70vh] w-auto" : "w-full"}`}
-                onPointerDown={canvasDown}
-                onPointerMove={canvasMove}
-                onPointerUp={() => (canvasDrag.current = null)}
-                onPointerCancel={() => (canvasDrag.current = null)}
-                onKeyDown={canvasKey}
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="secondary" onClick={togglePlay} disabled={busy !== null && !playing}>
-                {busy === "sound" ? <Spinner /> : playing ? "❚❚" : "▶"} {playing ? "Pausa" : "Reproducir con sonido"}
-              </Button>
-              <span className="min-w-0 flex-1 text-xs text-muted">Para ir a otro segundo, tocá la regla de la línea de tiempo.</span>
-              <span ref={clockRef} className="w-14 text-right font-mono text-xs text-muted">
-                0.0 s
-              </span>
-            </div>
-            {soundInfo && <p className="text-xs text-muted">{soundInfo}</p>}
+            <MotionPreview preview={preview} vertical={vertical} busy={busy} soundInfo={soundInfo} />
 
             <MotionTimeline
               scenes={timeScenes(scenes)}
@@ -1191,914 +841,134 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                   onFitVoice={() => selected && fitVoice(selected.sceneId)}
                 />
               </div>
-              <div className="flex shrink-0 flex-col items-end gap-2 text-xs">
-                <Button variant="secondary" className="px-2 py-1 text-xs" disabled={undoCount === 0} onClick={undo} title="Ctrl+Z">
-                  ↶ Deshacer
-                </Button>
-                <label className="flex items-center gap-1.5" title="Los cortes de escena caen en los beats de la música">
-                  <input type="checkbox" checked={snap} onChange={(e) => set({ snap: e.target.checked })} />
-                  Cortes en los beats
-                </label>
-                <label
-                  className={`flex items-center gap-1.5 ${pushes ? "" : "text-muted"}`}
-                  title={
-                    pushes
-                      ? "Mientras una escena entra empujando a la anterior, lo que se mueve deja un rastro, como con una cámara. Fuera de los cortes no cambia nada."
-                      : "Este guion corta seco: no hay empuje entre escenas para desenfocar."
-                  }
-                >
-                  <input type="checkbox" checked={cutBlur} disabled={!pushes} onChange={(e) => set({ cutBlur: e.target.checked })} />
-                  Desenfoque en los cortes
-                </label>
-                <label
-                  className="flex items-center gap-1.5"
-                  title={
-                    !voiced.length
-                      ? "Ninguna escena tiene voz: no hay subtítulos."
-                      : heardCount
-                        ? `La palabra que se dice se marca en el subtítulo. ${heardCount} de ${voiced.length} escenas con los tiempos escuchados en su voz; el resto, estimados.`
-                        : `La palabra que se dice se marca en el subtítulo. Tiempos estimados por el largo de la voz${autoSync ? "" : " (con OPENAI_API_KEY se escuchan en la voz)"}.`
-                  }
-                >
-                  <input type="checkbox" checked={wordByWordOn(piece)} onChange={(e) => set({ wordByWord: e.target.checked })} />
-                  Palabra por palabra
-                </label>
-                {vertical && (
-                  <label
-                    className="flex items-center gap-1.5"
-                    title="Dónde Reels, TikTok y Shorts ponen su barra, su texto y sus botones (medidas aproximadas). Solo se ve acá, nunca en el video."
-                  >
-                    <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} />
-                    Ver lo que tapa la app
-                  </label>
-                )}
-              </div>
-            </div>
-
-            <div className={`rounded-xl border p-3 text-sm ${openReading.length ? "border-neg/40 bg-neg-soft" : "border-good/30 bg-good-soft"}`}>
-              {openReading.length ? (
-                <>
-                  <p className="font-semibold text-neg">Se lee: {openReading.length} texto(s) no llegan a leerse. No se puede generar hasta arreglarlo.</p>
-                  <ul className="mt-1 space-y-1">
-                    {openReading.map((r) => (
-                      <li key={readingKey(r)} className="flex flex-wrap items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          className="text-left hover:underline"
-                          onClick={() => {
-                            const at = timeScenes(scenes).find((x) => x.id === r.sceneId);
-                            if (at) seek(at.end - 0.1);
-                            setSelected({ sceneId: r.sceneId, key: r.key === "voice" ? null : r.key });
-                          }}
-                        >
-                          Escena {r.index + 1} · {r.label} (“{r.text.length > 40 ? `${r.text.slice(0, 40)}…` : r.text}”): queda quieto {r.has.toFixed(1)} s y necesita {r.needs.toFixed(1)} s. Hacelo entrar antes, acortalo o alargá la escena.
-                        </button>
-                        <button
-                          type="button"
-                          className="text-xs font-semibold text-muted hover:text-ink"
-                          onClick={() => set({ readingOk: [...(piece.readingOk ?? []), readingKey(r)] })}
-                        >
-                          No es un problema
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : (
-                <p className="font-semibold text-good">✓ Cada texto se queda lo suficiente para leerlo.</p>
-              )}
-            </div>
-
-            <div className={`rounded-xl border p-3 text-sm ${openFigures.length ? "border-neg/40 bg-neg-soft" : "border-good/30 bg-good-soft"}`}>
-              {openFigures.length ? (
-                <>
-                  <p className="font-semibold text-neg">
-                    Cifras con fuente: {openFigures.length} sin fuente o con [VERIFY]. No se puede generar hasta arreglarlo.
-                  </p>
-                  <ul className="mt-1 space-y-1">
-                    {openFigures.map((i) => (
-                      <li key={figureKey(i)} className="flex flex-wrap items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          className="text-left hover:underline"
-                          onClick={() => {
-                            const at = timeScenes(scenes).find((x) => x.id === i.sceneId);
-                            if (at) seek(at.end - 0.1);
-                            setSelected({ sceneId: i.sceneId, key: i.key === "voice" ? null : i.key });
-                          }}
-                        >
-                          {i.verify
-                            ? `Escena ${i.index + 1} · ${i.label} lleva [VERIFY]: confirmalo y sacá la marca, o cambiá el texto.`
-                            : `Escena ${i.index + 1} · ${i.label}: “${i.figure}” no está en la serie («Lo que existe hoy», «Cómo se trabaja hoy») ni en el brief. Sumalo a la serie si es real, o cambialo.`}
-                        </button>
-                        {!i.verify && (
-                          <button
-                            type="button"
-                            className="text-xs font-semibold text-muted hover:text-ink"
-                            title="Es real, o es claramente un ejemplo (una hora, un paso)"
-                            onClick={() => set({ figuresOk: [...(piece.figuresOk ?? []), figureKey(i)] })}
-                          >
-                            Lo confirmo
-                          </button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : (
-                <p className="font-semibold text-good">✓ Cada número tiene fuente.</p>
-              )}
-            </div>
-
-            {openConcepts.length > 0 && (
-              <div className="rounded-xl border border-neg/40 bg-neg-soft p-3 text-sm">
-                <p className="font-semibold text-neg">
-                  Lo que existe hoy: {openConcepts.length} escena(s) muestran algo que no está en la serie y se ven como reales. No se puede generar hasta
-                  arreglarlo.
-                </p>
-                <ul className="mt-1 space-y-1">
-                  {openConcepts.map((i) => (
-                    <li key={conceptKey(i)} className="flex flex-wrap items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        className="text-left hover:underline"
-                        onClick={() => {
-                          const at = timeScenes(scenes).find((x) => x.id === i.sceneId);
-                          if (at) seek(at.start + Math.min(1, at.seconds / 2));
-                          setSelected({ sceneId: i.sceneId, key: null });
-                        }}
-                      >
-                        Escena {i.index + 1}: “{i.what}” no está en «Lo que existe hoy» (lo marcó {i.by === "ia" ? "la IA al escribir" : "la revisión"}). Marcala como
-                        concepto o simulación, o cambiá la escena.
-                      </button>
-                      <span className="flex gap-2">
-                        <button type="button" className="text-xs font-semibold text-ink hover:underline" onClick={() => updateScene(i.sceneId, { disclosure: "concept" })}>
-                          Concepto
-                        </button>
-                        <button type="button" className="text-xs font-semibold text-ink hover:underline" onClick={() => updateScene(i.sceneId, { disclosure: "simulation" })}>
-                          Simulación
-                        </button>
-                        <button
-                          type="button"
-                          className="text-xs font-semibold text-muted hover:text-ink"
-                          title="Existe hoy: sumalo también a «Lo que existe hoy» de la serie"
-                          onClick={() => set({ conceptsOk: [...(piece.conceptsOk ?? []), conceptKey(i)] })}
-                        >
-                          Lo confirmo
-                        </button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-white p-3 text-sm">
-              <canvas
-                ref={posterRef}
-                width={vertical ? 108 : 192}
-                height={vertical ? 192 : 108}
-                aria-label="Portada"
-                className="rounded border border-line"
+              <MotionToggles
+                undoCount={undoCount}
+                undo={undo}
+                snap={snap}
+                set={set}
+                pushes={pushes}
+                cutBlur={cutBlur}
+                voiced={voiced}
+                heardCount={heardCount}
+                autoSync={autoSync}
+                piece={piece}
+                vertical={vertical}
+                guides={guides}
+                setGuides={setGuides}
               />
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <p className="font-semibold">Portada (el primer cuadro del video)</p>
-                <p className="text-xs text-muted">
-                  X, Slack y Discord muestran el primer cuadro como miniatura. Ahora: {posterT.toFixed(1)} s ·{" "}
-                  {piece.poster?.by === "vos" ? "la elegiste vos" : piece.poster?.by === "ia" ? "la eligió la IA" : "automática (el gancho entero)"}
-                  {piece.poster && Math.abs(posterT - piece.poster.t) > 0.01 ? " (se corrió para no caer en un corte)" : ""}.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => set({ poster: { t: Math.round(timeRef.current * 100) / 100, by: "vos" } })}>
-                    Usar el cuadro de ahora
-                  </Button>
-                  {piece.poster && (
-                    <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => set({ poster: null })}>
-                      Automática
-                    </Button>
-                  )}
-                </div>
-              </div>
             </div>
 
-            <div className={`rounded-xl border p-3 text-sm ${openGaps.length ? "border-neg/40 bg-neg-soft" : "border-good/30 bg-good-soft"}`}>
-              {openGaps.length ? (
-                <>
-                  <p className="font-semibold text-neg">Algo nuevo cada 2 a 4 s: {openGaps.length} tramo(s) quieto(s). No se puede generar hasta arreglarlo.</p>
-                  <ul className="mt-1 space-y-1">
-                    {openGaps.map((g) => (
-                      <li key={key(g)} className="flex flex-wrap items-center justify-between gap-2">
-                        <span>
-                          Entre {g.from.toFixed(1)} y {g.to.toFixed(1)} s no aparece nada nuevo. Partí la escena, sumá un elemento o acortala.
-                        </span>
-                        <button type="button" className="text-xs font-semibold text-muted hover:text-ink" onClick={() => set({ dismissed: [...piece.dismissed, key(g)] })}>
-                          No es un problema
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : (
-                <p className="font-semibold text-good">✓ Algo nuevo cada 2 a 4 s.</p>
-              )}
-            </div>
+            <MotionChecks
+              scenes={scenes}
+              piece={piece}
+              set={set}
+              seek={seek}
+              setSelected={setSelected}
+              updateScene={updateScene}
+              openReading={openReading}
+              openFigures={openFigures}
+              openConcepts={openConcepts}
+              openGaps={openGaps}
+              gapKey={key}
+              posterRef={posterRef}
+              posterT={posterT}
+              timeRef={timeRef}
+              vertical={vertical}
+            />
           </div>
 
           <div className="space-y-5">
-            <Field label="Voz" group>
-              <div className="flex flex-wrap items-center gap-2">
-                <Segmented
-                  value={piece.voice}
-                  onChange={(voice) => set({ voice })}
-                  options={[
-                    { value: "generated", label: "Generada" },
-                    { value: "recorded", label: "Grabada o subida" },
-                    { value: "none", label: "Sin voz" },
-                  ]}
-                />
-                {piece.voice === "generated" && (
-                  <Button variant="secondary" className="px-3 py-1 text-xs" disabled={!voiceAvailable || busy !== null} onClick={generateAllVoices}>
-                    Generar todas
-                  </Button>
-                )}
-              </div>
-              {piece.voice === "generated" && !voiceAvailable && <p className="mt-1 text-xs text-muted">La voz generada necesita OPENAI_API_KEY.</p>}
-            </Field>
-
-            {piece.voice !== "none" && (
-              <NarrationImport
-                lines={timeScenes(scenes).flatMap((s) =>
-                  s.voice.trim() ? [{ key: s.id, label: `Escena ${s.index + 1}`, speaker: "", text: s.voice, emotion: s.emotion }] : [],
-                )}
-                narratorKeys={[]}
-                language={brief.language}
-                autoSync={autoSync}
-                room={Object.fromEntries(scenes.map((s) => [s.id, s.seconds]))}
-                onParts={async (parts) => {
-                  for (const p of parts) await keepVoice(p.key, p.blob, `voz-${p.key}.wav`);
-                  set({ voice: "recorded" });
-                }}
-              />
-            )}
-
-            <Field label="Tono" group hint="Sale de la voz del brief. Seco: cortes secos y casi sin efectos. Cálido: pasa de escena con un empuje suave. Absurdo: cortes rápidos y más efectos.">
-              <Segmented
-                value={script.tone ?? "warm"}
-                onChange={(tone) => setScript({ ...script, tone })}
-                options={MOTION_TONES.map((t) => ({ value: t, label: MOTION_TONE_LABEL[t] }))}
-              />
-            </Field>
-
-            <Field
-              label="Mundo ilustrado"
-              group
-              hint="Un lugar dibujado con formas planas en los colores de la marca, detrás de todas las escenas. Se mueve con la cámara y nunca queda nada cargado detrás de las palabras. Cada escena puede cambiarlo."
-            >
-              <Segmented
-                value={script.world ?? "none"}
-                onChange={(v) => setScript({ ...script, world: v === "none" ? undefined : v })}
-                options={[{ value: "none" as const, label: "Ninguno" }, ...WORLD_PLACES.map((p) => ({ value: p, label: WORLD_PLACE_LABEL[p] }))]}
-              />
-            </Field>
-
-            <Field
-              label="Texto para publicar"
-              hint="De 1 a 3 frases para pegar en X, LinkedIn o Instagram, en el tono de la pieza. Lo que no esté confirmado va con [VERIFY]."
-            >
-              <textarea
-                className={`${inputClass} text-sm`}
-                rows={3}
-                aria-label="Texto para publicar"
-                value={script.caption ?? ""}
-                onChange={(e) => setScript({ ...script, caption: e.target.value })}
-              />
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <CopyButton text={script.caption ?? ""} idle="Copiar el texto" variant="secondary" />
-                {/\[VERIFY\]/.test(script.caption ?? "") && <span className="text-xs text-neg">Tiene datos sin confirmar: sacá el [VERIFY] solo cuando lo confirmes.</span>}
-              </div>
-            </Field>
-
-            <Field label="Efectos de sonido" group hint="La biblioteca libre (dominio público, Kenney y teclas) o sintetizados. Suenan al empezar cada movimiento.">
-              <Segmented
-                value={piece.effects ?? "library"}
-                onChange={(effects) => set({ effects })}
-                options={[
-                  { value: "library", label: "Biblioteca libre" },
-                  { value: "synth", label: "Sintetizados" },
-                  { value: "none", label: "Sin efectos" },
-                ]}
-              />
-            </Field>
-
-            <Field label="Música" group hint="Sintetizada en código, o tu tema: los cortes caen en sus beats, y el producto y el logo en los golpes más fuertes.">
-              <div className="space-y-2">
-                <Segmented
-                  value={piece.music}
-                  onChange={(music) => set({ music })}
-                  options={[
-                    { value: "synth", label: "Sintetizada" },
-                    { value: "track", label: "Tema propio" },
-                    { value: "none", label: "Sin música" },
-                  ]}
-                />
-                {piece.music === "synth" && (
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <select
-                      className={`${smallInput} py-1 text-xs`}
-                      value={script.music.mood}
-                      aria-label="Clima de la música"
-                      onChange={(e) => setScript({ ...script, music: { ...script.music, mood: e.target.value as MotionScript["music"]["mood"] } })}
-                    >
-                      {MOTION_MOODS.map((m) => (
-                        <option key={m} value={m}>
-                          {MOTION_MOOD_LABEL[m]}
-                        </option>
-                      ))}
-                    </select>
-                    <label className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        min={80}
-                        max={130}
-                        className={`${smallInput} w-16 px-2 py-1 text-xs`}
-                        value={script.music.bpm}
-                        onChange={(e) => setScript({ ...script, music: { ...script.music, bpm: Math.max(80, Math.min(130, Number(e.target.value) || 100)) } })}
-                      />
-                      bpm
-                    </label>
-                  </div>
-                )}
-                {piece.music === "track" && (
-                  <input type="file" accept="audio/*" aria-label="Subir el tema" className="text-sm" onChange={(e) => e.target.files?.[0] && addTrack(e.target.files[0])} />
-                )}
-                {piece.music === "track" && track && (
-                  <div className="space-y-1.5 rounded-lg border border-line p-2 text-xs">
-                    {piece.kickGrid ? (
-                      <p className="text-good">
-                        Grilla del tema: {piece.kickGrid.kicks.length} bombos, {Math.round(piece.kickGrid.bpm)} bpm, {piece.kickGrid.downbeats.length} primeros tiempos, de{" "}
-                        {piece.kickGrid.source === "demucs" ? "Demucs" : piece.kickGrid.name} (error mediano {piece.kickGrid.medianErrorMs} ms)
-                        {piece.kickGrid.usable ? "" : ". El tempo cambia: los cortes van a los bombos que hay"}.
-                      </p>
-                    ) : (
-                      <p className="text-neg">
-                        Sin grilla: los cortes no se pegan al tema. La app mide el beat solo en la pista de batería, nunca en el tema entero.
-                      </p>
-                    )}
-                    <label className="block">
-                      <span className="text-muted">Pista de batería del mismo tema (la exporta tu programa de música o un separador de pistas):</span>
-                      <input type="file" accept="audio/*" aria-label="Subir la pista de batería" className="mt-1 block text-xs" onChange={(e) => e.target.files?.[0] && addDrums(e.target.files[0])} />
-                    </label>
-                    {demucs ? (
-                      <div className="space-y-1">
-                        <Button variant="secondary" className="px-2 py-1 text-xs" disabled={busy !== null} onClick={separateDrums}>
-                          {separating ? (
-                            <>
-                              <Spinner /> Separando con Demucs…
-                            </>
-                          ) : (
-                            "Separar la batería con Demucs"
-                          )}
-                        </Button>
-                        {!piece.kickGrid && <p className="text-muted">Unos minutos la primera vez; después el tema queda separado.</p>}
-                      </div>
-                    ) : (
-                      !piece.kickGrid && (
-                        <p className="text-muted">
-                          ¿No tenés la pista de batería? Con Demucs instalado en esta compu, la app la separa sola (Modelos → Demucs).
-                        </p>
-                      )
-                    )}
-                  </div>
-                )}
-                {piece.music === "track" && track && <p className="text-xs text-muted">{track.file.name}</p>}
-              </div>
-            </Field>
-
-            <Field label="Capas de Grok" group hint="Las capas que separa Grok (Segmentos → Descargar todo). Quedan para usar en las escenas.">
-              <input
-                type="file"
-                accept="image/png,image/webp,image/*"
-                multiple
-                aria-label="Subir capas"
-                className="text-sm"
-                onChange={(e) => {
-                  if (e.target.files?.length) addLayers([...e.target.files]);
-                  e.target.value = "";
-                }}
-              />
-              {layers.length > 0 && <p className="mt-1 text-xs text-muted">{layers.length} capa(s).</p>}
-            </Field>
-
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" className="mt-1" checked={piece.disclosure} onChange={(e) => set({ disclosure: e.target.checked })} />
-              <span>
-                <b>Aviso de IA</b>
-                <span className="block text-xs text-muted">Si alguna imagen la hizo una IA (capas, personajes, producto), una línea chica al pie.</span>
-              </span>
-            </label>
-
-            <Field label="Video" group>
-              <Segmented
-                value={piece.format}
-                onChange={(format) => set({ format })}
-                options={[
-                  { value: "vertical", label: "Vertical 9:16" },
-                  { value: "horizontal", label: "Horizontal 16:9" },
-                ]}
-              />
-            </Field>
-            <QualityPanel
-              quality={quality}
-              current={Boolean(quality && quality.key === keyNow)}
-              running={reviewing}
-              sheets={sheets}
-              disabled={busy !== null || Boolean(reviewing)}
-              onRun={async () => {
-                setBusy("review");
-                await runQuality(quality?.key === keyNow && quality.formats.length > 1 ? quality.formats : [piece.format]);
-                setBusy(null);
-              }}
-              onAccept={() => quality && set({ quality: { ...quality, accepted: true } })}
+            <MotionSettings
+              piece={piece}
+              set={set}
+              script={script}
+              setScript={setScript}
+              scenes={scenes}
+              brief={brief}
+              autoSync={autoSync}
+              demucs={demucs}
+              voiceAvailable={voiceAvailable}
+              busy={busy}
+              generateAllVoices={generateAllVoices}
+              keepVoice={keepVoice}
+              track={track}
+              addTrack={addTrack}
+              addDrums={addDrums}
+              separateDrums={separateDrums}
+              separating={separating}
+              addLayers={addLayers}
+              layers={layers}
             />
-            <div className="flex gap-2">
-              <Button className="flex-1" onClick={() => render([piece.format])} disabled={busy !== null || Boolean(reviewing) || blocked}>
-                {busy === "render" ? (
-                  <>
-                    <Spinner /> Generando…
-                  </>
-                ) : (
-                  `Generar ${vertical ? "9:16" : "16:9"}`
-                )}
-              </Button>
-              <Button variant="secondary" className="flex-1" onClick={() => render(["vertical", "horizontal"])} disabled={busy !== null || Boolean(reviewing) || blocked}>
-                Los dos formatos
-              </Button>
-            </div>
-            <p className="text-xs text-muted">Generar arma el video en el navegador. El render final lo hace ffmpeg en tu compu: H.264, CRF 16, la mejor calidad.</p>
-            {subtitles.length > 0 && (
-              <div className="space-y-1">
-                <Button variant="secondary" className="w-full" onClick={() => download(new Blob([toSrt(subtitles)], { type: "application/x-subrip" }), srtName(piece.format))}>
-                  Descargar subtítulos .srt
-                </Button>
-                <p className="text-xs text-muted">
-                  Los mismos tiempos que el video{voiced.length ? ` · ${heardCount ? `${heardCount} de ${voiced.length} escenas con las palabras escuchadas en la voz` : "tiempos estimados por el largo de la voz"}` : ""}.
-                </p>
-                {heardNote && <p className="text-xs text-muted">{heardNote}</p>}
-              </div>
-            )}
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                className="flex-1"
-                onClick={async () => {
-                  setBusy("final");
-                  await finalRender([piece.format]);
-                  setBusy(null);
-                }}
-                disabled={!ffmpeg || !projectId || busy !== null || Boolean(reviewing) || blocked}
-              >
-                {busy === "final" ? (
-                  <>
-                    <Spinner /> Render final…
-                  </>
-                ) : (
-                  `Render final ${vertical ? "9:16" : "16:9"}`
-                )}
-              </Button>
-              <Button
-                variant="secondary"
-                className="flex-1"
-                onClick={async () => {
-                  setBusy("final");
-                  await finalRender(["vertical", "horizontal"]);
-                  setBusy(null);
-                }}
-                disabled={!ffmpeg || !projectId || busy !== null || Boolean(reviewing) || blocked}
-              >
-                Render final de los dos
-              </Button>
-            </div>
-            {!ffmpeg && <p className="text-xs text-neg">Para el render final hace falta ffmpeg. En la Mac: <code>brew install ffmpeg</code>, o volvé a correr <code>bash iniciar.sh</code>.</p>}
-            {finalJob && (
-              <div className="space-y-2 rounded-xl border border-line bg-white p-3 text-xs">
-                {!finalJob.done ? (
-                  <>
-                    <p>
-                      Render final ({finalJob.current === "vertical" ? "9:16" : "16:9"}): {Math.round(finalJob.progress * 100)}%. Cada cuadro sale de <code>seek(t)</code> y va sin pérdida a ffmpeg.
-                    </p>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-paper">
-                      <div className="h-full bg-good transition-all" style={{ width: `${finalJob.progress * 100}%` }} />
-                    </div>
-                  </>
-                ) : finalJob.error ? (
-                  <p className="text-neg">El render final no terminó.</p>
-                ) : (
-                  finalJob.files.map((file) => (
-                    <div key={file} className="space-y-1">
-                      <video
-                        src={`${projectFileUrl(finalJob.project, file)}?v=${finalJob.id}`}
-                        controls
-                        playsInline
-                        className={`mx-auto w-full rounded-lg bg-black ${file.includes("vertical") ? "max-h-[70vh] w-auto" : ""}`}
-                      />
-                      <p className="text-good">
-                        Render final (H.264, CRF 16): {projectsDir}/{finalJob.project}/{file}
-                      </p>
-                      {finalJob.subtitles?.includes(file.replace(/\.mp4$/, ".srt")) && (
-                        <a className="text-accent underline" href={projectFileUrl(finalJob.project, file.replace(/\.mp4$/, ".srt"))} download>
-                          Subtítulos: {file.replace(/\.mp4$/, ".srt")}
-                        </a>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-            {progress !== null && (
-              <div className="h-1.5 overflow-hidden rounded-full bg-paper">
-                <div className="h-full bg-good transition-all" style={{ width: `${progress * 100}%` }} />
-              </div>
-            )}
-            {results.map((r) => (
-              <div key={r.format} className="space-y-2">
-                <video src={r.url} controls playsInline className={`mx-auto w-full rounded-lg bg-black ${r.format === "vertical" ? "max-h-[70vh] w-auto" : ""}`} />
-                <Button variant="secondary" className="w-full" onClick={() => download(r.blob, `${slug(script.title) || "explicativo"}-${r.format === "vertical" ? "9x16" : "16x9"}.${r.extension}`)}>
-                  Descargar {r.format === "vertical" ? "9:16" : "16:9"} .{r.extension}
-                </Button>
-                {r.srt && (
-                  <Button variant="secondary" className="w-full" onClick={() => download(new Blob([r.srt], { type: "application/x-subrip" }), srtName(r.format))}>
-                    Descargar subtítulos .srt
-                  </Button>
-                )}
-                {r.saved && <p className="text-xs text-good">Guardado en el proyecto: {r.saved}{r.srt ? " (con su .srt al lado)" : ""}</p>}
-                {r.notes.map((n) => (
-                  <p key={n} className="text-xs text-muted">
-                    {n}
-                  </p>
-                ))}
-              </div>
-            ))}
+            <MotionOutputs
+              piece={piece}
+              set={set}
+              script={script}
+              quality={quality}
+              keyNow={keyNow}
+              reviewing={reviewing}
+              sheets={sheets}
+              busy={busy}
+              setBusy={setBusy}
+              runQuality={runQuality}
+              render={render}
+              finalRender={finalRender}
+              blocked={blocked}
+              subtitles={subtitles}
+              srtName={srtName}
+              voiced={voiced}
+              heardCount={heardCount}
+              heardNote={heardNote}
+              ffmpeg={ffmpeg}
+              projectId={projectId}
+              projectsDir={projectsDir}
+              finalJob={finalJob}
+              progress={progress}
+              results={results}
+              vertical={vertical}
+            />
           </div>
         </div>
       )}
 
       {script && (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className="text-lg font-bold">Storyboard</h3>
-              <p className="text-xs text-muted">Una viñeta por escena: el cuadro ya armado, lo que se dice, lo que suena, cómo entra y la cámara.</p>
-            </div>
-            <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => setBoardOpen((v) => !v)}>
-              {boardOpen ? "Cerrar el storyboard" : "Ver el storyboard"}
-            </Button>
-          </div>
-          {boardOpen && (
-            <PartBoundary>
-              <Suspense
-                fallback={
-                  <div className="flex items-center gap-2 p-4 text-sm text-muted">
-                    <Spinner /> Cargando…
-                  </div>
-                }
-              >
-                <MotionStoryboard
-                  script={script}
-                  scenes={scenes}
-                  world={world}
-                  format={piece.format}
-                  music={piece.music === "track" && !track ? "none" : piece.music}
-                  effects={piece.effects ?? "library"}
-                  voice={piece.voice}
-                  onSeek={(t, sceneId) => {
-                    seek(t);
-                    setSelected({ sceneId, key: null });
-                  }}
-                />
-              </Suspense>
-            </PartBoundary>
-          )}
-        </div>
+        <MotionStoryboardPanel
+          boardOpen={boardOpen}
+          setBoardOpen={setBoardOpen}
+          script={script}
+          scenes={scenes}
+          world={world}
+          piece={piece}
+          track={track}
+          seek={seek}
+          setSelected={setSelected}
+        />
       )}
 
       {script && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-bold">Escenas</h3>
-            <Button
-              variant="secondary"
-              className="px-3 py-1 text-xs"
-              onClick={() => {
-                remember(`add-${Date.now()}`);
-                setScript({ ...script, scenes: [...script.scenes, blankScene()] });
-              }}
-            >
-              + Escena
-            </Button>
-          </div>
-          <ol className="space-y-2">
-            {timeScenes(scenes).map((s) => {
-              const raw = script.scenes.find((x) => x.id === s.id)!;
-              const voice = voices[s.id];
-              return (
-                <li key={s.id} className={`rounded-xl border bg-white p-3 ${selected?.sceneId === s.id ? "border-touch" : "border-line"}`}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      className="font-mono text-xs text-muted hover:text-ink"
-                      title="Ver esta escena en la vista previa"
-                      onClick={() => {
-                        seek(s.start + 0.6);
-                        setSelected({ sceneId: s.id, key: null });
-                      }}
-                    >
-                      {s.index + 1} · {s.start.toFixed(1)}–{s.end.toFixed(1)} s
-                    </button>
-                    <select
-                      className={`${smallInput} py-1 text-xs`}
-                      value={raw.template}
-                      aria-label="Plantilla"
-                      onChange={(e) => {
-                        // A new character scene gets the series' explainer character.
-                        const template = e.target.value as MotionScene["template"];
-                        const [hosted] = hostScenes([{ ...raw, template }], host, castCharacters, true);
-                        updateScene(s.id, hosted.asset === raw.asset ? { template } : { template, asset: hosted.asset, assetB: hosted.assetB });
-                      }}
-                    >
-                      {MOTION_TEMPLATES.map((t) => (
-                        <option key={t} value={t}>
-                          {MOTION_TEMPLATE_LABEL[t]}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className={`${smallInput} py-1 text-xs`}
-                      value={raw.camera ?? "hold"}
-                      aria-label="Cámara"
-                      title={raw.cameraBy === "ai" ? "La eligió la IA según lo que muestra la escena. Si la cambiás, queda la tuya." : undefined}
-                      onChange={(e) => updateScene(s.id, { camera: e.target.value as (typeof MOTION_CAMERAS)[number], cameraBy: undefined })}
-                    >
-                      {MOTION_CAMERAS.map((c) => (
-                        <option key={c} value={c}>
-                          Cámara{raw.cameraBy === "ai" && c === (raw.camera ?? "hold") ? " (IA)" : ""}: {MOTION_CAMERA_LABEL[c]}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className={`${smallInput} py-1 text-xs`}
-                      value={raw.world ?? "piece"}
-                      aria-label="Lugar"
-                      title="El mundo ilustrado detrás de esta escena. «Como la pieza» usa el de toda la pieza."
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        updateScene(s.id, { world: v === "none" || (WORLD_PLACES as readonly string[]).includes(v) ? (v as MotionScene["world"]) : undefined });
-                      }}
-                    >
-                      <option value="piece">Lugar: Como la pieza ({script.world ? WORLD_PLACE_LABEL[script.world] : "ninguno"})</option>
-                      <option value="none">Lugar: Ninguno</option>
-                      {WORLD_PLACES.map((p) => (
-                        <option key={p} value={p}>
-                          Lugar: {WORLD_PLACE_LABEL[p]}
-                        </option>
-                      ))}
-                    </select>
-                    {s.index > 0 && (
-                      <select
-                        className={`${smallInput} py-1 text-xs`}
-                        value={raw.entry ?? "auto"}
-                        aria-label="Entrada"
-                        title="Pasar a través: la cámara se mete en lo principal de la escena anterior (la pantalla, el producto, el número) y esta escena se abre desde adentro. Continuidad: si las dos escenas muestran la misma imagen, esa imagen viaja de donde estaba a su lugar nuevo. Automática usa Continuidad cuando se puede y si no, el corte del tono."
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          updateScene(s.id, { entry: v === "through" || v === "match" || v === "cut" ? v : undefined });
-                        }}
-                      >
-                        <option value="auto">Entrada: Automática ({s.carryIn ? SCENE_ENTRY_LABEL.match : SCENE_ENTRY_LABEL.cut})</option>
-                        {SCENE_ENTRIES.map((c) => (
-                          <option key={c} value={c}>
-                            Entrada: {SCENE_ENTRY_LABEL[c]}
-                            {c === "match" && !samePicture(script.scenes[s.index - 1], raw) ? " (no muestra la misma imagen: va el corte)" : ""}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    <select
-                      className={`${smallInput} py-1 text-xs ${labelled(raw) ? "border-neg/50 font-semibold" : ""}`}
-                      value={raw.disclosure ?? "real"}
-                      aria-label="Qué muestra"
-                      title="Solo lo que está en «Lo que existe hoy» se muestra como real. Concepto o Simulación pone el rótulo en pantalla mientras dura la escena."
-                      onChange={(e) => updateScene(s.id, { disclosure: e.target.value === "real" ? undefined : (e.target.value as MotionScene["disclosure"]) })}
-                    >
-                      {SCENE_DISCLOSURES.map((c) => (
-                        <option key={c} value={c}>
-                          {SCENE_DISCLOSURE_LABEL[c]}
-                        </option>
-                      ))}
-                    </select>
-                    <label className="flex items-center gap-1 text-xs">
-                      <input
-                        type="number"
-                        min={2}
-                        max={8}
-                        step={0.5}
-                        className={`${smallInput} w-16 px-2 py-1 text-xs`}
-                        value={raw.seconds}
-                        aria-label="Segundos"
-                        onChange={(e) => updateScene(s.id, { seconds: Math.max(2, Math.min(8, Number(e.target.value) || 2)) })}
-                      />
-                      s
-                    </label>
-                    <span className="ml-auto flex gap-1">
-                      <Button variant="ghost" className="px-2 py-0.5 text-xs" onClick={() => moveScene(s.id, -1)} aria-label="Subir">
-                        ↑
-                      </Button>
-                      <Button variant="ghost" className="px-2 py-0.5 text-xs" onClick={() => moveScene(s.id, 1)} aria-label="Bajar">
-                        ↓
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        className="px-2 py-0.5 text-xs text-neg"
-                        onClick={() => {
-                          remember(`remove-${Date.now()}`);
-                          setScript({ ...script, scenes: script.scenes.filter((x) => x.id !== s.id) });
-                        }}
-                      >
-                        Sacar
-                      </Button>
-                    </span>
-                  </div>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    <input className={`${inputClass} py-1.5`} value={raw.title} placeholder={TITLE_HINT[raw.template] ?? "Título (hasta 6 palabras)"} aria-label="Título" onChange={(e) => updateScene(s.id, { title: e.target.value })} />
-                    <input className={`${inputClass} py-1.5`} value={raw.text} placeholder="Texto de apoyo" aria-label="Texto" onChange={(e) => updateScene(s.id, { text: e.target.value })} />
-                    <textarea
-                      className={`${inputClass} py-1.5 text-xs`}
-                      rows={2}
-                      value={raw.items.join("\n")}
-                      placeholder={ITEMS_HINT[raw.template] ?? "Rótulos, pasos, precio o llamado (uno por línea)"}
-                      aria-label="Elementos"
-                      onChange={(e) => updateScene(s.id, { items: e.target.value.split("\n").slice(0, 5) })}
-                    />
-                    {raw.template === "slots" && <p className="text-[11px] text-muted sm:col-span-2">{slotsNote(s.slots)}</p>}
-                    <div className="space-y-1.5">
-                      <select className={`${inputClass} py-1 text-xs`} value={raw.asset} aria-label="Imagen" onChange={(e) => updateScene(s.id, { asset: e.target.value })}>
-                        <option value="">Sin imagen</option>
-                        {assetOptions.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
-                      {raw.template === "beforeAfter" && (
-                        <select className={`${inputClass} py-1 text-xs`} value={raw.assetB} aria-label="Imagen de después" onChange={(e) => updateScene(s.id, { assetB: e.target.value })}>
-                          <option value="">Después: sin imagen</option>
-                          {assetOptions.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              Después: {o.label}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                      {raw.template === "character" && (
-                        <>
-                          <select className={`${inputClass} py-1 text-xs`} value={raw.assetB} aria-label="Lo que muestra" onChange={(e) => updateScene(s.id, { assetB: e.target.value })}>
-                            <option value="">No muestra nada (el personaje solo)</option>
-                            {assetOptions
-                              .filter((o) => o.value !== raw.asset)
-                              .map((o) => (
-                                <option key={o.value} value={o.value}>
-                                  Muestra: {o.label}
-                                </option>
-                              ))}
-                          </select>
-                          {actors[raw.asset] ? (
-                            <select
-                              className={`${inputClass} py-1 text-xs`}
-                              value={raw.move ?? "walk"}
-                              aria-label="Tramo"
-                              onChange={(e) => updateScene(s.id, { move: e.target.value as (typeof MOTION_MOVES)[number] })}
-                            >
-                              {MOTION_MOVES.map((g) => (
-                                <option key={g} value={g}>
-                                  Tramo: {MOTION_MOVE_LABEL[g]}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <select
-                              className={`${inputClass} py-1 text-xs`}
-                              value={raw.gesture ?? "present"}
-                              aria-label="Gesto"
-                              onChange={(e) => updateScene(s.id, { gesture: e.target.value as MotionGesture })}
-                            >
-                              {MOTION_GESTURES.map((g) => (
-                                <option key={g} value={g}>
-                                  Gesto: {MOTION_GESTURE_LABEL[g]}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                          {raw.asset && actors[raw.asset] && raw.move && actors[raw.asset].root[raw.move] === false && (
-                            <p className="text-[11px] text-muted">Ese clip no trae root motion: el personaje se desplaza, pero no es el paso del clip.</p>
-                          )}
-                          {raw.asset && !puppets[raw.asset] && !actors[raw.asset] && (
-                            <p className="text-[11px] text-neg">Este personaje no tiene imagen, títere ni GLB: subilos en Editar serie.</p>
-                          )}
-                        </>
-                      )}
-                      {raw.template === "beforeAfter" && (
-                        <div className="space-y-1">
-                          <select
-                            className={`${inputClass} py-1 text-xs`}
-                            value={raw.reveal ?? "wipe"}
-                            aria-label="Cómo cambia"
-                            onChange={(e) => updateScene(s.id, { reveal: e.target.value === "iris" ? "iris" : undefined })}
-                          >
-                            {BEFORE_AFTER_REVEALS.map((r) => (
-                              <option key={r} value={r}>
-                                Cómo cambia: {BEFORE_AFTER_REVEAL_LABEL[r]}
-                              </option>
-                            ))}
-                          </select>
-                          {raw.reveal === "iris" && (
-                            <div className="grid grid-cols-2 gap-1 text-[11px] text-muted">
-                              {(["focusX", "focusY"] as const).map((k) => (
-                                <label key={k} className="block">
-                                  {k === "focusX" ? "Desde: horizontal" : "Desde: vertical"}
-                                  <input
-                                    type="range"
-                                    min={0}
-                                    max={1}
-                                    step={0.01}
-                                    className="block w-full"
-                                    value={raw[k]}
-                                    onChange={(e) => updateScene(s.id, { [k]: Number(e.target.value) })}
-                                  />
-                                </label>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {raw.template === "zoom" && (
-                        <div className="grid grid-cols-3 gap-1 text-[11px] text-muted">
-                          {(["focusX", "focusY", "zoom"] as const).map((k) => (
-                            <label key={k} className="block">
-                              {k === "focusX" ? "Horizontal" : k === "focusY" ? "Vertical" : "Zoom"}
-                              <input
-                                type="range"
-                                min={k === "zoom" ? 1.2 : 0}
-                                max={k === "zoom" ? 4 : 1}
-                                step={0.01}
-                                className="block w-full"
-                                value={raw[k]}
-                                onChange={(e) => updateScene(s.id, { [k]: Number(e.target.value) })}
-                              />
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <input
-                      className={`${inputClass} min-w-0 flex-1 py-1.5 text-sm`}
-                      value={raw.voice}
-                      placeholder="Lo que dice la voz"
-                      aria-label="Voz"
-                      onChange={(e) => updateScene(s.id, { voice: e.target.value })}
-                    />
-                    <input className={`${smallInput} w-32 py-1.5 text-xs`} value={raw.emotion} placeholder="Emoción" aria-label="Emoción" onChange={(e) => updateScene(s.id, { emotion: e.target.value })} />
-                  </div>
-                  {piece.voice !== "none" && raw.voice.trim() && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                      {voice && <audio src={voice.url} controls className="h-8" />}
-                      {voice && voiceOverrun(s, voice.duration) > 0 && (
-                        <>
-                          <span className="text-neg">
-                            La voz dura {voice.duration.toFixed(1)} s, entra a los {(elementTimes(s).voice ?? 0.25).toFixed(2)} s y la escena dura {s.seconds.toFixed(1)} s: se corta con un fundido en el corte.
-                          </span>
-                          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => fitVoice(s.id)}>
-                            Ajustar al largo de la voz
-                          </Button>
-                        </>
-                      )}
-                      {piece.voice === "generated" ? (
-                        <Button variant="secondary" className="px-2 py-1 text-xs" disabled={!voiceAvailable || busy !== null} onClick={() => generateVoice(raw)}>
-                          {voice ? "Generar de nuevo" : "Generar voz"}
-                        </Button>
-                      ) : (
-                        <>
-                          <Recorder line={raw.voice} onDone={(blob) => keepVoice(s.id, blob, `voz-${s.id}.webm`)} />
-                          <input type="file" accept="audio/*" aria-label="Subir voz" className="text-xs" onChange={(e) => e.target.files?.[0] && keepVoice(s.id, e.target.files[0], e.target.files[0].name)} />
-                        </>
-                      )}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        </div>
+        <MotionSceneList
+          script={script}
+          scenes={scenes}
+          selected={selected}
+          setSelected={setSelected}
+          seek={seek}
+          voices={voices}
+          piece={piece}
+          actors={actors}
+          puppets={puppets}
+          series={series}
+          layers={layers}
+          host={host}
+          castCharacters={castCharacters}
+          remember={remember}
+          setScript={setScript}
+          updateScene={updateScene}
+          moveScene={moveScene}
+          fitVoice={fitVoice}
+          generateVoice={generateVoice}
+          keepVoice={keepVoice}
+          voiceAvailable={voiceAvailable}
+          busy={busy}
+        />
       )}
     </section>
   );

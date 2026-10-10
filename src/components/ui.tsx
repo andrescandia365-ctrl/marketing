@@ -1,4 +1,4 @@
-import { Component, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { Component, Suspense, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { Beat, Role } from "../../shared/schema.ts";
 import { BEAT_INFO } from "../../shared/template.ts";
 
@@ -116,6 +116,23 @@ export class PartBoundary extends Component<{ children: ReactNode }, { failed: b
       </Notice>
     );
   }
+}
+
+// A part downloaded on demand: a spinner while it arrives, a notice instead of a blank screen if it never does.
+export function Lazy({ children }: { children: ReactNode }) {
+  return (
+    <PartBoundary>
+      <Suspense
+        fallback={
+          <div className="flex items-center gap-2 p-4 text-sm text-muted">
+            <Spinner /> Cargando…
+          </div>
+        }
+      >
+        {children}
+      </Suspense>
+    </PartBoundary>
+  );
 }
 
 // Every piece is named by the problem it solves; the hook title comes second. Older pieces have no problem.
