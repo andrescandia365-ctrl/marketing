@@ -170,7 +170,7 @@ function contextBlocks(brief: Brief, withTool: boolean): string[] {
   const series = getSeries(brief.series);
   if (!series) throw new WriterError(`No existe la serie "${brief.series}".`);
   const blocks = [
-    `The series for this piece (its bible is written in Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real. Its "${PRACTICES}" list, if any, is how people work today without the brand: pains are built only on it and the brief's notes. Its "${CAST}", if any, is the series' fixed cast: characters, places and products with an approved image (reuse them: same id as castId, identity word for word) and real screens of the product (kind "screen": real screenshots, shown only in screen shots).\n\n${series.text}`,
+    `The series for this piece (its bible is written in Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real. Its "${PRACTICES}" list, if any, is how people work today without the brand: pains are built only on it and the brief's notes. Its "${CAST}", if any, is the series' fixed cast: characters, places and products with an approved image (reuse them: same id as castId, identity word for word) and real screens of the product (kind "screen": real screenshots, shown only in screen shots). A member's "refs" are extra reference images of that same member (its face cut from the sheet, a loose view), each its own @ref in the image tool; "views" are its sheet's loose views as prompts.\n\n${series.text}`,
   ];
   // The series' calendar moments, nearest first with how far each one is (after the cache: it changes every day).
   const moments = momentsForWriter(series.moments, new Date());

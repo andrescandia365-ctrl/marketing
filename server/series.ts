@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, w
 import { join, resolve } from "node:path";
 import type { LyricStyle } from "../shared/lyrics.ts";
 import type { SeriesInfo } from "../shared/schema.ts";
+import { extraRefName, memberRefCount, refFileName, seriesRefNames } from "../shared/castRefs.ts";
 import {
   PUPPET_MAX_LAYERS,
   markdownToSeries,
@@ -108,19 +109,25 @@ function keepPuppet(old: CastMember | undefined, next: CastMember): CastMember["
   return { layers: [...sent, ...[...files.values()].filter((l) => !seen.has(l.file))] };
 }
 
+// Extra reference images are the server's too (added by uploading a crop or a view, dropped one by one): a member the
+// series already has keeps the ones on disk; a new member starts with none.
+function keepRefs(old: CastMember | undefined): CastMember["refs"] {
+  return old?.refs ?? [];
+}
+
 // The series as the app saves it from "Editar serie", with each character's puppet kept.
 export function saveSeriesFromApp(id: string, fields: SeriesFields) {
   const old = getSeriesFields(id).cast;
   // An explainer character who left the cast is no longer the series' host.
   const host = fields.cast.some((m) => m.id === fields.explainerCharacter && m.kind === "character") ? fields.explainerCharacter : "";
-  saveSeries(id, { ...fields, explainerCharacter: host, cast: fields.cast.map((m) => ({ ...m, puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m) })) });
+  saveSeries(id, { ...fields, explainerCharacter: host, cast: fields.cast.map((m) => ({ ...m, puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m), refs: keepRefs(old.find((o) => o.id === m.id)) })) });
 }
 
 // Adds a cast member to the series, or replaces the one with the same id (keeping its image if none is given).
 export function upsertCastMember(id: string, member: CastMember) {
   const fields = getSeriesFields(id);
   const old = fields.cast.find((m) => m.id === member.id);
-  const next = { ...member, image: member.image || old?.image || "", puppet: keepPuppet(old, member), rig: keepRig(old, member) };
+  const next = { ...member, image: member.image || old?.image || "", puppet: keepPuppet(old, member), rig: keepRig(old, member), refs: keepRefs(old) };
   fields.cast = old ? fields.cast.map((m) => (m.id === member.id ? next : m)) : [...fields.cast, next];
   saveSeries(id, fields);
 }
@@ -141,6 +148,41 @@ export function setCastImage(id: string, castId: string, data: Buffer, type: str
   member.image = file;
   saveSeries(id, fields);
   return file;
+}
+
+// An extra reference image of a cast member (a crop of its sheet, or a loose view), saved next to its approved image
+// and named as its own reference (@MartaCara). cap: the tools' limit on reference images (server/tools/*.md); a member
+// never brings more than that, counting its approved image.
+export function addCastRef(id: string, castId: string, data: Buffer, type: string, label: string, cap: number | null): CastMember {
+  const fields = getSeriesFields(id);
+  const member = fields.cast.find((m) => m.id === castId);
+  if (!member) throw new SeriesError("Ese integrante del elenco no existe.");
+  if (member.kind === "screen") throw new SeriesError("Las pantallas reales no llevan referencias extra: van tal cual.");
+  const ext = IMAGE_EXT[type.split(";")[0].trim()];
+  if (!ext || ext === "gif") throw new SeriesError("La referencia va en PNG, JPG o WebP.");
+  if (cap !== null && memberRefCount(member) >= cap) {
+    throw new SeriesError(`La herramienta acepta hasta ${cap} imágenes de referencia y ${member.name} ya tiene ${memberRefCount(member)}. Borrá una antes de sumar otra.`);
+  }
+  const name = label.trim().slice(0, 60) || "referencia";
+  const ref = extraRefName(member.ref, name, seriesRefNames(fields.cast));
+  const dir = join(LIBRARY_DIR, id);
+  mkdirSync(dir, { recursive: true });
+  const file = refFileName(castId, ref, Date.now().toString(36), ext);
+  writeFileSync(join(dir, file), data);
+  member.refs = [...member.refs, { ref, label: name, image: file }];
+  saveSeries(id, fields);
+  return member;
+}
+
+export function removeCastRef(id: string, castId: string, ref: string): CastMember {
+  const fields = getSeriesFields(id);
+  const member = fields.cast.find((m) => m.id === castId);
+  const extra = member?.refs.find((r) => r.ref === ref);
+  if (!member || !extra) throw new SeriesError("Esa referencia no existe.");
+  if (extra.image) rmSync(join(LIBRARY_DIR, id, extra.image), { force: true });
+  member.refs = member.refs.filter((r) => r.ref !== ref);
+  saveSeries(id, fields);
+  return member;
 }
 
 // A puppet layer (characters only): a transparent PNG or WebP from Grok's Segments, saved as <castId>-p<n>.<ext>.

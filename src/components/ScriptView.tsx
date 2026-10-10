@@ -1,9 +1,11 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { Suspense, createContext, lazy, useContext, useEffect, useRef, useState } from "react";
 import { clipPrompt } from "../../shared/audio.ts";
 import { polishWords } from "../../shared/checks.ts";
 import { buildCopyPrompt } from "../../shared/prompt.ts";
 import { SHOT_LENGTHS, type Board, type Brief, type ImageReview, type SegmentEdit, type Setup, type Shot, type Story } from "../../shared/schema.ts";
 import type { CastMember } from "../../shared/series.ts";
+import type { SeriesInfo } from "../../shared/schema.ts";
+import { shotReferences } from "../../shared/castRefs.ts";
 import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 import { generatesImage, transformScreen, withScreenMove } from "../../shared/transformScreen.ts";
 import { copyText } from "../lib/files.ts";
@@ -11,6 +13,10 @@ import { formatElapsed, type LogEntry } from "../lib/markdown.ts";
 import { SpeakButton, VoiceRow, type AudioFile, type VoiceRowProps } from "./Audio.tsx";
 import { ActionWarning, BEAT_EDGE } from "./shotBits.tsx";
 import { BeatChip, Button, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
+
+// The sheet flow and the extra references open from a setup only when asked, so they load then.
+const SheetBuilder = lazy(() => import("./SheetBuilder.tsx").then((m) => ({ default: m.SheetBuilder })));
+const CastRefs = lazy(() => import("./CastRefs.tsx").then((m) => ({ default: m.CastRefs })));
 
 export type ClipFile = { url: string; blob: Blob; name: string; duration: number };
 // A member of the series' fixed cast, with the URL of its approved image.
@@ -221,6 +227,8 @@ type CardProps = {
   onRewrite: (index: number, note: string) => Promise<boolean>;
   // The series' fixed cast by id: approved images, @ references and real screens.
   library: Record<string, LibraryEntry>;
+  // The tool's cap on reference images (its profile in server/tools/), or null.
+  maxRefs?: number | null;
   // How lines are heard: the voice row under each shot.
   voice: Omit<VoiceRowProps, "shot" | "index" | "speaker" | "voice" | "sfx">;
 };
@@ -286,60 +294,78 @@ function InFrame({
   setups,
   library,
   toolName,
+  maxRefs,
   onChange,
 }: {
   shot: Shot;
   setups: Setup[];
   library: Record<string, LibraryEntry>;
   toolName: string;
+  maxRefs: number | null;
   onChange: (setups: string[]) => void;
 }) {
   const byId = Object.fromEntries(setups.map((s) => [s.id, s]));
   const missing = setups.filter((s) => !shot.setups.includes(s.id));
+  const members = shot.setups.map((id) => byId[id]?.castId).flatMap((c) => (c && library[c] ? [library[c]] : []));
+  const refs = shotReferences(members);
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs">
-      <span className="font-semibold text-muted">En cuadro:</span>
-      {shot.setups.map((id) => {
-        const setup = byId[id];
-        const member = setup?.castId ? library[setup.castId] : undefined;
-        return (
-          <span
-            key={id}
-            className="inline-flex items-center gap-1 rounded-full border border-line bg-white py-0.5 pr-1 pl-1"
-            title={member ? `En ${toolName}: escribí @${member.ref} para usar su imagen aprobada` : setup?.identity}
-          >
-            {member?.url ? (
-              <img src={member.url} alt="" className="size-5 rounded-full object-cover" />
-            ) : (
-              <span className="grid size-5 place-items-center rounded-full bg-ink text-[10px] font-bold text-white">{id}</span>
-            )}
-            {setup?.name ?? id}
-            {member && <b className="font-mono text-good">@{member.ref}</b>}
-            <button
-              type="button"
-              onClick={() => onChange(shot.setups.filter((x) => x !== id))}
-              className="rounded-full px-1 text-muted hover:text-neg"
-              aria-label={`Sacar ${setup?.name ?? id} de la toma`}
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        <span className="font-semibold text-muted">En cuadro:</span>
+        {shot.setups.map((id) => {
+          const setup = byId[id];
+          const member = setup?.castId ? library[setup.castId] : undefined;
+          return (
+            <span
+              key={id}
+              className="inline-flex items-center gap-1 rounded-full border border-line bg-white py-0.5 pr-1 pl-1"
+              title={member ? `En ${toolName}: escribí @${member.ref} para usar su imagen aprobada` : setup?.identity}
             >
-              ×
-            </button>
-          </span>
-        );
-      })}
-      {missing.length > 0 && (
-        <select
-          value=""
-          onChange={(e) => e.target.value && onChange([...shot.setups, e.target.value])}
-          className="rounded-full border border-dashed border-line bg-white px-2 py-0.5 text-xs text-muted"
-          aria-label="Sumar a la toma"
-        >
-          <option value="">+ sumar</option>
-          {missing.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+              {member?.url ? (
+                <img src={member.url} alt="" className="size-5 rounded-full object-cover" />
+              ) : (
+                <span className="grid size-5 place-items-center rounded-full bg-ink text-[10px] font-bold text-white">{id}</span>
+              )}
+              {setup?.name ?? id}
+              {member && <b className="font-mono text-good">@{member.ref}</b>}
+              {(member?.refs ?? [])
+                .filter((r) => r.image)
+                .map((r) => (
+                  <b key={r.ref} className="font-mono text-good/80" title={`Otra referencia de ${member?.name}: ${r.label}`}>
+                    @{r.ref}
+                  </b>
+                ))}
+              <button
+                type="button"
+                onClick={() => onChange(shot.setups.filter((x) => x !== id))}
+                className="rounded-full px-1 text-muted hover:text-neg"
+                aria-label={`Sacar ${setup?.name ?? id} de la toma`}
+              >
+                ×
+              </button>
+            </span>
+          );
+        })}
+        {missing.length > 0 && (
+          <select
+            value=""
+            onChange={(e) => e.target.value && onChange([...shot.setups, e.target.value])}
+            className="rounded-full border border-dashed border-line bg-white px-2 py-0.5 text-xs text-muted"
+            aria-label="Sumar a la toma"
+          >
+            <option value="">+ sumar</option>
+            {missing.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      {maxRefs !== null && refs.length > maxRefs && (
+        <p className="text-xs text-amber-800">
+          Esta toma tiene {refs.length} referencias y {toolName} acepta hasta {maxRefs}: llamá con @ solo las que se ven.
+        </p>
       )}
     </div>
   );
@@ -582,6 +608,7 @@ function ShotCard(props: CardProps) {
             setups={board.setups}
             library={library}
             toolName={toolName}
+            maxRefs={props.maxRefs ?? null}
             onChange={(setups) => set("setups", setups)}
           />
           {shot.timeline.length > 0 && (
@@ -879,6 +906,14 @@ type SetupsProps = {
   undoSetupId?: string;
   // Undoes it; answers the shots edited by hand since, which stay as they are.
   onUndoIdentity?: () => Promise<number[]>;
+  // "Hoja de personaje" from a linked setup: the series, its whole cast, the tool's cap on reference images, how a
+  // member with its new sheet is saved, and the series list after a reference is added or removed.
+  seriesId?: string;
+  cast?: CastMember[];
+  maxRefs?: number | null;
+  libraryVersion?: number;
+  onSaveMember?: (member: CastMember) => Promise<void>;
+  onSeries?: (series: SeriesInfo[]) => void;
 };
 
 // Shot indexes (from 0) whose prompts took the new description, and those that list the setup without writing it.
@@ -1028,6 +1063,12 @@ function SetupRow({
   onIdentity,
   undoSetupId,
   onUndoIdentity,
+  seriesId,
+  cast,
+  maxRefs,
+  libraryVersion,
+  onSaveMember,
+  onSeries,
 }: SetupsProps & { setup: Setup }) {
   const shots = timeShots(board.shots).filter((sh) => sh.setups.includes(setup.id));
   const withImage = shots.filter((sh) => media[sh.index]?.image);
@@ -1036,7 +1077,21 @@ function SetupRow({
   const [from, setFrom] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  // Inside the panel: the sheet writer (open at first when the member has no sheet yet).
+  const [writing, setWriting] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  // Characters and places of the cast can get a sheet and extra references from here; products and screens cannot.
+  const sheetable = Boolean(member && seriesId && onSaveMember && onSeries && (member.kind === "character" || member.kind === "place"));
+
+  async function saveSheet(next: CastMember) {
+    setError("");
+    try {
+      await onSaveMember!(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   async function fix(image: Blob | null) {
     setBusy(true);
@@ -1137,6 +1192,19 @@ function SetupRow({
               Guardar sin imagen
             </button>
           )}
+          {sheetable && (
+            <button
+              type="button"
+              onClick={() => {
+                setWriting(!member?.sheet);
+                setSheetOpen((o) => !o);
+              }}
+              className="rounded px-2 py-1 text-xs font-semibold text-muted hover:bg-black/5 hover:text-ink"
+              aria-expanded={sheetOpen}
+            >
+              {member!.kind === "place" ? "Hoja y referencias" : "Hoja de personaje"}
+            </button>
+          )}
           <input
             ref={input}
             type="file"
@@ -1149,6 +1217,43 @@ function SetupRow({
             }}
           />
         </div>
+        {sheetable && sheetOpen && member && (
+          <Suspense fallback={<Spinner />}>
+            <div className="space-y-2">
+              {writing ? (
+                <SheetBuilder
+                  seriesId={seriesId!}
+                  place={member.kind === "place"}
+                  cast={cast ?? []}
+                  member={member}
+                  onAdd={saveSheet}
+                  onClose={() => setWriting(false)}
+                />
+              ) : (
+                <div className="flex flex-wrap items-center gap-1 text-xs">
+                  {member.sheet && <CopyButton text={member.sheet} idle="Copiar su hoja" variant="secondary" />}
+                  <button
+                    type="button"
+                    onClick={() => setWriting(true)}
+                    className="rounded px-2 py-1 font-semibold text-muted hover:bg-black/5 hover:text-ink"
+                  >
+                    {member.sheet ? "Escribir otra hoja" : "Escribir su hoja"}
+                  </button>
+                </div>
+              )}
+              <div className="rounded-lg border border-line p-2">
+                <CastRefs
+                  seriesId={seriesId!}
+                  member={member}
+                  version={libraryVersion ?? 0}
+                  maxRefs={maxRefs ?? null}
+                  toolName={toolName}
+                  onChange={(_, series) => onSeries!(series)}
+                />
+              </div>
+            </div>
+          </Suspense>
+        )}
         {onIdentity && (
           <IdentityEditor
             setup={setup}

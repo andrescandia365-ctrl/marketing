@@ -34,6 +34,7 @@ import { HookVariants } from "./components/HookVariants.tsx";
 import { MOVE_LABEL } from "../shared/moves.ts";
 import type { RoomCard } from "../shared/room.ts";
 import { Button, Notice, PartBoundary, PieceTitle, Spinner } from "./components/ui.tsx";
+import { toolsRefCap } from "../shared/castRefs.ts";
 import { ads as adsApi, api, libraryFileUrl, projectFileUrl, type ProjectSummary } from "./lib/api.ts";
 import { blobToDataUrl, pictureForReview, readImageFile } from "./lib/files.ts";
 import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from "./lib/markdown.ts";
@@ -326,7 +327,8 @@ export function App() {
     return () => window.removeEventListener("beforeunload", onLeave);
   }, []);
 
-  const toolName = status?.tools.find((t) => t.id === pieceBrief.tool)?.name ?? "la herramienta";
+  const pieceTool = status?.tools.find((t) => t.id === pieceBrief.tool);
+  const toolName = pieceTool?.name ?? "la herramienta";
   const pieceSeries = status?.series.find((s) => s.id === pieceBrief.series);
   // The sketches the person uploaded, by shot, as files in the project folder (pieza.md links them).
   const sketchUploads: Record<number, string | undefined> = Object.fromEntries(
@@ -900,6 +902,8 @@ export function App() {
         sheet: "",
         puppet: { layers: [] },
         rig: { file: "", clips: { idle: "", walk: "", turnL: "", turnR: "", point: "" } },
+        refs: [],
+        views: [],
       });
       setStatus((s) => (s ? { ...s, series } : s));
       const linked = castId;
@@ -912,6 +916,14 @@ export function App() {
       setLibraryVersion((v) => v + 1);
       addLog({ text: `Imagen fija de ${setup.name} actualizada` });
     }
+  }
+
+  // "Hoja de personaje" from a setup: the member keeps everything and takes the sheet's prompt and its loose views.
+  async function saveCastSheet(member: CastMember) {
+    const { url: _url, ...clean } = member as LibraryEntry;
+    const { series } = await api.upsertCast(pieceBrief.series, clean);
+    setStatus((s) => (s ? { ...s, series } : s));
+    addLog({ text: `Hoja de ${member.name} guardada en el elenco (${member.views.length} vistas sueltas)` });
   }
 
   // Changes a setup's description in every shot that writes it, and in the series' cast when asked.
@@ -1242,6 +1254,7 @@ export function App() {
               setEditingSeries(undefined);
             }}
             onClose={() => setEditingSeries(undefined)}
+            maxRefs={toolsRefCap(status?.tools ?? [])}
           />
           </Lazy>
         )}
@@ -1586,6 +1599,7 @@ export function App() {
                 board={board}
                 media={media}
                 toolName={toolName}
+                maxRefs={pieceTool?.maxRefs ?? null}
                 onShotChange={updateShot}
                 onGenerate={generateImage}
                 onUploadImage={uploadImage}
@@ -1663,6 +1677,15 @@ export function App() {
                 onIdentity={editSetupIdentity}
                 undoSetupId={setupUndo?.edit.setupId ?? ""}
                 onUndoIdentity={undoSetupEdit}
+                seriesId={pieceSeries?.id}
+                cast={pieceSeries?.cast ?? []}
+                maxRefs={pieceTool?.maxRefs ?? null}
+                libraryVersion={libraryVersion}
+                onSaveMember={saveCastSheet}
+                onSeries={(series) => {
+                  setStatus((s) => (s ? { ...s, series } : s));
+                  setLibraryVersion((v) => v + 1);
+                }}
               />
               <Button variant="ghost" className="w-full" onClick={sendToAds} disabled={sent === story.title}>
                 {sent === story.title ? "Enviado a Publicidad ✓" : "Enviar a Publicidad (hook)"}

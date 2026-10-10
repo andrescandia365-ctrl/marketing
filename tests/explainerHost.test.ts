@@ -20,6 +20,8 @@ const member = (id: string, kind: CastMember["kind"], image = `${id}.png`): Cast
   sheet: "",
   puppet: { layers: [] },
   rig: { file: "", clips: { idle: "", walk: "", turnL: "", turnR: "", point: "" } },
+  refs: [],
+  views: [],
 });
 const cast = [member("ana", "character"), member("beto", "character"), member("caja", "product"), member("sin", "character", "")];
 

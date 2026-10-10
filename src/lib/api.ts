@@ -53,8 +53,8 @@ export type ProjectData = {
 };
 
 // Uploads a file as the raw request body (images and clips can be large; no base64).
-async function upload<T>(path: string, body: Blob, type: string): Promise<T> {
-  const res = await fetch(path, { method: "PUT", headers: { "Content-Type": type || "application/octet-stream" }, body });
+async function upload<T>(path: string, body: Blob, type: string, method: "PUT" | "POST" = "PUT"): Promise<T> {
+  const res = await fetch(path, { method, headers: { "Content-Type": type || "application/octet-stream" }, body });
   const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
   if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
   return data as T;
@@ -178,6 +178,16 @@ export const api = {
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}`, undefined, "DELETE"),
   uploadRig: (seriesId: string, castId: string, file: Blob) =>
     upload<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/rig`, file, "model/gltf-binary"),
+  // An extra reference image (a crop of the sheet, or a loose view): its own @ reference, named by the server.
+  addCastRef: (seriesId: string, castId: string, image: Blob, label: string) =>
+    upload<{ member: CastMember; series: SeriesInfo[] }>(
+      `/api/series/${enc(seriesId)}/cast/${enc(castId)}/refs?label=${enc(label)}`,
+      image,
+      image.type,
+      "POST",
+    ),
+  removeCastRef: (seriesId: string, castId: string, ref: string) =>
+    call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/refs/${enc(ref)}`, undefined, "DELETE"),
   uploadCastImage: (seriesId: string, castId: string, image: Blob) =>
     upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/image`, image, image.type),
 

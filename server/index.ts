@@ -118,8 +118,10 @@ import {
   saveTextStyle,
   setCastImage,
   upsertCastMember,
+  addCastRef,
+  removeCastRef,
 } from "./series.ts";
-import { listTools } from "./tools.ts";
+import { listTools, referenceLimit } from "./tools.ts";
 import { AdsError } from "./ads.ts";
 import { checkErrorText } from "../shared/errors.ts";
 import { MAX_ZIP_TOTAL, exportProjectZip, importProjectZip } from "./projectZip.ts";
@@ -252,6 +254,19 @@ app.put("/api/series/:id/cast/:castId/image", async (c) => {
   if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
   const file = setCastImage(c.req.param("id"), c.req.param("castId"), data, c.req.header("content-type") ?? "");
   return c.json({ file, series: listSeries() });
+});
+
+// Extra reference images of a cast member: a crop of its sheet (the face) or a loose view, each its own @ reference.
+app.post("/api/series/:id/cast/:castId/refs", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
+  const member = addCastRef(c.req.param("id"), c.req.param("castId"), data, c.req.header("content-type") ?? "", c.req.query("label") ?? "", referenceLimit());
+  return c.json({ member, series: listSeries() });
+});
+
+app.delete("/api/series/:id/cast/:castId/refs/:ref", (c) => {
+  const member = removeCastRef(c.req.param("id"), c.req.param("castId"), c.req.param("ref"));
+  return c.json({ member, series: listSeries() });
 });
 
 // The parts of a character's puppet (motion graphics): upload one (index = its place; one past the end adds), remove one.

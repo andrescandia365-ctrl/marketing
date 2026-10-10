@@ -15,14 +15,31 @@ type Props = {
   seriesId: string;
   place: boolean;
   cast: CastMember[];
+  // Opened from a setup in Producción: the sheet is for this member of the cast (its name and role prefilled, its
+  // identity line kept), and onAdd gets the same member back with the sheet and its views.
+  member?: CastMember;
   onAdd: (member: CastMember) => void;
   onClose: () => void;
 };
 
-export function SheetBuilder({ seriesId, place, cast, onAdd, onClose }: Props) {
+// The details a member already has, so the sheet is written for that character and not a new one.
+export function prefillDetails(member: CastMember | undefined): Record<string, string> {
+  if (!member) return {};
+  return {
+    nombre: member.name,
+    ...(member.note ? { "papel en la serie": member.note } : {}),
+    ...(member.identity ? { "identidad actual (respetala palabra por palabra)": member.identity.slice(0, 400) } : {}),
+  };
+}
+
+// The sheet's loose views as the cast keeps them (shared/series.ts limits).
+export const keepViews = (sheet: Sheet) =>
+  sheet.views.slice(0, 20).map((v) => ({ title: v.title.trim().slice(0, 120), prompt: v.prompt.trim().slice(0, 3000) }));
+
+export function SheetBuilder({ seriesId, place, cast, member, onAdd, onClose }: Props) {
   const [template, setTemplate] = useState<SheetTemplate>(place ? "place" : "girl");
   const [age, setAge] = useState(24);
-  const [details, setDetails] = useState<Record<string, string>>({});
+  const [details, setDetails] = useState<Record<string, string>>(() => prefillDetails(member));
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -42,6 +59,17 @@ export function SheetBuilder({ seriesId, place, cast, onAdd, onClose }: Props) {
 
   function add() {
     if (!sheet) return;
+    if (member) {
+      onAdd({
+        ...member,
+        // A member that already has its line keeps it: its shots and approved images are built on it.
+        identity: member.identity || sheet.identity.slice(0, 600),
+        sheet: sheet.sheetPrompt.slice(0, 6000),
+        views: keepViews(sheet),
+      });
+      onClose();
+      return;
+    }
     const name = (details.nombre?.trim() || sheet.name).slice(0, 60);
     let id = slug(name);
     for (let n = 2; cast.some((m) => m.id === id); n++) id = `${slug(name)}-${n}`;
@@ -59,6 +87,8 @@ export function SheetBuilder({ seriesId, place, cast, onAdd, onClose }: Props) {
       sheet: sheet.sheetPrompt.slice(0, 6000),
       puppet: { layers: [] },
       rig: { file: "", clips: { idle: "", walk: "", turnL: "", turnR: "", point: "" } },
+      refs: [],
+      views: keepViews(sheet),
     });
     onClose();
   }
@@ -66,7 +96,10 @@ export function SheetBuilder({ seriesId, place, cast, onAdd, onClose }: Props) {
   return (
     <div className="space-y-3 rounded-lg border-2 border-ink/20 bg-white p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-semibold">{place ? "Lugar con hoja (6 paneles, sin gente)" : "Personaje con hoja"}</p>
+        <p className="text-sm font-semibold">
+          {place ? "Lugar con hoja (6 paneles, sin gente)" : "Personaje con hoja"}
+          {member && <span className="font-normal text-muted"> · para {member.name} (@{member.ref})</span>}
+        </p>
         <button type="button" onClick={onClose} className="text-xs font-semibold text-muted hover:text-ink">
           Cerrar
         </button>
@@ -108,6 +141,11 @@ export function SheetBuilder({ seriesId, place, cast, onAdd, onClose }: Props) {
           </Field>
         ))}
       </div>
+      {member?.identity && (
+        <p className="text-xs text-muted">
+          Se mantiene su descripción de siempre (la IA la respeta): <span className="font-mono">{member.identity}</span>
+        </p>
+      )}
       <p className="text-xs text-muted">
         {place
           ? "Seis paneles del mismo lugar, sin gente: exterior, el ángulo principal, el contraplano, dos detalles y la vista."
@@ -147,10 +185,11 @@ export function SheetBuilder({ seriesId, place, cast, onAdd, onClose }: Props) {
             </ul>
           </details>
           {sheet.note && <p className="text-muted">{sheet.note}</p>}
-          <Button onClick={add}>Agregar al elenco</Button>
+          <Button onClick={add}>{member ? `Guardar la hoja en ${member.name}` : "Agregar al elenco"}</Button>
           <p className="text-muted">
-            Después: hacé la hoja en Grok, descargala y subila en su tarjeta. Queda como su imagen aprobada (su @ en Grok), y la
-            revisión de imágenes compara cada toma con ella. Guardá la serie al final.
+            {member
+              ? "Después: hacé la hoja en Grok, descargala y subila como su imagen aprobada (su @ en Grok). Las vistas sueltas quedan guardadas con el personaje, y de la hoja podés recortar la cara como otra referencia."
+              : "Después: hacé la hoja en Grok, descargala y subila en su tarjeta. Queda como su imagen aprobada (su @ en Grok), y la revisión de imágenes compara cada toma con ella. Las vistas sueltas quedan guardadas con el personaje. Guardá la serie al final."}
           </p>
         </div>
       )}

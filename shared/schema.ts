@@ -485,7 +485,8 @@ export function migrateBoard(board: Board): Board {
 }
 
 // ── Server status ───────────────────────────────────────────────────────────────
-export type ToolInfo = { id: string; name: string; checked: string };
+// maxRefs: how many reference images the tool takes at once, from its profile (null: the profile names no cap).
+export type ToolInfo = { id: string; name: string; checked: string; maxRefs?: number | null };
 // productPerEpisode: every episode features a different product (Máshogar), so the brief must name it.
 export type SeriesInfo = {
   id: string;

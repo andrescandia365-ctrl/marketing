@@ -316,6 +316,20 @@ export function guessRole(name: string): PuppetRole {
   return "extra";
 }
 
+// An extra reference image of a cast member (shared/castRefs.ts): a part cut from its sheet (the face) or a loose view
+// made on its own, named as its own reference in the tool (@MartaCara). image is its file in the series library.
+export const CastRefSchema = z.object({
+  ref: z.string().regex(/^[A-Za-z0-9_]{1,30}$/, "El nombre de referencia va sin espacios ni acentos."),
+  // What it shows, in Spanish ("cara", "perfil").
+  label: z.string().trim().max(60),
+  image: z.string().max(120),
+});
+export type CastRef = z.infer<typeof CastRefSchema>;
+
+// A loose view of the sheet ("Perfil", "Para el títere"), as its own prompt, kept for when the tool does not hold the grid.
+export const SheetViewSchema = z.object({ title: z.string().trim().max(120), prompt: z.string().trim().max(3000) });
+export type SheetView = z.infer<typeof SheetViewSchema>;
+
 export const CastMemberSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{1,40}$/, "Id no válido."),
   name: z.string().trim().min(1, "Falta el nombre.").max(60),
@@ -333,6 +347,10 @@ export const CastMemberSchema = z.object({
   puppet: PuppetSchema.default({ layers: [] }),
   // Characters only: a rigged GLB that walks and turns (empty file: none).
   rig: RigSchema.default({ file: "", clips: { idle: "", walk: "", turnL: "", turnR: "", point: "" } }),
+  // Extra reference images (a face cut from the sheet, a loose view): the server owns them, like the puppet's files.
+  refs: z.array(CastRefSchema).max(40).default([]),
+  // The sheet's loose views, kept with the member (older series have none).
+  views: z.array(SheetViewSchema).max(20).default([]),
 });
 export type CastMember = z.infer<typeof CastMemberSchema>;
 

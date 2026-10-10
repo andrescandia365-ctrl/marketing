@@ -36,6 +36,7 @@ import { BrandFromWeb } from "./BrandFromWeb.tsx";
 import { PuppetArranger } from "./PuppetArranger.tsx";
 import { PuppetPreview } from "./PuppetPreview.tsx";
 import { SheetBuilder } from "./SheetBuilder.tsx";
+import { CastRefs } from "./CastRefs.tsx";
 import { CopyButton } from "./ScriptView.tsx";
 import { api, libraryFileUrl } from "../lib/api.ts";
 // three.js (in actor.ts) loads only when a character has a rig to preview.
@@ -167,6 +168,9 @@ function CastCard({
   onPuppetRemove,
   onPuppetArranged,
   onRigFile,
+  maxRefs,
+  onRefs,
+  onBeforeRef,
 }: {
   member: CastMember;
   seriesId: string | null;
@@ -179,6 +183,10 @@ function CastCard({
   onPuppetRemove: (index: number) => Promise<void>;
   onPuppetArranged: (member: CastMember) => void;
   onRigFile: (file: File) => Promise<CastMember>;
+  // Extra references (characters, places and products; screens go as they are).
+  maxRefs?: number | null;
+  onRefs?: (member: CastMember, series: SeriesInfo[]) => void;
+  onBeforeRef?: () => Promise<void>;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -625,6 +633,16 @@ function CastCard({
             <CopyButton text={member.sheet} idle="Copiar la hoja" variant="secondary" />
           </details>
         )}
+        {!screen && seriesId && onRefs && (member.image || member.refs.length > 0 || member.views.length > 0) && (
+          <details className="text-xs" open={member.refs.length > 0 || undefined}>
+            <summary className="cursor-pointer font-semibold text-muted">
+              Referencias extra{member.refs.length ? ` (${member.refs.length})` : ""}: recortar la cara, vistas sueltas
+            </summary>
+            <div className="mt-1.5">
+              <CastRefs seriesId={seriesId} member={member} version={version} maxRefs={maxRefs ?? null} beforeUpload={onBeforeRef} onChange={onRefs} />
+            </div>
+          </details>
+        )}
         {error && <p className="text-xs text-neg">{error}</p>}
       </div>
     </li>
@@ -825,9 +843,11 @@ type Props = {
   onLogoSaved?: (series: SeriesInfo[]) => void;
   onDeleted: (series: SeriesInfo[]) => void;
   onClose: () => void;
+  // The tools' cap on reference images (server/tools/*.md), for a member's extra references; null: none named.
+  maxRefs?: number | null;
 };
 
-export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: Props) {
+export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, maxRefs = null }: Props) {
   const [fields, setFields] = useState<SeriesFields | null>(id ? null : EMPTY_SERIES);
   // "Lo que existe hoy" is edited as text, one item per line.
   const [works, setWorks] = useState("");
@@ -895,7 +915,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
     const base = { character: "personaje", place: "lugar", product: "producto", screen: "pantalla" }[kind];
     while (fields.cast.some((m) => m.id === `${base}-${n}`)) n++;
     const name = `${CAST_KIND_LABEL[kind]} ${n}`;
-    set("cast", [...fields.cast, { id: `${base}-${n}`, name, ref: castRef(name), kind, identity: "", note: "", image: "", sheet: "", puppet: { layers: [] }, rig: { file: "", clips: { idle: "", walk: "", turnL: "", turnR: "", point: "" } } }]);
+    set("cast", [...fields.cast, { id: `${base}-${n}`, name, ref: castRef(name), kind, identity: "", note: "", image: "", sheet: "", puppet: { layers: [] }, rig: { file: "", clips: { idle: "", walk: "", turnL: "", turnR: "", point: "" } }, refs: [], views: [] }]);
   }
 
   // Puppet parts go straight to the series library, in order; each answer brings the member as the server has it.
@@ -1106,6 +1126,15 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
                       onPuppetRemove={(index) => memberPuppetRemove(m, index)}
                       onPuppetArranged={(next) => memberPuppetArranged(next)}
                       onRigFile={(file) => memberRigFile(m, file)}
+                      maxRefs={maxRefs}
+                      onRefs={(next, series) => {
+                        setFields((f) => (f ? { ...f, cast: f.cast.map((x) => (x.id === next.id ? { ...x, refs: next.refs } : x)) } : f));
+                        // The extra references are saved at once (like the logo): the app's copy of the series follows.
+                        onLogoSaved?.(series);
+                      }}
+                      onBeforeRef={async () => {
+                        if (id) await api.upsertCast(id, m);
+                      }}
                     />
                   ))}
               </ul>

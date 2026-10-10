@@ -21,6 +21,7 @@ Tags: **[DOCS]** in xAI's docs · **[NOT SURE]** not confirmed, don't rely on it
 - [DOCS] Extend continues a clip from its last frame, adding 2 to 10 seconds, capped at 720p.
 - [DOCS] Reference images keep a person or place the same across clips.
 - [TESTED] The Grok app keeps a library of named references ("Referencias", "+ Nuevo"); a prompt calls one with @name (e.g. @Marta). Up to 14 reference images. Own uploaded images work. References must be invented characters, never a real person's likeness.
+- [NOT SURE] Whether that cap counts per prompt or for the whole library. The app reads the number from the line above: a cast member never carries more images than that (its approved image plus extra ones, like the face cut from its sheet or a loose view, each its own @name), and a shot that calls more gets a warning.
 - [TESTED] A clip can take an initial, a middle and a final image (the middle icon in the clip bar is the middle frame), so one clip can move from one state to another. Own uploaded images work as frames; frames should share the shape (9:16) and similar light.
 - [TESTED] Editing tools on a generated image: Segmentos (every object separated and editable on its own, "Descargar todo"), Eliminar fondo (remove background), Relación de aspecto, Crear video. Never use them to cover or remove the watermark.
 - [TESTED] The video editor defaults to 720p and 10 s.
