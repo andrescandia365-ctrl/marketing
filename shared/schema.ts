@@ -32,6 +32,9 @@ export const BriefSchema = z.object({
   // with: a narrator may speak (a story character with the narrator role, the explainer's voice lines). without: the
   // characters' own words, the action and the text on screen carry the piece.
   narrator: z.enum(["with", "without"]).default("with"),
+  // How a story is staged (PLAYBOOK §2.5, shared/segment.ts). desk: the story in its own scenes (as before).
+  // correspondent: a cut to the series' correspondent "on location" (Remote Stand-up). field: a Field Visit.
+  segment: z.enum(["desk", "correspondent", "field"]).default("desk"),
 });
 export type Brief = z.infer<typeof BriefSchema>;
 
@@ -503,6 +506,8 @@ export type SeriesInfo = {
   moments: string[];
   // "Personaje de los explicativos": the cast id of the explainers' host ("" or missing: none).
   explainerCharacter?: string;
+  // "Corresponsal": the cast id of the series' correspondent ("" or missing: none).
+  correspondent?: string;
 };
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };
 

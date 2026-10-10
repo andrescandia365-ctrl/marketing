@@ -49,6 +49,7 @@ function toSeries(id: string, text: string): Series {
     cast: f.cast,
     moments: f.moments,
     explainerCharacter: f.explainerCharacter,
+    correspondent: f.correspondent,
     text,
   };
 }
@@ -120,7 +121,9 @@ export function saveSeriesFromApp(id: string, fields: SeriesFields) {
   const old = getSeriesFields(id).cast;
   // An explainer character who left the cast is no longer the series' host.
   const host = fields.cast.some((m) => m.id === fields.explainerCharacter && m.kind === "character") ? fields.explainerCharacter : "";
-  saveSeries(id, { ...fields, explainerCharacter: host, cast: fields.cast.map((m) => ({ ...m, puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m), refs: keepRefs(old.find((o) => o.id === m.id)) })) });
+  // The same for a correspondent who left the cast.
+  const correspondent = fields.cast.some((m) => m.id === fields.correspondent && m.kind === "character") ? fields.correspondent : "";
+  saveSeries(id, { ...fields, explainerCharacter: host, correspondent, cast: fields.cast.map((m) => ({ ...m, puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m), refs: keepRefs(old.find((o) => o.id === m.id)) })) });
 }
 
 // Adds a cast member to the series, or replaces the one with the same id (keeping its image if none is given).
@@ -130,6 +133,14 @@ export function upsertCastMember(id: string, member: CastMember) {
   const next = { ...member, image: member.image || old?.image || "", puppet: keepPuppet(old, member), rig: keepRig(old, member), refs: keepRefs(old) };
   fields.cast = old ? fields.cast.map((m) => (m.id === member.id ? next : m)) : [...fields.cast, next];
   saveSeries(id, fields);
+}
+
+// "Sumar al elenco como corresponsal": the character the writer invented joins the cast and becomes the series'
+// correspondent, so the next pieces reuse the same person.
+export function addCorrespondent(id: string, member: CastMember) {
+  if (member.kind !== "character") throw new SeriesError("El corresponsal tiene que ser un personaje.");
+  upsertCastMember(id, member);
+  saveSeries(id, { ...getSeriesFields(id), correspondent: member.id });
 }
 
 const IMAGE_EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };

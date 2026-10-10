@@ -3,6 +3,7 @@
 import type { Board, Brief, Story } from "./schema.ts";
 import type { CastKind } from "./series.ts";
 import { MOVE_LABEL } from "./moves.ts";
+import { SEGMENT_MOVE, segmentOf } from "./segment.ts";
 import { PRACTICES } from "./series.ts";
 
 export type Problem = {
@@ -102,7 +103,7 @@ function storyText(story: Story): string {
 
 export function storyProblems(
   story: Story,
-  brief?: Pick<Brief, "narrator">,
+  brief?: Partial<Pick<Brief, "narrator" | "segment" | "piece">>,
   // Runners already used by other pieces of the series. The open piece is not in this list.
   usedRunners: { bit: string; problem: string }[] = [],
 ): Problem[] {
@@ -223,6 +224,18 @@ export function storyProblems(
         id: "jugada:boton",
         label: `Sin ${MOVE_LABEL.button}`,
         detail: "Ningún tema cierra con el Botón: la última línea, corta, que vuelve al gancho.",
+      });
+    // The brief's format puts its own move on screen: the correspondent's report, or the visit.
+    const segment = segmentOf(brief);
+    const move = SEGMENT_MOVE[segment];
+    if (move && !tagged.includes(move))
+      problems.push({
+        id: `jugada:${move}`,
+        label: `Sin ${MOVE_LABEL[move]}`,
+        detail:
+          segment === "correspondent"
+            ? "La pieza es «Con corresponsal» y ningún tema corta al corresponsal en el lugar, que escala lo absurdo y vuelve al problema real."
+            : "La pieza es «Visita de campo» y ningún tema va adonde está la gente ni la deja hablar.",
       });
   }
   (story.practices ?? []).forEach((p, i) => {

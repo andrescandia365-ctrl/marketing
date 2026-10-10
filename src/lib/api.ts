@@ -163,6 +163,8 @@ export const api = {
 
   upsertCast: (seriesId: string, member: CastMember) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(member.id)}`, member, "PUT"),
+  addCorrespondent: (seriesId: string, member: CastMember) =>
+    call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/correspondent`, member),
   uploadPuppetLayer: (seriesId: string, castId: string, index: number, image: Blob, role: string, name = "") =>
     upload<{ member: CastMember; series: SeriesInfo[] }>(
       `/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}?role=${enc(role)}&name=${enc(name)}`,

@@ -398,6 +398,9 @@ export const SeriesFieldsSchema = z.object({
   // "Personaje de los explicativos": the cast id of the character who hosts every explainer ("": none, the writer
   // and the studio pick as before).
   explainerCharacter: z.string().max(40).default(""),
+  // "Corresponsal": the cast id of the character who reports "on location" in stories with a correspondent and
+  // visits the people in a field visit ("": none; the writer invents one and the app offers to add it).
+  correspondent: z.string().max(40).default(""),
 });
 export type SeriesFields = z.infer<typeof SeriesFieldsSchema>;
 
@@ -422,6 +425,7 @@ export const EMPTY_SERIES: SeriesFields = {
   brand: DEFAULT_BRAND,
   cast: [],
   explainerCharacter: "",
+  correspondent: "",
 };
 
 // The heading each field is written under. The writer is told that the WORKS_TODAY list is the only thing
@@ -432,6 +436,7 @@ export const LOOP = "El loop de la serie";
 export const CAST = "Elenco fijo";
 export const MOMENTS = "Momentos del calendario";
 export const EXPLAINER_CHARACTER = "Personaje de los explicativos";
+export const CORRESPONDENT = "Corresponsal";
 
 // A cast character the explainers can draw: a puppet, an image (a puppet of one piece) or a rigged GLB.
 export const drawableCharacter = (m: CastMember) => m.kind === "character" && Boolean(m.image || m.puppet?.layers.length || m.rig?.file);
@@ -442,6 +447,13 @@ export function explainerHost(series: { cast: CastMember[]; explainerCharacter?:
   if (!id) return null;
   const m = series.cast.find((x) => x.id === id);
   return m && drawableCharacter(m) ? m : null;
+}
+// The series' correspondent, when it is set and still a character of its cast (no image needed: the writer only
+// needs its name, voice and identity line).
+export function seriesCorrespondent(series: { cast: CastMember[]; correspondent?: string }): CastMember | null {
+  const id = series.correspondent?.trim();
+  if (!id) return null;
+  return series.cast.find((m) => m.id === id && m.kind === "character") ?? null;
 }
 const LISTS = ["worksToday", "practices", "loop", "moments"] as const;
 type ListKey = (typeof LISTS)[number];
@@ -460,11 +472,11 @@ const SECTIONS = [
 ] as const;
 
 // The id first (what the app reads back), then the name for whoever reads the bible.
-function explainerLine(f: SeriesFields): string[] {
-  const id = f.explainerCharacter.trim();
+function castLine(f: SeriesFields, heading: string, value: string): string[] {
+  const id = value.trim();
   if (!id) return [];
   const name = f.cast.find((m) => m.id === id)?.name;
-  return [`${EXPLAINER_CHARACTER}: ${id}${name ? ` (${name})` : ""}`];
+  return [`${heading}: ${id}${name ? ` (${name})` : ""}`];
 }
 
 export function seriesToMarkdown(f: SeriesFields): string {
@@ -477,7 +489,8 @@ export function seriesToMarkdown(f: SeriesFields): string {
     ...(f.type === "music" ? [`Estilo de letra: ${JSON.stringify(f.lyricStyle)}`] : []),
     ...(hasLook(f.look) ? [`Look (cámara y defectos, en todos los prompts): ${JSON.stringify(f.look)}`] : []),
     `Marca (logo, colores y fuentes para motion graphics): ${JSON.stringify(f.brand)}`,
-    ...explainerLine(f),
+    ...castLine(f, EXPLAINER_CHARACTER, f.explainerCharacter),
+    ...castLine(f, CORRESPONDENT, f.correspondent),
   ];
   for (const [key, heading] of SECTIONS) {
     const body = isList(key) ? f[key].map((w) => `- ${w}`).join("\n") : f[key].trim();
@@ -547,6 +560,7 @@ export function markdownToSeries(text: string, fallbackName: string): SeriesFiel
 
   // Only the id is read back; the name in brackets is for people.
   fields.explainerCharacter = text.match(new RegExp(`^${EXPLAINER_CHARACTER}:[ \\t]*([a-z0-9-]{1,40})`, "im"))?.[1].toLowerCase() ?? "";
+  fields.correspondent = text.match(new RegExp(`^${CORRESPONDENT}:[ \\t]*([a-z0-9-]{1,40})`, "im"))?.[1].toLowerCase() ?? "";
 
   const other: string[] = [];
   const chunks = text.split(/^## /m).slice(1);

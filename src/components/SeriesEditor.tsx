@@ -24,6 +24,7 @@ import {
   castRef,
   drawableCharacter,
   EXPLAINER_CHARACTER,
+  CORRESPONDENT,
   type CastKind,
   type CastMember,
   type SeriesFields,
@@ -1192,6 +1193,35 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
                       {hosts.length
                         ? "El mismo personaje presenta en todos los explicativos de la serie, así la gente lo reconoce."
                         : "Subí la imagen o el títere de un personaje para elegirlo acá."}
+                    </span>
+                  </label>
+                );
+              })()}
+              {(() => {
+                const people = fields.cast.filter((m) => m.kind === "character");
+                return (
+                  <label className="block text-xs">
+                    <span className="font-semibold">{CORRESPONDENT}</span>
+                    <select
+                      className={`${inputClass} mt-0.5 py-1`}
+                      value={fields.correspondent}
+                      onChange={(e) => set("correspondent", e.target.value)}
+                      disabled={!people.length && !fields.correspondent}
+                    >
+                      <option value="">Ninguno fijo: la IA inventa uno cuando la pieza lo pide</option>
+                      {people.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name || m.id}
+                        </option>
+                      ))}
+                      {fields.correspondent && !people.some((m) => m.id === fields.correspondent) && (
+                        <option value={fields.correspondent}>Ya no está en el elenco</option>
+                      )}
+                    </select>
+                    <span className="mt-0.5 block text-muted">
+                      {people.length
+                        ? "Sale «en el lugar» en las historias «Con corresponsal» (y puede hacer las preguntas en una «Visita de campo»): escala lo absurdo y vuelve al problema real."
+                        : "Sumá un personaje al elenco para elegirlo acá."}
                     </span>
                   </label>
                 );

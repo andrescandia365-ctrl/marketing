@@ -1,6 +1,8 @@
 import type { Brief, SeriesInfo, ToolInfo } from "../../shared/schema.ts";
 import { inDays, upcomingMoments } from "../../shared/calendar.ts";
 import { LENGTHS } from "../../shared/template.ts";
+import { SEGMENT_HINT, SEGMENT_LABEL, SEGMENTS } from "../../shared/segment.ts";
+import { seriesCorrespondent } from "../../shared/series.ts";
 import { Button, Field, Segmented, inputClass } from "./ui.tsx";
 
 type Props = {
@@ -21,6 +23,13 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
     .slice(0, 3);
   const productMode = current?.productPerEpisode ?? false;
   const explainer = brief.piece === "explainer";
+  // The correspondent format names who goes "on location": the series' own, or one the AI invents.
+  const segment = brief.segment ?? "desk";
+  const reporter = current ? seriesCorrespondent(current) : null;
+  const segmentHint =
+    segment === "correspondent"
+      ? `${SEGMENT_HINT.correspondent} ${reporter ? `Sale ${reporter.name}, el corresponsal de la serie.` : "La serie no tiene corresponsal: la IA inventa uno (adulto, nadie conocido) y después te ofrece sumarlo al elenco."}`
+      : SEGMENT_HINT[segment];
   const screens = current?.type === "software" ? current.cast.filter((m) => m.kind === "screen") : [];
 
   const seriesField = (
@@ -212,6 +221,15 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
                 { value: "lines", label: "Una línea por toma" },
                 { value: "continuous", label: "Toma continua (15 s)" },
               ]}
+            />
+          </Field>
+        )}
+        {!explainer && (
+          <Field label="Formato del segmento" group hint={segmentHint}>
+            <Segmented
+              value={brief.segment ?? "desk"}
+              onChange={(v) => set("segment", v)}
+              options={SEGMENTS.map((value) => ({ value, label: SEGMENT_LABEL[value] }))}
             />
           </Field>
         )}

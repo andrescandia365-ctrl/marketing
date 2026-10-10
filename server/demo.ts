@@ -2,7 +2,8 @@
 // IMAN short and do not change with what the person types; revisions in sample mode return them unchanged.
 import type { MotionReview } from "../shared/motionQuality.ts";
 import { normalizeMotion, type MotionScript } from "../shared/motion.ts";
-import { explainerHost } from "../shared/series.ts";
+import { explainerHost, seriesCorrespondent } from "../shared/series.ts";
+import { INVENTED_CORRESPONDENT, segmentOf } from "../shared/segment.ts";
 import type { Board, Brief, HookVariant, Menu, Story } from "../shared/schema.ts";
 import { getSeries } from "./series.ts";
 
@@ -173,6 +174,56 @@ export const DEMO_STORY: Story = {
   ],
   verify: ["[VERIFY] Marta es ilustrativa: reemplazala por una dueña real que dé su consentimiento, o etiquetalo como dramatización."],
 };
+
+// Sample mode: the same story in the brief's format. With a correspondent, a live cut that escalates (the robot manager
+// only as a labelled concept gag) and snaps back to the real problem; as a field visit, the camera goes into Marta's
+// store and lets her talk. The series' own correspondent is used when it has one; otherwise one is invented, so the
+// "Sumar al elenco" offer can be tried.
+export function demoStory(brief: Pick<Brief, "series"> & Partial<Pick<Brief, "segment" | "piece">>): Story {
+  const segment = segmentOf(brief);
+  if (segment === "desk") return DEMO_STORY;
+  const [topic] = DEMO_STORY.topics;
+  const touching = topic.lines.findIndex((l) => l.beat === "touching");
+  if (segment === "correspondent") {
+    const series = getSeries(brief.series);
+    const own = series ? seriesCorrespondent(series) : null;
+    const reporter = own
+      ? { id: own.id, name: own.name, role: "human" as const, voice: "Formal de noticiero, se toma todo demasiado en serio.", identity: own.identity }
+      : {
+          id: INVENTED_CORRESPONDENT,
+          name: "Ramiro, el corresponsal",
+          role: "human" as const,
+          voice: "Formal de noticiero, se toma todo demasiado en serio.",
+          identity: "an earnest invented man in his forties, neat side-parted hair, oversized beige trench coat, holding a cheap handheld microphone",
+        };
+    const report = [
+      { beat: "negative" as const, speaker: reporter.id, text: "Estamos en vivo desde la heladera. Acá adentro hay tres yogures y una planilla que jura que son cuarenta.", emotion: "serio, de noticiero", direction: "Corte: el corresponsal con el micrófono al lado de la heladera del kiosco, a las 18:05." },
+      { beat: "negative" as const, speaker: reporter.id, text: "Fuentes cercanas al estante piden un gerente robot que no duerma nunca.", emotion: "cada vez más entusiasmado", direction: "Un robot de cartón con la cara dibujada detrás del mostrador. Rótulo: CONCEPTO." },
+      { beat: "negative" as const, speaker: reporter.id, text: "Pero el problema de hoy es más chico: nadie anotó lo que llegó. Te devuelvo a vos, Marta.", emotion: "de golpe serio", direction: "El corresponsal baja el micrófono y señala un cajón de pedido sin abrir." },
+    ];
+    return {
+      ...DEMO_STORY,
+      characters: DEMO_STORY.characters.some((c) => c.id === reporter.id) ? DEMO_STORY.characters : [...DEMO_STORY.characters, reporter],
+      topics: [{ ...topic, lines: [...topic.lines.slice(0, touching), ...report, ...topic.lines.slice(touching)], moves: ["clipDrop", "escalator", "remoteStandup", "turn", "callback", "button"] }],
+      claims: [...DEMO_STORY.claims, { claim: "Un gerente robot que atiende el local", real: false, concept: true, note: "Solo el chiste del corresponsal, rotulado CONCEPTO; no existe hoy." }],
+    };
+  }
+  const visit = [
+    { beat: "negative" as const, speaker: "marta", text: "¿Querés ver cómo se arma el pedido? Mirá: la góndola, el ojo y la lapicera.", emotion: "con ironía cansada", direction: "Cámara en mano detrás del mostrador: Marta le muestra la góndola a cámara y anota en un cuaderno." },
+  ];
+  return {
+    ...DEMO_STORY,
+    topics: [
+      {
+        ...topic,
+        bridge: "Visita de campo: entramos al kiosco de Marta a las 18:02, cámara en mano, sin aviso.",
+        lines: [...topic.lines.slice(0, 1), ...visit, ...topic.lines.slice(1)],
+        moves: ["clipDrop", "fieldVisit", "escalator", "turn", "callback", "button"],
+      },
+    ],
+    verify: [...DEMO_STORY.verify, "[VERIFY] Visita de campo: si se filma un lugar real con gente real, hace falta el permiso firmado de cada persona y del lugar."],
+  };
+}
 
 export const DEMO_BOARD: Board = {
   style: "35mm photo, shallow depth of field, muted colors, natural skin, slight grain",

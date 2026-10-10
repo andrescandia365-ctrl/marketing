@@ -31,6 +31,7 @@ import {
 import { StoryView } from "./components/StoryView.tsx";
 import { WritersRoom } from "./components/WritersRoom.tsx";
 import { HookVariants } from "./components/HookVariants.tsx";
+import { CorrespondentOffer } from "./components/CorrespondentOffer.tsx";
 import { MOVE_LABEL } from "../shared/moves.ts";
 import type { RoomCard } from "../shared/room.ts";
 import { Button, Notice, PartBoundary, PieceTitle, Spinner } from "./components/ui.tsx";
@@ -1443,6 +1444,7 @@ export function App() {
                 onUse={pickHookVariant}
                 onSend={sendHookVariants}
               />
+              <CorrespondentOffer story={story} brief={pieceBrief} series={pieceSeries} onSeries={(series) => setStatus((s) => (s ? { ...s, series } : s))} />
               <DirectionLog log={log} />
               <StoryNotes story={story} />
             </aside>

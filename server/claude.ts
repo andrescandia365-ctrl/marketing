@@ -48,7 +48,8 @@ import {
 } from "../shared/lyrics.ts";
 import { LyricPlatesSchema, type LyricPlatesDraft } from "../shared/plates.ts";
 import { LENGTHS } from "../shared/template.ts";
-import { CAST, PRACTICES, WORKS_TODAY, explainerHost } from "../shared/series.ts";
+import { CAST, PRACTICES, WORKS_TODAY, explainerHost, seriesCorrespondent } from "../shared/series.ts";
+import { segmentRules } from "../shared/segment.ts";
 import { pickWorld, worldLean } from "../shared/world.ts";
 import { momentsForWriter } from "../shared/calendar.ts";
 import { getSeries } from "./series.ts";
@@ -203,7 +204,7 @@ function settleScreens(brief: Brief, board: Board): Board {
   return { ...board, shots: board.shots.map((s) => settleScreenShot(s, screens)) };
 }
 
-function describeBrief(brief: Brief): string {
+export function describeBrief(brief: Brief): string {
   const len = LENGTHS[brief.length];
   const lines = [
     `Series: ${getSeries(brief.series)?.name ?? brief.series}`,
@@ -222,6 +223,9 @@ function describeBrief(brief: Brief): string {
       ? "Narrator: NONE. No character has the narrator role and nobody speaks from outside the scene. The characters' own words, what they do, and the text on screen carry the whole piece; every beat must be clear without a narrator. A shot may have no line at all (action only)."
       : "Narrator: allowed (the narrator role may speak when it helps).",
   ];
+  const series = getSeries(brief.series);
+  const segment = segmentRules(brief, series ? seriesCorrespondent(series) : null);
+  if (segment) lines.push(segment);
   return lines.map((l) => `- ${l}`).join("\n");
 }
 

@@ -57,7 +57,7 @@ import { withLevels, wordLevels, wordSpans } from "../shared/lyricAct.ts";
 import { BrandSchema, DEFAULT_BRAND } from "../shared/series.ts";
 import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, SECOND_LANGUAGES, LyricStyleSchema, alignLyrics, cleanElements, cleanIdeas } from "../shared/lyrics.ts";
 import { buildPlates, cleanPlates } from "../shared/plates.ts";
-import { DEMO_BOARD, DEMO_MENU, DEMO_STORY, demoHookVariants, demoMotion, demoMotionReview } from "./demo.ts";
+import { DEMO_BOARD, DEMO_MENU, demoHookVariants, demoStory, demoMotion, demoMotionReview } from "./demo.ts";
 import { RenderError, ffmpegAvailable, getFinal, startFinal } from "./finalRender.ts";
 import {
   EFFORTS,
@@ -118,6 +118,7 @@ import {
   saveTextStyle,
   setCastImage,
   upsertCastMember,
+  addCorrespondent,
   addCastRef,
   removeCastRef,
 } from "./series.ts";
@@ -246,6 +247,13 @@ app.put("/api/series/:id/lyric-style", async (c) => {
 app.put("/api/series/:id/cast/:castId", async (c) => {
   const member = CastMemberSchema.parse({ ...(await c.req.json()), id: c.req.param("castId") });
   upsertCastMember(c.req.param("id"), member);
+  return c.json({ series: listSeries() });
+});
+
+// "Sumar al elenco como corresponsal": the correspondent the writer invented joins the cast as the series' own.
+app.post("/api/series/:id/correspondent", async (c) => {
+  const member = CastMemberSchema.parse(await c.req.json());
+  addCorrespondent(c.req.param("id"), member);
   return c.json({ series: listSeries() });
 });
 
@@ -1047,7 +1055,7 @@ app.post("/api/story", async (c) => {
       projectId: z.string().max(80).default(""),
     })
     .parse(await c.req.json());
-  if (demo()) return c.json({ story: DEMO_STORY, demo: true });
+  if (demo()) return c.json({ story: demoStory(brief), demo: true });
   const room = roomBrief(await listRoom(brief.series, projectId));
   return c.json({ story: await writeStory(brief, topics, room, note), demo: false });
 });
