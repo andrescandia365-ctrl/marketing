@@ -54,6 +54,7 @@ import {
   hostScenes,
 } from "../../shared/motion.ts";
 import { explainerHost } from "../../shared/series.ts";
+import { generatedVoice, noteSummary } from "../../shared/motionNote.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { applyFixes, describeScenes, MAX_ROUNDS, passes, qualityKey, type QualityRound, type QualityState } from "../../shared/motionQuality.ts";
 import { api, projectFileUrl, type FinalJob, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
@@ -153,9 +154,11 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [puppets, setPuppets] = useState<Record<string, PuppetAsset>>({});
   const [actors, setActors] = useState<Record<string, ActorAsset>>({});
   const [speech, setSpeech] = useState<MotionWorld["speech"]>(undefined);
-  const [busy, setBusy] = useState<null | "write" | "sound" | "render" | "voice" | "upload" | "review" | "final">(null);
+  const [busy, setBusy] = useState<null | "write" | "note" | "sound" | "render" | "voice" | "upload" | "review" | "final">(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  // "Nota del director": what to change in the script, the rest stays.
+  const [directorNote, setDirectorNote] = useState("");
   // The mix plays through Web Audio, whose clock drives the preview (see playClock.ts). soundFresh: the loaded mix
   // matches the piece as it is now.
   const playerRef = useRef<MixPlayer | null>(null);
@@ -199,6 +202,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const past = useRef<MotionScript[]>([]);
   const lastMark = useRef({ tag: "", at: 0 });
   const [undoCount, setUndoCount] = useState(0);
+  // The voices a director's note took off, by the script they belonged to: undoing that script brings them back.
+  const voiceUndo = useRef(new Map<MotionScript, { voices: Record<string, AudioFile>; slots: Record<string, number> }>());
   const [reviewing, setReviewing] = useState("");
   const [sheets, setSheets] = useState<{ format: string; url: string }[]>([]);
   const [finalJob, setFinalJob] = useState<FinalJob | null>(null);
@@ -230,7 +235,11 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     const previous = past.current.pop();
     setUndoCount(past.current.length);
     lastMark.current = { tag: "", at: 0 };
-    if (previous) setPiece((p) => ({ ...p, script: previous }));
+    if (!previous) return;
+    const kept = voiceUndo.current.get(previous);
+    voiceUndo.current.delete(previous);
+    if (kept) setVoices((v) => ({ ...v, ...kept.voices }));
+    setPiece((p) => ({ ...p, script: previous, ...(kept && { voiceSlots: { ...p.voiceSlots, ...kept.slots } }) }));
   }
 
   // Changes the scenes from the newest state (drags call it many times a second).
@@ -576,6 +585,38 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     setSelected(null);
     set({ script: result.script, dismissed: [] });
     setNote([result.script.durationNote, result.script.note].filter(Boolean).join(" "));
+  }
+
+  // "Nota del director": the writer changes only what the note asks (mergeNote keeps the rest: ids, hand tweaks,
+  // voices). A generated voice whose line changed is taken off (kept for undo); the person's own voice stays.
+  async function applyNote() {
+    const text = directorNote.trim();
+    if (!script || !text) return;
+    const result = await work("note", () => api.motionRevise(brief, script, text, layers.length));
+    if (!result) return;
+    if (result.demo) {
+      setNote("Modo de muestra: sin una clave de IA la nota no puede cambiar nada del guion. Cargá una clave en «Modelos» y volvé a aplicarla.");
+      return;
+    }
+    const dropped = result.voiceChanged.filter((id) => voices[id] && generatedVoice(id, voices[id].name));
+    const recorded = result.voiceChanged.filter((id) => voices[id] && !generatedVoice(id, voices[id].name));
+    remember(`nota-${Date.now()}`);
+    if (dropped.length && scriptRef.current) {
+      voiceUndo.current.set(scriptRef.current, {
+        voices: Object.fromEntries(dropped.map((id) => [id, voices[id]])),
+        slots: Object.fromEntries(dropped.filter((id) => piece.voiceSlots[id] !== undefined).map((id) => [id, piece.voiceSlots[id]])),
+      });
+      setVoices((v) => Object.fromEntries(Object.entries(v).filter(([id]) => !dropped.includes(id))));
+    }
+    if (selected && !result.script.scenes.some((x) => x.id === selected.sceneId)) setSelected(null);
+    // A new voice for that scene goes to a new slot, so undo can still find the old file.
+    setPiece((p) => ({
+      ...p,
+      script: { ...result.script, scenes: planCameras(result.script.scenes, result.script.tone) },
+      voiceSlots: Object.fromEntries(Object.entries(p.voiceSlots).filter(([id]) => !dropped.includes(id))),
+    }));
+    setNote([noteSummary(result, { dropped, recorded }), result.script.note].filter(Boolean).join(" "));
+    setDirectorNote("");
   }
 
   function fitToTarget() {
@@ -970,6 +1011,31 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           </Button>
         )}
       </div>
+
+      {script && (
+        <div className="space-y-2 rounded-xl border border-line bg-white p-4">
+          <label className="block">
+            <span className="text-sm font-semibold">Nota del director</span>
+            <span className="block text-xs text-muted">Qué cambiar. La IA toca solo eso y deja el resto como está, con tus ajustes y tus voces.</span>
+            <textarea
+              className={`${inputClass} mt-1.5 text-sm`}
+              rows={2}
+              value={directorNote}
+              placeholder="ej. el gancho tarda mucho; en la escena 3 mostrá la pantalla de pedidos; sacá la estadística"
+              onChange={(e) => setDirectorNote(e.target.value)}
+            />
+          </label>
+          <Button variant="secondary" onClick={applyNote} disabled={!directorNote.trim() || busy !== null}>
+            {busy === "note" ? (
+              <>
+                <Spinner /> Aplicando la nota…
+              </>
+            ) : (
+              "Aplicar la nota"
+            )}
+          </Button>
+        </div>
+      )}
 
       {error && <Notice tone="error">{error}</Notice>}
       {note && <Notice>{note}</Notice>}

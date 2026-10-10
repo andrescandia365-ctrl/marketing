@@ -33,7 +33,8 @@ import {
 } from "../shared/schema.ts";
 import { EMPTY_BRIEF } from "../shared/example.ts";
 import type { SiteFacts } from "./brandWeb.ts";
-import { MotionScriptSchema, READ_LETTERS_PER_SECOND, hostScenes, normalizeMotion, readingNeed, type MotionScript } from "../shared/motion.ts";
+import { MotionNoteSchema, MotionScriptSchema, READ_LETTERS_PER_SECOND, hostScenes, normalizeMotion, pickCamera, readingNeed, type MotionScript } from "../shared/motion.ts";
+import { mergeNote, noteView, type NoteMerge } from "../shared/motionNote.ts";
 import { MotionReviewSchema, normalizeReview, type MotionReview } from "../shared/motionQuality.ts";
 import {
   BackgroundPromptsSchema,
@@ -736,26 +737,26 @@ The views: each panel as a separate standalone prompt with the full description.
 
 // A motion-graphics explainer (software: how the app does something; e-commerce: the episode's product). Follows the
 // studio's rules: hook in 2 s, something new every 2 to 4 s, no stock defaults, one accent, the brand's fonts.
-export async function motionScript(brief: Brief, target: number | null, layers: number): Promise<MotionScript> {
+// What the explainer writer can show (the series' cast) and its host, shared by a new script and a director's note.
+function explainerCast(brief: Brief) {
   const series = getSeries(brief.series);
   const host = series ? explainerHost(series) : null;
   const cast = (series?.cast ?? [])
     .map((m) => `- ${m.id} (${m.kind}${m.image ? ", has image" : ", no image yet"}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}${m.id === host?.id ? ", the series' explainer character" : ""}): ${m.name}. ${m.identity}`)
     .join("\n");
-  const motion = normalizeMotion(
-    await ask(
-      brief,
-      false,
-      `Brief:
-${describeBrief(brief)}
+  const characters = (series?.cast ?? []).filter((m) => m.kind === "character").map((m) => m.id);
+  return { series, host, cast, characters };
+}
 
-Write a motion-graphics explainer, not a story: ${series?.type === "ecommerce" ? "this episode's product, what it is and what it fixes at home" : "how the app solves one concrete problem, shown on its real screens"}. ${target ? `It lasts ${target} seconds in total.` : "Choose the length from how much there is to explain (15 to 60 seconds) and say why in durationNote."}
-
-What you can show (the series' fixed cast; use ids exactly; only members with an image will render, others show a placeholder):
+function castBlock(cast: string, layers: number): string {
+  return `What you can show (the series' fixed cast; use ids exactly; only members with an image will render, others show a placeholder):
 ${cast || "- (nothing yet: use hook, steps, stat and logo, and say in note what is missing)"}
-${layers ? `Uploaded layers: ${Array.from({ length: layers }, (_, i) => `layer:${i}`).join(", ")}.` : ""}
+${layers ? `Uploaded layers: ${Array.from({ length: layers }, (_, i) => `layer:${i}`).join(", ")}.` : ""}`;
+}
 
-The studio's rules:
+// The studio's rules for an explainer script (a new one or one revised by a note).
+function explainerRules(brief: Brief, host: ReturnType<typeof explainerHost>): string {
+  return `The studio's rules:
 - The first scene is a hook that names the problem within 2 seconds, as the question the viewer already asks themselves, in their words.
 - Something new appears on screen every 2 to 4 seconds: a scene change, a label, a step, a zoom. Never a still stretch longer than 4 seconds.
 - Never the stock defaults: a centred title on a gradient, everything fading in, corner labels, frame borders, glow on UI chrome, generic particle bursts.
@@ -779,14 +780,61 @@ ${
 ${brief.narrator === "without" ? "- No narrator: leave every scene's voice and emotion empty. Titles, labels, the typed text and the product in use carry the meaning; keep it readable without a voice.\n" : ""}- Pace for the brief's comic voice (${brief.tone}): ${TONE_PACE[brief.tone]}
 - The product and the logo are the big moments: they land on the music's strongest hits (the app moves their cuts there).
 - music: a mood (calm, drive or bright) and a tempo for the synthesized score.
-- caption: the text to post with the video, 1 to 3 sentences in the piece's tone, about this problem in its own words; never "excited to share" or generic SaaS language; nothing unverified without [VERIFY].`,
+- caption: the text to post with the video, 1 to 3 sentences in the piece's tone, about this problem in its own words; never "excited to share" or generic SaaS language; nothing unverified without [VERIFY].`;
+}
+
+// A motion-graphics explainer (software: how the app does something; e-commerce: the episode's product). Follows the
+// studio's rules: hook in 2 s, something new every 2 to 4 s, no stock defaults, one accent, the brand's fonts.
+export async function motionScript(brief: Brief, target: number | null, layers: number): Promise<MotionScript> {
+  const { series, host, cast, characters } = explainerCast(brief);
+  const motion = normalizeMotion(
+    await ask(
+      brief,
+      false,
+      `Brief:
+${describeBrief(brief)}
+
+Write a motion-graphics explainer, not a story: ${series?.type === "ecommerce" ? "this episode's product, what it is and what it fixes at home" : "how the app solves one concrete problem, shown on its real screens"}. ${target ? `It lasts ${target} seconds in total.` : "Choose the length from how much there is to explain (15 to 60 seconds) and say why in durationNote."}
+
+${castBlock(cast, layers)}
+
+${explainerRules(brief, host)}`,
       MotionScriptSchema,
     ),
     brief.tone,
   );
   // The series' explainer character hosts every character scene, whatever id the writer put there.
-  const characters = (series?.cast ?? []).filter((m) => m.kind === "character").map((m) => m.id);
   return { ...motion, scenes: hostScenes(motion.scenes, host?.id, characters, false), tone: brief.tone };
+}
+
+// "Nota del director" for an explainer: the writer returns the whole script with only what the note asks changed,
+// each scene naming the current scene it comes from; mergeNote keeps the rest as it was (ids, hand tweaks, voices).
+export async function reviseMotion(brief: Brief, current: MotionScript, note: string, layers: number): Promise<NoteMerge> {
+  const { series, host, cast, characters } = explainerCast(brief);
+  const wire = await ask(
+    brief,
+    false,
+    `Brief:
+${describeBrief(brief)}
+
+This is a motion-graphics explainer about ${series?.type === "ecommerce" ? "this episode's product, what it is and what it fixes at home" : "how the app solves one concrete problem, shown on its real screens"}. The current script, each scene with its id:
+${noteView(current)}
+
+The director's note on this script: "${note}"
+
+Return the whole script with only what the note asks changed. Every scene the note does not touch comes back exactly as it is, field by field, with its id in from. A scene you change keeps its id in from. A new scene has an empty from. A scene the note asks to remove is left out. Never change a voice line, a title or a timing the note does not ask about. Keep problem, title, music and caption unless the note changes them. In note, say in Spanish what you changed (one sentence), or what the note asks that the rules do not allow. The rules below are how the script was written: follow them in what you change, but never change an untouched scene only to follow them.
+
+${castBlock(cast, layers)}
+
+${explainerRules(brief, host)}`,
+    MotionNoteSchema,
+  );
+  if (!wire.scenes.length) throw new WriterError("La IA devolvió el guion sin escenas. Probá de nuevo o escribí la nota de otra forma.");
+  const links = wire.scenes.map((s) => ({ from: s.from, camera: pickCamera(s.camera) }));
+  const revised = normalizeMotion({ ...wire, scenes: wire.scenes.map(({ from: _from, ...s }) => s) }, current.tone ?? brief.tone);
+  // keepOthers as in the studio: a character the person chose for a scene stays.
+  const hosted = { ...revised, scenes: hostScenes(revised.scenes, host?.id, characters, true), tone: current.tone ?? brief.tone };
+  return mergeNote(current, hosted, links);
 }
 
 // "Traer la marca desde su web": the writer reads what the page uses and says, and proposes the brand kit.

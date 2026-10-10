@@ -25,6 +25,7 @@ import {
   lyricIdeas,
   lyricPlates,
   motionScript,
+  reviseMotion,
   brandFromSite,
   proposeMenu,
   productShot,
@@ -118,6 +119,8 @@ import { listTools } from "./tools.ts";
 import { AdsError } from "./ads.ts";
 import { checkErrorText } from "../shared/errors.ts";
 import { adsRoutes } from "./adsRoutes.ts";
+import { MotionScriptInput } from "../shared/motionNote.ts";
+import type { MotionScript } from "../shared/motion.ts";
 
 const app = new Hono();
 
@@ -427,6 +430,22 @@ app.post("/api/motion", async (c) => {
     .parse(await c.req.json());
   if (demo()) return c.json({ script: demoMotion(brief, target), demo: true });
   return c.json({ script: await motionScript(brief, target, layers), demo: false });
+});
+
+// "Nota del director" for an explainer: the whole script back with only what the note asks changed (mergeNote keeps
+// the rest). Sample mode changes nothing and says so.
+app.post("/api/motion/revise", async (c) => {
+  const { brief, script, note, layers } = z
+    .object({
+      brief: BriefSchema,
+      script: MotionScriptInput,
+      note: z.string().trim().min(1, "Escribí la nota antes de aplicarla.").max(4000),
+      layers: z.number().int().min(0).max(12).default(0),
+    })
+    .parse(await c.req.json());
+  if (demo()) return c.json({ demo: true as const });
+  const merge = await reviseMotion(brief, script as unknown as MotionScript, note, layers);
+  return c.json({ ...merge, demo: false as const });
 });
 
 // An explainer's own track (the file as uploaded): Demucs separates its drums on this computer and the kicks are

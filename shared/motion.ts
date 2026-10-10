@@ -152,6 +152,17 @@ export const MotionScriptSchema = z.object({
     ),
 });
 
+// "Nota del director" (shared/motionNote.ts): the same script, each scene saying which current scene it comes from.
+export const MotionNoteSchema = MotionScriptSchema.extend({
+  scenes: z.array(
+    SceneWire.extend({
+      from: z
+        .string()
+        .describe("The id of the current scene this one is (unchanged or changed), exactly as given in the current script; empty for a new scene. Each id at most once."),
+    }),
+  ),
+});
+
 // A hand adjustment from the timeline: when the element enters (seconds from the scene's start, both formats), and
 // per format (v: 9:16, h: 16:9, since their layouts differ) how far it moves (dx, dy, in units of the frame's short
 // side) and its size (1 = as the template draws it).
