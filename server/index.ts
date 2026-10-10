@@ -53,6 +53,7 @@ import { roomBrief } from "../shared/room.ts";
 import { buildProjectSync, critiqueProject, loadSync } from "./sync.ts";
 import { checkDemucsBin, demucsAvailable, demucsStatus, separate, speechWav, tryDemucs } from "./demucs.ts";
 import { decodeWav, fitKicks } from "../shared/clock.ts";
+import { withLevels, wordLevels, wordSpans } from "../shared/lyricAct.ts";
 import { BrandSchema, DEFAULT_BRAND } from "../shared/series.ts";
 import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, SECOND_LANGUAGES, LyricStyleSchema, alignLyrics, cleanElements, cleanIdeas } from "../shared/lyrics.ts";
 import { buildPlates, cleanPlates } from "../shared/plates.ts";
@@ -799,18 +800,42 @@ app.post("/api/lyrics/sync", async (c) => {
   const language = z.enum(LYRIC_LANGUAGES).parse(form.get("language") ?? "auto");
   // "voice=demucs": the transcription hears the vocal stem only (the same split the Reloj reuses).
   let heard;
+  let vocalStem: Uint8Array | null = null;
   if (form.get("voice") === "demucs") {
     // The key first: a split takes minutes, and without the key nothing would hear it.
     if (!autoSyncAvailable()) throw new LyricsError("Para sincronizar automático falta OPENAI_API_KEY en .env.");
     const { vocals } = await separate(new Uint8Array(await audio.arrayBuffer()));
     if (!vocals) throw new ClockError("Demucs no devolvió la voz de este tema.");
+    vocalStem = vocals;
     const speech = speechWav(vocals);
     heard = await hearSong(new Blob([speech.buffer as ArrayBuffer], { type: "audio/wav" }), "voz.wav", language, lines.join("\n"));
   } else {
     heard = await hearSong(audio, audio instanceof File ? audio.name : "cancion.mp3", language, lines.join("\n"));
   }
   const share = { matched: 0, total: 0 };
-  return c.json({ lines: alignLyrics(lines, seconds, heard.words, heard.duration, share), heard: heard.words.length, ...share });
+  let aligned = alignLyrics(lines, seconds, heard.words, heard.duration, share);
+  // With the vocal stem at hand, each word's loudness comes with it ("La letra actúa el canto"; never the master).
+  if (vocalStem) aligned = withLevels(aligned, wordLevels(decodeWav(vocalStem), wordSpans(aligned)));
+  return c.json({ lines: aligned, heard: heard.words.length, ...share });
+});
+
+// How loud each lyric word is sung, on the vocal stem Demucs splits from the song (cached per song). The master is
+// never measured: without Demucs this says so, and the studio offers to read a vocal stem the person uploads instead.
+app.post("/api/lyrics/levels", async (c) => {
+  const form = await c.req.formData();
+  const audio = form.get("audio");
+  if (!(audio instanceof Blob)) throw new LyricsError("Falta la canción.");
+  const spans = z
+    .array(z.object({ start: z.number(), end: z.number() }))
+    .min(1)
+    .max(8000)
+    .parse(JSON.parse(String(form.get("words") ?? "[]")));
+  if (!demucsAvailable()) {
+    throw new ClockError("Para medir la fuerza del canto hace falta la voz sola: instalá Demucs (Modelos → Demucs) o subí el stem de voz.");
+  }
+  const { vocals } = await separate(new Uint8Array(await audio.arrayBuffer()));
+  if (!vocals) throw new ClockError("Demucs no devolvió la voz de este tema.");
+  return c.json({ levels: wordLevels(decodeWav(vocals), spans) });
 });
 
 // An explainer scene's voice file (multipart "audio"), heard with word times for its subtitles; the line ("text")

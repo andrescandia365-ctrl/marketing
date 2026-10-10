@@ -22,6 +22,7 @@ import { drawPlateFrame } from "./plateDraw.ts";
 import { drawLayers, type MotionAsset } from "./motion.ts";
 import { findBeats, type RenderResult } from "./render.ts";
 import { NO_PULSE, layerHits, lyricPulse, pulseAt, type LyricPulse } from "../../shared/lyricPulse.ts";
+import { STILL, pieceActs, shakeAt, stretchAt, type WordAct } from "../../shared/lyricAct.ts";
 
 const FPS = 30;
 const SAMPLE_RATE = 48000;
@@ -94,28 +95,37 @@ function drawBackdrop(ctx: CanvasRenderingContext2D, w: number, h: number, bg: N
   ctx.fillRect(0, 0, w, h);
 }
 
-type Placed = { text: string; x: number; width: number; size: number; start: number; end: number; key: boolean };
+type Placed = { text: string; x: number; width: number; size: number; start: number; end: number; key: boolean; act: WordAct; sx: number };
 
+// Rows break on each word's widest stretch (`peak`), so a held word growing never moves a word to another row; the
+// words sit at their width at t (`sx`), so the row stays centred and nothing overlaps.
 function wrap(
   ctx: CanvasRenderingContext2D,
-  words: { text: string; gap: boolean; size: number; start: number; end: number; key: boolean }[],
+  words: { text: string; gap: boolean; size: number; start: number; end: number; key: boolean; act?: WordAct; sx?: number }[],
   font: (size: number) => string,
   maxWidth: number,
 ): { words: Placed[]; width: number; size: number }[] {
   const rows: { words: Placed[]; width: number; size: number }[] = [];
   let row: { words: Placed[]; width: number; size: number } = { words: [], width: 0, size: 0 };
+  let widest = 0;
   let pendingGap = 0;
   for (const w of words) {
     ctx.font = font(w.size);
-    const width = ctx.measureText(w.text).width;
-    if (row.words.length && row.width + pendingGap + width > maxWidth) {
+    const plain = ctx.measureText(w.text).width;
+    const act = w.act ?? STILL;
+    const sx = w.sx ?? 1;
+    const width = plain * sx;
+    if (row.words.length && widest + pendingGap + plain * act.peak > maxWidth) {
       rows.push(row);
       row = { words: [], width: 0, size: 0 };
+      widest = 0;
       pendingGap = 0;
     }
-    const x = row.width + (row.words.length ? pendingGap : 0);
-    row.words.push({ text: w.text, x, width, size: w.size, start: w.start, end: w.end, key: w.key });
+    const gap = row.words.length ? pendingGap : 0;
+    const x = row.width + gap;
+    row.words.push({ text: w.text, x, width, size: w.size, start: w.start, end: w.end, key: w.key, act, sx });
     row.width = x + width;
+    widest += gap + plain * act.peak;
     row.size = Math.max(row.size, w.size);
     pendingGap = w.gap ? ctx.measureText(" ").width : 0;
   }
@@ -323,6 +333,8 @@ function paintLyricLine(
   line: LyricLine,
   font: (size: number) => string,
   look: LineLook,
+  // What each word of the line acts (shared/lyricAct.ts); empty when the switch is off.
+  acts: WordAct[] = [],
 ) {
   if (look.alpha <= 0.01) return;
   const style = piece.style;
@@ -330,7 +342,10 @@ function paintLyricLine(
   const base = unit * 0.075 * (style.size / 100);
   const rows = wrap(
     ctx,
-    line.words.map((word) => ({ ...word, size: style.keywords && word.key ? base * 1.4 : base })),
+    line.words.map((word, i) => {
+      const act = acts[i] ?? STILL;
+      return { ...word, size: style.keywords && word.key ? base * 1.4 : base, act, sx: stretchAt(act, word, t) };
+    }),
     font,
     w * 0.84,
   );
@@ -372,19 +387,25 @@ function paintLyricLine(
     for (const word of row.words) {
       ctx.font = font(word.size);
       ctx.shadowBlur = word.size * 0.25;
-      const x = left + word.x;
+      const shake = shakeAt(word.act, word, t, style.mood === "calm");
+      // Drawn in the word's own frame: its left edge at 0, stretched only sideways (sx), shaken by a few pixels.
+      ctx.save();
+      ctx.translate(left + word.x + shake.dx * word.size, baseline + shake.dy * word.size);
+      if (word.sx !== 1) ctx.scale(word.sx, 1);
+      const plain = word.width / word.sx;
       const lit = style.karaoke ? clamp((t - word.start) / Math.max(word.end - word.start, 0.05)) : style.keywords && word.key ? 1 : 0;
       ctx.fillStyle = style.textColor;
-      if (lit < 1) ctx.fillText(word.text, x, baseline);
+      if (lit < 1) ctx.fillText(word.text, 0, 0);
       if (lit > 0) {
         ctx.save();
         ctx.beginPath();
-        ctx.rect(x - word.size * 0.1, baseline - word.size * 1.2, (word.width + word.size * 0.2) * lit, word.size * 1.6);
+        ctx.rect(-word.size * 0.1, -word.size * 1.2, (plain + word.size * 0.2) * lit, word.size * 1.6);
         ctx.clip();
         ctx.fillStyle = style.highlightColor;
-        ctx.fillText(word.text, x, baseline);
+        ctx.fillText(word.text, 0, 0);
         ctx.restore();
       }
+      ctx.restore();
     }
     y += rowHeights[r];
   });
@@ -401,6 +422,17 @@ function paintLyricLine(
     }
   }
   ctx.restore();
+}
+
+// Each word's act depends on the whole song (its loudness line), so it is worked out once per set of lines and kept
+// beside them. A memo of a pure result: the same lines always give the same acts, whatever frame asks first.
+const actMemo = new WeakMap<LyricLine[], Map<string, WordAct[][]>>();
+function actsOf(piece: LyricPiece): WordAct[][] {
+  let bySync = actMemo.get(piece.lines);
+  if (!bySync) actMemo.set(piece.lines, (bySync = new Map()));
+  let acts = bySync.get(piece.synced);
+  if (!acts) bySync.set(piece.synced, (acts = pieceActs(piece.lines, piece.synced)));
+  return acts;
 }
 
 export function drawLyricFrame(
@@ -449,10 +481,10 @@ export function drawLyricFrame(
   const line = piece.lines[index];
   if (style.entrance === "rise" && line && index > 0) {
     const u = clamp((t - line.start) / ENTER);
-    if (u > 0 && u < 1) paintLyricLine(ctx, w, h, t, piece, piece.lines[index - 1], font, { alpha: 1 - u, dy: -u * unit * 0.2, dx: 0, clip: 1, scale: 1 });
+    if (u > 0 && u < 1) paintLyricLine(ctx, w, h, t, piece, piece.lines[index - 1], font, { alpha: 1 - u, dy: -u * unit * 0.2, dx: 0, clip: 1, scale: 1 }, piece.act ? actsOf(piece)[index - 1] : []);
   }
   const look = line ? lyricLook(style.entrance, t, line, unit) : null;
-  if (line && look) paintLyricLine(ctx, w, h, t, piece, line, font, look);
+  if (line && look) paintLyricLine(ctx, w, h, t, piece, line, font, look, piece.act ? actsOf(piece)[index] : []);
 
   // The song's credit, and the AI notice when the own background was made with AI.
   const notes = [

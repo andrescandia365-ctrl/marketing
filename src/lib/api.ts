@@ -298,6 +298,16 @@ export const api = {
     // matched of total: the lyric words the transcription really heard.
     return data as { lines: LyricLine[]; heard: number; matched: number; total: number };
   },
+  // Each word's loudness on the vocal stem Demucs splits from the song (never the master); null where it is silent.
+  lyricLevels: async (song: Blob, name: string, words: { start: number; end: number }[]) => {
+    const form = new FormData();
+    form.append("audio", song, name);
+    form.append("words", JSON.stringify(words));
+    const res = await fetch("/api/lyrics/levels", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    return data as { levels: (number | null)[] };
+  },
   lyricIdeas: (series: string, title: string, artist: string, lines: string[]) =>
     call<{ palette: string[]; mood: "calm" | "lively"; keywords: { line: number; words: string[] }[]; note: string } & Demo>(
       "/api/lyrics/ideas",

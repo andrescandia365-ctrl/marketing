@@ -160,7 +160,18 @@ export type LyricElement = {
   slot: number;
 };
 
-export type LyricWord = { text: string; start: number; end: number; key: boolean; gap: boolean };
+export type LyricWord = {
+  text: string;
+  start: number;
+  end: number;
+  key: boolean;
+  gap: boolean;
+  // Auto sync only: true when the transcription heard this word, false when it was placed between its neighbours.
+  // Absent on tapped or .lrc lines and on pieces saved before (shared/lyricAct.ts).
+  heard?: boolean;
+  // RMS of the vocal stem over the word, in dBFS (never the master). Absent until the voice is measured.
+  level?: number;
+};
 export type LyricLine = {
   text: string;
   // An optional smaller line under it: the romanization or a translation.
@@ -205,6 +216,9 @@ export type LyricPiece = {
   plateOn: boolean;
   // The director's note for the next pass.
   plateNote: string;
+  // "La letra actúa el canto" (shared/lyricAct.ts): held words stretch, shouted ones shake. On for new pieces; absent
+  // (off) on pieces saved with lyrics before it, so their video does not change by itself.
+  act?: boolean;
 };
 
 export function newLyricPiece(style: LyricStyle, format: "vertical" | "horizontal"): LyricPiece {
@@ -231,6 +245,7 @@ export function newLyricPiece(style: LyricStyle, format: "vertical" | "horizonta
     plates: [],
     plateOn: false,
     plateNote: "",
+    act: true,
   };
 }
 
@@ -462,10 +477,12 @@ export function alignLyrics(
   }
   // Words get a little length so the karaoke has something to fill.
   for (const s of slots) if (s.end! - s.start! < 0.12) s.end = s.start! + 0.12;
-  slots.forEach((s) => {
+  const heardSlots = new Set(known);
+  slots.forEach((s, i) => {
     const w = lines[s.line].words[s.word];
     w.start = s.start!;
     w.end = s.end!;
+    w.heard = heardSlots.has(i);
   });
   return lines.map((l) => {
     if (!l.words.length) return l;

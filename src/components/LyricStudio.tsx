@@ -35,6 +35,7 @@ import { api, projectFileUrl, type MediaFileRecord, type MediaRecord } from "../
 import { blobToDataUrl } from "../lib/files.ts";
 import type { MotionAsset } from "../lib/motion.ts";
 import { lyricPulse, pulseNote, type LyricPulse } from "../../shared/lyricPulse.ts";
+import { actNote, monoOf, withLevels, wordLevels, wordSpans } from "../../shared/lyricAct.ts";
 import { decodeSong, drawLyricFrame, loadLyricFonts, renderLyricVideo, songBeats, type Backdrop, type ElementGlyph } from "../lib/lyricRender.ts";
 import { rasterSvg } from "../lib/svgSanitize.ts";
 import { ClockPanel } from "./ClockPanel.tsx";
@@ -96,6 +97,8 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
       plates: base.plates ?? [],
       plateOn: base.plateOn ?? false,
       plateNote: base.plateNote ?? "",
+      // On for new pieces; a piece saved with lyrics before the switch keeps the video it had until it is turned on.
+      act: initial ? (initial.piece.act ?? !initial.piece.lines?.length) : true,
       secondLanguage,
       secondOther: base.secondOther ?? "",
     };
@@ -108,7 +111,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
   const [layers, setLayers] = useState<HTMLImageElement[]>([]);
   const [elementImages, setElementImages] = useState<Record<number, HTMLImageElement>>({});
   const [bgClips, setBgClips] = useState<BgClip[]>([]);
-  const [busy, setBusy] = useState<null | "sync" | "ideas" | "second" | "elements" | "plates" | "render" | "upload" | "style" | "prompts" | "lrc">(null);
+  const [busy, setBusy] = useState<null | "sync" | "ideas" | "second" | "elements" | "plates" | "render" | "upload" | "style" | "prompts" | "lrc" | "levels">(null);
   // The Reloj's grid. Plate cuts use its downbeats, and never peaks off the master; the pulse uses its kicks.
   const [grid, setGrid] = useState<{ usable: boolean; kicks: number[]; downbeats: number[] } | null>(null);
   const cuts = useMemo(() => (grid?.usable && grid.downbeats.length ? grid.downbeats : []), [grid]);
@@ -347,6 +350,32 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
     setNote(
       `Sincronizado${separated ? " sobre la voz separada" : ""}: encontró ${result.matched} de ${result.total} palabras de la letra (las demás quedan entre sus vecinas). Revisá los tiempos abajo.`,
     );
+  }
+
+  // "La letra actúa el canto": each word's loudness on the voice alone. Demucs splits it on the server (cached per song);
+  // an uploaded vocal stem is read here. The master is never measured.
+  async function measureWithDemucs() {
+    if (!song || !piece.lines.length) return;
+    const result = await work("levels", () => api.lyricLevels(song.blob, song.name, wordSpans(piece.lines)));
+    if (!result) return;
+    const lines = withLevels(piece.lines, result.levels);
+    set({ lines });
+    setNote(`Medí la fuerza del canto en la voz que separó Demucs: ${result.levels.filter((x) => x !== null).length} palabras.`);
+  }
+
+  async function measureStem(file: File) {
+    if (!piece.lines.length) return;
+    await work("levels", async () => {
+      const stem = await decodeSong(file);
+      const channels = Array.from({ length: stem.numberOfChannels }, (_, c) => stem.getChannelData(c));
+      const levels = wordLevels({ samples: monoOf(channels), sampleRate: stem.sampleRate }, wordSpans(piece.lines));
+      set({ lines: withLevels(piece.lines, levels) });
+      const off = buffer && Math.abs(buffer.duration - stem.duration) > 1;
+      setNote(
+        `Medí la fuerza del canto en el stem de voz: ${levels.filter((x) => x !== null).length} palabras.` +
+          (off ? " Ojo: el stem no dura lo mismo que la canción; tiene que empezar en el mismo segundo." : ""),
+      );
+    });
   }
 
   // An .lrc brings its own times; if its lines match the pasted lyrics they keep the pasted text, else it brings the text too.
@@ -894,6 +923,9 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
           onSaveStyle={saveStyleToSeries}
           setBusy={setBusy}
           setError={setError}
+          demucs={demucs}
+          onMeasureDemucs={() => void measureWithDemucs()}
+          onMeasureStem={(file) => void measureStem(file)}
         />
       )}
     </section>
@@ -1210,6 +1242,9 @@ type VideoTabProps = {
   onSaveStyle: () => void;
   setBusy: (b: null | "render") => void;
   setError: (e: string) => void;
+  demucs: boolean;
+  onMeasureDemucs: () => void;
+  onMeasureStem: (file: File) => void;
 };
 
 function VideoTab(props: VideoTabProps) {
@@ -1545,6 +1580,39 @@ function VideoTab(props: VideoTabProps) {
               <input type="checkbox" checked={style.keywords} onChange={(e) => setStyle({ keywords: e.target.checked })} />
               Palabras clave más grandes
             </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={!!piece.act} onChange={(e) => set({ act: e.target.checked })} />
+              La letra actúa el canto
+            </label>
+            {piece.act && (
+              <div className="space-y-2 pl-6">
+                <p className="text-xs text-muted">{actNote(piece.lines, piece.synced)}</p>
+                {piece.lines.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    {props.demucs && song && (
+                      <Button variant="ghost" className="px-2 py-1 text-xs" onClick={props.onMeasureDemucs} disabled={busy !== null}>
+                        {busy === "levels" ? "Midiendo…" : "Medir la voz con Demucs"}
+                      </Button>
+                    )}
+                    <label className="text-muted">
+                      {props.demucs && song ? "o subí el stem de voz: " : "Subí el stem de voz: "}
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        aria-label="Subir el stem de voz"
+                        className="text-xs"
+                        disabled={busy !== null}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) props.onMeasureStem(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </Field>
 
