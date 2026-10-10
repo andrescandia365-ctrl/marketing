@@ -1,7 +1,7 @@
 // Idea 60: the series' calendar moments, read in Spanish, with their next date from a fixed "today".
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { inDays, momentsForWriter, readMoment, upcomingMoments } from "../shared/calendar.ts";
+import { inDays, momentLine, momentsForWriter, readMoment, upcomingMoments } from "../shared/calendar.ts";
 import { EMPTY_SERIES, markdownToSeries, seriesToMarkdown } from "../shared/series.ts";
 
 // Friday 9 October 2026.
@@ -74,4 +74,37 @@ test("the moments live in the series bible and come back", () => {
   assert.deepEqual(markdownToSeries(md, "prueba").moments, fields.moments);
   // A bible written before the section existed reads as no moments.
   assert.deepEqual(markdownToSeries("# Vieja\n\n## Qué es\nUna serie.\n", "vieja").moments, []);
+});
+
+test("what is not a date stays without one, and a line is read as it was meant", () => {
+  // Days that no month has, and a range of hours, are not dates; 29 February is.
+  assert.equal(next("31/2: nunca"), null);
+  assert.equal(next("30 de febrero: tampoco"), null);
+  assert.equal(next("18/20 hs: happy hour"), null);
+  assert.equal(next("29/2: año bisiesto"), "2027-02-28");
+  assert.equal(next("los sábados 18/20 hs: happy hour"), "2026-10-10");
+  // An interval is not a day of the month; "cada 10" is.
+  assert.equal(next("cada 15 días: llega el camión"), null);
+  assert.equal(next("cada 2 semanas: reunión"), null);
+  assert.equal(next("cada 10: vence la tarjeta"), "2026-10-10");
+  assert.equal(next("el 40 de cada mes: no existe"), null);
+  // A clock time keeps its colon; the line splits at the next one.
+  const clock = readMoment("los viernes 18:30: after office", today);
+  assert.equal(clock.when, "los viernes 18:30");
+  assert.equal(clock.what, "after office");
+  assert.equal(clock.next, "2026-10-09");
+  // The first of the month, written with its ordinal, is a date.
+  assert.equal(next("1.º de mayo: Día del Trabajador"), "2027-05-01");
+  assert.equal(next("1° de noviembre: arranca la temporada"), "2026-11-01");
+});
+
+test("bullets go, the date stays, and a moment written twice is one", () => {
+  assert.equal(momentLine("- 15/10: vuelta del feriado"), "15/10: vuelta del feriado");
+  assert.equal(momentLine("• fin de mes: cierre"), "fin de mes: cierre");
+  assert.equal(momentLine("1.º de mayo: Día del Trabajador"), "1.º de mayo: Día del Trabajador");
+  const list = upcomingMoments(["15/10: feria", "- 15/10: feria", "  15/10: feria  ", "", "fin de mes: cierre"], today);
+  assert.deepEqual(
+    list.map((m) => m.line),
+    ["15/10: feria", "fin de mes: cierre"],
+  );
 });

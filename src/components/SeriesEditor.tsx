@@ -27,7 +27,7 @@ import {
   type Brand,
   type SeriesLook,
 } from "../../shared/series.ts";
-import { inDays, upcomingMoments } from "../../shared/calendar.ts";
+import { inDays, momentLine, upcomingMoments } from "../../shared/calendar.ts";
 import { ensureFont } from "../lib/fonts.ts";
 import { BrandFromWeb } from "./BrandFromWeb.tsx";
 import { PuppetArranger } from "./PuppetArranger.tsx";
@@ -862,7 +862,8 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved }: P
         .split("\n")
         .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
         .filter(Boolean);
-    const next = { ...fields, worksToday: lines(works), practices: lines(practices), loop: lines(loop), moments: lines(moments) };
+    // Moments keep a leading number: it is their date ("1.º de mayo", "25.5").
+    const next = { ...fields, worksToday: lines(works), practices: lines(practices), loop: lines(loop), moments: [...new Set(moments.split("\n").map(momentLine).filter(Boolean))] };
     try {
       if (id) {
         const { series } = await api.saveSeries(id, next);

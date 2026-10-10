@@ -47,3 +47,15 @@ test("the whole message names the first problem and counts the rest", () => {
   assert.equal(checkErrorText({ issues: [] }), "Al pedido le faltaban datos.");
   assert.equal(checkErrorText(z.object({ a: z.string() }).safeParse({}).error!, "Faltan datos de la serie"), "Faltan datos de la serie: falta «a».");
 });
+
+test("list positions count from 1, types are always in Spanish, and one period ends the sentence", () => {
+  const L = z.object({ shots: z.array(z.object({ title: z.string() })), tags: z.record(z.string(), z.string()) });
+  const bad = (value: unknown) => issueText(L.safeParse(value).error!.issues[0]);
+  assert.equal(bad({ shots: [{ title: "a" }, {}], tags: {} }), "falta «shots.2.title»");
+  assert.equal(bad({ shots: [], tags: [] }), "«tags» tendría que ser un grupo de datos");
+  assert.equal(issueText({ code: "invalid_type", path: ["x"], message: "Invalid input: expected weird", expected: "weird" }), "«x» tendría que ser otra cosa");
+  const custom = z.object({ name: z.string().min(1, "Poné un nombre para la serie.") }).safeParse({ name: "" }).error!;
+  assert.equal(checkErrorText(custom), "Al pedido le faltaban datos: «name»: Poné un nombre para la serie.");
+  const bare = z.string().min(1, "¿Qué querés hacer?").safeParse("").error!;
+  assert.equal(checkErrorText(bare), "Al pedido le faltaban datos: ¿Qué querés hacer?");
+});

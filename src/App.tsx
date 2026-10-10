@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_AUDIO, voiceModeOf, type AudioSettings, type CharacterVoice, type VoiceMode } from "../shared/audio.ts";
 import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/checks.ts";
 import { SKETCH_BASE, buildCopyPrompt } from "../shared/prompt.ts";
@@ -30,7 +30,7 @@ import { WritersRoom } from "./components/WritersRoom.tsx";
 import { HookVariants } from "./components/HookVariants.tsx";
 import { MOVE_LABEL } from "../shared/moves.ts";
 import type { RoomCard } from "../shared/room.ts";
-import { Button, Notice, PieceTitle, Spinner } from "./components/ui.tsx";
+import { Button, Notice, PartBoundary, PieceTitle, Spinner } from "./components/ui.tsx";
 import { ads as adsApi, api, libraryFileUrl, projectFileUrl, type ProjectSummary } from "./lib/api.ts";
 import { blobToDataUrl, pictureForReview, readImageFile } from "./lib/files.ts";
 import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from "./lib/markdown.ts";
@@ -45,11 +45,20 @@ const AdsStudio = lazy(() => import("./components/ads/AdsStudio.tsx").then((m) =
 const SeriesEditor = lazy(() => import("./components/SeriesEditor.tsx").then((m) => ({ default: m.SeriesEditor })));
 const ModelsPanel = lazy(() => import("./components/ModelsPanel.tsx").then((m) => ({ default: m.ModelsPanel })));
 
-function LazyFallback() {
+// A part downloaded on demand: a spinner while it arrives, a notice instead of a blank screen if it never does.
+function Lazy({ children }: { children: ReactNode }) {
   return (
-    <div className="flex items-center gap-2 p-4 text-sm text-muted">
-      <Spinner /> Cargando…
-    </div>
+    <PartBoundary>
+      <Suspense
+        fallback={
+          <div className="flex items-center gap-2 p-4 text-sm text-muted">
+            <Spinner /> Cargando…
+          </div>
+        }
+      >
+        {children}
+      </Suspense>
+    </PartBoundary>
   );
 }
 
@@ -1015,7 +1024,7 @@ export function App() {
       </header>
 
       {showModels && (
-        <Suspense fallback={<LazyFallback />}>
+        <Lazy>
         <ModelsPanel
           onClose={() => setShowModels(false)}
           onChanged={() =>
@@ -1025,7 +1034,7 @@ export function App() {
               .catch(() => undefined)
           }
         />
-        </Suspense>
+        </Lazy>
       )}
 
       {section === "ads" && (
@@ -1057,7 +1066,7 @@ export function App() {
             </Notice>
           )}
           {status && currentSeries && currentSeries.type !== "music" ? (
-            <Suspense fallback={<LazyFallback />}>
+            <Lazy>
             <AdsStudio
               key={currentSeries.id}
               series={currentSeries}
@@ -1071,7 +1080,7 @@ export function App() {
                 setStep("brief");
               }}
             />
-            </Suspense>
+            </Lazy>
           ) : (
             status && <Notice tone="info">Elegí una serie de tipo software o e-commerce: las series de música hacen videos de letra, no anuncios.</Notice>
           )}
@@ -1110,7 +1119,7 @@ export function App() {
         {error && <Notice tone="error">{error}</Notice>}
 
         {step === "brief" && editingSeries !== undefined && (
-          <Suspense fallback={<LazyFallback />}>
+          <Lazy>
           <SeriesEditor
             key={editingSeries ?? "new"}
             id={editingSeries}
@@ -1127,7 +1136,7 @@ export function App() {
             }}
             onClose={() => setEditingSeries(undefined)}
           />
-          </Suspense>
+          </Lazy>
         )}
 
         {step === "brief" && editingSeries === undefined && (
@@ -1203,7 +1212,7 @@ export function App() {
         )}
 
         {step === "motion" && motion && pieceSeries && (
-          <Suspense fallback={<LazyFallback />}>
+          <Lazy>
           <MotionStudio
             key={motion.key}
             projectId={projectId}
@@ -1218,11 +1227,11 @@ export function App() {
             autoSync={status?.lyrics.autoSync ?? false}
             onSaveStatus={setSaveStatus}
           />
-          </Suspense>
+          </Lazy>
         )}
 
         {step === "lyrics" && lyric && pieceSeries && (
-          <Suspense fallback={<LazyFallback />}>
+          <Lazy>
           <LyricStudio
             key={lyric.key}
             projectId={projectId}
@@ -1235,7 +1244,7 @@ export function App() {
             onSaveStatus={setSaveStatus}
             onSeries={(series) => setStatus((s) => (s ? { ...s, series } : s))}
           />
-          </Suspense>
+          </Lazy>
         )}
 
         {step === "menu" && menu && (
@@ -1299,7 +1308,7 @@ export function App() {
         {step === "board" && story && board && (
           <div className="space-y-6">
             {roomEl}
-          <Suspense fallback={<LazyFallback />}>
+          <Lazy>
           <BoardView
             story={story}
             board={board}
@@ -1326,7 +1335,7 @@ export function App() {
             onDismiss={dismiss}
             onApprove={approveBoard}
           />
-          </Suspense>
+          </Lazy>
           </div>
         )}
 
@@ -1494,7 +1503,7 @@ export function App() {
               />
             </div>
             <aside className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto">
-              <Suspense fallback={<LazyFallback />}>
+              <Lazy>
               <VideoPanel
                 brief={pieceBrief}
                 story={story}
@@ -1512,7 +1521,7 @@ export function App() {
                 onMusic={addMusic}
                 onRemoveMusic={removeMusic}
               />
-              </Suspense>
+              </Lazy>
               <VoicesPanel
                 characters={story.characters}
                 audio={audio}

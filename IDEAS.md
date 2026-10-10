@@ -214,6 +214,8 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - **Construido:** los estudios, el storyboard, el panel de video, Editar serie y Modelos se cargan la primera vez que se
   abren; three.js, solo si un personaje tiene esqueleto; la página del render final va aparte. Lo que baja la primera
   pantalla pasó de 2.000 kB (555 kB comprimidos) a 479 kB (149 kB).
+- **Arreglo tras la revisión:** si una parte que se baja aparte no llega (la app se actualizó con la pestaña abierta, se
+  cortó la conexión), solo esa parte muestra el aviso con "Recargar la página"; lo demás y la pieza abierta siguen ahí.
 - `three`, `mediabunny` y los tres estudios cargan juntos aunque se abra solo el brief. **Propuesta:** `import()`
   dinámico para `MotionStudio`, `LyricStudio`, `AdsStudio` y el actor 3D; `three` solo cuando hay un rig. La
   primera pantalla pasa a cargar en una fracción.
@@ -235,6 +237,8 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - **Construido:** dice el campo y qué le pasa, en castellano: "falta «state»", "«language» tiene que ser una de estas
   opciones: es, en", "«name» está vacío", y cuántos problemas más hay. También al guardar una serie y al leer el
   archivo de Publicidad.
+- **Arreglo tras la revisión:** las posiciones de una lista cuentan desde 1 («shots.2.title» es la segunda toma), los
+  tipos de dato siempre salen en castellano y la frase termina con un solo punto.
 - Un pedido que no pasa el esquema responde "Al pedido le faltaban datos." sin decir cuál. **Propuesta:** incluir
   el primer camino del error de zod ("falta `brief.series`"), que ayuda cuando un proyecto viejo trae un campo
   cambiado.
@@ -286,6 +290,9 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   como "hoy". En el brief, las tres más cercanas aparecen como sugerencia debajo de "Gancho del momento" y un clic la
   pone. El menú, la historia y los ganchos de Publicidad reciben todos los momentos, el más cercano primero. Los que no
   tienen una fecha que la app entienda ("cuando sube la nafta") igual van a la IA.
+- **Arreglo tras la revisión:** "31/2" o "18/20 hs" no son fechas; "cada 15 días" es un intervalo, no el día 15; la
+  hora no corta la línea ("los viernes 18:30: after office"); "1.º de mayo" se lee como fecha; una línea repetida es
+  un solo momento, y la vista previa de Editar serie muestra lo mismo que se guarda.
 - El brief tiene "un momento que el público ya siente", pero se escribe cada vez. **Propuesta:** una lista de
   fechas y momentos por serie (día de inventario, primera semana de frío, el 1 del mes) en Editar serie; el menú y
   los hooks de Publicidad la leen, y la app sugiere el más cercano.

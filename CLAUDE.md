@@ -46,7 +46,8 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   exports the story, storyboard, prompts and direction log. The first screen stays light: `main.tsx` loads `App` and
   `RenderPage` lazily, `App` lazy-loads the studios, `BoardView`, `VideoPanel`, `SeriesEditor` and `ModelsPanel`, and
   three.js comes in only for a rigged character (`import("./actor.ts")`). Pieces the first screen needs stay out of
-  heavy modules (`components/shotBits.tsx`, `lib/wav.ts`).
+  heavy modules (`components/shotBits.tsx`, `lib/wav.ts`). Each lazy part sits in `<Lazy>` (`PartBoundary`): a part
+  that fails to download shows a notice with "Recargar la página" and the rest of the app stays.
 - Production extras: uploads are checked for format and reviewed by the writer (`/api/review`, pictures sent as JPEG
   to Claude or Kimi); "Cambiar un solo objeto" writes a segment edit (`/api/shot/segment`, never on a watermark);
   e-commerce series get "Producto recortado" (`ProductPanel`, the product joins the cast). `iniciar.sh --ia` picks the

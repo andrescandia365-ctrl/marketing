@@ -20,18 +20,29 @@ const KIND: Record<string, string> = {
   object: "un grupo de datos",
   array: "una lista",
   date: "una fecha",
+  bigint: "un número entero",
+  nan: "un número",
+  record: "un grupo de datos",
+  tuple: "una lista",
+  map: "un grupo de datos",
+  set: "una lista",
+  enum: "una de las opciones",
+  literal: "un valor fijo",
 };
 
 // zod's own messages start like this; anything else is a message the schema wrote on purpose, and is shown as is.
 const STOCK = /^(Invalid|Too (big|small)|Unrecognized|Expected|Required)\b/;
 
+// A list position counts from 1, as a person counts ("shots.1" is the first shot).
+const segment = (p: PropertyKey) => (typeof p === "number" ? String(p + 1) : String(p));
+
 export function issueText(issue: CheckIssue): string {
-  const where = issue.path.length ? `«${issue.path.map(String).join(".")}»` : "el pedido";
+  const where = issue.path.length ? `«${issue.path.map(segment).join(".")}»` : "el pedido";
   if (!STOCK.test(issue.message)) return issue.path.length ? `${where}: ${issue.message}` : issue.message;
   const n = (x: number | bigint | undefined) => String(x ?? "");
   switch (issue.code) {
     case "invalid_type":
-      return /received undefined/.test(issue.message) ? `falta ${where}` : `${where} tendría que ser ${KIND[issue.expected ?? ""] ?? issue.expected ?? "otra cosa"}`;
+      return /received undefined/.test(issue.message) ? `falta ${where}` : `${where} tendría que ser ${KIND[issue.expected ?? ""] ?? "otra cosa"}`;
     case "invalid_value":
       return issue.values?.length
         ? `${where} tiene que ser una de estas opciones: ${issue.values.map(String).join(", ")}`
@@ -57,5 +68,7 @@ export function issueText(issue: CheckIssue): string {
 export function checkErrorText(error: { issues: readonly CheckIssue[] }, lead = "Al pedido le faltaban datos"): string {
   const [first, ...rest] = error.issues;
   if (!first) return `${lead}.`;
-  return `${lead}: ${issueText(first)}${rest.length ? `, y ${rest.length === 1 ? "otro problema" : `otros ${rest.length} problemas`}` : ""}.`;
+  // A message the schema wrote may end on its own period; the sentence gets exactly one (a question keeps its mark).
+  const text = `${lead}: ${issueText(first).replace(/[\s.]+$/, "")}${rest.length ? `, y ${rest.length === 1 ? "otro problema" : `otros ${rest.length} problemas`}` : ""}`;
+  return /[?!…]$/.test(text) ? text : `${text}.`;
 }

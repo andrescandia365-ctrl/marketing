@@ -22,11 +22,22 @@ const dayRe = `(${DAYS.join("|")})`;
 const monthOf = (m: string) => (m === "setiembre" ? 8 : MONTHS.indexOf(m));
 const lastDay = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
 
+// A day that exists in that month in some year (29 February counts); anything else is not a date.
+const realDay = (day: number, month: number) => month >= 0 && month <= 11 && day >= 1 && day <= lastDay(2024, month);
+
 export function parseWhen(when: string): Rule | null {
   const w = plain(when);
   let m: RegExpMatchArray | null;
-  if ((m = w.match(/\b(\d{1,2})\/(\d{1,2})\b/))) return { kind: "yearly", day: Number(m[1]), month: Number(m[2]) - 1 };
-  if ((m = w.match(new RegExp(`\\b(\\d{1,2}) de ${monthRe}`)))) return { kind: "yearly", day: Number(m[1]), month: monthOf(m[2]) };
+  // "15/3" (day/month). "13/13", "0/5" or a range like "18/20 hs" are not dates: the rest of the line still counts.
+  if ((m = w.match(/\b(\d{1,2})\/(\d{1,2})\b/))) {
+    const [day, month] = [Number(m[1]), Number(m[2]) - 1];
+    if (realDay(day, month)) return { kind: "yearly", day, month };
+  }
+  // "25 de mayo", and the first of the month as people write it: "1.º de mayo", "1° de mayo", "1ro de mayo".
+  if ((m = w.match(new RegExp(`\\b(\\d{1,2})(?:\\.?\\s?[º°o]|ro)? de ${monthRe}`)))) {
+    const [day, month] = [Number(m[1]), monthOf(m[2])];
+    if (realDay(day, month)) return { kind: "yearly", day, month };
+  }
   if ((m = w.match(new RegExp(`\\b(primera|segunda|tercera|cuarta|ultima) semana de ${monthRe}`))))
     return ORDINAL[m[1]] === -1
       ? { kind: "yearly", month: monthOf(m[2]), day: "last-week", span: 7 }
@@ -36,8 +47,14 @@ export function parseWhen(when: string): Rule | null {
   if ((m = w.match(new RegExp(`\\b(fin|fines|finales) de ${monthRe}`)))) return { kind: "yearly", month: monthOf(m[2]), day: "last-week", span: 7 };
   if ((m = w.match(new RegExp(`\\b(primer|primero|segundo|tercer|tercero|cuarto|ultimo) ${dayRe} (de cada mes|del mes|de mes)`))))
     return { kind: "monthly-weekday", nth: ORDINAL[m[1]], weekday: DAYS.indexOf(m[2]) };
-  if ((m = w.match(/\b(?:el )?(?:dia )?(\d{1,2}) (?:de cada mes|del mes|de mes)\b/)) || (m = w.match(/\bcada (?:dia )?(\d{1,2})\b/)))
-    return { kind: "monthly", day: Number(m[1]) };
+  // "el 1 de cada mes", "cada 10". "Cada 15 días" or "cada 2 semanas" is an interval, not a day of the month.
+  if (
+    (m = w.match(/\b(?:el )?(?:dia )?(\d{1,2}) (?:de cada mes|del mes|de mes)\b/)) ||
+    (m = w.match(/\bcada (?:dia )?(\d{1,2})\b(?!\s*(?:dias?|semanas?|mes(?:es)?|anos?|horas?|minutos?)\b)/))
+  ) {
+    const day = Number(m[1]);
+    return day >= 1 && day <= 31 ? { kind: "monthly", day } : null;
+  }
   if (/\b(fin|fines|final|finales) de (cada )?mes\b/.test(w)) return { kind: "monthly", day: "last" };
   if ((m = w.match(new RegExp(`\\b(?:todos los|cada|los) ${dayRe}s?\\b`)))) return { kind: "weekly", weekday: DAYS.indexOf(m[1]) };
   if ((m = w.match(new RegExp(`^(?:en |todo )?${monthRe}$`)))) return { kind: "yearly", month: monthOf(m[1]), day: 1, span: 31 };
@@ -91,7 +108,8 @@ export function nextDate(rule: Rule, today: Date): Date {
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 export function readMoment(line: string, today: Date): Moment {
-  const cut = line.indexOf(":");
+  // "cuándo: qué pasa", split at the first colon that is not inside a clock time ("los lunes 8:00: llega").
+  const cut = line.search(/:(?!\d)/);
   const when = (cut > 0 ? line.slice(0, cut) : line).trim();
   const what = (cut > 0 ? line.slice(cut + 1) : line).trim() || when;
   const rule = parseWhen(when);
@@ -101,11 +119,14 @@ export function readMoment(line: string, today: Date): Moment {
   return { line, when, what, next: iso(next), days: Math.round((next.getTime() - t.getTime()) / 86_400_000) };
 }
 
+// A moment line as typed or pasted: a list bullet ("-", "*", "•") goes, a leading number stays (it is the date:
+// "1.º de mayo", "25.5", "15/3").
+export const momentLine = (line: string) => line.replace(/^\s*[-*•]\s*/, "").trim();
+
 // Every moment, the nearest first; the ones without a date at the end, in their order.
 export function upcomingMoments(lines: readonly string[], today: Date): Moment[] {
-  return lines
-    .map((l) => l.trim())
-    .filter(Boolean)
+  // A line written twice is one moment.
+  return [...new Set(lines.map((l) => momentLine(l)).filter(Boolean))]
     .map((l) => readMoment(l, today))
     .map((m, i) => ({ m, i }))
     .sort((a, b) => (a.m.days ?? Infinity) - (b.m.days ?? Infinity) || a.i - b.i)
