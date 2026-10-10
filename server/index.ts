@@ -120,6 +120,7 @@ import {
 import { listTools } from "./tools.ts";
 import { AdsError } from "./ads.ts";
 import { checkErrorText } from "../shared/errors.ts";
+import { MAX_ZIP_TOTAL, exportProjectZip, importProjectZip } from "./projectZip.ts";
 import { adsRoutes } from "./adsRoutes.ts";
 import { MotionScriptInput } from "../shared/motionNote.ts";
 import type { MotionScript } from "../shared/motion.ts";
@@ -562,11 +563,12 @@ const LOOPBACK = /^(127\.|::1$|::ffff:127\.)/;
 const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/;
 const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/;
 // Only the app open on this computer: a loopback address, a localhost Host and Origin, and a JSON body.
-const onlyHere = (refusal: string) => async (c: Context, next: () => Promise<void>) => {
+// `body` is the one content type a non-GET request may carry (a JSON body by default; a .zip for the project import).
+const onlyHere = (refusal: string, body = "application/json") => async (c: Context, next: () => Promise<void>) => {
   const address = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress ?? "";
   const origin = c.req.header("origin");
-  const json = (c.req.header("content-type") ?? "").includes("application/json");
-  if (!LOOPBACK.test(address) || !LOCAL_HOST.test(c.req.header("host") ?? "") || (origin && !LOCAL_ORIGIN.test(origin)) || (c.req.method !== "GET" && !json)) {
+  const typed = (c.req.header("content-type") ?? "").includes(body);
+  if (!LOOPBACK.test(address) || !LOCAL_HOST.test(c.req.header("host") ?? "") || (origin && !LOCAL_ORIGIN.test(origin)) || (c.req.method !== "GET" && !typed)) {
     return c.json({ error: refusal }, 403);
   }
   await next();
@@ -590,6 +592,46 @@ app.put("/api/tools/demucs", async (c) => {
   await setEnv({ DEMUCS_BIN: bin ? checkDemucsBin(bin) : null });
   return c.json({ demucs: demucsStatus(true), ffmpeg: ffmpegAvailable() });
 });
+// "Exportar .zip" / "Importar .zip" (projectZip.ts): a whole project folder as one file. Only from the app on this
+// computer: the export hands out every file of a piece, and the import writes a new folder.
+app.use("/api/projects/:id/export", onlyHere("Los proyectos se exportan solo desde la app en esta compu."));
+app.get("/api/projects/:id/export", async (c) => {
+  const id = c.req.param("id");
+  const chunks = exportProjectZip(id);
+  // The first chunk is read here, so a missing project answers with its error instead of a broken download.
+  const first = await chunks.next();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      if (!first.done) controller.enqueue(new Uint8Array(first.value));
+    },
+    async pull(controller) {
+      try {
+        const next = await chunks.next();
+        if (next.done) controller.close();
+        else controller.enqueue(new Uint8Array(next.value));
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    async cancel() {
+      await chunks.return(undefined);
+    },
+  });
+  return c.body(stream, 200, {
+    "Content-Type": "application/zip",
+    "Content-Disposition": `attachment; filename="${id}.zip"`,
+    "Cache-Control": "no-store",
+  });
+});
+app.use("/api/projects/import", onlyHere("Los proyectos se importan solo desde la app en esta compu.", "application/zip"));
+app.post("/api/projects/import", async (c) => {
+  if (Number(c.req.header("content-length") ?? 0) > MAX_ZIP_TOTAL) return c.json({ error: "Ese .zip es demasiado grande para importarlo." }, 400);
+  const data = new Uint8Array(await c.req.arrayBuffer());
+  if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
+  if (data.length > MAX_ZIP_TOTAL) return c.json({ error: "Ese .zip es demasiado grande para importarlo." }, 400);
+  return c.json(await importProjectZip(data));
+});
+
 const HEX = /^#[0-9a-f]{6}$/i;
 app.post("/api/brand/from-web", async (c) => {
   const { url, series } = z

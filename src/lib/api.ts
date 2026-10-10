@@ -187,6 +187,14 @@ export const api = {
   saveProject: (id: string, state: Record<string, unknown>, markdown?: string) =>
     call<{ updatedAt: string }>(`/api/projects/${enc(id)}`, { state, markdown }, "PUT"),
   deleteProject: (id: string) => call<{ ok: true }>(`/api/projects/${enc(id)}`, undefined, "DELETE"),
+  // "Exportar .zip": a download link (the server streams the folder); "Importar .zip" always makes a new project.
+  exportProjectUrl: (id: string) => `/api/projects/${enc(id)}/export`,
+  importProject: async (zip: Blob) => {
+    const res = await fetch("/api/projects/import", { method: "POST", headers: { "Content-Type": "application/zip" }, body: zip });
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    return data as { id: string; files: number };
+  },
   uploadMedia: (id: string, index: number, kind: MediaKind, file: Blob, meta?: { name: string; duration: number }) =>
     upload<{ file: string }>(
       `/api/projects/${enc(id)}/media/${index}/${kind}${meta ? `?name=${enc(meta.name)}&duration=${meta.duration}` : ""}`,

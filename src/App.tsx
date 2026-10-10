@@ -1207,6 +1207,7 @@ export function App() {
               folder={status?.projectsDir ?? "proyectos"}
               onOpen={openProject}
               onDelete={removeProject}
+              onImported={() => refreshProjects()}
             />
           </section>
         )}
