@@ -85,6 +85,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - `iniciar.sh` avisa si está Demucs; no lo instala.
 
 - **Errores, carga y calendario (9 Oct 2026, ideas 53, 50 y 60):** los errores dicen qué campo faltó y qué le pasa; la primera pantalla baja la cuarta parte que antes (479 kB contra 2.000 kB); "Momentos del calendario" por serie, sugeridos en el brief y leídos por el menú y Publicidad.
+- **Explicativos, lo que quedaba (10 Oct 2026, idea 64):** lectura por letras, foco de a uno, títeres con envión y expresiones, cámaras de la IA, desenfoque en los cortes, CONCEPTO en los explicativos, personaje fijo por serie, nota del director, subtítulos palabra por palabra con .srt, corte por continuidad, plantillas Avisos, Flujo y Casilleros, mundo ilustrado y storyboard.
 - **Lo que se aprende de Kurzgesagt (9 Oct 2026, idea 63):** "Pasar a través" (la cámara se mete en la escena anterior y la nueva se abre desde adentro), cómo se mueve la marca (Firme, Suave, Elástica: cómo aterriza y si las imágenes respiran), "Antes / después" con un círculo que crece, y la IA que abre con la pregunta de quien mira y viaja de lo grande a lo chico.
 - **20 repos de motion design (9 Oct 2026, idea 62):** zona segura 9:16 para subtítulos, avisos y rótulos; "stat" que termina en el número escrito; cifras con fuente y [VERIFY] que frena; plantilla Contradicción; contraste de la marca; la IA que revisa mide más; música que deja lugar antes del producto y el logo; efectos en su golpe; render final que se frena sin la fuente y revisa el MP4 (arregló el último cuadro que se perdía); voz con su emoción; anuncios a un mismo volumen.
 
@@ -506,6 +507,43 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
 - **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
 
+### 64. Explicativos: lo que quedaba (10 Oct 2026) — **Construido (10 Oct 2026, "GO, Explicativos")**
+- **De dónde sale:** lo que quedó "para otro go" en las ideas 62 y 63, la parte de expresiones de la 33-A y el rótulo
+  de Concepto de la 31. Cada punto tiene su commit y sus pruebas.
+- **Construido:**
+  1. **Lectura que cuenta letras:** además de 0,3 s por palabra, 15 letras por segundo; gana la cuenta más exigente.
+     "Planificación automatizada" pasa de 0,8 s a 1,7 s. La IA que escribe y la que revisa usan la misma regla.
+  2. **Foco de a uno:** en "Rótulos" y "Paso a paso", cuando entra uno nuevo, los anteriores se tiñen hacia el fondo
+     (nunca por debajo de 3:1 de contraste). En Editar serie se ve cuánto bajan.
+  3. **Títeres con envión y cámaras de la IA:** antes de cada gesto, un amague chico para el otro lado (mínimo y sin
+     pasarse en tono seco). La IA elige la cámara de cada escena: quieta donde hay que leer, se acerca al producto o a
+     la pantalla, nunca el mismo movimiento tres veces seguidas. La que elegís a mano no se toca.
+  4. **Desenfoque en los cortes:** solo durante el empuje entre escenas y "Pasar a través", 8 subcuadros. El
+     subtítulo y el aviso de IA nunca se desenfocan. Viene prendido y se apaga en el estudio.
+  5. **CONCEPTO / SIMULACIÓN en los explicativos:** por escena, arriba a la derecha y dentro de la zona segura. Si la
+     IA o la revisión marcan que una escena muestra algo que no está en «Lo que existe hoy» y no tiene rótulo, el video
+     no se genera hasta ponerle el rótulo, cambiarla o tocar «Lo confirmo».
+  6. **Personaje fijo por serie:** "Personaje de los explicativos" en Editar serie. La IA lo usa en todas las escenas
+     de personaje y lo trae al menos una vez por pieza. Las muestras usan a Mica (IMAN) y a Mara (Máshogar).
+  7. **Títere con expresiones:** partes opcionales de la hoja: bocas A, O y E que siguen la voz (una décima de
+     segundo cada una, sin titilar), caras contenta, sorprendida y preocupada según la emoción de la frase, y el cuerpo
+     de 3/4 o de perfil cuando señala o presenta. Sin esas partes, el títere se mueve como antes.
+  8. **Nota del director:** "arreglá el gancho" y la IA cambia solo eso; lo demás queda igual, con tus ajustes, tus
+     cámaras y tus voces. Si cambió lo que se dice, la voz generada se saca; «Deshacer» la trae de vuelta.
+  9. **Subtítulos palabra por palabra y .srt:** la frase queda quieta y se marca la palabra que suena. Los tiempos
+     salen de escuchar la voz (whisper-1) o, sin clave, de lo que dura la voz y lo largo de cada palabra. Cada video
+     guarda su .srt al lado, y se puede bajar desde el estudio.
+  10. **Corte por continuidad:** si dos escenas seguidas muestran la misma imagen, esa imagen viaja de un lugar al
+      otro mientras lo demás cambia. Pasa solo, o se elige a mano como «Continuidad».
+  11. **Plantillas nuevas:** "Avisos" (notificaciones que llegan de a una), "Flujo" (un origen que se reparte a varios
+      lados) y "Casilleros" (cajas vacías que se van llenando escena por escena: el loop abierto a la vista).
+  12. **Mundo ilustrado:** negocio, calle, casa o escritorio, hechos con formas planas en tonos de la marca, en tres
+      capas que se mueven con la cámara. Los tonos se eligen midiendo el contraste y los detalles no van detrás de
+      las palabras. La IA elige el lugar.
+  13. **Storyboard del explicativo:** una viñeta por escena con el cuadro, lo que se dice, lo que suena, cómo entra y
+      la cámara. Se baja como .md y como una hoja .png.
+- **Probado en un render real** (muestra de IMAN, 9:16): 1221 de 1221 cuadros, -14,1 LUFS, con su .srt al lado.
+
 ### 63. Lo que se aprende de Kurzgesagt (9 Oct 2026) — **Construido 1 a 5 (9 Oct 2026, "Go")**
 - **De dónde sale:** te encanta Kurzgesagt. Tomamos su oficio, no su estética: ni su pájaro, ni su paleta, ni su nombre en una pieza, ni el brillo (el estudio lo prohíbe).
 - **Lo que hacen bien:**
@@ -520,7 +558,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   4. **La IA escribe así:** abre con la pregunta que ya se hace quien mira, viaja de lo grande a lo chico con "Pasar a través" una o dos veces por pieza, y usa el círculo cuando el cambio empieza en un lugar y se extiende.
   5. **Las piezas de muestra** (sin clave) usan el viaje (IMAN) y el círculo (Máshogar).
   - **Probado en un render real** (IMAN con la marca Elástica): la escena del producto se zambulle en su imagen, el número se abre desde adentro y termina en "3 cajas"; 546 de 546 cuadros, -14,1 LUFS.
-- **Para otro "go":**
+- **Para otro "go"** (**el mundo ilustrado y el personaje fijo se construyeron en la idea 64**):
   - **Un mundo ilustrado de la marca:** fondos de capas planas con profundidad (el local, los estantes, el barrio) en los colores de la marca, que se mueven con la cámara.
   - **Escenas metáfora:** una imagen simple que explica una idea (el pedido como una pila de cajas que se cae). Hacen falta imágenes del elenco hechas para eso.
   - **Un personaje fijo por serie para los explicativos,** simple y siempre igual, que vuelve en cada pieza (los títeres ya existen).
@@ -552,7 +590,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   10. **Voz con su emoción:** la voz generada dice cada línea con la emoción escrita en la historia o en la escena.
   11. **Anuncios a un mismo volumen:** cada pieza de Publicidad sale a -14 LUFS, así los cortes no saltan.
   12. **Oficio:** el tono decide cómo aterriza cada cosa (seco sin rebote, absurdo con más); el logo crece desde el 60 %, nunca desde cero; el cierre del explicativo retoma el gancho; una prueba vigila que el código de dibujo no lea relojes ni `Math.random`.
-- **Para otro "go"** (sirven, pero no ahora):
+- **Para otro "go"** (sirven, pero no ahora). **Construidos en la idea 64 todos menos "Entradas en la palabra":**
   - **Entradas en la palabra que las nombra** (3 repos): un rótulo entra cuando la voz lo dice. Hacen falta los tiempos de cada palabra (whisper-1), y choca con "los acentos en el beat": hay que decidir cuál manda.
   - **Desenfoque de movimiento solo en el empuje entre escenas** (4 repos): promediar 4 a 8 subcuadros durante el corte. Sigue siendo función pura de t, pero el render tarda más.
   - **Corte por continuidad:** si dos escenas muestran la misma pantalla o el mismo producto, que pase de una a otra en vez del empuje.
