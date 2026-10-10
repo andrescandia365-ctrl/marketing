@@ -15,8 +15,11 @@ import {
   disclosureAt,
   elementTimes,
   focusShare,
+  itemsOf,
   labelled,
+  noticeParts,
   pushOf,
+  slotsPlan,
   statCountText,
   timeScenes,
   typingSeconds,
@@ -130,7 +133,7 @@ export const landFor = (tone: MotionTone | undefined, motion: BrandMotion | unde
 
 // Templates whose main element holds words to read (a real screen, the typed field, the before/after labels, a logo
 // that may be a wordmark): it never breathes there.
-const STILL_MEDIA: readonly MotionTemplate[] = ["screen", "zoom", "type", "steps", "beforeAfter", "logo", "contradiction", "stat"];
+const STILL_MEDIA: readonly MotionTemplate[] = ["screen", "zoom", "type", "steps", "beforeAfter", "logo", "contradiction", "notify", "flow", "slots", "stat"];
 
 // Pictures breathe once they are in (soft: a slow drift; springy: a small breath and bob): a photo, the product, a
 // picture in a hook or under callouts, what a character holds. Text never moves while it is read, so nothing with
@@ -720,6 +723,111 @@ function drawCarried(f: Frame, asset: MotionAsset | undefined, b: CarryBox) {
   ctx.restore();
 }
 
+// ── Avisos, Flujo y Casilleros: where things go ────────────────────────────────────
+// Pure functions of the frame's size and the band the template may use (top to bottom, the 9:16 floor included), so
+// the drawing and the tests read the same boxes. On 9:16 everything stays left of the platform's buttons.
+export type Pt = { x: number; y: number };
+
+function listColumn(w: number, h: number): { left: number; right: number; unit: number; m: number } {
+  const unit = Math.min(w, h);
+  const m = unit * 0.08;
+  if (!isPhoneFrame(w, h)) return { left: m, right: w - m, unit, m };
+  const safe = safeRect(w, h);
+  return { left: Math.max(m, safe.x), right: Math.min(w - m, safe.x + safe.w), unit, m };
+}
+
+// "Avisos": one card per notification, one below the other from `top` (a new one never pushes the others), each as
+// tall as fits the band, up to a fifth of the short side. 16:9: the right half (the title holds the left).
+export function noticeLayout(n: number, w: number, h: number, top: number, bottom: number): Box[] {
+  if (n <= 0) return [];
+  const { left, right, unit } = listColumn(w, h);
+  const vertical = h > w;
+  const x = vertical ? left : w * 0.46;
+  const gap = unit * 0.03;
+  const ch = Math.max(unit * 0.08, Math.min(unit * 0.19, (bottom - top - gap * (n - 1)) / n));
+  return Array.from({ length: n }, (_, i) => ({ x, y: top + i * (ch + gap), w: right - x, h: ch }));
+}
+
+// "Flujo": the source and where it goes. 16:9: the source on the left, the places in a column on the right, each line
+// an elbow through the middle. 9:16: the source across the top, a trunk down its left side and a branch to each place.
+export function flowLayout(n: number, w: number, h: number, top: number, bottom: number): { source: Box; places: Box[]; paths: Pt[][] } {
+  const { left, right, unit, m } = listColumn(w, h);
+  if (w >= h) {
+    const sh = unit * 0.17;
+    const mid = (top + bottom) / 2;
+    const source = { x: m, y: mid - sh / 2, w: w * 0.28, h: sh };
+    const px = w * 0.56;
+    const gap = unit * 0.04;
+    const ph = n ? Math.max(unit * 0.06, Math.min(unit * 0.12, (bottom - top - gap * (n - 1)) / n)) : 0;
+    const y0 = mid - (n * ph + (n - 1) * gap) / 2;
+    const places = Array.from({ length: n }, (_, i) => ({ x: px, y: y0 + i * (ph + gap), w: right - px, h: ph }));
+    const sx = source.x + source.w;
+    const mx = (sx + px) / 2;
+    const paths = places.map((p) => [
+      { x: sx, y: mid },
+      { x: mx, y: mid },
+      { x: mx, y: p.y + p.h / 2 },
+      { x: px, y: p.y + p.h / 2 },
+    ]);
+    return { source, places, paths };
+  }
+  const source = { x: left, y: top, w: right - left, h: unit * 0.15 };
+  const trunk = left + unit * 0.07;
+  const px = left + unit * 0.17;
+  const from = source.y + source.h + unit * 0.07;
+  const gap = unit * 0.035;
+  const ph = n ? Math.max(unit * 0.06, Math.min(unit * 0.12, (bottom - from - gap * (n - 1)) / n)) : 0;
+  const places = Array.from({ length: n }, (_, i) => ({ x: px, y: from + i * (ph + gap), w: right - px, h: ph }));
+  const paths = places.map((p) => [
+    { x: trunk, y: source.y + source.h },
+    { x: trunk, y: p.y + p.h / 2 },
+    { x: px, y: p.y + p.h / 2 },
+  ]);
+  return { source, places, paths };
+}
+
+// "Casilleros": the boxes, with `label` of room under each for its name. 16:9: one row from the left margin. 9:16: two
+// columns (one box alone), as many rows as it takes, shorter when the band is short.
+export function slotsLayout(n: number, w: number, h: number, top: number, bottom: number): { boxes: Box[]; label: number } {
+  const { left, right, unit } = listColumn(w, h);
+  const label = unit * 0.1;
+  const gap = unit * 0.04;
+  if (n <= 0) return { boxes: [], label };
+  if (w >= h) {
+    const bw = Math.min(unit * 0.32, (right - left - gap * (n - 1)) / n);
+    const bh = Math.max(unit * 0.06, Math.min(bw * 0.7, bottom - top - label));
+    const y = top + Math.max(0, (bottom - top - bh - label) / 2);
+    return { boxes: Array.from({ length: n }, (_, i) => ({ x: left + i * (bw + gap), y, w: bw, h: bh })), label };
+  }
+  const cols = n === 1 ? 1 : 2;
+  const rows = Math.ceil(n / cols);
+  const bw = Math.min(unit * 0.4, (right - left - gap * (cols - 1)) / cols);
+  const bh = Math.max(unit * 0.06, Math.min(bw * 0.6, (bottom - top - gap * (rows - 1)) / rows - label));
+  const boxes = Array.from({ length: n }, (_, i) => ({ x: left + (i % cols) * (bw + gap), y: top + Math.floor(i / cols) * (bh + label + gap), w: bw, h: bh }));
+  return { boxes, label };
+}
+
+// The first part p (0 to 1) of a line through `points`, by length: a line that draws itself in.
+export function partialPath(points: Pt[], p: number): Pt[] {
+  if (points.length < 2) return points.slice();
+  const lengths = points.slice(1).map((q, i) => Math.hypot(q.x - points[i].x, q.y - points[i].y));
+  let left = Math.max(0, Math.min(1, p)) * lengths.reduce((a, b) => a + b, 0);
+  const out = [points[0]];
+  for (let i = 0; i < lengths.length; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    if (left >= lengths[i]) {
+      out.push(b);
+      left -= lengths[i];
+      continue;
+    }
+    const k = lengths[i] > 0 ? left / lengths[i] : 0;
+    if (k > 0) out.push({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k });
+    break;
+  }
+  return out;
+}
+
 // ── Templates ───────────────────────────────────────────────────────────────────
 function drawScene(f: Frame, s: TimedScene, lt: number) {
   const { ctx, w, h, unit, vertical, world } = f;
@@ -1178,6 +1286,253 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       });
       break;
     }
+    case "notify": {
+      // "Avisos": the notifications arrive one by one, each card below the last (nothing already there moves), and
+      // only the newest is at full strength ("Foco de a uno"). 16:9: the title on the left, the cards on the right.
+      const list = itemsOf(s);
+      const size = titleSize * 0.85;
+      const tMax = vertical ? (phone ? safe.x + safe.w - m : w - m * 2) : w * 0.34;
+      const ty = topSafe(vertical ? h * 0.15 : h * 0.36, size);
+      const hTitle = title(m, ty, size, tMax);
+      const tb = text(m, ty + hTitle + unit * 0.01, unit * 0.04, tMax, outCubic(span(lt, at("text"), 0.5)));
+      const below = s.text.trim() ? tb.y + tb.h : s.title.trim() ? ty + hTitle - size * 0.7 : 0;
+      const top = vertical ? Math.max(h * 0.28, below + unit * 0.06) : Math.max(h * 0.16, labelled(s) ? labelFloor(w, h) : 0);
+      const cards = noticeLayout(list.length, w, h, top, phone ? floor - unit * 0.02 : h * 0.9);
+      list.forEach((item, i) => {
+        const key = `item${i}`;
+        if (lt < at(key)) return;
+        const q = land(span(lt, at(key), 0.5));
+        const c = cards[i];
+        const look = focus(f, s, key, lt);
+        const { title: head, body } = noticeParts(item);
+        put(key, c.x, c.y, () => {
+          // It drops in from just above its place, quickly opaque (a card, not a fade).
+          ctx.globalAlpha *= clamp01(span(lt, at(key), 0.2));
+          ctx.translate(0, -(1 - q) * unit * 0.05);
+          ctx.fillStyle = hexA(world.brand.text, 0.09);
+          roundRect(ctx, c.x, c.y, c.w, c.h, Math.min(unit * 0.03, c.h * 0.2));
+          ctx.fill();
+          // The app's badge: the accent, with the logo in it when the brand has one.
+          const b = c.h * 0.36;
+          const bx = c.x + c.h * 0.16;
+          const by = c.y + c.h * 0.16;
+          ctx.fillStyle = look.accent;
+          roundRect(ctx, bx, by, b, b, b * 0.28);
+          ctx.fill();
+          if (world.logo) drawImage(f, world.logo, bx + b / 2, by + b / 2, b * 0.72, b * 0.72, "");
+          const tx = bx + b + c.h * 0.14;
+          const room = Math.max(unit * 0.05, c.x + c.w - c.h * 0.14 - tx);
+          let ts = c.h * 0.19;
+          ctx.font = ui(f, ts, 700);
+          const tw = ctx.measureText(head).width;
+          if (tw > room) ts *= Math.max(0.6, room / tw);
+          ctx.font = ui(f, ts, 700);
+          ctx.fillStyle = look.text;
+          ctx.fillText(head, tx, by + ts * 0.85);
+          let bs = c.h * 0.16;
+          ctx.font = ui(f, bs, 500);
+          let lines = wrap(ctx, body, room);
+          while (lines.length > 2 && bs > c.h * 0.1) {
+            bs *= 0.9;
+            ctx.font = ui(f, bs, 500);
+            lines = wrap(ctx, body, room);
+          }
+          lines.forEach((l, k) => ctx.fillText(l, tx, by + ts * 0.85 + bs * 1.35 * (k + 1)));
+          return c;
+        });
+      });
+      break;
+    }
+    case "flow": {
+      // "Flujo": the source (the title, with its picture), then a line draws to each place in turn and its label
+      // arrives as the line gets there; the earlier lines and places step down for the newest ("Foco de a uno").
+      const list = itemsOf(s);
+      const tMax = vertical ? (phone ? safe.x + safe.w - m : w - m * 2) : w - m * 2;
+      const ty = topSafe(vertical ? h * 0.15 : h * 0.16, unit * 0.045);
+      const tb = text(m, ty, unit * 0.045, tMax, outCubic(span(lt, at("text"), 0.5)));
+      const top = Math.max(vertical ? h * 0.22 : h * 0.26, s.text.trim() ? tb.y + tb.h + unit * 0.05 : 0, labelled(s) ? labelFloor(w, h) : 0);
+      const L = flowLayout(list.length, w, h, top, phone ? floor - unit * 0.02 : h - m * 0.8);
+      list.forEach((_, i) => {
+        const key = `item${i}`;
+        if (lt < at(key)) return;
+        const g = outCubic(span(lt, at(key), 0.4));
+        const look = focus(f, s, key, lt);
+        // A place moved by hand takes its line's last bend and end with it.
+        const { dx, dy } = offset(key);
+        const path = L.paths[i].map((p, k, all) => (k === all.length - 1 ? { x: p.x + dx, y: p.y + dy } : k === all.length - 2 ? { x: p.x, y: p.y + dy } : p));
+        const drawn = partialPath(path, g);
+        ctx.save();
+        ctx.strokeStyle = look.accent;
+        ctx.lineWidth = unit * 0.006;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        drawn.forEach((p, k) => (k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+        ctx.stroke();
+        const tip = drawn[drawn.length - 1];
+        ctx.fillStyle = look.accent;
+        ctx.beginPath();
+        ctx.arc(tip.x, tip.y, unit * 0.011, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+      if (s.title.trim() || asset) {
+        const src = L.source;
+        put("title", src.x + src.w / 2, src.y + src.h / 2, () => {
+          const q = land(span(lt, at("title"), 0.45));
+          ctx.globalAlpha *= clamp01(span(lt, at("title"), 0.2));
+          ctx.translate(0, (1 - q) * unit * 0.05);
+          ctx.fillStyle = world.brand.accent;
+          roundRect(ctx, src.x, src.y, src.w, src.h, src.h * 0.3);
+          ctx.fill();
+          let tx = src.x + src.h * 0.3;
+          if (s.asset) {
+            const side = src.h * 0.72;
+            ctx.save();
+            roundRect(ctx, tx - src.h * 0.12, src.y + (src.h - side) / 2, side, side, side * 0.2);
+            ctx.clip();
+            drawImage(f, asset, tx - src.h * 0.12 + side / 2, src.y + src.h / 2, side, side, "");
+            ctx.restore();
+            tx += side;
+          }
+          const room = src.x + src.w - src.h * 0.3 - tx;
+          let size = src.h * 0.4;
+          ctx.font = display(f, size);
+          const tw = ctx.measureText(s.title).width;
+          if (tw > room) size *= Math.max(0.45, room / Math.max(1, tw));
+          ctx.font = display(f, size);
+          ctx.fillStyle = world.brand.bg;
+          ctx.textBaseline = "middle";
+          ctx.fillText(s.title, tx, src.y + src.h / 2);
+          ctx.textBaseline = "alphabetic";
+          return src;
+        });
+      }
+      list.forEach((item, i) => {
+        const key = `item${i}`;
+        // The label arrives as its line reaches it, and is fully in when the line's entrance is done.
+        const arrive = at(key) + 0.25;
+        if (lt < arrive) return;
+        const q = land(span(lt, arrive, 0.25));
+        const look = focus(f, s, key, lt);
+        const b = L.places[i];
+        put(key, b.x, b.y + b.h / 2, () => {
+          ctx.globalAlpha *= clamp01(span(lt, arrive, 0.12));
+          ctx.translate(-(1 - q) * unit * 0.03, 0);
+          ctx.fillStyle = hexA(world.brand.text, 0.09);
+          roundRect(ctx, b.x, b.y, b.w, b.h, b.h * 0.3);
+          ctx.fill();
+          const room = b.w - b.h * 0.6;
+          let size = b.h * 0.38;
+          ctx.font = ui(f, size, 600);
+          const tw = ctx.measureText(item).width;
+          if (tw > room) size *= Math.max(0.5, room / Math.max(1, tw));
+          ctx.font = ui(f, size, 600);
+          ctx.fillStyle = look.text;
+          ctx.textBaseline = "middle";
+          ctx.fillText(item, b.x + b.h * 0.3, b.y + b.h / 2);
+          ctx.textBaseline = "alphabetic";
+          return b;
+        });
+      });
+      break;
+    }
+    case "slots": {
+      // "Casilleros": the open loop on screen. The scene that names the boxes brings them in one by one, empty; each
+      // later slots scene shows the row as it stands (the boxes filled before already filled) and fills the next one.
+      const row = s.slots ?? slotsPlan([s], 0)!;
+      const names = row.naming ? itemsOf(s) : row.names;
+      const size = titleSize * 0.85;
+      const tMax = vertical ? (phone ? safe.x + safe.w - m : w - m * 2) : w - m * 2;
+      const ty = topSafe(vertical ? h * 0.16 : h * 0.2, size);
+      const hTitle = title(m, ty, size, tMax);
+      const tb = text(m, ty + hTitle + unit * 0.01, unit * 0.042, tMax, outCubic(span(lt, at("text"), 0.5)));
+      const below = s.text.trim() ? tb.y + tb.h : s.title.trim() ? ty + hTitle - size * 0.7 : 0;
+      const top = Math.max(vertical ? h * 0.32 : h * 0.36, below + unit * 0.07);
+      const L = slotsLayout(names.length, w, h, top, phone ? floor - unit * 0.02 : h - m * 0.6);
+      const nameSize = unit * (vertical ? 0.038 : 0.034);
+      // One box: its dashed outline, the accent filling it from the bottom, the check, and its name under it.
+      const box = (i: number, fill: number, check: number, colour: string) => {
+        const b = L.boxes[i];
+        const r = Math.min(unit * 0.025, b.h * 0.2);
+        ctx.save();
+        ctx.setLineDash([unit * 0.018, unit * 0.012]);
+        ctx.lineWidth = unit * 0.005;
+        ctx.strokeStyle = hexA(colour, 0.6);
+        roundRect(ctx, b.x, b.y, b.w, b.h, r);
+        ctx.stroke();
+        ctx.restore();
+        if (fill > 0) {
+          ctx.save();
+          roundRect(ctx, b.x, b.y, b.w, b.h, r);
+          ctx.clip();
+          ctx.fillStyle = world.brand.accent;
+          ctx.fillRect(b.x, b.y + b.h * (1 - clamp01(fill)), b.w, b.h * clamp01(fill));
+          ctx.restore();
+        }
+        if (check > 0) {
+          const k = Math.min(b.w, b.h) * 0.5;
+          const cx = b.x + b.w / 2;
+          const cy = b.y + b.h / 2;
+          const mark = partialPath(
+            [
+              { x: cx - k * 0.5, y: cy },
+              { x: cx - k * 0.15, y: cy + k * 0.35 },
+              { x: cx + k * 0.55, y: cy - k * 0.35 },
+            ],
+            check,
+          );
+          ctx.save();
+          ctx.strokeStyle = world.brand.bg;
+          ctx.lineWidth = k * 0.16;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.beginPath();
+          mark.forEach((p, n) => (n ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+          ctx.stroke();
+          ctx.restore();
+        }
+        let ns = nameSize;
+        ctx.font = ui(f, ns, 600);
+        const widest = Math.max(1, ...names[i].split(/\s+/).map((word) => ctx.measureText(word).width));
+        if (widest > b.w) ns *= Math.max(0.6, b.w / widest);
+        ctx.font = ui(f, ns, 600);
+        ctx.fillStyle = colour;
+        wrap(ctx, names[i], b.w)
+          .slice(0, 2)
+          .forEach((l, n) => ctx.fillText(l, b.x, b.y + b.h + ns * 1.25 * (n + 1)));
+        return { x: b.x, y: b.y, w: b.w, h: b.h + L.label };
+      };
+      if (row.naming) {
+        names.forEach((_, i) => {
+          const key = `item${i}`;
+          if (lt < at(key)) return;
+          const q = land(span(lt, at(key), 0.5));
+          const look = focus(f, s, key, lt);
+          const b = L.boxes[i];
+          put(key, b.x + b.w / 2, b.y + b.h / 2, () => {
+            ctx.globalAlpha *= clamp01(span(lt, at(key), 0.2));
+            ctx.translate(0, (1 - q) * unit * 0.04);
+            return box(i, 0, 0, look.text);
+          });
+        });
+      } else if (names.length) {
+        const first = L.boxes[0];
+        const last = L.boxes[L.boxes.length - 1];
+        const all = { x: first.x, y: first.y, w: Math.max(...L.boxes.map((b) => b.x + b.w)) - first.x, h: last.y + last.h + L.label - first.y };
+        put("media", all.x + all.w / 2, all.y + all.h / 2, () => {
+          // The row is there with the cut; the box this scene fills fills, then gets its check.
+          const fillAt = at("fill");
+          names.forEach((_, i) => {
+            const fill = i < row.filled ? 1 : i === row.fills ? outCubic(span(lt, fillAt, 0.45)) : 0;
+            const check = i < row.filled ? 1 : i === row.fills ? outCubic(span(lt, fillAt + 0.3, 0.3)) : 0;
+            box(i, fill, check, world.brand.text);
+          });
+          return all;
+        });
+      }
+      break;
+    }
     case "product": {
       const p = enter("media", 0.7);
       const wobble = productWobble(world.seed, s.index, f.t, unit);
@@ -1314,12 +1669,15 @@ export function anchorOf(scene: TimedScene, w: number, h: number): { x: number; 
     steps: has && !vertical ? [0.76, 0.55] : [0.3, vertical ? 0.42 : 0.45],
     beforeAfter: vertical ? [0.5, 0.48] : [0.5, 0.54],
     contradiction: vertical ? [0.32, 0.56] : [0.3, 0.64],
+    notify: vertical ? [0.5, 0.5] : [0.69, 0.45],
+    flow: vertical ? [0.5, 0.26] : [0.2, 0.56],
+    slots: vertical ? [0.45, 0.48] : [0.5, 0.55],
     product: vertical ? [0.5, 0.47] : [0.5, 0.55],
     stat: vertical ? [0.4, 0.45] : [0.4, 0.48],
     logo: vertical ? [0.5, 0.42] : [0.5, 0.36],
   };
   const [fx, fy] = P[scene.template];
-  const key = scene.template === "stat" ? "title" : scene.template === "contradiction" ? "item1" : "media";
+  const key = scene.template === "stat" || scene.template === "flow" ? "title" : scene.template === "contradiction" ? "item1" : "media";
   const spot = vertical ? scene.tweaks?.[key]?.v : scene.tweaks?.[key]?.h;
   const x = w * fx + (spot?.dx ?? 0) * unit;
   const y = h * fy + (spot?.dy ?? 0) * unit;

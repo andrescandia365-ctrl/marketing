@@ -9,6 +9,7 @@ import {
   STEP_DOWN_OVER,
   cutPush,
   focusShare,
+  itemsOf,
   beyondNow,
   labelled,
   pushOf,
@@ -19,6 +20,7 @@ import {
   settledAt,
   timeScenes,
   type MotionScript,
+  type TimedScene,
 } from "../../shared/motion.ts";
 import { CONTRAST_ACCENT, CONTRAST_TEXT, STEP_DOWN_CONTRAST, brandContrast, stepDownContrast, type Brand } from "../../shared/series.ts";
 import { OVERLAP, SAFE_BAND_LABEL, overlapShare, safeBands, type SafeBand } from "../../shared/safeZone.ts";
@@ -147,6 +149,22 @@ export function sheetJpeg(canvas: HTMLCanvasElement): string {
 
 const nearestGap = (t: number, beats: number[]) => beats.reduce((best, b) => Math.min(best, Math.abs(b - t)), Infinity);
 
+// "Casilleros", said up front: which scene names the boxes and which fills which, so an empty dashed box is read as
+// the open loop it is. Null when the piece has no slots scene.
+export function slotsFacts(timed: TimedScene[]): string | null {
+  const rows = timed.filter((s) => s.slots);
+  if (!rows.length) return null;
+  const said = rows.map((s) => {
+    const r = s.slots!;
+    if (r.naming) return `scene ${s.index + 1} names ${r.names.length} empty boxes (${r.names.map((n) => `"${n}"`).join(", ")})`;
+    if (r.fills !== null) return `scene ${s.index + 1} fills box ${r.fills + 1} ("${r.names[r.fills]}"), ${r.filled} already filled`;
+    return `scene ${s.index + 1} shows the row with ${r.filled} of ${r.names.length} filled and nothing left to fill`;
+  });
+  const end = rows.at(-1)!.slots!;
+  const filledAtEnd = end.naming ? 0 : end.filled + (end.fills !== null ? 1 : 0);
+  return `Open loop boxes (slots, on purpose): ${said.join("; ")}. A box filled in an earlier scene is already filled from the cut, and an empty dashed box is a promise still open, not a fault. At the end ${filledAtEnd} of ${end.names.length} are filled.`;
+}
+
 // What the app measured, in English for the reviewer.
 export function measureFacts(
   script: MotionScript,
@@ -243,7 +261,7 @@ export function measureFacts(
       `Brand contrast (WCAG): text on background ${c.text.toFixed(1)}:1 (needs ${CONTRAST_TEXT}:1), accent on background ${c.accent.toFixed(1)}:1 (needs ${CONTRAST_ACCENT}:1 for big words and numbers).`,
     );
     // "Foco de a uno": earlier labels are dimmer on the sheet on purpose; say how far, so it is not read as a fault.
-    const focused = timed.filter((s) => STEP_DOWN_OVER[s.template] !== undefined && s.items.filter((i) => i.trim()).length > 1);
+    const focused = timed.filter((s) => STEP_DOWN_OVER[s.template] !== undefined && itemsOf(s).filter((i) => i.trim()).length > 1);
     if (focused.length) {
       const d = stepDownContrast(brand);
       lines.push(
@@ -251,6 +269,8 @@ export function measureFacts(
       );
     }
   }
+  const loop = slotsFacts(timed);
+  if (loop) lines.push(loop);
   // CONCEPTO / SIMULACIÓN: what the frames show on purpose, and what was flagged as beyond "Lo que existe hoy".
   const tagged = timed.filter((s) => labelled(s));
   const flagged = timed.filter((s) => beyondNow(s) && !labelled(s));

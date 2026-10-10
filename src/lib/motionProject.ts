@@ -272,12 +272,17 @@ export function soundHits(snapped: MotionScript): SoundPlan["hits"] {
     const within = (r: number) => r < s.seconds - 0.05;
     switch (s.template) {
       case "callouts":
-      case "steps": {
+      case "steps":
+      case "notify":
+      case "flow":
+      case "slots": {
         const items = sceneElements(s)
           .filter((e) => e.lane === "items" && within(e.at))
           .sort((a, b) => a.at - b.at);
         if (items.length) hit(s.start + items[0].at, "pop");
         if (items.length > 1) hit(s.start + items[items.length - 1].at, "pop", 1);
+        // "Casilleros": the box this scene fills is the action itself, a tap in every tone, as its fill starts.
+        if (has("fill") && within(T.fill)) hit(s.start + T.fill, "tap");
         break;
       }
       case "product":

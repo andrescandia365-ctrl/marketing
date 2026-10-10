@@ -17,6 +17,9 @@ import {
   MOTION_MOODS,
   MOTION_MOOD_LABEL,
   MOTION_TEMPLATES,
+  ITEMS_HINT,
+  TITLE_HINT,
+  slotsNote,
   MOTION_TEMPLATE_LABEL,
   MOTION_TONES,
   MOTION_TONE_LABEL,
@@ -1825,16 +1828,17 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                     </span>
                   </div>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    <input className={`${inputClass} py-1.5`} value={raw.title} placeholder="Título (hasta 6 palabras)" aria-label="Título" onChange={(e) => updateScene(s.id, { title: e.target.value })} />
+                    <input className={`${inputClass} py-1.5`} value={raw.title} placeholder={TITLE_HINT[raw.template] ?? "Título (hasta 6 palabras)"} aria-label="Título" onChange={(e) => updateScene(s.id, { title: e.target.value })} />
                     <input className={`${inputClass} py-1.5`} value={raw.text} placeholder="Texto de apoyo" aria-label="Texto" onChange={(e) => updateScene(s.id, { text: e.target.value })} />
                     <textarea
                       className={`${inputClass} py-1.5 text-xs`}
                       rows={2}
                       value={raw.items.join("\n")}
-                      placeholder="Rótulos, pasos, precio o llamado (uno por línea)"
+                      placeholder={ITEMS_HINT[raw.template] ?? "Rótulos, pasos, precio o llamado (uno por línea)"}
                       aria-label="Elementos"
                       onChange={(e) => updateScene(s.id, { items: e.target.value.split("\n").slice(0, 5) })}
                     />
+                    {raw.template === "slots" && <p className="text-[11px] text-muted sm:col-span-2">{slotsNote(s.slots)}</p>}
                     <div className="space-y-1.5">
                       <select className={`${inputClass} py-1 text-xs`} value={raw.asset} aria-label="Imagen" onChange={(e) => updateScene(s.id, { asset: e.target.value })}>
                         <option value="">Sin imagen</option>

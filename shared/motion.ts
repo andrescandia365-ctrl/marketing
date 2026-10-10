@@ -5,7 +5,7 @@ import type { HeardWordTimes } from "./subtitles.ts";
 import { z } from "zod";
 import type { QualityState } from "./motionQuality.ts";
 
-export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "contradiction", "product", "stat", "logo"] as const;
+export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "contradiction", "notify", "flow", "slots", "product", "stat", "logo"] as const;
 export type MotionTemplate = (typeof MOTION_TEMPLATES)[number];
 export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   hook: "Gancho: palabras que entran",
@@ -17,6 +17,9 @@ export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   steps: "Paso a paso",
   beforeAfter: "Antes / después",
   contradiction: "Contradicción: lo que dicen vs. lo que pasa",
+  notify: "Avisos: notificaciones que llegan",
+  flow: "Flujo: de un origen a varios lados",
+  slots: "Casilleros: se llenan escena a escena",
   product: "Producto con precio u oferta",
   stat: "Número grande",
   logo: "Cierre con logo",
@@ -91,12 +94,12 @@ const SceneWire = z.object({
   template: z
     .string()
     .describe(
-      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), type (the product in use: a field where the title is typed letter by letter with key sounds, a button is tapped, then the text appears as the result), character (a cast character marked as a 3D puppet talks the voice line with its mouth moving and makes a gesture; it can point at or present a real screen or the product given in assetB), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), contradiction (the Contradiction move: what the system, the label or the habit says, then what really happens, and the first gets struck through; no image needed), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene).",
+      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), type (the product in use: a field where the title is typed letter by letter with key sounds, a button is tapped, then the text appears as the result), character (a cast character marked as a 3D puppet talks the voice line with its mouth moving and makes a gesture; it can point at or present a real screen or the product given in assetB), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), contradiction (the Contradiction move: what the system, the label or the habit says, then what really happens, and the first gets struck through; no image needed), notify (notifications arrive one by one as cards, each with a short title and body: the messages, alerts or reminders the person gets), flow (one source fans out to several places: the lines draw in one by one, each ending in its label; the title is the source), slots (the open loop on screen: a row of empty boxes named in the first slots scene; each later slots scene fills the next box, and the ones filled before stay filled), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene).",
     ),
   seconds: z.number().describe("2 to 8 seconds; long enough for the voice line at about 2.5 words per second."),
-  title: z.string().describe("Up to 6 words, readable on a phone. For stat: starts with the number (e.g. '3 minutos')."),
+  title: z.string().describe("Up to 6 words, readable on a phone. For stat: starts with the number (e.g. '3 minutos'). For flow: the source, up to 3 words."),
   text: z.string().describe("Up to 12 words of supporting text, or empty."),
-  items: z.array(z.string()).describe("callouts and steps: up to 4 labels of up to 5 words. beforeAfter: [before label, after label]. contradiction: [what is said or shown, what really happens], up to 7 words each, concrete (the number, the object, the hour). product: [price or offer]. logo: [call to action]. type: [the field's placeholder, the button's label]. Else empty."),
+  items: z.array(z.string()).describe("callouts and steps: up to 4 labels of up to 5 words. beforeAfter: [before label, after label]. contradiction: [what is said or shown, what really happens], up to 7 words each, concrete (the number, the object, the hour). notify: up to 3 notifications, each 'title | body' (title up to 3 words, body up to 6). flow: up to 4 places the source goes to, up to 3 words each. slots: only in the first slots scene, up to 5 box names of up to 3 words; later slots scenes leave items empty (each fills the next box). product: [price or offer]. logo: [call to action]. type: [the field's placeholder, the button's label]. Else empty."),
   asset: z.string().describe("The id of a cast member to show (a real screen, the product, a character, a place), 'layer:N' for an uploaded layer, or empty."),
   assetB: z.string().describe("beforeAfter: the 'after' image id. character: what it points at or presents (a real screen or the product id), or empty. Else empty."),
   gesture: z.string().describe("character only: presenta, saluda, señala, festeja or se sorprende. Else empty."),
@@ -316,7 +319,7 @@ export function pickCamera(value: string | undefined): MotionCamera | undefined 
 
 // Scenes that hold when the camera is the writer's: mostly words to read (nothing moves while it is read, beyond the
 // slow moves the camera has always made when the person picks one), and zoom, which makes its own move.
-const HOLD_SCENES: readonly MotionTemplate[] = ["zoom", "type", "steps", "contradiction", "stat", "logo"];
+const HOLD_SCENES: readonly MotionTemplate[] = ["zoom", "type", "steps", "contradiction", "notify", "flow", "slots", "stat", "logo"];
 // Where the writer's camera pushes in when it gives none: the product and the real screen.
 const PUSH_IN: readonly MotionTemplate[] = ["product", "screen"];
 // Another move when the same one would come three scenes in a row, in order of preference.
@@ -369,8 +372,103 @@ const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, N
 let nextId = 0;
 export const sceneId = () => `s${Date.now().toString(36)}${(nextId++).toString(36)}`;
 
+// A new scene of a template. Avisos and Flujo hold a few texts in a row, so they start longer.
+const BLANK_SECONDS: Partial<Record<MotionTemplate, number>> = { notify: 5, flow: 4.5, slots: 3.5 };
 export function blankScene(template: MotionTemplate = "screen"): MotionScene {
-  return { id: sceneId(), template, seconds: 3, title: "", text: "", items: [], asset: "", assetB: "", gesture: "present", move: "walk", camera: "hold", focusX: 0.5, focusY: 0.5, zoom: 2, voice: "", emotion: "" };
+  return { id: sceneId(), template, seconds: BLANK_SECONDS[template] ?? 3, title: "", text: "", items: [], asset: "", assetB: "", gesture: "present", move: "walk", camera: "hold", focusX: 0.5, focusY: 0.5, zoom: 2, voice: "", emotion: "" };
+}
+
+// The writer's template name, tolerant: the exact name first, then the new templates' other names (English or
+// Spanish), then any name it contains; else a screen.
+export function pickTemplate(value: string): MotionTemplate {
+  const v = value.toLowerCase();
+  const exact = MOTION_TEMPLATES.find((t) => v.replace(/[^a-z]/g, "") === t.toLowerCase());
+  if (exact) return exact;
+  if (/notif|aviso|alert/.test(v)) return "notify";
+  if (/slot|casill|checkbox|boxes/.test(v)) return "slots";
+  if (/flow|flujo|fan.?out|channel|canal/.test(v)) return "flow";
+  return MOTION_TEMPLATES.find((t) => v.includes(t.toLowerCase())) ?? "screen";
+}
+
+// ── Avisos, Flujo y Casilleros ──────────────────────────────────────────────────────────
+// Their items are a list to arrive one by one: the empty lines are dropped and the list is cut at what the template
+// draws (three notifications, four places, five boxes), so the drawing, the timeline and every check read the same.
+export const LIST_MAX: Partial<Record<MotionTemplate, number>> = { notify: 3, flow: 4, slots: 5 };
+export function itemsOf(scene: Pick<MotionScene, "template" | "items">): string[] {
+  const max = LIST_MAX[scene.template];
+  return max === undefined ? scene.items : scene.items.map((i) => i.trim()).filter(Boolean).slice(0, max);
+}
+
+// A notification written "title | body" (or "title: body"; a time like 6:00 is no split). No mark: all title.
+export function noticeParts(item: string): { title: string; body: string } {
+  const bar = item.indexOf("|");
+  const colon = item.search(/:\s/);
+  const at = bar >= 0 ? bar : colon;
+  if (at < 0) return { title: item.trim(), body: "" };
+  return { title: item.slice(0, at).trim(), body: item.slice(at + 1).trim() };
+}
+// What a notification says, as one line to read.
+export const noticeText = (item: string) => {
+  const { title, body } = noticeParts(item);
+  return [title, body].filter(Boolean).join(" ");
+};
+
+// What the studio's fields ask for in the new templates (the others keep the general words).
+export const ITEMS_HINT: Partial<Record<MotionTemplate, string>> = {
+  notify: "Un aviso por línea: título | lo que dice (hasta 3)",
+  flow: "Un destino por línea (hasta 4)",
+  slots: "Un casillero por línea (hasta 5). Dejalo vacío para llenar el siguiente",
+};
+export const TITLE_HINT: Partial<Record<MotionTemplate, string>> = { flow: "De dónde sale (el origen)" };
+
+// What a "Casilleros" scene does, in the studio's words.
+export function slotsNote(row: SlotsState | null | undefined): string {
+  if (!row) return "";
+  if (row.naming) return `Nombra ${row.names.length} casilleros vacíos. Las escenas de casilleros que siguen, sin elementos, los van llenando.`;
+  if (!row.names.length) return "Todavía no hay casilleros con nombre: escribilos en la primera escena de casilleros.";
+  if (row.fills === null) return `Ya están todos llenos (${row.names.length} de ${row.names.length}): esta escena no llena ninguno.`;
+  return `Llena «${row.names[row.fills]}» (${row.fills + 1} de ${row.names.length}).${row.filled === 1 ? " El anterior ya aparece lleno." : row.filled > 1 ? ` Los ${row.filled} anteriores ya aparecen llenos.` : ""}`;
+}
+
+// When each of a sequence's n texts arrives (Avisos, Flujo, the boxes being named): the first at `first`, then evenly,
+// so that the last one, fully in `settle` seconds after it arrives, still has its reading time (`lastNeeds`) before the
+// scene ends, but never closer than 0.5 s apart (one entrance after the other) nor further than 1.1 s.
+export function sequenceTimes(n: number, seconds: number, lastNeeds: number, first = 0.6, settle = 0.5): number[] {
+  if (n <= 0) return [];
+  const room = seconds - first - settle - lastNeeds;
+  const gap = n > 1 ? Math.min(1.1, Math.max(0.5, room / (n - 1))) : 0;
+  return Array.from({ length: n }, (_, i) => Math.round((first + i * gap) * 1000) / 1000);
+}
+
+// "Casilleros": the open loop on screen. The first slots scene names the boxes (its items); each later slots scene
+// fills the next one, and those filled before are already filled. A slots scene with names starts a row (its boxes
+// all empty); one without fills a box of the row named last before it (or, when none is, of the first one named after
+// it). Read from the script's order only: pure.
+export type SlotsState = {
+  names: string[];
+  // How many boxes are already filled when the scene starts.
+  filled: number;
+  // The box this scene fills (from 0), or null: it names the boxes, or every box is already full.
+  fills: number | null;
+  naming: boolean;
+};
+export function slotsPlan(scenes: Pick<MotionScene, "template" | "items">[], index: number): SlotsState | null {
+  const scene = scenes[index];
+  if (!scene || scene.template !== "slots") return null;
+  const names = (s: Pick<MotionScene, "template" | "items">) => itemsOf(s);
+  const isSlots = (k: number) => scenes[k]?.template === "slots";
+  if (names(scene).length) return { names: names(scene), filled: 0, fills: null, naming: true };
+  let namer = -1;
+  for (let k = index - 1; k >= 0; k--) if (isSlots(k) && names(scenes[k]).length) {
+    namer = k;
+    break;
+  }
+  const row = namer >= 0 ? names(scenes[namer]) : (scenes.find((s, k) => k > index && s.template === "slots" && names(s).length) ?? null);
+  const list = Array.isArray(row) ? row : row ? names(row) : [];
+  let before = 0;
+  for (let k = namer + 1; k < index; k++) if (isSlots(k) && !names(scenes[k]).length) before++;
+  const filled = Math.min(before, list.length);
+  return { names: list, filled, fills: before < list.length ? before : null, naming: false };
 }
 
 // The writer's script as the app plays it. `tone` (the brief's) only decides the cameras the writer chose (planCameras).
@@ -379,14 +477,17 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?:
     list.find((v) => value.toLowerCase().replace(/[^a-z]/g, "") === v.toLowerCase()) ??
     list.find((v) => value.toLowerCase().includes(v.toLowerCase())) ??
     fallback;
+  // "Casilleros": only the first slots scene names the boxes; a later one that repeats them would start a new row, so
+  // its items go (it fills the next box).
+  const namer = wire.scenes.findIndex((s) => pickTemplate(s.template) === "slots" && s.items.some((i) => i.trim()));
   return {
     ...wire,
     scenes: planCameras(
-      wire.scenes.map(({ disclosure, beyondToday, ...s }) => withBeyond({
+      wire.scenes.map(({ disclosure, beyondToday, ...s }, i) => withBeyond({
         ...s,
         id: sceneId(),
         disclosure: pickDisclosure(disclosure),
-        template: pick(s.template, MOTION_TEMPLATES, "screen"),
+        template: pickTemplate(s.template),
         gesture: pickGesture(s.gesture),
         move: pickMove(s.move),
         entry: pickEntry(s.entry),
@@ -394,7 +495,7 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?:
         camera: pickCamera(s.camera),
         cameraBy: "ai" as const,
         seconds: Math.round(clamp(s.seconds, 2, 8) * 2) / 2,
-        items: s.items.map((i) => i.trim()).filter(Boolean).slice(0, 5),
+        items: namer >= 0 && i > namer && pickTemplate(s.template) === "slots" ? [] : s.items.map((x) => x.trim()).filter(Boolean).slice(0, 5),
         focusX: clamp(s.focusX, 0, 1),
         focusY: clamp(s.focusY, 0, 1),
         zoom: clamp(s.zoom || 2, 1.2, 4),
@@ -406,7 +507,8 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?:
 }
 
 // carryIn: the scene comes in by "Continuidad" (entryOf resolved it to "match"); only timeScenes sets it.
-export type TimedScene = MotionScene & { index: number; start: number; end: number; carryIn?: true };
+// slots: a "Casilleros" scene's place in its row (slotsPlan); also only timeScenes sets it.
+export type TimedScene = MotionScene & { index: number; start: number; end: number; carryIn?: true; slots?: SlotsState };
 
 // ── CONCEPTO / SIMULACIÓN ────────────────────────────────────────────────────────────────
 // Only what the series lists in "Lo que existe hoy" is shown as real (PLAYBOOK §1, §4). The writer grades each scene
@@ -481,9 +583,11 @@ export function timeScenes(scenes: MotionScene[]): TimedScene[] {
   return scenes.map((scene, index) => {
     const start = t;
     t += scene.seconds;
-    // A scene that was timed before carries a stale mark; it is worked out again from its neighbour.
-    const { carryIn: _stale, ...s } = scene as TimedScene;
-    return entryOf(scenes[index - 1], s) === "match" ? { ...s, index, start, end: t, carryIn: true as const } : { ...s, index, start, end: t };
+    // A scene that was timed before carries stale marks; they are worked out again from its neighbours.
+    const { carryIn: _stale, slots: _row, ...s } = scene as TimedScene;
+    const slots = slotsPlan(scenes, index);
+    const timed: TimedScene = { ...s, index, start, end: t, ...(slots && { slots }) };
+    return entryOf(scenes[index - 1], s) === "match" ? { ...timed, carryIn: true as const } : timed;
   });
 }
 
@@ -598,6 +702,9 @@ const MEDIA_LABEL: Record<MotionTemplate, string> = {
   steps: "Pantalla",
   beforeAfter: "Antes / después",
   contradiction: "Imagen",
+  notify: "Imagen",
+  flow: "Imagen",
+  slots: "Casilleros",
   product: "Producto",
   stat: "Imagen",
   logo: "Logo",
@@ -660,6 +767,38 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
       if (scene.items[0]) add("item0", `Lo que dicen: ${scene.items[0]}`, "items", 0.35);
       if (scene.items[1]) add("item1", `Lo que pasa: ${scene.items[1]}`, "items", real);
       if (scene.items[0] && scene.items[1]) add("strike", "Tachado", "moves", realAt + 0.7, false);
+      break;
+    }
+    case "notify": {
+      // Notifications arrive one below the other (nothing already there moves), each read before the next.
+      if (title) add("title", "Título", "title", 0);
+      if (text) add("text", "Texto", "text", 0.5);
+      const list = itemsOf(scene);
+      sequenceTimes(list.length, d, readingNeed(noticeText(list.at(-1) ?? "")), 0.6).forEach((at, i) =>
+        add(`item${i}`, `Aviso ${i + 1}: ${noticeParts(list[i]).title}`, "items", at),
+      );
+      break;
+    }
+    case "flow": {
+      // The source (the title, with its picture), then each line draws to its place and the place's label arrives.
+      if (title || scene.asset) add("title", "Origen", "title", 0);
+      if (text) add("text", "Texto", "text", 0.4);
+      const list = itemsOf(scene);
+      sequenceTimes(list.length, d, readingNeed(list.at(-1) ?? ""), 0.7).forEach((at, i) => add(`item${i}`, `Destino ${i + 1}: ${list[i]}`, "items", at));
+      break;
+    }
+    case "slots": {
+      // The scene that names the boxes brings them in one by one; a later one shows the row as it is and fills one.
+      if (title) add("title", "Título", "title", 0);
+      if (text) add("text", "Texto", "text", 0.4);
+      const row = (scene as Partial<TimedScene>).slots;
+      const list = itemsOf(scene);
+      if (row ? row.naming : list.length > 0) {
+        sequenceTimes(list.length, d, readingNeed(list.at(-1) ?? ""), 0.6).forEach((at, i) => add(`item${i}`, `Casillero ${i + 1}: ${list[i]}`, "items", at));
+      } else {
+        add("media", media, "media", 0);
+        if (!row || row.fills !== null) add("fill", row?.fills != null ? `Se llena: ${row.names[row.fills]}` : "Se llena uno", "moves", 0.6, false);
+      }
       break;
     }
     case "type": {
@@ -820,7 +959,10 @@ function shownText(scene: MotionScene, key: string): string {
   if (key === "title") return scene.template === "logo" ? "" : scene.title;
   if (key === "text") return scene.text;
   if (key === "tag") return scene.template === "type" ? (scene.items[1] ?? "") : (scene.items[0] ?? "");
-  if (key.startsWith("item")) return scene.items[Number(key.slice(4))] ?? "";
+  if (key.startsWith("item")) {
+    const item = itemsOf(scene)[Number(key.slice(4))] ?? "";
+    return scene.template === "notify" ? noticeText(item) : item;
+  }
   if (key === "voice") return scene.voice;
   return "";
 }
@@ -900,7 +1042,7 @@ export function stepDownShare(times: number[], i: number, lt: number, over: numb
 }
 
 // The templates whose labels take turns at full strength, and how long the step down takes (the newcomer's entrance).
-export const STEP_DOWN_OVER: Partial<Record<MotionTemplate, number>> = { callouts: 0.45, steps: 0.5 };
+export const STEP_DOWN_OVER: Partial<Record<MotionTemplate, number>> = { callouts: 0.45, steps: 0.5, notify: 0.45, flow: 0.45, slots: 0.45 };
 
 // stepDownShare for one of a scene's labels or steps (`item0`, `item1`…) at scene time lt; 0 for anything else. An
 // empty label never takes the focus. The renderer and the contact sheet read the same value.
@@ -909,7 +1051,7 @@ export function focusShare(scene: MotionScene, key: string, lt: number): number 
   const m = /^item(\d+)$/.exec(key);
   if (over === undefined || !m) return 0;
   const T = elementTimes(scene);
-  const times = scene.items.map((item, k) => (item.trim() && `item${k}` in T ? T[`item${k}`] : Infinity));
+  const times = itemsOf(scene).map((item, k) => (item.trim() && `item${k}` in T ? T[`item${k}`] : Infinity));
   return stepDownShare(times, Number(m[1]), lt, over);
 }
 
@@ -1102,7 +1244,7 @@ export const figureKey = (i: FigureIssue) => `cifra:${i.sceneId}:${i.key}:${i.fi
 
 // How many of a scene's items its template draws (labels, steps, the two statements, the price, the call to action,
 // the field and its button); the rest are never on screen.
-const DRAWN_ITEMS: Partial<Record<MotionTemplate, number>> = { callouts: 5, steps: 5, contradiction: 2, beforeAfter: 2, product: 1, logo: 1, type: 2 };
+const DRAWN_ITEMS: Partial<Record<MotionTemplate, number>> = { callouts: 5, steps: 5, contradiction: 2, beforeAfter: 2, product: 1, logo: 1, type: 2, ...LIST_MAX };
 
 // What each scene really shows or says, by element key. The logo template draws its title when there is no logo.
 function sceneTexts(s: MotionScene): { key: string; label: string; text: string }[] {
@@ -1110,7 +1252,7 @@ function sceneTexts(s: MotionScene): { key: string; label: string; text: string 
   return [
     ...(keys.has("title") || s.template === "logo" ? [{ key: "title", label: s.template === "stat" ? "Número" : "Título", text: s.title }] : []),
     ...(keys.has("text") ? [{ key: "text", label: "Texto", text: s.text }] : []),
-    ...s.items.slice(0, DRAWN_ITEMS[s.template] ?? 0).map((text, i) => ({ key: `item${i}`, label: `Rótulo ${i + 1}`, text })),
+    ...(LIST_MAX[s.template] !== undefined ? itemsOf(s) : s.items.slice(0, DRAWN_ITEMS[s.template] ?? 0)).map((text, i) => ({ key: `item${i}`, label: `Rótulo ${i + 1}`, text })),
     { key: "voice", label: "Voz y subtítulo", text: s.voice },
   ].filter((x) => x.text.trim());
 }
