@@ -3,6 +3,7 @@
 import { z } from "zod";
 import type { LyricStyle } from "./lyrics.ts";
 import type { Brand, CastMember, SeriesLook, SeriesType, TextStyle } from "./series.ts";
+import type { WebCastPick } from "./webCast.ts";
 import { MOVES_FOR_WRITER, pickMove, pickMoves, type Move } from "./moves.ts";
 
 export const BEATS = ["negative", "touching", "good"] as const;
@@ -552,6 +553,8 @@ export type BrandFromWeb = {
   suggestion: BrandSuggestion;
   // The chosen logo as a data URL (an SVG comes as SVG: the browser cleans and rasterizes it), or empty.
   logo: string;
+  // Product photos or screenshots from the page for the cast (by the series type), checked and brought as data URLs.
+  cast?: WebCastPick[];
   demo: boolean;
 };
 

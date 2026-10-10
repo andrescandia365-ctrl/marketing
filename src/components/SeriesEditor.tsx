@@ -28,12 +28,14 @@ import {
   type CastKind,
   type CastMember,
   type SeriesFields,
+  type SeriesType,
   type Brand,
   type SeriesLook,
 } from "../../shared/series.ts";
 import { inDays, momentLine, upcomingMoments } from "../../shared/calendar.ts";
 import { ensureFont } from "../lib/fonts.ts";
 import { BrandFromWeb } from "./BrandFromWeb.tsx";
+import { webCastMember, type WebCastPick } from "../../shared/webCast.ts";
 import { PuppetArranger } from "./PuppetArranger.tsx";
 import { PuppetPreview } from "./PuppetPreview.tsx";
 import { SheetBuilder } from "./SheetBuilder.tsx";
@@ -660,6 +662,8 @@ function BrandSection({
   works,
   onName,
   onConfirm,
+  seriesType,
+  onCast,
 }: {
   brand: Brand;
   seriesId: string | null;
@@ -669,6 +673,8 @@ function BrandSection({
   works: string;
   onName: (name: string, tagline: string) => void;
   onConfirm: (claim: string) => void;
+  seriesType: SeriesType;
+  onCast: (pick: WebCastPick, file: File, confirmed: boolean) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -784,7 +790,17 @@ function BrandSection({
         </div>
       </div>
       <div className="mt-3">
-        <BrandFromWeb brand={brand} seriesId={seriesId} works={works} onBrand={onChange} onLogo={onLogo} onName={onName} onConfirm={onConfirm} />
+        <BrandFromWeb
+          brand={brand}
+          seriesId={seriesId}
+          seriesType={seriesType}
+          works={works}
+          onBrand={onChange}
+          onLogo={onLogo}
+          onName={onName}
+          onConfirm={onConfirm}
+          onCast={onCast}
+        />
       </div>
     </Field>
   );
@@ -1044,6 +1060,13 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
         works={works}
         onName={(name, tagline) => setFields((f) => (f ? { ...f, name: name || f.name, tagline: tagline || f.tagline } : f))}
         onConfirm={(claim) => setWorks((w) => (w.trim() ? `${w.replace(/\s+$/, "")}\n${claim}` : claim))}
+        seriesType={fields.type}
+        onCast={async (pick, file, confirmed) => {
+          if (!id) return;
+          const member = webCastMember(pick, fields.cast, { confirmed, date: new Date().toLocaleDateString("es-AR") });
+          setFields((f) => (f ? { ...f, cast: [...f.cast, member] } : f));
+          await memberImage(member, file);
+        }}
       />
 
       {!music && <LookSection look={fields.look} onChange={(look) => set("look", look)} />}

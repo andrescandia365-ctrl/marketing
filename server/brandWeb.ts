@@ -1,9 +1,11 @@
 // "Traer la marca desde su web": reads the brand's own page and gathers what the brand kit needs (colours, fonts, a
-// logo, the name, what the page says). Nothing here is applied: the app shows it and the person picks. What the page
-// claims goes back as [VERIFY] until the person confirms it into "Lo que existe hoy".
+// logo, the name, what the page says) and pictures for the cast (product photos, screenshots). Nothing here is
+// applied: the app shows it and the person picks. What the page claims goes back as [VERIFY] until the person confirms
+// it into "Lo que existe hoy".
 // Only public web addresses: never this computer, the local network or a cloud metadata address, also after a redirect.
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import type { WebPictureKind, WebPictureSource } from "../shared/webCast.ts";
 
 export class BrandWebError extends Error {}
 
@@ -22,7 +24,11 @@ export type SiteFacts = {
   logos: { url: string; kind: "logo" | "icon" | "og" }[];
   // Headings and the first paragraphs, as plain text.
   text: string;
+  // Pictures for the cast (product photos, screenshots), likeliest first per kind; not fetched yet.
+  pictures: PictureCandidate[];
 };
+
+export type PictureCandidate = { url: string; name: string; kind: WebPictureKind; source: WebPictureSource };
 
 const MAX_PAGE = 2_000_000;
 const MAX_CSS = 600_000;
@@ -30,7 +36,7 @@ const MAX_IMAGE = 3_000_000;
 const TIMEOUT = 10_000;
 
 // Loopback, private, link-local (cloud metadata), CGNAT, multicast and reserved ranges, IPv4 and IPv6.
-function privateAddress(ip: string): boolean {
+export function privateAddress(ip: string): boolean {
   if (isIP(ip) === 4) {
     const [a, b] = ip.split(".").map(Number);
     return (
@@ -46,11 +52,16 @@ function privateAddress(ip: string): boolean {
     );
   }
   const v6 = ip.toLowerCase();
-  if (v6.startsWith("::ffff:")) return privateAddress(v6.slice(7));
+  // An IPv4 address inside IPv6 (mapped, or the old compatible form): the URL parser writes it in hex ([::ffff:7f00:1]).
+  const inner = v6.match(/^::(?:ffff:)?(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/);
+  if (inner) {
+    const v4 = inner[1] ?? [inner[2], inner[3]].flatMap((h) => [parseInt(h, 16) >> 8, parseInt(h, 16) & 255]).join(".");
+    return privateAddress(v4);
+  }
   return v6 === "::" || v6 === "::1" || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6) || v6.startsWith("ff");
 }
 
-async function checkUrl(raw: string): Promise<URL> {
+export async function checkUrl(raw: string): Promise<URL> {
   let url: URL;
   try {
     url = new URL(raw);
@@ -68,7 +79,7 @@ async function checkUrl(raw: string): Promise<URL> {
 }
 
 // A GET that follows up to 3 redirects, checking every hop, and stops reading past `limit` bytes.
-async function get(raw: string, limit: number, accept: string): Promise<{ url: URL; type: string; body: Buffer }> {
+async function get(raw: string, limit: number, accept: string): Promise<{ url: URL; type: string; body: Buffer; truncated: boolean }> {
   let url = await checkUrl(raw);
   for (let hop = 0; hop < 4; hop++) {
     let response: Response;
@@ -88,12 +99,16 @@ async function get(raw: string, limit: number, accept: string): Promise<{ url: U
     if (!response.ok || !response.body) throw new BrandWebError(`${url.host} respondió ${response.status}.`);
     const chunks: Buffer[] = [];
     let size = 0;
+    let truncated = false;
     for await (const chunk of response.body) {
       size += chunk.length;
-      if (size > limit) break;
+      if (size > limit) {
+        truncated = true;
+        break;
+      }
       chunks.push(Buffer.from(chunk));
     }
-    return { url, type: response.headers.get("content-type") ?? "", body: Buffer.concat(chunks) };
+    return { url, type: response.headers.get("content-type") ?? "", body: Buffer.concat(chunks), truncated };
   }
   throw new BrandWebError("La página redirige demasiadas veces.");
 }
@@ -257,17 +272,288 @@ export async function parseBrandPage(html: string, base: URL, loadCss: (href: st
     googleFonts: [...google].slice(0, 8),
     logos: logos.filter((l, i) => logos.findIndex((x) => x.url === l.url) === i).slice(0, 6),
     text: plainText(html),
+    pictures: sitePictures(html, base),
   };
 }
 
 // One logo candidate as a data URL (PNG, JPEG, WebP, GIF or SVG; the browser rasterizes and cleans an SVG).
 export async function fetchLogo(raw: string): Promise<string> {
-  const { type, body } = await get(raw, MAX_IMAGE, "image/*");
+  const { type, body, truncated } = await get(raw, MAX_IMAGE, "image/*");
+  if (truncated) throw new BrandWebError("Ese logo pesa demasiado.");
   const kind = type.split(";")[0].trim().toLowerCase();
   const svg = kind === "image/svg+xml" || (kind.startsWith("text/") && /<svg\b/i.test(body.subarray(0, 2000).toString("utf8")));
   const allowed = ["image/png", "image/jpeg", "image/webp", "image/gif"];
   if (!svg && !allowed.includes(kind)) throw new BrandWebError("Ese archivo no es una imagen que la app pueda usar.");
   return `data:${svg ? "image/svg+xml" : kind};base64,${body.toString("base64")}`;
+}
+
+// ── Pictures for the cast ─────────────────────────────────────────────────────────────────────────────────────────
+// Product photos (e-commerce) and screenshots (software) the page shows. Found from the product's schema.org data,
+// the page's share image when the page is a product, and the images in its hero, feature or product parts. Logos,
+// icons, avatars and tracking pixels are left out. A screenshot is only what the website shows: the person confirms
+// it is the app today before it joins as a real screen (shared/webCast.ts).
+
+const NOT_A_PICTURE = /logo|icon|favicon|avatar|sprite|badge|\bflags?\b|pixel|tracking|spacer|emoji|payment|social|placeholder|loader|spinner|arrow|chevron|rating/i;
+const SCREEN_HINT = /screen|captura|pantalla|dashboard|\bapp\b|interface|interfaz|\bui\b|mockup|demo|panel|preview/i;
+const PRODUCT_HINT = /product|producto|\bpdp\b|gallery|galer[ií]a|\bsku\b|catalog|cat[aá]logo/i;
+const MAIN_PLACE = /\bhero|banner|feature|showcase|highlight|destacad/i;
+const PRODUCT_TYPES = new Set(["Product", "ProductGroup", "IndividualProduct", "ProductModel"]);
+const APP_TYPES = new Set(["SoftwareApplication", "WebApplication", "MobileApplication"]);
+const PER_KIND = 8;
+
+// The biggest picture a srcset offers ("a.jpg 640w, b.jpg 1280w" → b.jpg).
+export function largestSrc(srcset: string): string {
+  let best = "";
+  let size = -1;
+  for (const part of srcset.split(/,\s+(?=\S)/)) {
+    const [url, d = "1x"] = part.trim().split(/\s+/);
+    const n = Number.parseFloat(d) * (/x$/i.test(d) ? 1000 : 1);
+    if (url && (Number.isFinite(n) ? n : 0) > size) {
+      best = url;
+      size = Number.isFinite(n) ? n : 0;
+    }
+  }
+  return best;
+}
+
+// A name from the file when the page gives none: ".../taza-azul_grande.jpg?v=2" → "taza azul grande".
+function nameFromFile(url: string): string {
+  try {
+    const stem = decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "").replace(/\.[a-z0-9]+$/i, "");
+    return /[a-z]{3}/i.test(stem) && !/^[0-9a-f-]{16,}$/i.test(stem) ? stem.replace(/[-_+.]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 60) : "";
+  } catch {
+    return "";
+  }
+}
+
+function imagesOf(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(imagesOf);
+  if (value && typeof value === "object") {
+    const v = value as { url?: unknown; contentUrl?: unknown };
+    return imagesOf(v.url ?? v.contentUrl);
+  }
+  return [];
+}
+
+// Products (and an app's screenshots) from the page's schema.org JSON-LD.
+function jsonLdPictures(html: string, abs: (href: string) => string): PictureCandidate[] {
+  const found: PictureCandidate[] = [];
+  const walk = (node: unknown, depth: number) => {
+    if (depth > 6 || !node || typeof node !== "object") return;
+    if (Array.isArray(node)) return node.forEach((n) => walk(n, depth + 1));
+    const o = node as Record<string, unknown>;
+    const types = ([] as unknown[]).concat(o["@type"] ?? []).map(String);
+    const name = typeof o.name === "string" ? decode(o.name).replace(/\s+/g, " ").trim().slice(0, 60) : "";
+    if (types.some((t) => PRODUCT_TYPES.has(t))) {
+      for (const src of imagesOf(o.image)) {
+        const url = abs(src);
+        if (url) found.push({ url, name, kind: "product", source: "jsonld" });
+      }
+    }
+    if (types.some((t) => APP_TYPES.has(t))) {
+      for (const src of imagesOf(o.screenshot)) {
+        const url = abs(src);
+        if (url) found.push({ url, name: name ? `${name}, pantalla` : "", kind: "screen", source: "jsonld" });
+      }
+    }
+    for (const [key, value] of Object.entries(o)) if (key !== "image" && key !== "screenshot") walk(value, depth + 1);
+  };
+  for (const m of html.matchAll(/<script\b[^>]*type\s*=\s*["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      walk(JSON.parse(m[1].trim()), 0);
+    } catch {
+      // A broken JSON-LD block is skipped.
+    }
+  }
+  return found;
+}
+
+// Every picture worth offering for the cast, both kinds, likeliest first per kind (not fetched: `fetchPicture` checks
+// each one when it is brought).
+export function sitePictures(html: string, base: URL): PictureCandidate[] {
+  const abs = (href: string) => {
+    try {
+      const u = new URL(href.trim(), base);
+      return u.protocol === "https:" || u.protocol === "http:" ? u.toString() : "";
+    } catch {
+      return "";
+    }
+  };
+  const ranked: { c: PictureCandidate; rank: number }[] = [];
+  jsonLdPictures(html, abs).forEach((c) => ranked.push({ c, rank: 0 }));
+
+  const og = abs(meta(html, "og:image:secure_url") || meta(html, "og:image"));
+  if (og && !/\.svg(\?|$)/i.test(og)) {
+    const isProduct = /product/i.test(meta(html, "og:type")) || Boolean(meta(html, "product:price:amount") || meta(html, "og:price:amount"));
+    ranked.push({ c: { url: og, name: meta(html, "og:title").slice(0, 60), kind: "product", source: "og" }, rank: isProduct ? 1 : 4 });
+  }
+
+  const body = html.replace(/<(script|style|noscript|template)\b[\s\S]*?<\/\1>/gi, (m) => " ".repeat(m.length));
+  // Walk the page's elements keeping the open ones, so each image knows the parts it sits in.
+  const open: { tag: string; hint: string }[] = [];
+  for (const m of body.matchAll(/<(\/?)(section|div|header|main|figure|article|picture|li|ul|a|nav|footer|aside|img)\b[^>]*>/gi)) {
+    const tag = m[2].toLowerCase();
+    if (m[1]) {
+      const at = open.map((o) => o.tag).lastIndexOf(tag);
+      if (at >= 0) open.length = at;
+      continue;
+    }
+    if (tag !== "img") {
+      if (!/\/>$/.test(m[0])) open.push({ tag, hint: `${attr(m[0], "class")} ${attr(m[0], "id")} ${attr(m[0], "aria-label")}` });
+      continue;
+    }
+    const img = m[0];
+    const src = abs(largestSrc(attr(img, "srcset") || attr(img, "data-srcset")) || attr(img, "src") || attr(img, "data-src") || attr(img, "data-lazy-src"));
+    if (!src || /\.svg(\?|$)/i.test(src)) continue;
+    const w = Number(attr(img, "width"));
+    const h = Number(attr(img, "height"));
+    if ((w && w < 120) || (h && h < 120)) continue;
+    const alt = attr(img, "alt").replace(/\s+/g, " ").trim();
+    const own = `${alt} ${attr(img, "class")} ${attr(img, "id")} ${src}`;
+    if (NOT_A_PICTURE.test(own)) continue;
+    // Navigation, footers, side bars and the parts for people or partners hold no product or screen.
+    if (open.some((o) => /^(nav|footer|aside)$/.test(o.tag) || /\b(?:nav|navbar|menu|footer|logos?|avatars?|testimonials?|reviews?|partners?|clients?|cookies?|team)\b/i.test(o.hint))) continue;
+    const place = open.slice(-8).map((o) => o.hint).join(" ");
+    const name = alt.slice(0, 60) || nameFromFile(src);
+    const main = MAIN_PLACE.test(place) || MAIN_PLACE.test(own);
+    const screen = SCREEN_HINT.test(own) || SCREEN_HINT.test(place);
+    const product = PRODUCT_HINT.test(own) || PRODUCT_HINT.test(place);
+    if (screen) ranked.push({ c: { url: src, name, kind: "screen", source: "page" }, rank: 2 });
+    if (product) ranked.push({ c: { url: src, name, kind: "product", source: "page" }, rank: 2 });
+    if (main && !screen) ranked.push({ c: { url: src, name, kind: "screen", source: "page" }, rank: 3 });
+    if (main && !product) ranked.push({ c: { url: src, name, kind: "product", source: "page" }, rank: 3 });
+    // A big picture anywhere else in the page, last.
+    if (!main && !screen && !product && w >= 400) {
+      ranked.push({ c: { url: src, name, kind: "screen", source: "page" }, rank: 5 });
+      ranked.push({ c: { url: src, name, kind: "product", source: "page" }, rank: 5 });
+    }
+  }
+
+  // One per picture and kind (a resized copy on a CDN is the same picture), PER_KIND each.
+  const key = (c: PictureCandidate) => {
+    try {
+      const u = new URL(c.url);
+      return `${c.kind} ${u.host}${u.pathname}`.toLowerCase();
+    } catch {
+      return `${c.kind} ${c.url}`;
+    }
+  };
+  const seen = new Set<string>();
+  const count = { product: 0, screen: 0 };
+  return ranked
+    .map((r, i) => ({ ...r, i }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .map((r) => r.c)
+    .filter((c) => {
+      const k = key(c);
+      if (seen.has(k) || count[c.kind] >= PER_KIND) return false;
+      seen.add(k);
+      count[c.kind]++;
+      return true;
+    });
+}
+
+export const MAX_PICTURE = 2_500_000;
+export const MAX_PICTURES_TOTAL = 9_000_000;
+export const MIN_PICTURE_SIDE = 200;
+export const MAX_PICTURE_SIDE = 12_000;
+export const PICTURES_PER_KIND = 4;
+
+// The picture's real type and size, read from its first bytes (PNG, JPEG, WebP, GIF), or null.
+export function imageInfo(b: Buffer): { type: string; width: number; height: number } | null {
+  if (b.length >= 24 && b.readUInt32BE(0) === 0x89504e47 && b.readUInt32BE(4) === 0x0d0a1a0a && b.toString("ascii", 12, 16) === "IHDR") {
+    return { type: "image/png", width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+  }
+  if (b.length >= 10 && /^GIF8[79]a$/.test(b.toString("ascii", 0, 6))) {
+    return { type: "image/gif", width: b.readUInt16LE(6), height: b.readUInt16LE(8) };
+  }
+  if (b.length >= 30 && b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP") {
+    const chunk = b.toString("ascii", 12, 16);
+    if (chunk === "VP8 ") return { type: "image/webp", width: b.readUInt16LE(26) & 0x3fff, height: b.readUInt16LE(28) & 0x3fff };
+    if (chunk === "VP8L") {
+      const [b0, b1, b2, b3] = [b[21], b[22], b[23], b[24]];
+      return { type: "image/webp", width: 1 + (((b1 & 0x3f) << 8) | b0), height: 1 + (((b3 & 0x0f) << 10) | (b2 << 2) | ((b1 & 0xc0) >> 6)) };
+    }
+    if (chunk === "VP8X") return { type: "image/webp", width: 1 + b.readUIntLE(24, 3), height: 1 + b.readUIntLE(27, 3) };
+    return null;
+  }
+  if (b.length >= 4 && b[0] === 0xff && b[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) {
+        i++;
+        continue;
+      }
+      const marker = b[i + 1];
+      if (marker === 0xff) {
+        i++;
+        continue;
+      }
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {
+        i += 2;
+        continue;
+      }
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { type: "image/jpeg", width: b.readUInt16BE(i + 7), height: b.readUInt16BE(i + 5) };
+      }
+      i += 2 + b.readUInt16BE(i + 2);
+    }
+  }
+  return null;
+}
+
+// Whether a fetched file can be offered as a cast picture: whole, really a PNG/JPEG/WebP/GIF by its bytes (not an
+// error page or an SVG that says it is an image), and big enough to be a photo or a screen, not an icon.
+export function checkPicture(body: Buffer, declared: string, truncated: boolean): { type: string; width: number; height: number } {
+  if (truncated) throw new BrandWebError(`Esa imagen pesa más de ${Math.round(MAX_PICTURE / 1_000_000)} MB.`);
+  const kind = declared.split(";")[0].trim().toLowerCase();
+  if (kind && !kind.startsWith("image/") && kind !== "application/octet-stream" && kind !== "binary/octet-stream") {
+    throw new BrandWebError("Esa dirección no es una imagen.");
+  }
+  const info = imageInfo(body);
+  if (!info) throw new BrandWebError("Esa imagen no es PNG, JPG, WebP ni GIF.");
+  if (Math.min(info.width, info.height) < MIN_PICTURE_SIDE) throw new BrandWebError("Esa imagen es muy chica para el elenco.");
+  if (Math.max(info.width, info.height) > MAX_PICTURE_SIDE) throw new BrandWebError("Esa imagen es demasiado grande.");
+  return info;
+}
+
+export type FetchedPicture = PictureCandidate & { image: string; width: number; height: number; bytes: number };
+
+// One picture brought with the same address and redirect checks as the page, as a data URL typed by its bytes.
+export async function fetchPicture(c: PictureCandidate): Promise<FetchedPicture> {
+  const { type, body, truncated } = await get(c.url, MAX_PICTURE, "image/webp,image/png,image/jpeg,image/gif;q=0.9");
+  const info = checkPicture(body, type, truncated);
+  return { ...c, image: `data:${info.type};base64,${body.toString("base64")}`, width: info.width, height: info.height, bytes: body.length };
+}
+
+// The pictures of the kinds asked for: the likeliest few of each are brought at once; those that fail are dropped,
+// and the answer stays under MAX_PICTURES_TOTAL.
+export async function bringPictures(
+  candidates: PictureCandidate[],
+  kinds: WebPictureKind[],
+  fetcher: (c: PictureCandidate) => Promise<FetchedPicture> = fetchPicture,
+): Promise<FetchedPicture[]> {
+  const tries = kinds.flatMap((k) => candidates.filter((c) => c.kind === k).slice(0, PICTURES_PER_KIND + 2));
+  // A picture offered as both kinds is brought once.
+  const once = new Map<string, Promise<FetchedPicture>>();
+  const bring = (c: PictureCandidate) => {
+    if (!once.has(c.url)) once.set(c.url, fetcher(c));
+    return once.get(c.url)!.then((p) => ({ ...p, ...c }));
+  };
+  const settled = await Promise.allSettled(tries.map(bring));
+  const out: FetchedPicture[] = [];
+  const count: Record<WebPictureKind, number> = { product: 0, screen: 0 };
+  let total = 0;
+  for (const r of settled) {
+    if (r.status !== "fulfilled") continue;
+    const p = r.value;
+    if (count[p.kind] >= PICTURES_PER_KIND || total + p.bytes > MAX_PICTURES_TOTAL) continue;
+    count[p.kind]++;
+    total += p.bytes;
+    out.push(p);
+  }
+  return out;
 }
 
 // Without a model: the brand kit guessed from the numbers alone.

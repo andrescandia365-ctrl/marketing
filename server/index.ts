@@ -46,7 +46,7 @@ import {
 } from "./claude.ts";
 import { KimiError } from "./kimi.ts";
 import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
-import { BrandWebError, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.ts";
+import { BrandWebError, bringPictures, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.ts";
 import { EMPTY_BRIEF } from "../shared/example.ts";
 import { ClockError } from "../shared/clock.ts";
 import { roomBrief } from "../shared/room.ts";
@@ -54,7 +54,8 @@ import { buildProjectSync, critiqueProject, loadSync } from "./sync.ts";
 import { checkDemucsBin, demucsAvailable, demucsStatus, separate, speechWav, tryDemucs } from "./demucs.ts";
 import { decodeWav, fitKicks } from "../shared/clock.ts";
 import { withLevels, wordLevels, wordSpans } from "../shared/lyricAct.ts";
-import { BrandSchema, DEFAULT_BRAND } from "../shared/series.ts";
+import { BrandSchema, DEFAULT_BRAND, SERIES_TYPES } from "../shared/series.ts";
+import { webPictureKinds, type WebCastPick } from "../shared/webCast.ts";
 import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, SECOND_LANGUAGES, LyricStyleSchema, alignLyrics, cleanElements, cleanIdeas } from "../shared/lyrics.ts";
 import { buildPlates, cleanPlates } from "../shared/plates.ts";
 import { DEMO_BOARD, DEMO_MENU, demoHookVariants, demoStory, demoMotion, demoMotionReview } from "./demo.ts";
@@ -695,10 +696,12 @@ app.post("/api/projects/import", async (c) => {
 
 const HEX = /^#[0-9a-f]{6}$/i;
 app.post("/api/brand/from-web", async (c) => {
-  const { url, series } = z
+  const { url, series, type } = z
     .object({
       url: z.string().trim().min(4).max(500),
       series: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(),
+      // The series type as the form has it now: which cast pictures to bring (products or screens).
+      type: z.enum(SERIES_TYPES).optional(),
       own: z.literal(true, { message: "Confirmá que es la web de la marca." }),
     })
     .parse(await c.req.json());
@@ -730,10 +733,12 @@ app.post("/api/brand/from-web", async (c) => {
   // The chosen logo, or the next candidate that loads.
   const order = [suggestion.logo, ...facts.logos.map((_, i) => i)].filter((i, k, all) => i >= 0 && i < facts.logos.length && all.indexOf(i) === k);
   let logo = "";
+  const pictures = bringPictures(facts.pictures, webPictureKinds(type));
   for (const i of order) {
     logo = await fetchLogo(facts.logos[i].url).catch(() => "");
     if (logo) break;
   }
+  const cast: WebCastPick[] = (await pictures).map(({ kind, name, url, source, image, width, height }) => ({ kind, name, url, source, image, width, height }));
   const result: BrandFromWeb = {
     url: facts.url,
     title: facts.title,
@@ -741,6 +746,7 @@ app.post("/api/brand/from-web", async (c) => {
     fonts: [...new Set([...facts.googleFonts, ...facts.fonts.map((f) => f.family)])].slice(0, 8),
     suggestion,
     logo,
+    cast,
     demo: demo(),
   };
   return c.json(result);

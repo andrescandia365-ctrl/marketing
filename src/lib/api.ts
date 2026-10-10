@@ -23,7 +23,7 @@ import type { MotionReview } from "../../shared/motionQuality.ts";
 import type { BackgroundPrompts, LyricElement, LyricLanguage, LyricLine, LyricPlate, LyricStyle, SecondLanguage } from "../../shared/lyrics.ts";
 import type { SyncDoc } from "../../shared/clock.ts";
 import type { KindAverage, UsageEntry } from "../../shared/usage.ts";
-import type { Brand, CastMember, PuppetLayer, SeriesFields, TextStyle } from "../../shared/series.ts";
+import type { Brand, CastMember, PuppetLayer, SeriesFields, SeriesType, TextStyle } from "../../shared/series.ts";
 import type { RoomCard } from "../../shared/room.ts";
 import type { AdCombo, AdsState, Batch, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 
@@ -182,7 +182,8 @@ export const api = {
     ),
   replacePuppet: (seriesId: string, castId: string, layers: { role: string; name: string; png: string }[]) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PUT"),
-  brandFromWeb: (url: string, series: string | null) => call<BrandFromWeb>("/api/brand/from-web", { url, series: series ?? undefined, own: true }),
+  brandFromWeb: (url: string, series: string | null, type?: SeriesType) =>
+    call<BrandFromWeb>("/api/brand/from-web", { url, series: series ?? undefined, type, own: true }),
   arrangePuppet: (seriesId: string, castId: string, layers: Pick<PuppetLayer, "file" | "role" | "pivot" | "place">[]) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PATCH"),
   removePuppetLayer: (seriesId: string, castId: string, index: number) =>
