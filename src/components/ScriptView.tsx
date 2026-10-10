@@ -1,5 +1,5 @@
 import { Suspense, createContext, lazy, useContext, useEffect, useRef, useState } from "react";
-import { clipPrompt } from "../../shared/audio.ts";
+import { clipMusicNotice, clipPrompt } from "../../shared/audio.ts";
 import { polishWords } from "../../shared/checks.ts";
 import { buildCopyPrompt } from "../../shared/prompt.ts";
 import { SHOT_LENGTHS, type Board, type Brief, type ImageReview, type SegmentEdit, type Setup, type Shot, type Story } from "../../shared/schema.ts";
@@ -555,6 +555,24 @@ function ShotCard(props: CardProps) {
             </DropSlot>
           </div>
           {media.clip && <p className="text-xs text-muted">{clipNote(media.clip, shot)}</p>}
+          {media.clip && clipMusicNotice(voice.audio, shot.index) && (
+            <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900" role="status">
+              <p>
+                <span className="font-semibold">Este clip parece traer música.</span> La música va aparte, con su licencia;
+                si no la tiene, que el clip suene mudo. Es una estimación: puede equivocarse.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="font-semibold underline" onClick={() => voice.onClipLevel(shot.index, "mute")}>
+                  Ponerlo en Mudo
+                </button>
+                {voice.onClipMusicOk && (
+                  <button type="button" className="font-semibold underline" onClick={() => voice.onClipMusicOk?.(shot.index)}>
+                    Tiene licencia / no es música
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           {!media.clip && !image && setup && shot.kind === "single" && (
             <p className="text-xs text-muted">
               {shot.editFrom > 0

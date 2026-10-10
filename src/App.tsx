@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useRef, useState, type ReactNode } from "react";
-import { DEFAULT_AUDIO, lineEmotion, voiceModeOf, type AudioSettings, type CharacterVoice, type VoiceMode } from "../shared/audio.ts";
+import { DEFAULT_AUDIO, lineEmotion, voiceModeOf, withClipMusic, type AudioSettings, type CharacterVoice, type VoiceMode } from "../shared/audio.ts";
 import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/checks.ts";
 import { SKETCH_BASE, buildCopyPrompt, lookPhrase } from "../shared/prompt.ts";
 import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
@@ -149,6 +149,8 @@ export function App() {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [audio, setAudio] = useState<AudioSettings>(DEFAULT_AUDIO);
+  // The clip each shot's music check is listening to, so a replaced clip's late answer is dropped.
+  const musicChecks = useRef<Record<number, Blob>>({});
   const [music, setMusic] = useState<AudioFile | null>(null);
   const logStart = useRef(Date.now());
   const clipUrls = useRef<string[]>([]);
@@ -476,6 +478,7 @@ export function App() {
     setLog([]);
     setDismissed([]);
     setAudio(DEFAULT_AUDIO);
+    musicChecks.current = {};
     setMusic(null);
     setLyric(null);
     setMotion(null);
@@ -523,6 +526,7 @@ export function App() {
     setLog(st.log ?? []);
     setDismissed(st.dismissed ?? []);
     setAudio({ ...DEFAULT_AUDIO, ...(st.audio ?? {}) });
+    musicChecks.current = {};
     setHookVariants(st.hookVariants ?? null);
     logStart.current = st.startedAt ?? Date.now();
     setProjectId(id);
@@ -787,6 +791,7 @@ export function App() {
       setShotMedia(index, { clip, error: undefined });
       addLog({ shot: index, text: `Clip subido: ${file.name}, ${duration.toFixed(1)} s` });
       reviewMedia(index, "clip", file);
+      checkClipMusic(index, file);
       await keep(index, (id) => api.uploadMedia(id, index, "clip", file, { name: file.name, duration }));
     } catch (e) {
       URL.revokeObjectURL(url);
@@ -794,7 +799,26 @@ export function App() {
     }
   }
 
+  // Story clips should come without music: listen once to a new clip and warn on the shot when it seems to carry some
+  // (never a block). Only the latest clip of a shot gets its answer.
+  function checkClipMusic(index: number, file: File) {
+    musicChecks.current[index] = file;
+    setAudio((a) => withClipMusic(a, index, null));
+    import("./lib/clipMusic.ts")
+      .then(({ clipMusic }) => clipMusic(file))
+      .then((result) => {
+        if (musicChecks.current[index] !== file || !result?.music) return;
+        setAudio((a) => withClipMusic(a, index, "likely"));
+        addLog({ shot: index, text: `El clip ${file.name} parece traer música (aviso)` });
+      })
+      .catch(() => undefined);
+  }
+
   async function removeMedia(index: number, kind: "image" | "clip" | "voice" | "sfx") {
+    if (kind === "clip") {
+      delete musicChecks.current[index];
+      setAudio((a) => withClipMusic(a, index, null));
+    }
     setMedia((prev) => {
       const next = { ...prev[index] };
       delete next[kind];
@@ -1634,6 +1658,10 @@ export function App() {
                   onSfx: (i, blob, name) => addAudio(i, "sfx", blob, name),
                   onClipSound: (i, sound) => setAudio((a) => ({ ...a, clipSound: { ...a.clipSound, [i]: sound } })),
                   onClipLevel: (i, level) => setAudio((a) => ({ ...a, clipLevel: { ...a.clipLevel, [i]: level } })),
+                  onClipMusicOk: (i) => {
+                    setAudio((a) => withClipMusic(a, i, "ok"));
+                    addLog({ shot: i, text: "El clip queda con su sonido: tiene licencia o no es música" });
+                  },
                   onSeconds: (i, seconds) => {
                     const shot = board.shots[i];
                     updateShot(i, { ...shot, seconds, toolSettings: shot.toolSettings.replace(/\d+(\.\d+)?\s*s\b/, `${seconds} s`) });

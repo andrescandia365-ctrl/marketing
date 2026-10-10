@@ -185,6 +185,8 @@ export type VoiceRowProps = {
   // What is heard inside Grok's clip, and how loud the clip plays in the video.
   onClipSound: (index: number, sound: ClipSound) => void;
   onClipLevel: (index: number, level: ClipLevel) => void;
+  // "Tiene licencia / no es música": clears the shot's "Este clip parece traer música" notice.
+  onClipMusicOk?: (index: number) => void;
   // The story's written emotion for a line ("" when none), for Grok's speaking prompt.
   emotionOf?: (line: string) => string;
 };

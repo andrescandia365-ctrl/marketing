@@ -33,7 +33,11 @@ export type AudioSettings = {
   // the clip's own sound plays in the video. Missing (older pieces): the defaults below.
   clipSound?: Record<number, ClipSound>;
   clipLevel?: Record<number, ClipLevel>;
+  // Per shot: the uploaded clip seems to carry music ("likely", from `shared/musicLike.ts`) or the person said it has
+  // a licence or is not music ("ok"). Missing: nothing to say (no clip, no music heard, or an older piece).
+  clipMusic?: Record<number, ClipMusic>;
 };
+export type ClipMusic = "likely" | "ok";
 
 export const DEFAULT_AUDIO: AudioSettings = { characters: {}, shots: {}, musicVolume: 0.35, sfxVolume: 0.8, beatSync: false, clipSound: {}, clipLevel: {} };
 
@@ -55,6 +59,19 @@ export function clipSoundOf(audio: AudioSettings, shot: Shot, index: number): Cl
   const set = audio.clipSound?.[index];
   if (set) return set;
   return { hear: voiceModeOf(audio, shot, index) === "grok" ? ["dialogue", "ambient"] : ["ambient"], detail: "" };
+}
+
+// The "Este clip parece traer música" notice shows while the clip still plays with its sound and nobody cleared it.
+export function clipMusicNotice(audio: AudioSettings, index: number): boolean {
+  return audio.clipMusic?.[index] === "likely" && clipLevelOf(audio, index) !== "mute";
+}
+
+// Sets or clears (null) a shot's music mark, leaving the other shots as they are.
+export function withClipMusic(audio: AudioSettings, index: number, mark: ClipMusic | null): AudioSettings {
+  const next = { ...(audio.clipMusic ?? {}) };
+  if (mark) next[index] = mark;
+  else delete next[index];
+  return { ...audio, clipMusic: next };
 }
 
 // Default: the whole clip sound, unless another voice is laid on top (then it is ducked anyway in the mix).
