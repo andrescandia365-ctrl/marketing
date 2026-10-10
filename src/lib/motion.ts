@@ -395,8 +395,11 @@ function dryContext(real: CanvasRenderingContext2D): CanvasRenderingContext2D {
 function wordBoxes(f: Frame, s: TimedScene): Box[] {
   const boxes: Box[] = [];
   const ctx = dryContext(f.ctx);
+  // "Escribir" draws its text field and "Casilleros" its named boxes under "media": they hold words, so they count.
+  const wordy = s.template === "type" || s.template === "slots";
   const probe: Probe = (_id, key, box) => {
-    if (key !== "media" && key !== "prop") boxes.push(box);
+    if (key === "prop" || (key === "media" && !wordy)) return;
+    boxes.push(box);
   };
   for (const lt of [s.seconds * 0.6, s.seconds - 0.001]) {
     ctx.save();
@@ -1143,7 +1146,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         }
         ctx.restore();
         ctx.font = ui(f, size, 500);
-        return { x: tx, y: ty - size * 0.7, w: Math.max(ctx.measureText(s.title).width, unit * 0.1), h: size * 1.4 };
+        return { x: tx, y: ty - size * 0.7, w: Math.max(ctx.measureText(s.title).width, ctx.measureText(placeholder).width, unit * 0.1), h: size * 1.4 };
       });
       const button = s.items[1];
       if (button) {

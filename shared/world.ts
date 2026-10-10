@@ -108,6 +108,9 @@ export type WorldShape = {
   // round: the corner radius.
   r?: number;
   busy: boolean;
+  // The parts of one object (a monitor's bezel, screen and stand; a board and its notes): when busyClear leaves a busy
+  // part out, the whole object goes, so a bezel never stays behind as an empty slab.
+  group?: number;
 };
 
 function rng(seed: number): () => number {
@@ -128,8 +131,13 @@ export function worldShapes(place: WorldPlace, w: number, h: number, seed: numbe
   const vertical = h > w;
   const u = Math.min(w, h);
   const out: WorldShape[] = [];
+  // One object's parts share a group (startGroup … endGroup); everything else has none.
+  let group: number | undefined;
+  let groups = 0;
+  const startGroup = () => (group = ++groups);
+  const endGroup = () => (group = undefined);
   const add = (s: Omit<WorldShape, "kind" | "busy"> & { kind?: WorldShape["kind"]; busy?: boolean }) =>
-    out.push({ kind: "rect", busy: false, ...s, w: Math.max(1, s.w), h: Math.max(1, s.h) });
+    out.push({ kind: "rect", busy: false, ...s, w: Math.max(1, s.w), h: Math.max(1, s.h), ...(group !== undefined && { group }) });
   const fy = h * (vertical ? 0.8 : 0.78);
   const left = -w * 0.6;
   const wide = w * 2.2;
@@ -164,9 +172,11 @@ export function worldShapes(place: WorldPlace, w: number, h: number, seed: numbe
     const side = r() < 0.5;
     const fw = vertical ? w * 0.3 : w * 0.16;
     const fx = side ? -fw * 0.25 : w - fw * 0.75;
+    startGroup();
     add({ layer: 1, tone: "near", kind: "round", r: u * 0.02, x: fx, y: h * 0.1, w: fw, h: fy - h * 0.1 + u * 0.03 });
     add({ layer: 1, tone: "mid", x: fx + fw * 0.08, y: h * 0.13, w: fw * 0.84, h: (fy - h * 0.13) * 0.94, busy: true });
     add({ layer: 1, tone: "detail", kind: "round", r: u * 0.006, x: side ? fx + fw * 0.82 : fx + fw * 0.12, y: h * 0.35, w: u * 0.012, h: h * 0.14, busy: true });
+    endGroup();
     // Front: the counter, and the till on it.
     const cy = h * (vertical ? 0.86 : 0.85);
     add({ layer: 2, tone: "near", x: left, y: cy, w: wide, h: h * 1.6 - cy });
@@ -207,8 +217,10 @@ export function worldShapes(place: WorldPlace, w: number, h: number, seed: numbe
     const cy = h * (vertical ? 0.9 : 0.9);
     add({ layer: 2, tone: "near", x: left, y: cy, w: wide, h: h * 1.6 - cy });
     const px = w * (r() < 0.5 ? 0.08 + r() * 0.1 : 0.82 + r() * 0.1);
+    startGroup();
     add({ layer: 2, tone: "detail", x: px, y: h * 0.18, w: u * 0.014, h: cy - h * 0.18, busy: true });
     add({ layer: 2, tone: "detail", kind: "round", r: u * 0.01, x: px - u * 0.04, y: h * 0.16, w: u * 0.094, h: u * 0.03, busy: true });
+    endGroup();
   } else if (place === "home") {
     // Back: a window with its bars, a picture, the skirting.
     const side = r() < 0.5;
@@ -216,10 +228,12 @@ export function worldShapes(place: WorldPlace, w: number, h: number, seed: numbe
     const wx = side ? w * 0.06 : w * 0.94 - ww;
     const wy = h * (vertical ? 0.14 : 0.12);
     const wh = vertical ? h * 0.3 : h * 0.46;
+    startGroup();
     add({ layer: 0, tone: "mid", kind: "round", r: u * 0.01, x: wx, y: wy, w: ww, h: wh });
     add({ layer: 0, tone: "far", x: wx + u * 0.02, y: wy + u * 0.02, w: ww - u * 0.04, h: wh - u * 0.04 });
     add({ layer: 0, tone: "mid", x: wx + ww / 2 - u * 0.007, y: wy, w: u * 0.014, h: wh, busy: true });
     add({ layer: 0, tone: "mid", x: wx, y: wy + wh / 2 - u * 0.007, w: ww, h: u * 0.014, busy: true });
+    endGroup();
     const pw = u * (0.16 + r() * 0.06);
     add({ layer: 0, tone: "mid", x: side ? w * 0.7 : w * 0.14, y: h * (vertical ? 0.2 : 0.18), w: pw, h: pw * 0.75, busy: true });
     add({ layer: 0, tone: "mid", x: left, y: fy - u * 0.02, w: wide, h: u * 0.02 });
@@ -245,11 +259,13 @@ export function worldShapes(place: WorldPlace, w: number, h: number, seed: numbe
     const bx = side ? w * 0.06 : w * 0.94 - bw;
     const by = h * (vertical ? 0.14 : 0.12);
     const bh = vertical ? h * 0.22 : h * 0.34;
+    startGroup();
     add({ layer: 0, tone: "mid", kind: "round", r: u * 0.01, x: bx, y: by, w: bw, h: bh });
     for (let k = 0; k < 5; k++) {
       const nw = u * (0.06 + r() * 0.03);
       add({ layer: 0, tone: "detail", x: bx + u * 0.03 + r() * (bw - nw - u * 0.06), y: by + u * 0.03 + r() * (bh - nw - u * 0.06), w: nw, h: nw, busy: true });
     }
+    endGroup();
     const sx = side ? w * 0.66 : w * 0.08;
     const sw = vertical ? w * 0.3 : w * 0.22;
     const sy = h * (vertical ? 0.3 : 0.3);
@@ -260,12 +276,16 @@ export function worldShapes(place: WorldPlace, w: number, h: number, seed: numbe
     const mw = vertical ? w * 0.5 : w * 0.3;
     const mx = side ? w * 0.94 - mw : w * 0.06;
     const mh = mw * 0.6;
+    startGroup();
     add({ layer: 1, tone: "near", kind: "round", r: u * 0.012, x: mx, y: dy - u * 0.06 - mh, w: mw, h: mh });
     add({ layer: 1, tone: "mid", x: mx + u * 0.015, y: dy - u * 0.06 - mh + u * 0.015, w: mw - u * 0.03, h: mh - u * 0.03, busy: true });
     add({ layer: 1, tone: "near", x: mx + mw / 2 - u * 0.015, y: dy - u * 0.06, w: u * 0.03, h: u * 0.06 });
+    endGroup();
     const lx = side ? mx - u * 0.12 : mx + mw + u * 0.06;
+    startGroup();
     add({ layer: 1, tone: "detail", x: lx, y: dy - u * 0.22, w: u * 0.012, h: u * 0.22, busy: true });
     add({ layer: 1, tone: "detail", kind: "round", r: u * 0.02, x: lx - u * 0.035, y: dy - u * 0.25, w: u * 0.08, h: u * 0.045, busy: true });
+    endGroup();
     // Front: the desk top, a mug and papers.
     add({ layer: 2, tone: "near", x: left, y: dy, w: wide, h: h * 1.6 - dy });
     add({ layer: 2, tone: "mid", x: left, y: dy, w: wide, h: u * 0.014 });
@@ -294,11 +314,14 @@ const touches = (a: Rect, b: Rect, pad: number) => a.x < b.x + b.w + pad && b.x 
 export function busyClear(shapes: WorldShape[], words: Rect[], cams: Cam[], w: number, h: number, pad: number, fixed: Rect[] = []): WorldShape[] {
   if (!words.length && !fixed.length) return shapes;
   const views = cams.length ? cams : [{ z: 1, x: 0, y: 0 }];
-  return shapes.filter((s) => {
-    if (!s.busy) return true;
-    return !views.some((cam) => {
+  const clear = (s: WorldShape) =>
+    !s.busy ||
+    !views.some((cam) => {
       const at = onFrame(s, cam, WORLD_DEPTH[s.layer], w, h);
       return words.some((b) => touches(at, onFrame(b, cam, 1, w, h), pad)) || fixed.some((b) => touches(at, b, pad));
     });
-  });
+  const keep = shapes.map(clear);
+  // An object that lost a part goes whole (its plane would read as an empty slab).
+  const broken = new Set(shapes.filter((s, i) => !keep[i] && s.group !== undefined).map((s) => s.group));
+  return shapes.filter((s, i) => keep[i] && !(s.group !== undefined && broken.has(s.group)));
 }

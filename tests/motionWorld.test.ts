@@ -96,7 +96,10 @@ test("busy shapes stay clear of the words at every camera position; planes stay"
       const cams = [0, 0.25, 0.5, 0.75, 1].map((u) => cameraAt(camera, u));
       const all = worldShapes(place, w, h, 9);
       const kept = busyClear(all, words, cams, w, h, 30, fixed);
-      assert.equal(kept.filter((s) => !s.busy).length, all.filter((s) => !s.busy).length);
+      // Planes stay, except the plane of an object that lost a busy part (it goes whole).
+      assert.equal(kept.filter((s) => !s.busy && s.group === undefined).length, all.filter((s) => !s.busy && s.group === undefined).length);
+      for (const s of all.filter((x) => x.group !== undefined))
+        assert.equal(kept.includes(s), all.filter((x) => x.group === s.group).every((x) => kept.includes(x)), `${place} ${camera}: objects go whole`);
       assert.ok(kept.length < all.length, `${place} ${camera}: something was left out`);
       for (const s of kept.filter((x) => x.busy))
         for (const u of [0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 1]) {
