@@ -3,7 +3,7 @@
 // can open, copy or back up the folder like any other; the app autosaves into it.
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { SKETCH_BASE } from "../shared/prompt.ts";
+import { APP_SKETCH, SKETCH_BASE, appSketchFile } from "../shared/prompt.ts";
 import { storyCard, type RoomCard } from "../shared/room.ts";
 
 export const PROJECTS_DIR = resolve(process.env.PROJECTS_DIR || "proyectos");
@@ -260,6 +260,32 @@ export function saveMedia(
     project.updatedAt = new Date().toISOString();
     await write(project);
     return file;
+  });
+}
+
+// The app's pencil sketch of one shot, as a PNG the browser drew (so pieza.md can link it). Not a media slot: the
+// board's sketch view draws it live, this file is only for the Markdown and the folder.
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+export async function saveAppSketch(id: string, index: number, data: Buffer) {
+  if (!Number.isInteger(index) || index < 0 || index > 98) throw new ProjectError("Toma no válida.");
+  if (data.length < PNG.length || !data.subarray(0, PNG.length).equals(PNG)) throw new ProjectError("Ese boceto no es un PNG.");
+  if (data.length > 8 * 1024 * 1024) throw new ProjectError("El boceto es demasiado grande.");
+  const file = appSketchFile(index);
+  return locked(id, async () => {
+    await read(id);
+    await writeFile(join(folder(id), file), data);
+    return file;
+  });
+}
+
+// Removes the app's sketches of shots the board no longer has (count = how many shots it has now).
+export function pruneAppSketches(id: string, count: number) {
+  return locked(id, async () => {
+    await read(id);
+    const names = await readdir(folder(id));
+    const gone = names.filter((name) => Number(APP_SKETCH.exec(name)?.[1] ?? 0) > count);
+    await Promise.all(gone.map((name) => rm(join(folder(id), name), { force: true })));
+    return gone;
   });
 }
 

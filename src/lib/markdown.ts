@@ -2,7 +2,7 @@
 import { clipPrompt, type AudioSettings } from "../../shared/audio.ts";
 import { MOVE_LABEL } from "../../shared/moves.ts";
 import type { Board, Brief, Story } from "../../shared/schema.ts";
-import { buildCopyPrompt, sketchPrompt } from "../../shared/prompt.ts";
+import { appSketchFile, buildCopyPrompt, sketchPrompt } from "../../shared/prompt.ts";
 import { BEAT_INFO, ROLE_LABEL, formatTime, timeShots, totalSeconds } from "../../shared/template.ts";
 
 export type LogEntry = { at: number; shot?: number; text: string; outcome?: string };
@@ -83,7 +83,26 @@ ${verify}
 `;
 }
 
-export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolName: string, log: LogEntry[], audio?: AudioSettings): string {
+// Each shot's sketch as a relative image link: the one the person uploaded (boceto-NN.<ext>, by shot index) or else
+// the app's pencil sketch the browser keeps in the folder (boceto-app-NN.png). `folder` is set when the .md is
+// downloaded on its own: the links then need the project folder next to it, and the file says so.
+export type SketchLinks = { uploaded: Record<number, string | undefined>; folder?: string };
+
+export function sketchLine(index: number, links: SketchLinks): string {
+  const uploaded = links.uploaded[index];
+  const file = uploaded ?? appSketchFile(index);
+  return `- **Boceto${uploaded ? "" : " (dibujado por la app)"}:**\n\n  ![Boceto de la toma ${index + 1}](${encodeURI(file)})`;
+}
+
+export function pieceToMarkdown(
+  brief: Brief,
+  story: Story,
+  board: Board,
+  toolName: string,
+  log: LogEntry[],
+  audio?: AudioSettings,
+  sketches?: SketchLinks,
+): string {
   const cast = Object.fromEntries(story.characters.map((c) => [c.id, c]));
   const shots = timeShots(board.shots)
     .map((s) => {
@@ -106,6 +125,7 @@ export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolNa
         s.editFrom ? `- **Editar la imagen de la toma ${s.editFrom}:** ${s.editPrompt}` : "",
         s.kind === "transform" && s.middlePrompt ? `- **Imagen intermedia:** ${buildCopyPrompt(s.middlePrompt, brief.format)}` : "",
         s.kind === "transform" ? `- **Imagen final:** ${buildCopyPrompt(s.endPrompt, brief.format)}` : "",
+        sketches ? sketchLine(s.index, sketches) : "",
         s.kind !== "screen" ? `- **Prompt de boceto:** ${sketchPrompt(s.visualPrompt, brief.format)}` : "",
         s.videoPrompt ? `- **Prompt de video:** ${audio ? clipPrompt(audio, s, s.index) : s.videoPrompt}` : "",
       ]
@@ -132,7 +152,11 @@ export function pieceToMarkdown(brief: Brief, story: Story, board: Board, toolNa
 ## Storyboard
 
 ${board.shots.length} tomas · ${formatTime(totalSeconds(board.shots))} · ${toolName} · estilo: ${board.style}
-
+${
+  sketches?.folder
+    ? `\nLos bocetos son imágenes de la carpeta del proyecto (${sketches.folder}): se ven si guardás este archivo al lado de ellas, o abrí el pieza.md de esa carpeta.\n`
+    : ""
+}
 ### Setups
 
 ${setups}

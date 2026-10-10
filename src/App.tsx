@@ -187,6 +187,8 @@ export function App() {
   const unsaved = useRef(false);
   const uploads = useRef(0);
   const saveSeq = useRef(0);
+  // Which app sketches (boceto-app-NN.png) this session already wrote, by shot: the key of what each was drawn from.
+  const sketchWritten = useRef<{ project?: string; keys: Record<number, string>; count?: number }>({ keys: {} });
 
   useEffect(() => {
     api
@@ -321,6 +323,11 @@ export function App() {
 
   const toolName = status?.tools.find((t) => t.id === pieceBrief.tool)?.name ?? "la herramienta";
   const pieceSeries = status?.series.find((s) => s.id === pieceBrief.series);
+  // The sketches the person uploaded, by shot, as files in the project folder (pieza.md links them).
+  const sketchUploads: Record<number, string | undefined> = Object.fromEntries(
+    (board?.shots ?? []).map((_, i) => [i, media[SKETCH_BASE + i]?.imageFile]),
+  );
+  const sketchKey = JSON.stringify(sketchUploads);
   const library: Record<string, LibraryEntry> = Object.fromEntries(
     (pieceSeries?.cast ?? []).map((m) => [
       m.id,
@@ -356,7 +363,11 @@ export function App() {
         hookVariants,
       };
       const markdown =
-        story && board ? pieceToMarkdown(pieceBrief, story, board, toolName, log, audio) : story ? storyToMarkdown(story) : undefined;
+        story && board
+          ? pieceToMarkdown(pieceBrief, story, board, toolName, log, audio, { uploaded: sketchUploads })
+          : story
+            ? storyToMarkdown(story)
+            : undefined;
       try {
         await api.saveProject(projectId, state, markdown);
         if (seq === saveSeq.current) {
@@ -372,7 +383,43 @@ export function App() {
     }, 800);
     return () => clearTimeout(timer);
     // toolName only changes with the brief or the status, which are covered.
-  }, [projectId, lyric, motion, step, pieceBrief, menu, demo, story, storyRound, board, boardRound, boardApproved, log, dismissed, audio, hookVariants]);
+  }, [projectId, lyric, motion, step, pieceBrief, menu, demo, story, storyRound, board, boardRound, boardApproved, log, dismissed, audio, hookVariants, sketchKey]);
+
+  // The app's pencil sketch of every shot without an uploaded one goes into the folder as boceto-app-NN.png, for
+  // pieza.md. Drawn again only when what the sketch reads changes; sketches of shots that are gone are removed.
+  const castKindsKey = JSON.stringify(Object.fromEntries((pieceSeries?.cast ?? []).map((m) => [m.id, m.kind])));
+  useEffect(() => {
+    if (!projectId || lyric || motion || !board) return;
+    let alive = true;
+    const timer = setTimeout(async () => {
+      try {
+        const { sketchJobs, sketchPng } = await import("./lib/sketchFiles.ts");
+        await document.fonts?.ready;
+        const written = sketchWritten.current;
+        if (written.project !== projectId) {
+          written.project = projectId;
+          written.keys = {};
+          written.count = undefined;
+        }
+        for (const job of sketchJobs(board, JSON.parse(castKindsKey), pieceBrief.format, sketchUploads)) {
+          if (!alive) return;
+          if (written.project !== projectId || written.keys[job.index] === job.key) continue;
+          await api.saveAppSketch(projectId, job.index, await sketchPng(job, pieceBrief.format));
+          written.keys[job.index] = job.key;
+        }
+        if (alive && written.count !== board.shots.length) {
+          await api.pruneAppSketches(projectId, board.shots.length);
+          written.count = board.shots.length;
+        }
+      } catch {
+        // Only pieza.md misses a picture; the next change tries again.
+      }
+    }, 1500);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [projectId, lyric, motion, board, pieceBrief.format, castKindsKey, sketchKey]);
 
   function addLog(entry: Omit<LogEntry, "at">) {
     setLog((l) => [...l, { ...entry, at: Date.now() - logStart.current }]);
@@ -478,7 +525,7 @@ export function App() {
         fetch(projectFileUrl(id, record.image))
           .then((r) => r.blob())
           .then(blobToDataUrl)
-          .then((image) => setShotMedia(index, { image }))
+          .then((image) => setShotMedia(index, { image, imageFile: record.image }))
           .catch(() => setShotMedia(index, { error: "No se pudo leer la imagen guardada." }));
       }
       for (const kind of ["clip", "voice", "sfx"] as const) {
@@ -737,6 +784,7 @@ export function App() {
     setMedia((prev) => {
       const next = { ...prev[index] };
       delete next[kind];
+      if (kind === "image") delete next.imageFile;
       if (kind === "image" || kind === "clip") delete next.review;
       return { ...prev, [index]: next };
     });
@@ -1328,7 +1376,10 @@ export function App() {
               const image = await readImageFile(file);
               setShotMedia(SKETCH_BASE + index, { image, error: undefined });
               addLog({ shot: index, text: `Boceto subido: ${file.name}` });
-              await keep(SKETCH_BASE + index, (id) => api.uploadMedia(id, SKETCH_BASE + index, "image", file));
+              await keep(SKETCH_BASE + index, async (id) => {
+                const { file: saved } = await api.uploadMedia(id, SKETCH_BASE + index, "image", file);
+                setShotMedia(SKETCH_BASE + index, { imageFile: saved });
+              });
             }}
             onSketchRemove={(index) => void removeMedia(SKETCH_BASE + index, "image")}
             onRevise={(note, shotNotes) => reviseBoard(note, shotNotes)}
@@ -1408,7 +1459,20 @@ export function App() {
                     className="ml-auto"
                     onClick={() =>
                       download(
-                        new Blob([pieceToMarkdown(pieceBrief, story, board, toolName, log, audio)], { type: "text/markdown" }),
+                        new Blob(
+                          [
+                            pieceToMarkdown(
+                              pieceBrief,
+                              story,
+                              board,
+                              toolName,
+                              log,
+                              audio,
+                              projectId ? { uploaded: sketchUploads, folder: projectId } : undefined,
+                            ),
+                          ],
+                          { type: "text/markdown" },
+                        ),
                         `${slug(story.problem || story.title)}.md`,
                       )
                     }

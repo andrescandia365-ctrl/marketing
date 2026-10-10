@@ -22,6 +22,10 @@ export function buildImagePrompt(prompt: string, style: string, look = ""): stri
 
 // Storyboard sketches made with an image tool live in the project's image slots SKETCH_BASE + shot index.
 export const SKETCH_BASE = 400;
+// The app's own pencil sketch of a shot (src/lib/sketch.ts), drawn by the browser and kept in the project folder so
+// pieza.md can show it: boceto-app-01.png for the first shot. Uploaded sketches stay boceto-NN.<ext>.
+export const appSketchFile = (index: number) => `boceto-app-${String(index + 1).padStart(2, "0")}.png`;
+export const APP_SKETCH = /^boceto-app-(\d{2})\.png$/;
 
 // The drawn storyboard's "Boceto con IA": the shot's frozen moment as a quick pencil sketch, to check framing and
 // staging before paying for the real image. The look's flaws and the realism words go; no colour, no text.

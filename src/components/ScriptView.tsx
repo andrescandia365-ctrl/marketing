@@ -19,6 +19,8 @@ export type ReviewState = { what: "image" | "clip"; loading: boolean; result?: I
 
 export type MediaState = {
   image?: string;
+  // The image's file name in the project folder (kept for sketches, which pieza.md links).
+  imageFile?: string;
   clip?: ClipFile;
   review?: ReviewState;
   voice?: AudioFile;

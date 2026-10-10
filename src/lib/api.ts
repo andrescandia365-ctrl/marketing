@@ -203,6 +203,9 @@ export const api = {
     ),
   removeMedia: (id: string, index: number, kind: MediaKind) =>
     call<{ ok: true }>(`/api/projects/${enc(id)}/media/${index}/${kind}`, undefined, "DELETE"),
+  // The app's pencil sketch of a shot as a PNG (boceto-app-NN.png), and dropping those of shots that are gone.
+  saveAppSketch: (id: string, index: number, png: Blob) => upload<{ file: string }>(`/api/projects/${enc(id)}/sketches/${index}`, png, "image/png"),
+  pruneAppSketches: (id: string, keep: number) => call<{ removed: string[] }>(`/api/projects/${enc(id)}/sketches?keep=${keep}`, undefined, "DELETE"),
   clearMedia: (id: string) => call<{ ok: true }>(`/api/projects/${enc(id)}/media`, undefined, "DELETE"),
   uploadMusic: (id: string, file: Blob, meta: { name: string; duration: number }) =>
     upload<{ music: MediaFileRecord }>(

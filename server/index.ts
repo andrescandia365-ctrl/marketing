@@ -92,6 +92,8 @@ import {
   removeMedia,
   removeMusic,
   saveMedia,
+  saveAppSketch,
+  pruneAppSketches,
   saveMusic,
   saveState,
   saveVideo,
@@ -389,6 +391,18 @@ app.put("/api/projects/:id/media/:index/:kind", async (c) => {
 app.delete("/api/projects/:id/media/:index/:kind", async (c) => {
   await removeMedia(c.req.param("id"), Number(c.req.param("index")), Kind.parse(c.req.param("kind")));
   return c.json({ ok: true });
+});
+
+// The app's pencil sketch of a shot, drawn by the browser, for pieza.md (boceto-app-NN.png).
+app.put("/api/projects/:id/sketches/:index", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  const file = await saveAppSketch(c.req.param("id"), Number(c.req.param("index")), data);
+  return c.json({ file });
+});
+
+app.delete("/api/projects/:id/sketches", async (c) => {
+  const count = z.coerce.number().int().min(0).max(99).parse(c.req.query("keep") ?? "0");
+  return c.json({ removed: await pruneAppSketches(c.req.param("id"), count) });
 });
 
 app.delete("/api/projects/:id/media", async (c) => {
