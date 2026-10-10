@@ -767,6 +767,7 @@ The studio's rules:
 - The Contradiction (contradiction template), when the pain is a mismatch people already live with: items[0] what the system, the label or the habit says, items[1] what really happens; the first gets struck through. Build it only on the series' "Cómo se trabaja hoy" list and the brief, never on an invented habit, and with real numbers only.
 - Travel between scales when it helps the idea: from the whole to the detail (the shelf, the product on it, its expiry date) or back out to the whole. Make that move with entry "through" on the scene that opens inside the previous one (the camera dives into its main thing), once or twice per piece, never on every cut.
 - In beforeAfter, reveal "iris" when the change starts in one spot and spreads (set focusX, focusY on that spot); "wipe" when it is a plain side-by-side.
+- camera, the move inside each scene: hold (still), push (slowly closer), pull (slowly back to the whole), pan (slides across), drift (floats a little). Choose it for what the scene shows and vary it across the piece; never the same move three scenes in a row. Hold on scenes that are mostly words to read (a hook with no picture, type, steps, contradiction, stat, logo) and on zoom, which makes its own move: words never move while they are read. Push in on the product or the real screen. callouts and beforeAfter only hold, push or pull, so their labels stay pinned to the picture. Drift and pan suit a character or a picture.${brief.tone === "dry" ? " This piece is dry: mostly hold, and a slow push on the product or the real screen; no pull, pan or drift." : ""}
 - The last scene is the logo with a soft call to action. Its line calls back to the hook: the same problem, now solved, not a new idea.
 ${brief.narrator === "without" ? "- No narrator: leave every scene's voice and emotion empty. Titles, labels, the typed text and the product in use carry the meaning; keep it readable without a voice.\n" : ""}- Pace for the brief's comic voice (${brief.tone}): ${TONE_PACE[brief.tone]}
 - The product and the logo are the big moments: they land on the music's strongest hits (the app moves their cuts there).
@@ -774,6 +775,7 @@ ${brief.narrator === "without" ? "- No narrator: leave every scene's voice and e
 - caption: the text to post with the video, 1 to 3 sentences in the piece's tone, about this problem in its own words; never "excited to share" or generic SaaS language; nothing unverified without [VERIFY].`,
       MotionScriptSchema,
     ),
+    brief.tone,
   );
   return { ...motion, tone: brief.tone };
 }

@@ -2,8 +2,8 @@
 // eyes), lined up because they share one canvas. Each part turns around its pivot (the neck, a shoulder); the pose
 // is a pure function of time, like the rest of the engine: breathing, a seeded blink, the gesture, and the mouth
 // following the voice.
-import type { MotionGesture } from "../../shared/motion.ts";
-import type { Puppet, PuppetPlace, PuppetRole } from "../../shared/series.ts";
+import type { MotionGesture, MotionTone } from "../../shared/motion.ts";
+import type { BrandMotion, Puppet, PuppetPlace, PuppetRole } from "../../shared/series.ts";
 import { mulberry32, noise } from "./motion.ts";
 
 type Box = { x: number; y: number; w: number; h: number };
@@ -216,14 +216,48 @@ const ease = (x: number) => {
   const v = clamp01(x);
   return v < 0.5 ? 4 * v * v * v : 1 - (-2 * v + 2) ** 3 / 2;
 };
-const outBack = (x: number) => {
+// Ends on 1, passing it on the way by about 4 % with c = 1, 7 % with 1.4, 10 % with 1.7, 13 % with 2.
+const outBack = (x: number, c = 1.4) => {
   const v = clamp01(x);
-  return 1 + 2.4 * (v - 1) ** 3 + 1.4 * (v - 1) ** 2;
+  return 1 + (c + 1) * (v - 1) ** 3 + c * (v - 1) ** 2;
 };
+
+// How a puppet acts, from how the piece lands (the brand's physics, else the tone, as landFor): `wind` scales the
+// anticipation (the small opposite move before a gesture), `lead` is how long before the gesture it starts, in
+// seconds; `overshoot` is how far the gesture's main move passes its mark before it settles (0: never); `squash`
+// scales the squash when it lands from its entrance. A dry piece stays small and never overshoots, whatever the brand.
+export type Acting = { wind: number; lead: number; overshoot: number; squash: number };
+export const WARM_ACTING: Acting = { wind: 1, lead: 0.16, overshoot: 1, squash: 1 };
+export function actingFor(tone: MotionTone | undefined, motion: BrandMotion | undefined): Acting {
+  if (tone === "dry") return { wind: 0.45, lead: 0.12, overshoot: 0, squash: 0.5 };
+  if (motion === "solid") return { wind: 0.6, lead: 0.12, overshoot: 0, squash: 0.6 };
+  if (motion === "soft") return { wind: 0.8, lead: 0.2, overshoot: 0, squash: 0.8 };
+  if (motion === "springy") return tone === "absurdist" ? { wind: 1.5, lead: 0.18, overshoot: 2, squash: 1.4 } : { wind: 1.2, lead: 0.17, overshoot: 1.4, squash: 1.2 };
+  return tone === "absurdist" ? { wind: 1.6, lead: 0.2, overshoot: 1.7, squash: 1.4 } : WARM_ACTING;
+}
+
+// The anticipation at gesture time g (0 when the main move starts): it winds up over `lead` seconds before the move,
+// is fully wound when the move starts and lets go while the move takes over, so the pose never jumps.
+export const RELEASE = 0.2;
+export function windUp(g: number, lead: number): number {
+  if (g <= -lead || g >= RELEASE) return 0;
+  return g < 0 ? ease((g + lead) / lead) : 1 - ease(g / RELEASE);
+}
 
 // t: seconds into the piece (breathing and blinks run on it); lt: seconds into the scene; enterAt and gestureAt
 // from the scene's start; talk 0..1; toward: +1 when what it shows is on its right (screen right), -1 on its left.
-export function puppetPose(t: number, lt: number, enterAt: number, gesture: MotionGesture, gestureAt: number, talk: number, toward: number, seed: number): Pose {
+// The gesture's main move starts at gestureAt (on its beat, with its sound); its anticipation comes just before.
+export function puppetPose(
+  t: number,
+  lt: number,
+  enterAt: number,
+  gesture: MotionGesture,
+  gestureAt: number,
+  talk: number,
+  toward: number,
+  seed: number,
+  acting: Acting = WARM_ACTING,
+): Pose {
   const enter = outBack((lt - enterAt) / 0.55);
   const pose: Pose = {
     rise: -(1 - clamp01(enter)) * 0.45,
@@ -241,7 +275,7 @@ export function puppetPose(t: number, lt: number, enterAt: number, gesture: Moti
   // Landing after the entrance: a quick squash.
   const land = (lt - enterAt - 0.45) / 0.25;
   if (land > 0 && land < 1) {
-    const k = Math.sin(land * Math.PI) * 0.06;
+    const k = Math.sin(land * Math.PI) * 0.06 * acting.squash;
     pose.sy -= k;
     pose.sx += k * 0.7;
   }
@@ -252,49 +286,64 @@ export function puppetPose(t: number, lt: number, enterAt: number, gesture: Moti
   if (b > 0 && b < 1) pose.blink = Math.sin(b * Math.PI);
 
   const g = lt - gestureAt;
-  if (g > 0) {
-    const raise = ease(g / 0.4);
+  const lead = Math.max(0.05, acting.lead);
+  if (g > -lead) {
+    // w: how wound up it is (0..1) times how much this piece acts; reach: the main move, 0 → 1 (with its overshoot).
+    const w = windUp(g, lead) * acting.wind;
+    const reach = (seconds: number) => (g <= 0 ? 0 : acting.overshoot > 0 ? outBack(g / seconds, acting.overshoot) : ease(g / seconds));
+    const side = toward || 1;
     switch (gesture) {
       case "present": {
-        const open = ease(g / 0.5) * 0.45;
+        // Before opening, the arms come in a little and the body dips.
+        const open = reach(0.5) * 0.45 - w * 0.14;
         pose.armL += open;
         pose.armR -= open;
+        pose.sy -= w * 0.015;
+        pose.sx += w * 0.01;
         break;
       }
       case "wave": {
-        const up = raise * (1 - ease((g - 2.0) / 0.4));
-        const swing = g > 0.35 && g < 2.0 ? Math.sin((g - 0.35) * Math.PI * 2 * 2.6) * 0.32 : 0;
-        if (toward >= 0) pose.armR -= up * 2.3 + swing;
-        else pose.armL += up * 2.3 + swing;
-        pose.head += up * 0.06 * toward;
+        // Before it goes up, the arm swings in and the head tips away. The waving swells in and out, so it never jumps.
+        const up = reach(0.4) * (1 - ease((g - 2.0) / 0.4));
+        const envelope = Math.min(ease((g - 0.35) / 0.2), 1 - ease((g - 1.7) / 0.3));
+        const swing = g > 0.35 && g < 2.0 ? Math.sin((g - 0.35) * Math.PI * 2 * 2.6) * 0.32 * envelope : 0;
+        if (toward >= 0) pose.armR -= up * 2.3 + swing - w * 0.22;
+        else pose.armL += up * 2.3 + swing - w * 0.22;
+        pose.head += (up * 0.06 - w * 0.03) * toward;
         break;
       }
       case "point": {
-        if (toward >= 0) pose.armR -= raise * 1.25;
-        else pose.armL += raise * 1.25;
-        pose.lean += raise * 0.035 * toward;
-        pose.head += raise * 0.05 * toward;
+        // Before it points, the arm draws back and the body leans away from what it shows.
+        const raise = reach(0.4);
+        if (toward >= 0) pose.armR -= raise * 1.25 - w * 0.2;
+        else pose.armL += raise * 1.25 - w * 0.2;
+        pose.lean += (raise * 0.035 - w * 0.01) * toward;
+        pose.head += (raise * 0.05 - w * 0.03) * toward;
         break;
       }
       case "cheer": {
-        const up = ease(g / 0.3);
-        pose.armL += up * 2.55;
-        pose.armR -= up * 2.55;
-        const hop = g < 1.5 ? Math.abs(Math.sin(g * Math.PI * 2.4)) : 0;
+        // A crouch with the arms down, then up. Three whole hops, so the last one lands on the floor.
+        const up = reach(0.3) * 2.55 - w * 0.15;
+        pose.armL += up;
+        pose.armR -= up;
+        pose.sy -= w * 0.05;
+        pose.sx += w * 0.035;
+        const hop = g > 0 && g < 3 / 2.4 ? Math.abs(Math.sin(g * Math.PI * 2.4)) : 0;
         pose.rise += hop * 0.06;
         pose.sy += hop * 0.03;
         break;
       }
       case "surprise": {
-        const jump = g < 0.5 ? Math.sin((g / 0.5) * Math.PI) : 0;
+        // A small flinch in (arms in, head forward, a crouch), then the jump back with the arms out.
+        const jump = g > 0 && g < 0.5 ? Math.sin((g / 0.5) * Math.PI) : 0;
         pose.rise += jump * 0.08;
-        pose.sy += jump * 0.06;
-        pose.sx -= jump * 0.03;
-        const out = ease(g / 0.25) * 0.95;
+        pose.sy += jump * 0.06 - w * 0.035;
+        pose.sx += w * 0.02 - jump * 0.03;
+        const out = reach(0.25) * 0.95 - w * 0.12;
         pose.armL += out;
         pose.armR -= out;
-        pose.head -= ease(g / 0.25) * 0.08 * (toward || 1);
-        pose.mouth = Math.max(pose.mouth, g < 1.2 ? 0.7 * (1 - ease((g - 0.6) / 0.6)) : 0);
+        pose.head -= (reach(0.25) * 0.08 - w * 0.04) * side;
+        if (g > 0) pose.mouth = Math.max(pose.mouth, g < 1.2 ? 0.7 * ease(g / 0.1) * (1 - ease((g - 0.6) / 0.6)) : 0);
         break;
       }
     }

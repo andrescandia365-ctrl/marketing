@@ -89,6 +89,12 @@ const SceneWire = z.object({
     .string()
     .optional()
     .describe("beforeAfter only: 'wipe' (a divider slides across) or 'iris' (the after grows in a circle from focusX, focusY: the change spreads from one spot). Else empty."),
+  camera: z
+    .string()
+    .optional()
+    .describe(
+      "How the camera moves inside this scene: hold (still), push (slowly closer), pull (slowly back to the whole), pan (slides across) or drift (floats a little). hold on scenes that are mostly words to read (a hook with no picture, type, steps, contradiction, stat, logo) and on zoom; push in on the product or the real screen; callouts and beforeAfter only hold, push or pull. Vary it across the piece, never the same move three scenes in a row.",
+    ),
   focusX: z.number().describe("zoom: the feature's position across the image, 0 to 1. beforeAfter with reveal 'iris': where the change starts, across, 0 to 1. Else 0.5."),
   focusY: z.number().describe("zoom: the feature's position down the image, 0 to 1. beforeAfter with reveal 'iris': where the change starts, down, 0 to 1. Else 0.5."),
   zoom: z.number().describe("zoom only: how much to zoom in, 1.5 to 3."),
@@ -119,7 +125,7 @@ export const MotionScriptSchema = z.object({
 export type Spot = { dx?: number; dy?: number; scale?: number };
 export type Tweak = { at?: number; v?: Spot; h?: Spot };
 
-export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture" | "entry" | "reveal"> & {
+export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture" | "entry" | "reveal" | "camera"> & {
   id: string;
   template: MotionTemplate;
   // How the scene comes in. Older scenes have none: the tone's cut.
@@ -132,6 +138,9 @@ export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture"
   move?: MotionMove;
   // Older scenes have none: the camera stays still.
   camera?: MotionCamera;
+  // "ai": the writer chose the camera, so planCameras may change it when the scene or its neighbours change. A camera
+  // the person picks has none and is never changed.
+  cameraBy?: "ai";
   // By element key (see sceneElements). Empty or missing: the template's own timing and layout.
   tweaks?: Record<string, Tweak>;
   // Only on the arranged copy (snapElements), never saved: an element's template time moved onto a beat. A hand-set
@@ -193,6 +202,68 @@ export function cameraAt(camera: MotionCamera | undefined, u: number): { z: numb
   return { z: 1, x: 0, y: 0 };
 }
 
+// The writer's word for a camera move, tolerant of its wording (English or Spanish); undefined when it gave none.
+export function pickCamera(value: string | undefined): MotionCamera | undefined {
+  const v = (value ?? "").toLowerCase();
+  if (/pull|back|alej|zoom ?out|dolly ?out|retroced/.test(v)) return "pull";
+  if (/push|acerc|zoom ?in|dolly|closer|empuj/.test(v)) return "push";
+  if (/\bpan|slide|lateral|across|desliz|barrid/.test(v)) return "pan";
+  if (/drift|deriv|float|flot|sway/.test(v)) return "drift";
+  if (/hold|still|static|quiet|fij|locked|steady|none/.test(v)) return "hold";
+  return undefined;
+}
+
+// Scenes that hold when the camera is the writer's: mostly words to read (nothing moves while it is read, beyond the
+// slow moves the camera has always made when the person picks one), and zoom, which makes its own move.
+const HOLD_SCENES: readonly MotionTemplate[] = ["zoom", "type", "steps", "contradiction", "stat", "logo"];
+// Where the writer's camera pushes in when it gives none: the product and the real screen.
+const PUSH_IN: readonly MotionTemplate[] = ["product", "screen"];
+// Another move when the same one would come three scenes in a row, in order of preference.
+const OTHER_CAMERA: Record<Exclude<MotionCamera, "hold">, MotionCamera[]> = {
+  push: ["drift", "pull", "pan"],
+  pull: ["push", "drift", "pan"],
+  pan: ["drift", "push", "pull"],
+  drift: ["pan", "push", "pull"],
+};
+
+// The camera moves the writer may give a scene (a hand choice can be any). Labels pinned to a picture (callouts,
+// beforeAfter) only move in depth, never slide across. A dry piece mostly holds, with a slow push.
+export function cameraFits(scene: Pick<MotionScene, "template" | "asset">, tone?: MotionTone): readonly MotionCamera[] {
+  if (HOLD_SCENES.includes(scene.template) || (scene.template === "hook" && !scene.asset)) return ["hold"];
+  const fits: readonly MotionCamera[] = scene.template === "callouts" || scene.template === "beforeAfter" ? ["hold", "push", "pull"] : MOTION_CAMERAS;
+  return tone === "dry" ? fits.filter((c) => c === "hold" || c === "push") : fits;
+}
+
+// The writer's cameras made to follow the studio's rules: each one fits its scene (cameraFits; a move that does not
+// becomes a push on the product or the screen, else a hold), a scene with none pushes in on the product or the screen
+// and holds elsewhere, and the same move never comes three scenes in a row (hold is no move). Only scenes whose
+// camera the writer chose (cameraBy "ai") change; the person's choices stay and still count as neighbours. Running it
+// again changes nothing, and with nothing to change it returns the same list (the studio runs it on every edit).
+export function planCameras(scenes: MotionScene[], tone?: MotionTone): MotionScene[] {
+  if (!scenes.some((s) => s.cameraBy === "ai")) return scenes;
+  const out = scenes.map((s) => {
+    if (s.cameraBy !== "ai") return s;
+    const fits = cameraFits(s, tone);
+    const wish = s.camera ?? (PUSH_IN.includes(s.template) ? "push" : "hold");
+    const camera = fits.includes(wish) ? wish : PUSH_IN.includes(s.template) && fits.includes("push") ? "push" : "hold";
+    return camera === s.camera ? s : { ...s, camera };
+  });
+  const cam = (j: number): MotionCamera => out[j]?.camera ?? "hold";
+  // Whether `c` at j would make three of the same move in a row with its neighbours.
+  const triple = (j: number, c: MotionCamera) =>
+    c !== "hold" && [j - 2, j - 1, j].some((k) => k >= 0 && k + 2 < out.length && [k, k + 1, k + 2].every((x) => (x === j ? c : cam(x)) === c));
+  for (let i = 2; i < out.length; i++) {
+    const c = cam(i);
+    if (c === "hold" || cam(i - 1) !== c || cam(i - 2) !== c) continue;
+    const k = [i, i - 1, i - 2].find((j) => out[j].cameraBy === "ai");
+    if (k === undefined) continue;
+    const fits = cameraFits(out[k], tone);
+    const next = OTHER_CAMERA[c].find((o) => fits.includes(o) && !triple(k, o)) ?? "hold";
+    out[k] = { ...out[k], camera: next };
+  }
+  return out.every((s, i) => s === scenes[i]) ? scenes : out;
+}
+
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(x) ? x : lo));
 let nextId = 0;
 export const sceneId = () => `s${Date.now().toString(36)}${(nextId++).toString(36)}`;
@@ -201,27 +272,33 @@ export function blankScene(template: MotionTemplate = "screen"): MotionScene {
   return { id: sceneId(), template, seconds: 3, title: "", text: "", items: [], asset: "", assetB: "", gesture: "present", move: "walk", camera: "hold", focusX: 0.5, focusY: 0.5, zoom: 2, voice: "", emotion: "" };
 }
 
-export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>): MotionScript {
+// The writer's script as the app plays it. `tone` (the brief's) only decides the cameras the writer chose (planCameras).
+export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?: MotionTone): MotionScript {
   const pick = <T extends string>(value: string, list: readonly T[], fallback: T): T =>
     list.find((v) => value.toLowerCase().replace(/[^a-z]/g, "") === v.toLowerCase()) ??
     list.find((v) => value.toLowerCase().includes(v.toLowerCase())) ??
     fallback;
   return {
     ...wire,
-    scenes: wire.scenes.map((s) => ({
-      ...s,
-      id: sceneId(),
-      template: pick(s.template, MOTION_TEMPLATES, "screen"),
-      gesture: pickGesture(s.gesture),
-      move: pickMove(s.move),
-      entry: pickEntry(s.entry),
-      reveal: s.template.toLowerCase().includes("before") ? pickReveal(s.reveal) : undefined,
-      seconds: Math.round(clamp(s.seconds, 2, 8) * 2) / 2,
-      items: s.items.map((i) => i.trim()).filter(Boolean).slice(0, 5),
-      focusX: clamp(s.focusX, 0, 1),
-      focusY: clamp(s.focusY, 0, 1),
-      zoom: clamp(s.zoom || 2, 1.2, 4),
-    })),
+    scenes: planCameras(
+      wire.scenes.map((s) => ({
+        ...s,
+        id: sceneId(),
+        template: pick(s.template, MOTION_TEMPLATES, "screen"),
+        gesture: pickGesture(s.gesture),
+        move: pickMove(s.move),
+        entry: pickEntry(s.entry),
+        reveal: s.template.toLowerCase().includes("before") ? pickReveal(s.reveal) : undefined,
+        camera: pickCamera(s.camera),
+        cameraBy: "ai" as const,
+        seconds: Math.round(clamp(s.seconds, 2, 8) * 2) / 2,
+        items: s.items.map((i) => i.trim()).filter(Boolean).slice(0, 5),
+        focusX: clamp(s.focusX, 0, 1),
+        focusY: clamp(s.focusY, 0, 1),
+        zoom: clamp(s.zoom || 2, 1.2, 4),
+      })),
+      tone,
+    ),
     music: { mood: pick(wire.music.mood, MOTION_MOODS, "drive"), bpm: Math.round(clamp(wire.music.bpm, 80, 130)) },
   };
 }

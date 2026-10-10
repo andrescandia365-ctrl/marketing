@@ -2,7 +2,7 @@
 // the brand and preloaded images only. No timers, no state carried between frames; noise is seeded (mulberry32),
 // never Math.random. The studio's banned defaults are not here: no centred title on a gradient, no
 // everything-fades-in, no corner labels or frame borders, no glow, no particle bursts.
-import { drawPuppet, puppetPose, type PuppetAsset } from "./puppet.ts";
+import { actingFor, drawPuppet, puppetPose, type Acting, type PuppetAsset } from "./puppet.ts";
 import type { ActorAsset } from "./actor.ts";
 import {
   STAT_COUNT,
@@ -184,6 +184,8 @@ type Frame = {
   probe?: Probe;
   // The tone's landing curve (landFor).
   land: (x: number) => number;
+  // How a puppet acts (actingFor): its anticipation and overshoot follow the same brand and tone.
+  acting: Acting;
 };
 
 const display = (f: Frame, size: number, weight = 700) => `${weight} ${size}px "${f.world.brand.displayFont}", "Inter", system-ui, sans-serif`;
@@ -566,7 +568,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
           placeholder(f, cx - height * 0.3, bottom - height, height * 0.6, height, s.asset ? `Falta el personaje: ${s.asset}` : "Elegí un personaje");
           return { x: cx - height * 0.3, y: bottom - height, w: height * 0.6, h: height };
         }
-        const pose = puppetPose(f.t, lt, at("media"), s.gesture ?? "present", at("gesture"), talkLevel(world, s, f.t, lt), toward, world.seed + s.index * 7);
+        const pose = puppetPose(f.t, lt, at("media"), s.gesture ?? "present", at("gesture"), talkLevel(world, s, f.t, lt), toward, world.seed + s.index * 7, f.acting);
         return drawPuppet(ctx, puppet, cx, bottom, height, pose);
       });
       const titleY = vertical ? topSafe(h * 0.13, titleSize) : h * 0.2;
@@ -1041,7 +1043,18 @@ export function drawMotionFrame(
   probe?: Probe,
 ) {
   const scenes = timeScenes(script.scenes);
-  const f: Frame = { ctx, w, h, unit: Math.min(w, h), vertical: h > w, world, t, probe, land: landFor(script.tone, world.brand.motion) };
+  const f: Frame = {
+    ctx,
+    w,
+    h,
+    unit: Math.min(w, h),
+    vertical: h > w,
+    world,
+    t,
+    probe,
+    land: landFor(script.tone, world.brand.motion),
+    acting: actingFor(script.tone, world.brand.motion),
+  };
   backdrop(f);
   if (!scenes.length) return;
   const i = sceneAt(scenes, t);

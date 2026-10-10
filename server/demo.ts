@@ -289,15 +289,15 @@ export function demoMotion(brief: Brief, target: number | null): MotionScript {
   const shop = series?.type === "ecommerce";
   const scenes = shop
     ? [
-        { template: "hook", seconds: 3.5, title: "Entra frío por abajo", text: "La puerta deja pasar el aire.", items: [], asset: "", voice: "¿Sentís el frío que entra por abajo de la puerta?", emotion: "cercana" },
-        { template: "product", seconds: 3, title: brief.product.split(/[,.:]/)[0] || "El producto", text: "", items: ["Precio [VERIFY]"], asset: product, voice: "Esto lo frena.", emotion: "segura" },
-        { template: "callouts", seconds: 4, title: "Cómo es", text: "", items: ["Se pega en un minuto", "Para cualquier puerta", "Se lava"], asset: product, voice: "Se pega en un minuto y sirve para cualquier puerta.", emotion: "clara" },
-        { template: "beforeAfter", seconds: 3.5, title: "Antes y después", text: "", items: ["Antes", "Después"], asset: "", assetB: product, reveal: "iris", focusX: 0.5, focusY: 0.85, voice: "Antes entraba el aire; ahora no.", emotion: "aliviada" },
-        { template: "logo", seconds: 3.5, title: series?.name ?? "", text: series?.tagline ?? "", items: ["Mirá el link"], asset: "", voice: "Tu casa, más tibia.", emotion: "cálida" },
+        { template: "hook", seconds: 3.5, title: "Entra frío por abajo", text: "La puerta deja pasar el aire.", items: [], asset: "", camera: "hold", voice: "¿Sentís el frío que entra por abajo de la puerta?", emotion: "cercana" },
+        { template: "product", seconds: 3, title: brief.product.split(/[,.:]/)[0] || "El producto", text: "", items: ["Precio [VERIFY]"], asset: product, camera: "push", voice: "Esto lo frena.", emotion: "segura" },
+        { template: "callouts", seconds: 4, title: "Cómo es", text: "", items: ["Se pega en un minuto", "Para cualquier puerta", "Se lava"], asset: product, camera: "hold", voice: "Se pega en un minuto y sirve para cualquier puerta.", emotion: "clara" },
+        { template: "beforeAfter", seconds: 3.5, title: "Antes y después", text: "", items: ["Antes", "Después"], asset: "", assetB: product, reveal: "iris", focusX: 0.5, focusY: 0.85, camera: "pull", voice: "Antes entraba el aire; ahora no.", emotion: "aliviada" },
+        { template: "logo", seconds: 3.5, title: series?.name ?? "", text: series?.tagline ?? "", items: ["Mirá el link"], asset: "", camera: "hold", voice: "Tu casa, más tibia.", emotion: "cálida" },
       ]
     : [
-        { template: "hook", seconds: 3.5, title: "El corte es a las 18", text: "Y se arma a ojo.", items: [], asset: "", voice: "El proveedor corta a las seis.", emotion: "apurada" },
-        { template: "screen", seconds: 3.5, title: "Stock en el celular", text: "Lo que queda, sin contar.", items: [], asset: screen, voice: "En el celular ves lo que queda.", emotion: "tranquila" },
+        { template: "hook", seconds: 3.5, title: "El corte es a las 18", text: "Y se arma a ojo.", items: [], asset: "", camera: "hold", voice: "El proveedor corta a las seis.", emotion: "apurada" },
+        { template: "screen", seconds: 3.5, title: "Stock en el celular", text: "Lo que queda, sin contar.", items: [], asset: screen, camera: "push", voice: "En el celular ves lo que queda.", emotion: "tranquila" },
         { template: "type", seconds: 4.5, title: "yerba 1 kg", text: "Quedan 3: pedila antes del corte.", items: ["Buscar producto", "Buscar"], asset: "", voice: "Buscás la yerba y ves cuántas quedan.", emotion: "clara" },
         { template: "zoom", seconds: 3.5, title: "Lo que falta", text: "", items: [], asset: screen, focusX: 0.5, focusY: 0.35, zoom: 2.2, entry: "through", voice: "Lo que falta aparece arriba.", emotion: "clara" },
         { template: "steps", seconds: 4, title: "Pedí antes del corte", text: "", items: ["Abrí Stock", "Marcá lo que falta", "Mandá el pedido"], asset: "", voice: "Tres pasos y el pedido sale.", emotion: "segura" },
@@ -310,23 +310,26 @@ export function demoMotion(brief: Brief, target: number | null): MotionScript {
     ? [
         scenes[0],
         shop
-          ? { template: "character", seconds: 4, title: "Yo te lo explico", text: "", items: [], asset: host.id, assetB: product, gesture: "present", voice: "Te muestro cómo se frena el frío.", emotion: "cálida" }
-          : { template: "character", seconds: 4, title: "Mirá esto", text: "", items: [], asset: host.id, assetB: screen, gesture: "point", voice: "Mirá: lo que queda está acá.", emotion: "segura" },
+          ? { template: "character", seconds: 4, title: "Yo te lo explico", text: "", items: [], asset: host.id, assetB: product, gesture: "present", camera: "drift", voice: "Te muestro cómo se frena el frío.", emotion: "cálida" }
+          : { template: "character", seconds: 4, title: "Mirá esto", text: "", items: [], asset: host.id, assetB: screen, gesture: "point", camera: "pan", voice: "Mirá: lo que queda está acá.", emotion: "segura" },
         ...scenes.slice(1),
       ]
     : scenes;
   const scale = target ? target / withCharacter.reduce((n, s) => n + s.seconds, 0) : 1;
-  const motion = normalizeMotion({
-    problem: shop ? "El frío que entra por abajo de la puerta" : "Armar el pedido antes del corte del proveedor",
-    title: shop ? "El burlete en 15 segundos" : "Pedir antes del corte",
-    durationNote: "Ejemplo de muestra, sin clave de IA.",
-    scenes: withCharacter.map((s) => ({ assetB: "", gesture: "", focusX: 0.5, focusY: 0.5, zoom: 2, ...s, seconds: s.seconds * scale })),
-    music: { mood: "drive", bpm: 112 },
-    note: "Guion de muestra. Los datos marcados [VERIFY] hay que confirmarlos.",
-    caption: shop
-      ? "El frío no entra por la ventana: entra por abajo de la puerta. Un burlete y la casa vuelve a ser casa."
-      : "Son las 17:50 y el proveedor cierra a las 18. Así se arma el pedido sin contar la góndola a mano. [VERIFY]",
-  });
+  const motion = normalizeMotion(
+    {
+      problem: shop ? "El frío que entra por abajo de la puerta" : "Armar el pedido antes del corte del proveedor",
+      title: shop ? "El burlete en 15 segundos" : "Pedir antes del corte",
+      durationNote: "Ejemplo de muestra, sin clave de IA.",
+      scenes: withCharacter.map((s) => ({ assetB: "", gesture: "", focusX: 0.5, focusY: 0.5, zoom: 2, ...s, seconds: s.seconds * scale })),
+      music: { mood: "drive", bpm: 112 },
+      note: "Guion de muestra. Los datos marcados [VERIFY] hay que confirmarlos.",
+      caption: shop
+        ? "El frío no entra por la ventana: entra por abajo de la puerta. Un burlete y la casa vuelve a ser casa."
+        : "Son las 17:50 y el proveedor cierra a las 18. Así se arma el pedido sin contar la góndola a mano. [VERIFY]",
+    },
+    brief.tone,
+  );
   // Without a narrator the sample has no voice lines either.
   const scenesOut = brief.narrator === "without" ? motion.scenes.map((s) => ({ ...s, voice: "", emotion: "" })) : motion.scenes;
   return { ...motion, scenes: scenesOut, tone: brief.tone };

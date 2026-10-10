@@ -2,7 +2,7 @@
 // six things from 1 to 10, the three worst problems are fixed as edits to the script, and it repeats until every score
 // is 8 or more, up to a set number of rounds.
 import { z } from "zod";
-import { MOTION_TEMPLATES, MOTION_TEMPLATE_LABEL, sceneElements, timeScenes, tweakScene, type MotionScene, type MotionScript, type Spot } from "./motion.ts";
+import { MOTION_TEMPLATES, MOTION_TEMPLATE_LABEL, planCameras, sceneElements, timeScenes, tweakScene, type MotionScene, type MotionScript, type Spot } from "./motion.ts";
 
 export const CRITERIA = ["hook", "readability", "motion", "variety", "brand", "sync"] as const;
 export type Criterion = (typeof CRITERIA)[number];
@@ -97,7 +97,9 @@ export function qualityKey(scenes: MotionScene[], script: MotionScript, extra: s
   return (h >>> 0).toString(16);
 }
 
-// The script as the reviewer reads it: each scene with its times, words and elements (and any hand adjustment).
+const CAMERA_WORDS = { push: "pushes in slowly", pull: "pulls back slowly", pan: "pans across", drift: "drifts a little" } as const;
+
+// The script as the reviewer reads it: each scene with its times, words, camera and elements (and any hand adjustment).
 export function describeScenes(scenes: MotionScene[]): string {
   return timeScenes(scenes)
     .map((s) => {
@@ -113,7 +115,8 @@ export function describeScenes(scenes: MotionScene[]): string {
         .join("; ");
       const entry = s.index > 0 && s.entry === "through" ? ", enters by a camera journey into the previous scene's main thing" : "";
       const reveal = s.template === "beforeAfter" && s.reveal === "iris" ? ", the after grows in a circle" : "";
-      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}${entry}${reveal}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
+      const camera = s.camera && s.camera !== "hold" ? `, camera ${CAMERA_WORDS[s.camera]}` : "";
+      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}${entry}${reveal}${camera}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
     })
     .join("\n");
 }
@@ -181,5 +184,6 @@ export function applyFixes(script: MotionScript, fixes: Fix[], formats: ("vertic
     scenes[i] = s;
     applied.push(`Escena ${i + 1}: ${fix.problem.trim() || "arreglo"} → ${changes.join("; ")}.`);
   }
-  return { script: { ...script, scenes }, applied };
+  // A scene that changed template keeps the writer's camera only if it still fits (a hand-picked camera stays).
+  return { script: { ...script, scenes: planCameras(scenes, script.tone) }, applied };
 }

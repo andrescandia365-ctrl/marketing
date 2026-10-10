@@ -28,6 +28,7 @@ import {
   readingIssues,
   readingKey,
   newMotionPiece,
+  planCameras,
   quietGaps,
   revealTimes,
   sceneElements,
@@ -194,7 +195,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const scriptRef = useRef(script);
   scriptRef.current = script;
   const set = (patch: Partial<MotionPiece>) => setPiece((p) => ({ ...p, ...patch }));
-  const setScript = (next: MotionScript) => set({ script: next });
+  // Every edit keeps the writer's cameras within the rules (planCameras); the ones the person picked never change.
+  const setScript = (next: MotionScript) => set({ script: { ...next, scenes: planCameras(next.scenes, next.tone) } });
 
   // Keeps the script as it was before an edit. Edits with the same tag close together (typing in one field, one
   // drag) undo in one step.
@@ -1499,11 +1501,12 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                       className={`${smallInput} py-1 text-xs`}
                       value={raw.camera ?? "hold"}
                       aria-label="Cámara"
-                      onChange={(e) => updateScene(s.id, { camera: e.target.value as (typeof MOTION_CAMERAS)[number] })}
+                      title={raw.cameraBy === "ai" ? "La eligió la IA según lo que muestra la escena. Si la cambiás, queda la tuya." : undefined}
+                      onChange={(e) => updateScene(s.id, { camera: e.target.value as (typeof MOTION_CAMERAS)[number], cameraBy: undefined })}
                     >
                       {MOTION_CAMERAS.map((c) => (
                         <option key={c} value={c}>
-                          Cámara: {MOTION_CAMERA_LABEL[c]}
+                          Cámara{raw.cameraBy === "ai" && c === (raw.camera ?? "hold") ? " (IA)" : ""}: {MOTION_CAMERA_LABEL[c]}
                         </option>
                       ))}
                     </select>
