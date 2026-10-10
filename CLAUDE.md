@@ -254,6 +254,84 @@ people and politics. The playbook's 75 s ad template does not drive the app.
     plus the bed's `roomWindows` dip, the entry (tone cut with seconds, hard cut, through, Continuidad), the camera
     and CONCEPTO / SIMULACIÓN. It downloads as Markdown (`storyboardMarkdown`, which links the sheet) and as one PNG
     sheet (`storyboardSheet`).
+- Lyric, story and app additions (idea 65):
+  - Lyric videos pulse (organic background, Grok layers, "beat" elements) on the Reloj's kick grid when it has one
+    (`shared/lyricPulse.ts`: `lyricPulse`, `pulseAt` = downbeats for the big move, kicks for small accents,
+    `layerHits` = downbeats); with no drums stem they fall back to `findBeats` on the master as decoration only (never
+    a cut, never the Reloj) and the Video tab says so (`pulseNote`).
+  - Lyric videos: "La letra actúa el canto" (`piece.act`, on for new pieces and off for old ones that already have
+    lyrics; `shared/lyricAct.ts`): a word that was heard by the auto sync (`LyricWord.heard`, set by `alignLyrics`)
+    and held at least 0.6 s stretches horizontally while it is sung (`stretchAt`, at most +20 %, rows break on the
+    peak width), and a word in the song's loudest tenth and at least 3 dB over its median (`loudCut`) shakes slightly
+    (`shakeAt`, half on calm). Loudness is `LyricWord.level`, the vocal-stem RMS from `wordLevels` (Demucs in
+    `/api/lyrics/sync` voice=demucs or `/api/lyrics/levels`, or a stem uploaded and measured in the browser), never
+    the master.
+  - Generated image prompts close with the series look (`lookPhrase`, sent as `look` to /api/image) or, without one,
+    the plain `PLAIN_PHOTO` line, never "cinematic" (`buildImagePrompt` in shared/prompt.ts); Grok's speaking prompt
+    carries the line's written emotion as "tone: …" (`speakingPrompt`, `lineEmotion` in shared/audio.ts).
+  - "Exportar .zip" / "Importar .zip" in ProjectsPanel (`server/projectZip.ts`, localhost-only `GET
+    /api/projects/:id/export` and `POST /api/projects/import`): a node:zlib zip32 reader/writer that allows only a
+    project folder's own paths (`projectPathAllowed`) and rejects traversal, symlinks, encryption and zip64; sizes are
+    capped as files inflate. project.json is checked with `ProjectFileSchema` (errors via checkErrorText), and an
+    import always lands in a new free id (id-2, id-3…), never overwriting.
+  - pieza.md shows each shot's sketch: the uploaded boceto-NN (MediaState.imageFile) or the app's pencil sketch, which
+    App writes as boceto-app-NN.png (`src/lib/sketchFiles.ts` `sketchJobs`/`sketchPng`, `PUT/DELETE
+    /api/projects/:id/sketches`, `saveAppSketch`/`pruneAppSketches`, `appSketchFile` in shared/prompt.ts) only when
+    its drawn inputs change. `pieceToMarkdown(..., SketchLinks)` links them relatively, and "Descargar todo .md" adds
+    a note that the images are in the project folder.
+  - "Cambiar descripción" in the setups panel (`SetupsPanel`) carries a setup's new identity line into every shot's
+    prompts (`propagateSetupIdentity` in `shared/setupEdit.ts`: matches the old line word for word, reports shots that
+    list the setup without it). It can also save the line to the series cast, and the last change can be undone
+    (`undoSetupIdentity` keeps prompts edited by hand since).
+  - A transform shot can start or end on a real cast screen (`screenAt` "start"/"end" + `screen`;
+    `shared/transformScreen.ts`: `shotFrames`, `generatesImage`, `withScreenMove` puts a "Frames (real screen):"
+    sentence before "Audio:" in the video prompt, `settleScreenShot` runs after the writer). That frame is the cast
+    screenshot, never generated, and is chosen in Producción with "Pantalla real en la transformación".
+  - Cast members carry extra references (`refs`: a crop of the sheet such as the face, or a loose view, each its own
+    @ref, e.g. @MartaCara, saved in biblioteca/<series>/ by `POST/DELETE /api/series/:id/cast/:castId/refs`, server-
+    owned like puppet files) and the sheet's loose views (`views`). The crop math, the naming and the cap
+    (`referenceCap` reads "Up to N reference images" from server/tools/*.md) are in `shared/castRefs.ts`, the cropper
+    is `CastRefs.tsx`, and a linked setup in Producción opens `SheetBuilder` prefilled with its member ("Hoja de
+    personaje").
+  - "Este clip parece traer música": uploadClip listens to each new story clip once (`src/lib/clipMusic.ts`, the pure,
+    conservative [NOT SURE] heuristic `musicFeatures`/`likelyMusic` in `shared/musicLike.ts`: tonal coverage, held
+    notes, distinct pitches, beat regularity) and marks `audio.clipMusic` ("likely"/"ok", `withClipMusic`). The shot
+    shows the notice (`clipMusicNotice`) with "Ponerlo en Mudo" (clipLevel mute) or "Tiene licencia / no es música";
+    it never blocks.
+  - "Formato del segmento" (`brief.segment`: desk/correspondent/field, default desk; `shared/segment.ts`) stages a
+    story at the desk, with the series' correspondent "on location" (PLAYBOOK §2.5 Remote Stand-up, roadmap only as a
+    labelled concept gag) or as a Field Visit. `segmentRules` goes into `describeBrief`, `storyProblems` blocks a
+    tagged story without the format's move (`SEGMENT_MOVE`), and `demoStory` shows it in sample mode. A series names
+    its correspondent in Editar serie (`correspondent`, header line "Corresponsal: id", `seriesCorrespondent`); when
+    there is none, the writer invents one with the id "corresponsal" and `CorrespondentOffer`
+    (`inventedCorrespondent`, `correspondentMember`, `POST /api/series/:id/correspondent`) offers to add it to the
+    cast.
+  - "Tokens por pedido" in Modelos: every writer reply's usage (Claude's and the OpenAI-compatible providers',
+    streamed ones asking stream_options.include_usage and dropping it if rejected) is normalised by
+    `claudeUsage`/`chatUsage`/`chunkUsage` (`shared/usage.ts`) and logged per askWith call by `meter`
+    (`server/usage.ts`; last 200 in memory and PROJECTS_DIR/.tokens.json, kind from the route via
+    `usageScope`/`usageKind`), shown from `GET /api/settings/usage` (localhost-only) with per-kind averages
+    (`usageAverages`); tokens only, a price only when the provider returns one.
+  - "Episodios estudiados" (`EpisodesPanel`, `server/episodes.ts`, `shared/episodes.ts`, `/api/episodes*`, localhost-
+    only) drafts a PLAYBOOK §2.6 EP-NN entry from a pasted summary (`EpisodeWireSchema` → `episodeMarkdown`), and with
+    the person's ok appends it as the next number (`appendEpisode`, `prepareEntry`); the snapshot records only that
+    append (`recordAppend` in scripts/playbookSync.ts: full rewrite if in step, else §2.6 only, never over a hand edit
+    to §2.6), server/playbook.md never gets episodes, and moves on each entry's **Moves** line that repeat in 3+
+    episodes and are new to §2.5 are only proposed (`moveTally`).
+  - "Traer la marca desde su web" also offers cast pictures by series type (`sitePictures`, `bringPictures`,
+    `fetchPicture`/`checkPicture` in server/brandWeb.ts: JSON-LD Product/SoftwareApplication, product og:image,
+    hero/feature/gallery images; same address/redirect checks, 2.5 MB, type read from the bytes, returned as data URLs
+    in `BrandFromWeb.cast`). A picked one joins the cast via `webCastMember` (shared/webCast.ts) as Producto, or as
+    Pantalla real only after the person confirms the app looks like that today, with a note saying it came from the
+    website.
+  - The open story piece's project folder (autosave of project.json/pieza.md/boceto-app, each shot's media and music,
+    `loadMedia`/`clearMedia`/`keep`) lives in the hook `useProject` (src/useProject.ts), and step 5 is
+    `ProductionView` (lazy VideoPanel; `Lazy` is in ui.tsx). The studios are split by role: MotionStudio's preview
+    (clock, canvas, playback) is `useMotionPreview`/`MotionPreview` and its panels are
+    MotionChecks/MotionSettings/MotionOutputs/MotionSceneList/MotionScriptBar/MotionToggles/MotionStoryboardPanel
+    (lazy MotionStoryboard), with `useHeardWords` and `pieceMarkdown` (src/lib/motionMarkdown.ts). LyricStudio's are
+    LyricPreview/LyricVideoTab/LyricSync, SeriesEditor's are CastCard/SeriesBrandLook, and ScriptView's SetupsPanel is
+    its own file (lazy SheetBuilder/CastRefs). tests/splitFiles.test.ts guards these lazy boundaries.
 - Publicidad (Método 50-5-3, `src/components/ads/`, `server/ads*.ts`, `shared/ads.ts`): the second section of the app,
   paid ads next to Playbook's organic content (header toggle). An ad = Hook + Meat + CTA; pieces are written and
   rendered separately and the combination hook × meat × CTA is pure code (`combine`, `varyHook`), never the AI. Per

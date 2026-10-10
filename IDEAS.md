@@ -1,6 +1,6 @@
 # Ideas para construir
 
-Lista de ideas que fueron saliendo. **Nada de esto está construido.** Se construye solo con "go".
+Lista de ideas que fueron saliendo. Se construyen solo con "go"; cada título dice si ya está construida (la lista "Construido" de abajo resume las tandas).
 Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
 ## Construido
@@ -85,6 +85,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - `iniciar.sh` avisa si está Demucs; no lo instala.
 
 - **Errores, carga y calendario (9 Oct 2026, ideas 53, 50 y 60):** los errores dicen qué campo faltó y qué le pasa; la primera pantalla baja la cuarta parte que antes (479 kB contra 2.000 kB); "Momentos del calendario" por serie, sugeridos en el brief y leídos por el menú y Publicidad.
+- **Videos de letra, historias y la app por dentro (10 Oct 2026, idea 65):** pulso con el kick, la letra que actúa el canto, sin "cinematic", proyecto en .zip, bocetos en pieza.md, descripción que llega a todas las tomas, transformación hacia la pantalla real, hoja desde Producción con recorte, aviso de música en el clip, corresponsal y Visita de campo, tokens por pedido, Episodios estudiados, fotos y capturas desde la web, archivos partidos.
 - **Explicativos, lo que quedaba (10 Oct 2026, idea 64):** lectura por letras, foco de a uno, títeres con envión y expresiones, cámaras de la IA, desenfoque en los cortes, CONCEPTO en los explicativos, personaje fijo por serie, nota del director, subtítulos palabra por palabra con .srt, corte por continuidad, plantillas Avisos, Flujo y Casilleros, mundo ilustrado y storyboard.
 - **Lo que se aprende de Kurzgesagt (9 Oct 2026, idea 63):** "Pasar a través" (la cámara se mete en la escena anterior y la nueva se abre desde adentro), cómo se mueve la marca (Firme, Suave, Elástica: cómo aterriza y si las imágenes respiran), "Antes / después" con un círculo que crece, y la IA que abre con la pregunta de quien mira y viaja de lo grande a lo chico.
 - **20 repos de motion design (9 Oct 2026, idea 62):** zona segura 9:16 para subtítulos, avisos y rótulos; "stat" que termina en el número escrito; cifras con fuente y [VERIFY] que frena; plantilla Contradicción; contraste de la marca; la IA que revisa mide más; música que deja lugar antes del producto y el logo; efectos en su golpe; render final que se frena sin la fuente y revisa el MP4 (arregló el último cuadro que se perdía); voz con su emoción; anuncios a un mismo volumen.
@@ -94,7 +95,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 Recorrí la app entera: flujo Brief → Menú → Historia → Storyboard → Producción, los checks, el motor de explicativos
 (`src/lib/motion.ts`, `shared/motion.ts`, `motionAudio.ts`, `motionProject.ts`, `render.mjs`), el Reloj de letras
 (`shared/clock.ts`, `syncDraw.ts`, `server/sync.ts`), el render de video y la sección nueva de Publicidad. Lo que sigue
-son hallazgos y propuestas, numeradas para seguir con la lista. **Nada está construido:** se construye con "go".
+son hallazgos y propuestas, numeradas para seguir con la lista. Casi todas ya están construidas: cada título lo dice.
 
 **Lo que está sólido y no tocaría:** el contrato de render (cada cuadro función pura de t, ruido con semilla, el
 render final por `seek(t)` + ffmpeg), los checks que bloquean la aprobación con "Arreglalo", las dos relojes del
@@ -221,13 +222,13 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   dinámico para `MotionStudio`, `LyricStudio`, `AdsStudio` y el actor 3D; `three` solo cuando hay un rig. La
   primera pantalla pasa a cargar en una fracción.
 
-#### 51. Archivos de más de mil líneas
+#### 51. Archivos de más de mil líneas — **Construido (10 Oct 2026, idea 65)**
 - `App.tsx` (1455), `MotionStudio.tsx` (1428), `LyricStudio.tsx` (1604), `SeriesEditor.tsx` (1150),
   `ScriptView.tsx` (1023). **Propuesta:** sacar de `App.tsx` el autoguardado y la carga de medios a un hook
   `useProject`, y la producción a `ProductionView`; en los estudios, separar la vista previa (reloj, canvas) de los
   paneles. Sin cambiar comportamiento; antes, las pruebas de la idea 49.
 
-#### 52. Costo de los prompts
+#### 52. Costo de los prompts — **Medir tokens construido (10 Oct 2026, idea 65); recortar el playbook queda**
 - El bloque fijo del escritor son ~2.900 palabras (motor + playbook) más el perfil de la herramienta (~1.300) y la
   biblia de la serie (~600) en cada pedido. Con Claude el bloque fijo va cacheado; con Kimi, NVIDIA y OpenRouter se
   paga entero cada vez. **Propuesta:** medir tokens por pedido en Modelos ("este pedido costó ~X tokens"), y
@@ -267,7 +268,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   gancho" en la historia (cada una con su jugada), elegir la que va, y **"Mandar las 5 a Publicidad"**: entran al
   catálogo de hooks con su nivel. Es el puente natural entre el contenido orgánico y el 50-5-3.
 
-#### 57. El registro de episodios (§2.6) desde la app
+#### 57. El registro de episodios (§2.6) desde la app — **Construido (10 Oct 2026, idea 65)**
 - Hoy los resúmenes de episodios se pegan a mano en `PLAYBOOK.md`. **Propuesta:** un panel "Episodios estudiados":
   pegás el resumen, la IA lo vuelca en la plantilla EP-NN (tabla de temas, callbacks, observaciones), lo agrega al
   playbook con tu "ok" y, cuando una jugada se repite en 3 o más episodios, propone sumarla a `engine.md`.
@@ -279,7 +280,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   pantalla real o producto en el Bueno). Entran en `STORY_CHECKS` y `BOARD_RULES` y la app los muestra como los
   demás.
 
-#### 59. Un corresponsal fijo por serie y el formato "Visita de campo"
+#### 59. Un corresponsal fijo por serie y el formato "Visita de campo" — **Construido (10 Oct 2026, idea 65)**
 - "The Manager" de IMAN aparece en el playbook pero no en el elenco. **Propuesta:** en el brief, "Formato: escritorio /
   con corresponsal / visita de campo" (§2.4 y §4), y el corresponsal como personaje fijo con su voz, que el escritor
   usa para la escalada y el regreso al problema real.
@@ -357,7 +358,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   - Al armarlo apareció un desvío real: la lista de control del resumen no tenía "portada y texto para publicar".
     Quedó agregado.
 
-### Si tuviera que elegir el primer "go"
+### Si tuviera que elegir el primer "go" (7 Oct 2026; ya construido todo)
 1. **41 + 42 + 43:** el reloj de la vista previa, el empuje en el check y una sola fuente de verdad imagen-sonido.
    Son tres cambios chicos y arreglan lo que más se nota al sincronizar.
 2. **49:** pruebas sobre `shared/` y CI, antes de tocar los archivos grandes.
@@ -431,7 +432,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 ### 9. `iniciar.sh` que pregunte el proveedor
 - **Qué:** que el script pregunte "¿Kimi directo, NVIDIA u OpenRouter?" y pida solo la clave y el modelo, sin tocar `.env` a mano.
 
-### 10. Guardar proyectos — PRIORIDAD ALTA
+### 10. Guardar proyectos — PRIORIDAD ALTA — **Construido (2 Oct 2026; el .zip, 10 Oct 2026)**
 - **Qué pasó:** se generaron todas las tomas de una pieza y no había cómo guardar el trabajo. Hoy solo se guarda el brief; la historia, el storyboard, las imágenes y los clips viven en la pestaña abierta y se pierden si se cierra o se recarga.
 - **Idea:**
   - **Autoguardado** mientras se trabaja (historia, rondas, storyboard, notas, imágenes y clips subidos), en el navegador.
@@ -506,6 +507,37 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   4. ¿Por cuál empezamos?
 - **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
 - **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
+
+### 65. Videos de letra, historias y la app por dentro (10 Oct 2026) — **Construido (10 Oct 2026, "Go a las listas")**
+- **Videos de letra:**
+  1. **Laten con el kick:** con el Reloj armado (stem de batería), el fondo, las capas de Grok y los elementos "al
+     ritmo" laten con el kick: el movimiento grande en el primer tiempo y un acento chico en cada kick. Sin batería
+     siguen los golpes de la canción entera, solo como adorno (nunca corta ni arma el Reloj), y la pestaña Video lo dice.
+  2. **La letra actúa el canto:** una palabra sostenida 0,6 s o más se estira hasta un 20 % y se acomoda sin rebote;
+     una gritada (el 10 % más fuerte, medido solo en la voz sola) tiembla un poco. Prendido en las piezas nuevas.
+- **Historias y producción:**
+  3. **Sin "cinematic still"** en las imágenes de la app (manda el look de la serie), y la emoción de la línea en el
+     prompt cuando Grok la dice.
+  4. **Exportar e importar un proyecto como .zip** desde la lista de proyectos; importar nunca pisa otro proyecto.
+  5. **Los bocetos en pieza.md:** el subido o el lápiz de la app, enlazado en cada toma.
+  6. **"Cambiar descripción"** de un personaje, lugar o producto en la pieza: llega a todas sus tomas, se puede
+     guardar en la serie y se deshace.
+  7. **Transformación hacia la pantalla real:** una punta del clip es la captura de la serie (nunca dibujada por IA).
+  8. **Hoja de personaje desde Producción** y recorte de la cara (o de lo que elijas) como otra referencia `@`; las
+     vistas sueltas se guardan.
+  9. **Aviso "Este clip parece traer música"** al subir un clip, con "Mudo" o "Tiene licencia"; nunca frena.
+  10. **Corresponsal y Visita de campo:** "Formato del segmento" en el brief; cada serie elige su corresponsal en
+      Editar serie (si no hay, la IA inventa uno adulto y no famoso y se ofrece sumarlo al elenco).
+- **La app por dentro:**
+  11. **Tokens por pedido** en Modelos: los últimos 200 pedidos y el promedio por tipo, como los informa cada
+      proveedor (tokens, no plata).
+  12. **"Episodios estudiados":** pegás el resumen, la IA arma la ficha EP-NN de §2.6, la revisás y con tu "ok" se
+      suma a PLAYBOOK.md. El playbook que lee la IA nunca recibe los episodios. Propone las jugadas que se repiten en
+      3 episodios o más.
+  13. **"Traer la marca desde su web"** también propone fotos de producto (e-commerce) o capturas (software) para
+      el elenco; una captura entra como pantalla real solo si confirmás que la app hoy se ve así.
+  14. **Archivos partidos** (idea 51): el guardado en `useProject`, Producción en su componente, y las vistas previas
+      de los estudios separadas de sus paneles. Hace lo mismo que antes y la primera pantalla pesa lo mismo.
 
 ### 64. Explicativos: lo que quedaba (10 Oct 2026) — **Construido (10 Oct 2026, "GO, Explicativos")**
 - **De dónde sale:** lo que quedó "para otro go" en las ideas 62 y 63, la parte de expresiones de la 33-A y el rótulo
@@ -684,7 +716,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   4. ¿Para qué serie primero: IMAN o Máshogar?
 - **Integrado al playbook (4 Oct 2026, "integralo"):** el análisis de referencias, "la estructura sí, el anuncio no", las familias de conceptos con su versión nuestra, los casilleros del prompt, el texto puesto por la app y lo que no se usa están en `PLAYBOOK.md` §3.2 y en `server/playbook.md`, así la IA ya escribe con ellos. El tipo de pieza "Imagen fija" (1 a 5) sigue esperando "go" y las 4 respuestas.
 
-### 33. Personajes 3D que funcionen con motion graphics (4 Oct 2026) — **A construido (4 Oct 2026, "decidí vos")**
+### 33. Personajes 3D que funcionen con motion graphics (4 Oct 2026) — **A construido (4 Oct 2026, "decidí vos")**; expresiones de A en la idea 64; B (GLB) en parte (6 Oct, commit 1ef70d6: subir GLB, cinco tramos y mandíbula con la voz; falta la cámara que gira, saludar y festejar, y probarlo con un modelo real)
 - **Decidido:**
   - camino A, el look 3D como títere;
   - personas adultas, mascotas y objetos que hablan;
@@ -817,7 +849,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   - `claude-fable-5-1`: el más capaz, más caro.
 - **Pendiente (en pausa, "pin"):** qué proveedores querés y si las claves se cargan desde la app o solo en `.env`.
 
-### 29. Realismo: hero still, hojas y prompt de director con tiempos
+### 29. Realismo: hero still, hojas y prompt de director con tiempos — **Construido (3 Oct 2026; "cinematic" y la emoción en el prompt de Grok, 10 Oct 2026)**
 - **Idea (tuya, de un método que viste):** para que el video parezca real, pedir **defectos** y no "cinematic". El prompt para Seedance sirve igual para **Grok**. El método:
   1. **Hero still:** una imagen que fija el look, con cámara, defectos y luz exactos. Es el cuadro 0 del video.
   2. **Hojas de personaje** antes de cualquier movimiento: frente, tres cuartos, perfil, espalda, expresiones y detalles de tela y joyas. Es lo que evita que las caras cambien (idea 28).
@@ -852,7 +884,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   - ¿La toma continua reemplaza las tomas de una línea, o se elige por pieza?
   - ¿Un hero still por pieza o uno por escena?
 
-### 28. Construcción de personajes: hoja de personaje (chicas y chicos)
+### 28. Construcción de personajes: hoja de personaje (chicas y chicos) — **Construido (3 Oct 2026; desde Producción y recorte de la cara, 10 Oct 2026)**
 - **Idea (tuya):** un lugar en la app para construir personajes con una **hoja de personaje**, como la de referencia: cuerpo entero de frente, tres cuartos, perfil y espalda, primeros planos de la cara con distintas expresiones, y detalles (collar, manos, tela), todo sobre fondo gris liso. Hay dos plantillas, **chicas** y **chicos**, porque el personaje es parte del gancho que agarra la atención del público.
 - **Cómo funcionaría:**
   - **Dónde:** en "Editar serie → Elenco fijo", un botón **+ Personaje con hoja**. También se puede abrir desde un setup en Producción.
@@ -875,7 +907,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   - ¿Rango de edad de cada plantilla?
   - ¿La IA propone el casting según el público de la serie?
 
-### 27. Tercer tipo de serie: Video de letra (lyric video)
+### 27. Tercer tipo de serie: Video de letra (lyric video) — **Construido (3 Oct 2026; pulso con el kick y la letra que actúa, 10 Oct 2026)**
 - **Idea (tuya):** además de Software y E-commerce, un tipo **Música**: videos de letra para canciones, con fondo orgánico en movimiento y la letra animada con motion graphics, bien mostrada.
 - **Es otro flujo:** no hay Bueno contra Malo ni historia. Los pasos serían:
   1. **Canción:** subir el audio y pegar la letra.
@@ -906,7 +938,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   - ¿Qué animación?
   - ¿Formato vertical, horizontal o los dos?
 
-### 26. Historias que respeten cómo se trabaja de verdad
+### 26. Historias que respeten cómo se trabaja de verdad — **Construido (3 Oct 2026); queda cambiar el ejemplo de PLAYBOOK.md con tu "ok"**
 - **Qué pasó:** la historia "El cuaderno dice 40. La góndola dice 3." parte de algo que nadie hace: nadie lleva en un cuaderno cuántos paquetes de yerba quedan. En un kiosco real, el dueño o el encargado **mira la góndola** y, según si hay 3, 4 o 20, arma el pedido o no. La historia en realidad era sobre **armar bien el pedido** antes del corte del proveedor, y el título no lo dice. Que los objetos hablen está bien; lo que falla es la **práctica inventada**.
 - **De dónde salió:**
   - El título está copiado casi igual del ejemplo del playbook: "Your system says 40 in stock. The shelf says 3." (`PLAYBOOK.md` y `server/playbook.md`, movida "Contradiction"). El escritor tomó el ejemplo como si fuera un dato del negocio.
@@ -926,7 +958,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   - **Kimi más quieto:** `temperature` baja, configurable, para que invente menos.
 - **Construido** (ver arriba). Falta que sumes más costumbres reales en "Cómo se trabaja hoy".
 
-### 25. Un storyboard más lindo de ver
+### 25. Un storyboard más lindo de ver — **Construido (3 Oct 2026)**
 - **Qué pasó:** el storyboard funciona pero se ve poco estético: mucho texto de prompt, pocas imágenes.
 - **Ideas (a elegir):**
   - **Viñetas de cómic / tira de película:** cada toma como un cuadro vertical 9:16 con color del momento, la claqueta grande y la línea; los prompts plegados ("ver prompts").
@@ -979,7 +1011,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - **Encontrado de paso, un error de historia:** el yogur dice "Yo vencí el martes" (toma 2), el cartel dice "Este se vence mañana" (toma 6) y Marta lo pone "al frente, en oferta" (toma 7). Si ya venció, eso es vender un producto vencido: al revés de lo que resuelve IMAN, y prohibido. El checklist de la historia tiene que detectarlo: **lo vencido se saca; lo que vence pronto se pasa adelante.** Sumarlo como regla en la serie IMAN.
 - **Relacionado:** reescribir una toma con una nota hoy no cambia la línea hablada; quizás debería poder hacerlo si la nota lo pide.
 
-### 18. Varios setups y personajes en una misma toma
+### 18. Varios setups y personajes en una misma toma — **Construido (3 Oct 2026; la descripción que llega a todas las tomas, 10 Oct 2026)**
 - **Qué pasó:** la toma 7 dice "Setup C · Marta", pero en la escena también están el yogur (setup B) y la heladera (setup A). Hoy cada toma tiene **un solo** setup, así que el prompt describe a los otros de nuevo y Grok los genera distintos: no es el mismo yogur del setup.
 - **Idea:**
   - Cada toma lista **todos** los setups que aparecen: personajes y lugar (ej.: Marta + El Yogur + La heladera).
@@ -987,7 +1019,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   - El prompt nombra cada setup como referencia (`@Marta`, `@Yogur`, `@Heladera`) para usar sus imágenes aprobadas (idea 14) en Grok.
 - **Mientras tanto, en Grok:** partir de la imagen donde ya está el yogur (toma anterior) y sumar a Marta subiendo su imagen como referencia con `@`, en vez de generar todo de cero.
 
-### 17. La interfaz real de la app en las imágenes y los videos (IMAN y cualquier otra)
+### 17. La interfaz real de la app en las imágenes y los videos (IMAN y cualquier otra) — **Construido; la transformación hacia la pantalla real, 10 Oct 2026**
 - **Idea (tuya):** IMAN es software y tiene su propia interfaz; las piezas tienen que mostrarla, y los prompts tienen que tenerlo en cuenta.
 - **El problema:** la IA no puede dibujar la pantalla real de IMAN (inventa botones y textos). Por eso hoy los prompts piden "pantalla en blanco, sin texto".
 - **Cómo:**
