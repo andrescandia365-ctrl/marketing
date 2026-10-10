@@ -68,6 +68,17 @@ export const hasLook = (look: SeriesLook) => Object.values(look).some((v) => v.t
 // and one UI face for everything else. Fonts come from Google Fonts.
 export const DISPLAY_FONTS = ["Space Grotesk", "Archivo Black", "Bricolage Grotesque", "Syne", "DM Serif Display", "Fraunces", "Bebas Neue"] as const;
 export const UI_FONTS = ["Inter", "IBM Plex Sans", "DM Sans", "Work Sans", "Manrope"] as const;
+// How the brand moves: how things land and whether pictures breathe once they are in. Text never moves while it is
+// read. "even" leaves it to the piece's tone, as before.
+export const BRAND_MOTIONS = ["even", "solid", "soft", "springy"] as const;
+export type BrandMotion = (typeof BRAND_MOTIONS)[number];
+export const BRAND_MOTION_LABEL: Record<BrandMotion, string> = {
+  even: "Pareja: decide el tono de cada pieza",
+  solid: "Firme: llega y se queda, como una caja en el estante",
+  soft: "Suave: se acomoda despacio y las imágenes flotan apenas",
+  springy: "Elástica: rebota un poco y las imágenes respiran",
+};
+
 export const BrandSchema = z.object({
   bg: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   text: z.string().regex(/^#[0-9a-fA-F]{6}$/),
@@ -76,6 +87,7 @@ export const BrandSchema = z.object({
   uiFont: z.string().max(60),
   // File name in the series library ("" until uploaded).
   logo: z.string().max(120),
+  motion: z.enum(BRAND_MOTIONS).default("even"),
 });
 export type Brand = z.infer<typeof BrandSchema>;
 export const DEFAULT_BRAND: Brand = {
@@ -85,6 +97,7 @@ export const DEFAULT_BRAND: Brand = {
   displayFont: "Space Grotesk",
   uiFont: "Inter",
   logo: "",
+  motion: "even",
 };
 
 // ── Brand contrast (WCAG 2) ───────────────────────────────────────────────────────────
@@ -269,6 +282,8 @@ export const SeriesFieldsSchema = z.object({
   practices: z.array(z.string().trim().min(1).max(600)).max(100),
   // The series loop, one step per line (IMAN: the daily loop of the store). The loop check uses it.
   loop: z.array(z.string().trim().min(1).max(300)).max(30),
+  // Dates and seasons the audience already feels, "cuándo: qué pasa" (shared/calendar.ts reads the "cuándo").
+  moments: z.array(z.string().trim().min(1).max(300)).max(60).default([]),
   story: z.string().trim().max(6000),
   bad: z.string().trim().max(6000),
   good: z.string().trim().max(6000),
@@ -291,6 +306,7 @@ export const EMPTY_SERIES: SeriesFields = {
   what: "",
   worksToday: [],
   practices: [],
+  moments: [],
   loop: [],
   story: "",
   bad: "",
@@ -311,7 +327,8 @@ export const WORKS_TODAY = "Lo que existe hoy";
 export const PRACTICES = "Cómo se trabaja hoy";
 export const LOOP = "El loop de la serie";
 export const CAST = "Elenco fijo";
-const LISTS = ["worksToday", "practices", "loop"] as const;
+export const MOMENTS = "Momentos del calendario";
+const LISTS = ["worksToday", "practices", "loop", "moments"] as const;
 type ListKey = (typeof LISTS)[number];
 const isList = (key: string): key is ListKey => (LISTS as readonly string[]).includes(key);
 const SECTIONS = [
@@ -319,6 +336,7 @@ const SECTIONS = [
   ["worksToday", `${WORKS_TODAY} (solo esto se muestra como real)`],
   ["practices", `${PRACTICES} (sin la marca; la historia no inventa otras costumbres)`],
   ["loop", `${LOOP} (un paso por línea)`],
+  ["moments", `${MOMENTS} (uno por línea, cuándo: qué pasa)`],
   ["story", "La historia que contamos"],
   ["bad", "El Malo"],
   ["good", "El Bueno"],

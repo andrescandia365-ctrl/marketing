@@ -29,18 +29,9 @@ type Props = {
 };
 
 const BAR = { negative: "bg-neg", touching: "bg-touch", good: "bg-good" };
-export const BEAT_EDGE = { negative: "border-l-neg", touching: "border-l-touch", good: "border-l-good" };
-
-// Yellow, not blocking: an image prompt that seems to describe more than one moment.
-export function ActionWarning({ prompt }: { prompt: string }) {
-  const words = actionWords(prompt);
-  if (!words.length) return null;
-  return (
-    <p className="rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900">
-      ¿Acción en la imagen? ({words.join(", ")}). Una imagen es un solo momento; las acciones van en el prompt de video.
-    </p>
-  );
-}
+// The beat colours and the action warning live in shotBits.tsx (light: production uses them without the renderer).
+import { ActionWarning, BEAT_EDGE } from "./shotBits.tsx";
+export { ActionWarning, BEAT_EDGE };
 
 type Look = {
   format: Brief["format"];

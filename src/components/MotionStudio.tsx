@@ -7,6 +7,10 @@ import {
   DURATIONS,
   MOTION_CAMERAS,
   MOTION_CAMERA_LABEL,
+  SCENE_ENTRIES,
+  SCENE_ENTRY_LABEL,
+  BEFORE_AFTER_REVEALS,
+  BEFORE_AFTER_REVEAL_LABEL,
   MOTION_GESTURES,
   MOTION_GESTURE_LABEL, MOTION_MOVES, MOTION_MOVE_LABEL,
   MOTION_MOODS,
@@ -368,7 +372,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
 
   // The sound is rebuilt when anything it depends on changes: the timing, not where things sit on screen.
   const soundKey = JSON.stringify(
-    timeScenes(scenes).map((s) => [s.start, s.template, revealTimes(s), elementTimes(s).voice ?? null]),
+    timeScenes(scenes).map((s) => [s.start, s.template, s.entry ?? "cut", revealTimes(s), elementTimes(s).voice ?? null]),
   );
   // A change makes the loaded mix stale. While it plays, a new mix is built after a short pause in the edits and
   // carries on from the same second; stopped, the next ▶ builds it.
@@ -681,7 +685,15 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   }
 
   // ── Quality loop (the studio's rule: no full render before it) ──────────────────────────────────────────────
-  const qualityExtra = JSON.stringify([brand, piece.disclosure, piece.music, track?.file.name ?? "", Object.keys(voices).sort()]);
+  // A brand that did not choose how it moves hashes as before, so reviews saved before that choice existed still count.
+  const { motion: brandMotion, ...brandLook } = brand;
+  const qualityExtra = JSON.stringify([
+    brandMotion && brandMotion !== "even" ? brand : brandLook,
+    piece.disclosure,
+    piece.music,
+    track?.file.name ?? "",
+    Object.keys(voices).sort(),
+  ]);
   const keyNow = script ? qualityKey(scenes, script, qualityExtra) : "";
   const quality = piece.quality ?? null;
   const reviewed = (formats: SheetFormat[]) => Boolean(quality && quality.key === keyNow && formats.every((f) => quality.formats.includes(f)));
@@ -1495,6 +1507,21 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                         </option>
                       ))}
                     </select>
+                    {s.index > 0 && (
+                      <select
+                        className={`${smallInput} py-1 text-xs`}
+                        value={raw.entry ?? "cut"}
+                        aria-label="Entrada"
+                        title="Pasar a través: la cámara se mete en lo principal de la escena anterior (la pantalla, el producto, el número) y esta escena se abre desde adentro."
+                        onChange={(e) => updateScene(s.id, { entry: e.target.value === "through" ? "through" : undefined })}
+                      >
+                        {SCENE_ENTRIES.map((c) => (
+                          <option key={c} value={c}>
+                            Entrada: {SCENE_ENTRY_LABEL[c]}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <label className="flex items-center gap-1 text-xs">
                       <input
                         type="number"
@@ -1603,6 +1630,40 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                             <p className="text-[11px] text-neg">Este personaje no tiene imagen, títere ni GLB: subilos en Editar serie.</p>
                           )}
                         </>
+                      )}
+                      {raw.template === "beforeAfter" && (
+                        <div className="space-y-1">
+                          <select
+                            className={`${inputClass} py-1 text-xs`}
+                            value={raw.reveal ?? "wipe"}
+                            aria-label="Cómo cambia"
+                            onChange={(e) => updateScene(s.id, { reveal: e.target.value === "iris" ? "iris" : undefined })}
+                          >
+                            {BEFORE_AFTER_REVEALS.map((r) => (
+                              <option key={r} value={r}>
+                                Cómo cambia: {BEFORE_AFTER_REVEAL_LABEL[r]}
+                              </option>
+                            ))}
+                          </select>
+                          {raw.reveal === "iris" && (
+                            <div className="grid grid-cols-2 gap-1 text-[11px] text-muted">
+                              {(["focusX", "focusY"] as const).map((k) => (
+                                <label key={k} className="block">
+                                  {k === "focusX" ? "Desde: horizontal" : "Desde: vertical"}
+                                  <input
+                                    type="range"
+                                    min={0}
+                                    max={1}
+                                    step={0.01}
+                                    className="block w-full"
+                                    value={raw[k]}
+                                    onChange={(e) => updateScene(s.id, { [k]: Number(e.target.value) })}
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       )}
                       {raw.template === "zoom" && (
                         <div className="grid grid-cols-3 gap-1 text-[11px] text-muted">

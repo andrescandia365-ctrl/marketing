@@ -2,7 +2,7 @@
 // line. With OpenAI's transcription the lines are found by their words (the lyric-video aligner); without it, by the
 // pauses between them. Every cut lands on the quietest moment near the boundary, so no word is chopped.
 import { api } from "./api.ts";
-import { toWav } from "./motionAudio.ts";
+import { toWav } from "./wav.ts";
 
 export type NarrationLine = {
   // Where the part goes: a shot index or a scene id.

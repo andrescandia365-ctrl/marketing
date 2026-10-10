@@ -45,6 +45,7 @@ function toSeries(id: string, text: string): Series {
     look: f.look,
     brand: f.brand,
     cast: f.cast,
+    moments: f.moments,
     text,
   };
 }

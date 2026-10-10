@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { AdsStateSchema, OfferSchema, RENDER_VERSION, emptyAds, offerFilled, type AdsState, type Offer } from "../shared/ads.ts";
+import { checkErrorText } from "../shared/errors.ts";
 
 export const ADS_DIR = resolve(process.env.ADS_DIR || "publicidad");
 
@@ -61,7 +62,7 @@ function fill(raw: unknown, series: string): AdsState {
   const base = emptyAds(series);
   const merged = { ...base, ...(raw && typeof raw === "object" ? (raw as object) : {}), version: 1, series };
   const parsed = AdsStateSchema.safeParse(merged);
-  if (!parsed.success) throw new AdsError(`El archivo de Publicidad de la serie está dañado: ${parsed.error.issues[0]?.message ?? ""}`);
+  if (!parsed.success) throw new AdsError(checkErrorText(parsed.error, "El archivo de Publicidad de la serie está dañado"));
   return parsed.data as AdsState;
 }
 

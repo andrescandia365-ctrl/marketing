@@ -10,16 +10,18 @@ import {
   cameraAt,
   cutPush,
   elementTimes,
+  pushOf,
   statCountText,
   timeScenes,
   typingSeconds,
   type MotionScene,
   type MotionScript,
+  type MotionTemplate,
   type MotionTone,
   type TimedScene,
 } from "../../shared/motion.ts";
 import { BUTTONS_FROM, PHONE_SAFE, isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
-import type { Brand } from "../../shared/series.ts";
+import type { Brand, BrandMotion } from "../../shared/series.ts";
 
 // screen: a real screenshot of the app (shown inside a phone or laptop).
 export type MotionAsset = { image: CanvasImageSource; width: number; height: number; name: string; screen?: boolean };
@@ -94,8 +96,52 @@ const outBackBig = (x: number) => {
   const v = clamp01(x);
   return 1 + 3.4 * (v - 1) ** 3 + 2.4 * (v - 1) ** 2;
 };
-// How things land follows the tone: dry settles with no overshoot, warm with a small one, absurdist pops.
-const landFor = (tone: MotionTone | undefined) => (tone === "dry" ? outCubic : tone === "absurdist" ? outBackBig : outBack);
+// A damped spring that starts at 0, overshoots and settles on 1 by the end of the entrance (absurdist: livelier).
+const spring = (bounce: number) => {
+  // What the decay leaves at the end is taken out evenly along the way, so the curve lands on 1 with no snap.
+  const tail = Math.exp(-6) * Math.cos(bounce);
+  return (x: number) => {
+    const v = clamp01(x);
+    return 1 - Math.exp(-6 * v) * Math.cos(bounce * v) + tail * v;
+  };
+};
+const outQuart = (x: number) => 1 - (1 - clamp01(x)) ** 4;
+const inOutSine = (x: number) => (1 - Math.cos(Math.PI * clamp01(x))) / 2;
+// How things land. The brand's physics decides when it has one (firm, soft, springy); otherwise the tone: dry settles
+// with no overshoot, warm with a small one, absurdist pops. A dry piece never bounces, whatever the brand. Every curve
+// ends on 1 when the entrance ends, so the reading times stay the same.
+export const landFor = (tone: MotionTone | undefined, motion: BrandMotion | undefined) => {
+  if (motion === "solid") return outQuart;
+  if (motion === "soft") return inOutSine;
+  if (motion === "springy") return tone === "dry" ? outCubic : spring(tone === "absurdist" ? 13 : 10.5);
+  return tone === "dry" ? outCubic : tone === "absurdist" ? outBackBig : outBack;
+};
+
+// Templates whose main element holds words to read (a real screen, the typed field, the before/after labels, a logo
+// that may be a wordmark): it never breathes there.
+const STILL_MEDIA: readonly MotionTemplate[] = ["screen", "zoom", "type", "steps", "beforeAfter", "logo", "contradiction", "stat"];
+
+// Pictures breathe once they are in (soft: a slow drift; springy: a small breath and bob): a photo, the product, a
+// picture in a hook or under callouts, what a character holds. Text never moves while it is read, so nothing with
+// words in it breathes (real screens included), and nothing breathes for a firm or even brand. A pure function of t,
+// seeded per element.
+function idleLife(f: Frame, s: TimedScene, key: string): { dx: number; dy: number; k: number } {
+  const still = { dx: 0, dy: 0, k: 1 };
+  const motion = f.world.brand.motion;
+  if ((motion !== "soft" && motion !== "springy") || (key !== "media" && key !== "prop")) return still;
+  if (key === "media" && STILL_MEDIA.includes(s.template)) return still;
+  const asset = f.world.assets[key === "prop" ? s.assetB : s.asset];
+  if (!asset || asset.screen) return still;
+  const lt = f.t - s.start;
+  const ease = clamp01((lt - (elementTimes(s)[key] ?? 0) - 0.6) / 0.8);
+  if (ease <= 0) return { dx: 0, dy: 0, k: 1 };
+  const seed = f.world.seed + s.index * 31 + (key === "prop" ? 17 : 0);
+  if (motion === "soft")
+    return { dx: noise(seed, f.t * 0.12) * f.unit * 0.008 * ease, dy: noise(seed + 5, f.t * 0.1) * f.unit * 0.006 * ease, k: 1 };
+  const phase = (seed % 97) / 97;
+  const breath = Math.sin((f.t / 2.8 + phase) * Math.PI * 2);
+  return { dx: 0, dy: breath * f.unit * 0.004 * ease, k: 1 + breath * 0.012 * ease };
+}
 const span = (t: number, from: number, dur: number) => clamp01((t - from) / dur);
 
 function beatPulse(beats: number[], t: number): number {
@@ -346,9 +392,10 @@ export function subtitleBox(ctx: CanvasRenderingContext2D, w: number, h: number,
 // when the element is on screen, and back to the caller.
 function place(f: Frame, s: TimedScene, key: string, ax: number, ay: number, shown: boolean, draw: () => Box): Box {
   const spot = f.vertical ? s.tweaks?.[key]?.v : s.tweaks?.[key]?.h;
-  const dx = (spot?.dx ?? 0) * f.unit;
-  const dy = (spot?.dy ?? 0) * f.unit;
-  const k = spot?.scale ?? 1;
+  const life = idleLife(f, s, key);
+  const dx = (spot?.dx ?? 0) * f.unit + life.dx;
+  const dy = (spot?.dy ?? 0) * f.unit + life.dy;
+  const k = (spot?.scale ?? 1) * life.k;
   const { ctx } = f;
   ctx.save();
   ctx.translate(ax + dx, ay + dy);
@@ -778,13 +825,33 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         drawImage(f, before ?? after, area.x + area.w / 2, area.y + area.h / 2, area.w, area.h, s.asset ? `Falta la imagen: ${s.asset}` : "Antes");
         ctx.restore();
         const split = area.x + area.w * (1 - wipe);
+        // "Círculo que crece": the change spreads from one spot (focusX, focusY) until it fills the frame.
+        const iris = s.reveal === "iris";
+        const ox = area.x + area.w * clamp01(s.focusX);
+        const oy = area.y + area.h * clamp01(s.focusY);
+        const radius = wipe * Math.hypot(Math.max(ox - area.x, area.x + area.w - ox), Math.max(oy - area.y, area.y + area.h - oy));
         ctx.beginPath();
-        ctx.rect(split, area.y, area.x + area.w - split, area.h);
+        if (iris) ctx.arc(ox, oy, Math.max(0, radius), 0, Math.PI * 2);
+        else ctx.rect(split, area.y, area.x + area.w - split, area.h);
         ctx.clip();
         drawImage(f, after, area.x + area.w / 2, area.y + area.h / 2, area.w, area.h, s.assetB ? `Falta la imagen: ${s.assetB}` : "Después");
         ctx.restore();
-        ctx.fillStyle = world.brand.accent;
-        ctx.fillRect(split - unit * 0.004, area.y, unit * 0.008, area.h);
+        if (iris) {
+          if (wipe > 0 && wipe < 1) {
+            ctx.save();
+            roundRect(ctx, area.x, area.y, area.w, area.h, unit * 0.02);
+            ctx.clip();
+            ctx.strokeStyle = world.brand.accent;
+            ctx.lineWidth = unit * 0.008;
+            ctx.beginPath();
+            ctx.arc(ox, oy, radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
+        } else {
+          ctx.fillStyle = world.brand.accent;
+          ctx.fillRect(split - unit * 0.004, area.y, unit * 0.008, area.h);
+        }
         ctx.font = ui(f, unit * 0.036, 700);
         ctx.fillStyle = world.brand.text;
         ctx.fillText(s.items[0] || "Antes", area.x, area.y + area.h + unit * 0.06);
@@ -918,6 +985,35 @@ export function sceneAt(scenes: TimedScene[], t: number): number {
   return i < 0 ? scenes.length - 1 : i;
 }
 
+// Where a scene's main thing sits (the picture, the screen, the product, the number, what really happens), in frame
+// coordinates at its last moment, after the hand adjustment and the camera. A camera journey ("through") dives here.
+export function anchorOf(scene: TimedScene, w: number, h: number): { x: number; y: number } {
+  const vertical = h > w;
+  const unit = Math.min(w, h);
+  const has = Boolean(scene.asset);
+  const P: Record<MotionTemplate, [number, number]> = {
+    hook: has ? (vertical ? [0.5, 0.72] : [0.75, 0.5]) : vertical ? [0.5, 0.4] : [0.4, 0.45],
+    screen: vertical ? [0.5, 0.58] : [0.66, 0.44],
+    zoom: vertical ? [0.5, 0.58] : [0.5, 0.55],
+    type: vertical ? [0.5, 0.42] : [0.4, 0.45],
+    character: vertical ? [scene.assetB ? 0.3 : 0.5, 0.62] : [scene.assetB ? 0.8 : 0.72, 0.57],
+    callouts: vertical ? [0.5, 0.5] : [0.42, 0.55],
+    steps: has && !vertical ? [0.76, 0.55] : [0.3, vertical ? 0.42 : 0.45],
+    beforeAfter: vertical ? [0.5, 0.48] : [0.5, 0.54],
+    contradiction: vertical ? [0.32, 0.56] : [0.3, 0.64],
+    product: vertical ? [0.5, 0.47] : [0.5, 0.55],
+    stat: vertical ? [0.4, 0.45] : [0.4, 0.48],
+    logo: vertical ? [0.5, 0.42] : [0.5, 0.36],
+  };
+  const [fx, fy] = P[scene.template];
+  const key = scene.template === "stat" ? "title" : scene.template === "contradiction" ? "item1" : "media";
+  const spot = vertical ? scene.tweaks?.[key]?.v : scene.tweaks?.[key]?.h;
+  const x = w * fx + (spot?.dx ?? 0) * unit;
+  const y = h * fy + (spot?.dy ?? 0) * unit;
+  const cam = cameraAt(scene.camera, 1);
+  return { x: w / 2 + cam.x * w + (x - w / 2) * cam.z, y: h / 2 + cam.y * h + (y - h / 2) * cam.z };
+}
+
 // Frame t of the explainer. Scenes change with a push: the old one slides out, the new one in, behind an accent bar.
 // `probe` (the editor only) hears where each visible element of the current scene is; not during a push.
 export function drawMotionFrame(
@@ -930,7 +1026,7 @@ export function drawMotionFrame(
   probe?: Probe,
 ) {
   const scenes = timeScenes(script.scenes);
-  const f: Frame = { ctx, w, h, unit: Math.min(w, h), vertical: h > w, world, t, probe, land: landFor(script.tone) };
+  const f: Frame = { ctx, w, h, unit: Math.min(w, h), vertical: h > w, world, t, probe, land: landFor(script.tone, world.brand.motion) };
   backdrop(f);
   if (!scenes.length) return;
   const i = sceneAt(scenes, t);
@@ -964,8 +1060,46 @@ export function drawMotionFrame(
     drawScene(shot, scene, sceneTime);
     ctx.restore();
   };
-  if (i > 0 && lt < push) {
-    const p = inOutCubic(lt / push);
+  const coming = pushOf(s, push);
+  if (i > 0 && lt < coming && s.entry === "through") {
+    // A camera journey: the camera dives into the previous scene's main thing, faster and faster, and this scene opens
+    // from inside it in a circle that grows from that spot, ringed in the accent, until it fills the frame.
+    const prev = scenes[i - 1];
+    const p = clamp01(lt / coming);
+    const a = anchorOf(prev, w, h);
+    const dive = 1 + 7 * p * p * p;
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.scale(dive, dive);
+    ctx.translate(-a.x, -a.y);
+    drawShot(prev, prev.seconds - 0.001, false, true);
+    ctx.restore();
+    const q = inOutCubic(clamp01((p - 0.15) / 0.85));
+    if (q > 0) {
+      const r = q * Math.hypot(Math.max(a.x, w - a.x), Math.max(a.y, h - a.y));
+      const k = 0.55 + 0.45 * outCubic(q);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
+      ctx.clip();
+      // The circle is the new scene all the way to its edge, even where its scaled set does not reach yet.
+      ctx.fillStyle = world.brand.bg;
+      ctx.fillRect(0, 0, w, h);
+      ctx.translate(a.x + (w / 2 - a.x) * q, a.y + (h / 2 - a.y) * q);
+      ctx.scale(k, k);
+      ctx.translate(-w / 2, -h / 2);
+      drawShot(s, lt, false, true);
+      ctx.restore();
+      ctx.save();
+      ctx.strokeStyle = world.brand.accent;
+      ctx.lineWidth = f.unit * 0.01 * (1 - q * 0.6);
+      ctx.beginPath();
+      ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  } else if (i > 0 && lt < coming) {
+    const p = inOutCubic(lt / coming);
     const prev = scenes[i - 1];
     ctx.save();
     ctx.translate(-w * p, 0);

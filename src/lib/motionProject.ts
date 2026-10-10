@@ -1,13 +1,13 @@
 // What the explainer studio and the render page (render.mjs) share: loading a piece's images, voices and track,
 // the beat grid, the scenes on it, the world the engine draws with, and the sound. Both build frame t and the mix
 // the same way, so the final render matches the preview.
-import { STAT_COUNT, TYPE_CPS, cutPush, elementTimes, sceneElements, snapElements, snapScenes, timeScenes, type MotionPiece, type MotionScene, type MotionScript, type TrackKicks } from "../../shared/motion.ts";
+import { STAT_COUNT, THROUGH, TYPE_CPS, cutPush, elementTimes, sceneElements, snapElements, snapScenes, timeScenes, type MotionPiece, type MotionScene, type MotionScript, type TrackKicks } from "../../shared/motion.ts";
 import { fitKicks, type Pcm } from "../../shared/clock.ts";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import type { Brand } from "../../shared/series.ts";
 import { libraryFileUrl, projectFileUrl, type MediaFileRecord, type MediaRecord } from "./api.ts";
 import { buildPuppet, singlePuppet, type PuppetAsset } from "./puppet.ts";
-import { loadActor, type ActorAsset } from "./actor.ts";
+import type { ActorAsset } from "./actor.ts";
 import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "./motion.ts";
 import { buildSound, type HitKind, type SoundPlan } from "./motionAudio.ts";
 
@@ -61,6 +61,8 @@ export async function loadSeriesImages(
   }
   const actors: Record<string, ActorAsset> = {};
   for (const m of series.cast.filter((x) => x.kind === "character" && x.rig?.file)) {
+    // three.js (in actor.ts) loads only when the series has a rigged character.
+    const { loadActor } = await import("./actor.ts");
     const actor = await loadActor(libraryFileUrl(series.id, m.rig.file), m.rig);
     if (actor) actors[m.id] = actor;
   }
@@ -246,7 +248,8 @@ export function soundHits(snapped: MotionScript): SoundPlan["hits"] {
     hits.push({ at: Math.max(0, t), kind, n });
   };
   for (const s of timeScenes(snapped.scenes)) {
-    if (s.index > 0) hit(s.start, "whoosh");
+    // A camera journey's whoosh rides the dive and peaks as the new scene opens; a cut's lands on the cut.
+    if (s.index > 0) hit(s.entry === "through" ? s.start + THROUGH * 0.55 : s.start, "whoosh");
     const T = elementTimes(s);
     const has = (key: string) => key in T;
     const within = (r: number) => r < s.seconds - 0.05;

@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { Component, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { Beat, Role } from "../../shared/schema.ts";
 import { BEAT_INFO } from "../../shared/template.ts";
 
@@ -94,6 +94,28 @@ export function Notice({ tone = "info", children }: { tone?: "info" | "error" | 
     warn: "border-touch/30 bg-touch-soft",
   }[tone];
   return <div className={`rounded-lg border px-4 py-3 text-sm ${styles}`}>{children}</div>;
+}
+
+// A part of the app downloaded on demand (a studio, the storyboard) can fail to arrive: the app was rebuilt while the
+// tab was open, or the connection dropped. Only that part shows the problem; the rest of the app, and the open piece,
+// stay as they were. React keeps a failed download, so the way out is reloading the page.
+export class PartBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <Notice tone="error">
+        <p>No se pudo mostrar esta parte de la app: puede que se haya actualizado, que se cortara la conexión o que algo fallara.</p>
+        <p className="mt-1">Lo demás sigue abierto. Si la pieza dice «Guardado», recargá la página y abrila desde Proyectos.</p>
+        <Button variant="secondary" className="mt-2" onClick={() => location.reload()}>
+          Recargar la página
+        </Button>
+      </Notice>
+    );
+  }
 }
 
 // Every piece is named by the problem it solves; the hook title comes second. Older pieces have no problem.

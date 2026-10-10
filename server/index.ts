@@ -116,6 +116,7 @@ import {
 } from "./series.ts";
 import { listTools } from "./tools.ts";
 import { AdsError } from "./ads.ts";
+import { checkErrorText } from "../shared/errors.ts";
 import { adsRoutes } from "./adsRoutes.ts";
 
 const app = new Hono();
@@ -127,7 +128,8 @@ app.onError((error, c) => {
   }
   if (error instanceof VoiceError || error instanceof LyricsError) return c.json({ error: error.message }, 502);
   if (error instanceof ClockError || error instanceof BrandWebError || error instanceof AdsError) return c.json({ error: error.message }, 400);
-  if (error instanceof z.ZodError) return c.json({ error: "Al pedido le faltaban datos." }, 400);
+  // Which field and what is wrong with it: an old project with a renamed field says which one.
+  if (error instanceof z.ZodError) return c.json({ error: checkErrorText(error) }, 400);
   console.error(error);
   return c.json({ error: error.message || "Algo salió mal." }, 500);
 });
@@ -196,7 +198,7 @@ app.get("/api/status", (c) => {
 // Series bibles, edited from the app.
 async function seriesFields(c: { req: { json: () => Promise<unknown> } }) {
   const parsed = z.object({ fields: SeriesFieldsSchema }).safeParse(await c.req.json());
-  if (!parsed.success) throw new SeriesError(parsed.error.issues[0]?.message ?? "Faltan datos de la serie.");
+  if (!parsed.success) throw new SeriesError(checkErrorText(parsed.error, "Faltan datos de la serie"));
   return parsed.data.fields;
 }
 

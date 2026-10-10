@@ -35,6 +35,7 @@ import {
   offerBlock,
 } from "../shared/ads.ts";
 import { PRACTICES, WORKS_TODAY } from "../shared/series.ts";
+import { momentsForWriter } from "../shared/calendar.ts";
 import { WriterError, askWith, currentWriter } from "./claude.ts";
 import { getSeries } from "./series.ts";
 import { getTool } from "./tools.ts";
@@ -57,6 +58,9 @@ function blocks(series: string, offer: Offer, tool: string | null): string[] {
     `The brand's series bible (Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real. Its "${PRACTICES}" list is how people work today without the brand.\n\n${s.text}`,
     offerBlock(offer),
   ];
+  // Calendar hooks: the series' moments, nearest first (a hook may open on one, like an occasion).
+  const moments = momentsForWriter(s.moments, new Date());
+  if (moments) out.push(moments);
   if (tool) {
     const t = getTool(tool);
     out.push(`The person makes every image and clip by pasting your prompts into ${t.name}. Write visualPrompt and videoPrompt in this tool's format; never rely on anything marked [NOT SURE].\n\n${t.text}`);

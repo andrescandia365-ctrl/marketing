@@ -84,6 +84,8 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
   - **Guardar algo en Modelos ya no recarga la página** en modo desarrollo (Vite no mira `.env`).
   - `iniciar.sh` avisa si está Demucs; no lo instala.
 
+- **Errores, carga y calendario (9 Oct 2026, ideas 53, 50 y 60):** los errores dicen qué campo faltó y qué le pasa; la primera pantalla baja la cuarta parte que antes (479 kB contra 2.000 kB); "Momentos del calendario" por serie, sugeridos en el brief y leídos por el menú y Publicidad.
+- **Lo que se aprende de Kurzgesagt (9 Oct 2026, idea 63):** "Pasar a través" (la cámara se mete en la escena anterior y la nueva se abre desde adentro), cómo se mueve la marca (Firme, Suave, Elástica: cómo aterriza y si las imágenes respiran), "Antes / después" con un círculo que crece, y la IA que abre con la pregunta de quien mira y viaja de lo grande a lo chico.
 - **20 repos de motion design (9 Oct 2026, idea 62):** zona segura 9:16 para subtítulos, avisos y rótulos; "stat" que termina en el número escrito; cifras con fuente y [VERIFY] que frena; plantilla Contradicción; contraste de la marca; la IA que revisa mide más; música que deja lugar antes del producto y el logo; efectos en su golpe; render final que se frena sin la fuente y revisa el MP4 (arregló el último cuadro que se perdía); voz con su emoción; anuncios a un mismo volumen.
 
 ## Revisión general de la app (7 Oct 2026)
@@ -208,7 +210,12 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   GitHub Actions con `typecheck`, `build`, las pruebas y `clock-check`. Las pruebas de Publicidad que corrí en esta
   sesión ya sirven de arranque.
 
-#### 50. El paquete del navegador pesa 1,9 MB
+#### 50. El paquete del navegador pesa 1,9 MB — **Construido (9 Oct 2026, "Go 53, 50, 60")**
+- **Construido:** los estudios, el storyboard, el panel de video, Editar serie y Modelos se cargan la primera vez que se
+  abren; three.js, solo si un personaje tiene esqueleto; la página del render final va aparte. Lo que baja la primera
+  pantalla pasó de 2.000 kB (555 kB comprimidos) a 479 kB (149 kB).
+- **Arreglo tras la revisión:** si una parte que se baja aparte no llega (la app se actualizó con la pestaña abierta, se
+  cortó la conexión), solo esa parte muestra el aviso con "Recargar la página"; lo demás y la pieza abierta siguen ahí.
 - `three`, `mediabunny` y los tres estudios cargan juntos aunque se abra solo el brief. **Propuesta:** `import()`
   dinámico para `MotionStudio`, `LyricStudio`, `AdsStudio` y el actor 3D; `three` solo cuando hay un rig. La
   primera pantalla pasa a cargar en una fracción.
@@ -226,7 +233,12 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   recortar `server/playbook.md` a las reglas que de verdad cambian la escritura (las tablas de evidencia y las
   fuentes no hacen falta en el prompt).
 
-#### 53. Errores que no dicen qué faltó
+#### 53. Errores que no dicen qué faltó — **Construido (9 Oct 2026, "Go 53, 50, 60")**
+- **Construido:** dice el campo y qué le pasa, en castellano: "falta «state»", "«language» tiene que ser una de estas
+  opciones: es, en", "«name» está vacío", y cuántos problemas más hay. También al guardar una serie y al leer el
+  archivo de Publicidad.
+- **Arreglo tras la revisión:** las posiciones de una lista cuentan desde 1 («shots.2.title» es la segunda toma), los
+  tipos de dato siempre salen en castellano y la frase termina con un solo punto.
 - Un pedido que no pasa el esquema responde "Al pedido le faltaban datos." sin decir cuál. **Propuesta:** incluir
   el primer camino del error de zod ("falta `brief.series`"), que ayuda cuando un proyecto viejo trae un campo
   cambiado.
@@ -271,7 +283,16 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   con corresponsal / visita de campo" (§2.4 y §4), y el corresponsal como personaje fijo con su voz, que el escritor
   usa para la escalada y el regreso al problema real.
 
-#### 60. Ganchos de calendario por serie
+#### 60. Ganchos de calendario por serie — **Construido (9 Oct 2026, "Go 53, 50, 60")**
+- **Construido:** "Momentos del calendario" en Editar serie, uno por línea, «cuándo: qué pasa». La app entiende fechas
+  en castellano (el 1 de cada mes, los lunes, 25 de diciembre, 15/3, primera semana de junio, mediados de noviembre,
+  fin de mes, último viernes del mes, julio) y muestra cuándo cae cada una; una semana o un mes que ya empezó cuenta
+  como "hoy". En el brief, las tres más cercanas aparecen como sugerencia debajo de "Gancho del momento" y un clic la
+  pone. El menú, la historia y los ganchos de Publicidad reciben todos los momentos, el más cercano primero. Los que no
+  tienen una fecha que la app entienda ("cuando sube la nafta") igual van a la IA.
+- **Arreglo tras la revisión:** "31/2" o "18/20 hs" no son fechas; "cada 15 días" es un intervalo, no el día 15; la
+  hora no corta la línea ("los viernes 18:30: after office"); "1.º de mayo" se lee como fecha; una línea repetida es
+  un solo momento, y la vista previa de Editar serie muestra lo mismo que se guarda.
 - El brief tiene "un momento que el público ya siente", pero se escribe cada vez. **Propuesta:** una lista de
   fechas y momentos por serie (día de inventario, primera semana de frío, el 1 del mes) en Editar serie; el menú y
   los hooks de Publicidad la leen, y la app sugiere el más cercano.
@@ -484,6 +505,33 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   4. ¿Por cuál empezamos?
 - **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
 - **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
+
+### 63. Lo que se aprende de Kurzgesagt (9 Oct 2026) — **Construido 1 a 5 (9 Oct 2026, "Go")**
+- **De dónde sale:** te encanta Kurzgesagt. Tomamos su oficio, no su estética: ni su pájaro, ni su paleta, ni su nombre en una pieza, ni el brillo (el estudio lo prohíbe).
+- **Lo que hacen bien:**
+  - **No cortan, viajan:** la cámara se mete en una cosa y la idea siguiente vive adentro.
+  - **Un mundo con física propia:** todo se mueve con el mismo material, y nada queda muerto: las cosas respiran.
+  - **El cambio empieza en un punto y se extiende,** muchas veces en un círculo.
+  - **Abren con la pregunta de quien mira** y van de lo grande a lo chico (o al revés): la escala cuenta la historia.
+- **Construido (9 Oct 2026, "Go"):**
+  1. **"Pasar a través":** una escena puede entrar con un viaje de cámara. La cámara se zambulle en lo principal de la escena anterior (la pantalla, el producto, el número, lo que pasa de verdad) y la nueva se abre desde adentro, en un círculo con borde de acento. Dura 0,7 s en cualquier tono; los checks, la portada y la hoja de contactos lo esperan; el whoosh lo acompaña. Se elige por escena ("Entrada") o lo pide la IA.
+  2. **Cómo se mueve la marca** (Editar serie): Pareja (decide el tono, como hasta ahora), Firme (llega y se queda), Suave (se acomoda despacio y las imágenes flotan apenas) o Elástica (rebota un poco y las imágenes respiran). El texto nunca se mueve mientras se lee, y un tono seco nunca rebota.
+  3. **"Antes / después" con un círculo que crece** desde el punto que elijas.
+  4. **La IA escribe así:** abre con la pregunta que ya se hace quien mira, viaja de lo grande a lo chico con "Pasar a través" una o dos veces por pieza, y usa el círculo cuando el cambio empieza en un lugar y se extiende.
+  5. **Las piezas de muestra** (sin clave) usan el viaje (IMAN) y el círculo (Máshogar).
+  - **Probado en un render real** (IMAN con la marca Elástica): la escena del producto se zambulle en su imagen, el número se abre desde adentro y termina en "3 cajas"; 546 de 546 cuadros, -14,1 LUFS.
+- **Para otro "go":**
+  - **Un mundo ilustrado de la marca:** fondos de capas planas con profundidad (el local, los estantes, el barrio) en los colores de la marca, que se mueven con la cámara.
+  - **Escenas metáfora:** una imagen simple que explica una idea (el pedido como una pila de cajas que se cae). Hacen falta imágenes del elenco hechas para eso.
+  - **Un personaje fijo por serie para los explicativos,** simple y siempre igual, que vuelve en cada pieza (los títeres ya existen).
+  - **La letra que actúa el canto** (una nota larga estira su palabra, un grito la sacude) y **música visual desde el kick**, de la charla del 9 Oct.
+- **Lo que no:** su estética (el pájaro, la paleta, el brillo, las estrellas y partículas), su nombre o su logo en una pieza, su narrador; y "Pasar a través" en cada corte: cansa, va una o dos veces.
+- **Revisión del código (9 Oct 2026):** se arreglaron los errores confirmados:
+  - Con la marca Suave o Elástica respiraba también texto que está dentro de una imagen: el campo que se tipea, los nombres del antes / después, un logo hecho de letras y las pantallas reales. Ahora solo respiran las fotos y los productos (una prueba lo vigila).
+  - En la mitad del viaje se veían franjas de la escena anterior dentro del círculo: ahora el círculo es la escena nueva hasta el borde.
+  - Cambiar la "Entrada" no rehacía el sonido de la vista previa.
+  - La curva elástica daba un saltito al terminar.
+  - El dato nuevo de la marca invalidaba las revisiones de la IA ya guardadas: una marca que no eligió cómo moverse cuenta igual que antes.
 
 ### 62. Lo que sirve de 20 repos de motion design (9 Oct 2026) — **Construido 1 a 12 (9 Oct 2026, "Go")**
 - **Qué son:** skills para agentes (Claude Code y otros) que hacen videos de motion graphics, los motores que usan y guías de criterio. Los mandaste diciendo que están hechos para Opus 5.5: la app ya escribe con `claude-opus-5-5` por defecto, así que no hizo falta cambiar el modelo. Se leyeron los 20 clonados, sin correr nada de ellos.
