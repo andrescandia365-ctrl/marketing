@@ -13,6 +13,7 @@ import {
   newMotionPiece,
   pushWindowAt,
   pushWindows,
+  timeScenes,
   type MotionScene,
   type MotionScript,
   type MotionTone,
@@ -134,13 +135,14 @@ test("the piece's switch is on by default, and an old piece counts as on", () =>
   assert.equal(cutBlurOn({ ...newMotionPiece("horizontal"), ...old, cutBlur: false }), false);
 });
 
-test("the sample pieces have pushes to blur in every tone (the warm and absurdist cuts, and the journey)", () => {
+test("the sample pieces have pushes to blur in every tone (the warm and absurdist cuts, the journey and the carries)", () => {
   for (const series of ["iman", "masogar"]) {
     for (const tone of ["dry", "warm", "absurdist"] as const) {
       const script = demoMotion({ ...EXAMPLE_BRIEF, piece: "explainer", series, tone, narrator: "with" }, null);
       const windows = pushWindows(script.scenes, cutPush(tone));
       if (tone !== "dry") assert.equal(windows.length, script.scenes.length - 1, `${series} ${tone}`);
-      else assert.equal(windows.length, script.scenes.filter((s) => s.entry === "through").length, `${series} ${tone}`);
+      // A dry cut is hard; the journey and "Continuidad" still take their time.
+      else assert.equal(windows.length, timeScenes(script.scenes).filter((s) => s.entry === "through" || s.carryIn).length, `${series} ${tone}`);
     }
   }
 });

@@ -128,7 +128,12 @@ export function describeScenes(scenes: MotionScene[]): string {
           return `${e.key} at ${e.at.toFixed(2)} s${spot("v")}${spot("h")}`;
         })
         .join("; ");
-      const entry = s.index > 0 && s.entry === "through" ? ", enters by a camera journey into the previous scene's main thing" : "";
+      const entry =
+        s.index > 0 && s.carryIn
+          ? ", enters by a match move: the same picture travels from where it was in the previous scene to its place here"
+          : s.index > 0 && s.entry === "through"
+            ? ", enters by a camera journey into the previous scene's main thing"
+            : "";
       const reveal = s.template === "beforeAfter" && s.reveal === "iris" ? ", the after grows in a circle" : "";
       const camera = s.camera && s.camera !== "hold" ? `, camera ${CAMERA_WORDS[s.camera]}` : "";
       const label = labelled(s) ? `, labelled ${DISCLOSURE_TAG[s.disclosure as "concept" | "simulation"]} on screen` : "";

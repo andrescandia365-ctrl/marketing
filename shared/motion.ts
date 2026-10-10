@@ -105,7 +105,7 @@ const SceneWire = z.object({
     .string()
     .optional()
     .describe(
-      "How this scene comes in: 'cut' (the tone's change) or 'through' (the camera dives into the previous scene's main thing, the screen, the product, the number, and this scene opens from inside it). Use 'through' once or twice, when this scene lives inside that thing (the shelf, then the product on it, then its expiry date) or to pull back out to the whole. The first scene: cut.",
+      "How this scene comes in: 'cut' (the tone's change; when this scene shows the same picture as the previous one, the same real screen, product or image, the app carries it across from where it was to where it settles by itself), 'match' (ask for that carry explicitly; only when both scenes show the same picture) or 'through' (the camera dives into the previous scene's main thing, the screen, the product, the number, and this scene opens from inside it). Use 'through' once or twice, when this scene lives inside that thing (the shelf, then the product on it, then its expiry date) or to pull back out to the whole. Keep the same picture in two scenes in a row when the second one says more about it (the screen, then a zoom or labels on it). The first scene: cut.",
     ),
   reveal: z
     .string()
@@ -216,11 +216,43 @@ export const cutPush = (tone?: MotionTone) => TONE_CUT[tone ?? "warm"];
 
 // How a scene comes in. "cut" is the tone's change (cutPush). "through" is a camera journey: the camera dives into the
 // previous scene's main thing and this scene opens from inside it, in a growing circle. It takes THROUGH seconds
-// whatever the tone, so every check that waits for a scene to arrive reads pushOf(scene, push).
-export const SCENE_ENTRIES = ["cut", "through"] as const;
+// whatever the tone. "match" ("Continuidad") is a match move: when both scenes show the same main picture (carriedAsset),
+// that picture travels from where it sits at the end of the previous scene to where it settles in this one, while the
+// rest of the old scene leaves and the new one's other elements enter as usual. It takes carryOf(push) seconds. A scene
+// with no entry gets "match" by itself when the pictures match (entryOf); one set to "cut" by hand never does, and
+// "match" by hand falls back to the cut when they do not. Every check that waits for a scene to arrive reads
+// pushOf(scene, push), which knows all three (timeScenes marks the resolved match as carryIn).
+export const SCENE_ENTRIES = ["cut", "through", "match"] as const;
 export type SceneEntry = (typeof SCENE_ENTRIES)[number];
-export const SCENE_ENTRY_LABEL: Record<SceneEntry, string> = { cut: "Corte del tono", through: "Pasar a través" };
+export const SCENE_ENTRY_LABEL: Record<SceneEntry, string> = { cut: "Corte del tono", through: "Pasar a través", match: "Continuidad" };
 export const THROUGH = 0.7;
+// How long the carry takes, by tone: dry short and with no overshoot, warm unhurried, absurdist quick.
+const CARRY_SECONDS: Record<MotionTone, number> = { dry: 0.32, warm: 0.6, absurdist: 0.42 };
+// The carry's length for the tone whose push this is (cutPush); anything else reads as warm.
+export const carryOf = (push: number) => CARRY_SECONDS[MOTION_TONES.find((t) => TONE_CUT[t] === push) ?? "warm"];
+
+// The templates whose main picture can travel across a cut, and the element that draws it: the picture of a hook, a
+// real screen (screen, zoom), the image under callouts, the product, and what a character presents (assetB). Steps
+// (the picture only on 16:9), before/after (two pictures, one in grey) and the rest have none.
+const CARRY_MEDIA: readonly MotionTemplate[] = ["hook", "screen", "zoom", "callouts", "product"];
+export function carriedAsset(scene: Pick<MotionScene, "template" | "asset" | "assetB">): { id: string; key: "media" | "prop" } | null {
+  if (scene.template === "character") return scene.assetB ? { id: scene.assetB, key: "prop" } : null;
+  return CARRY_MEDIA.includes(scene.template) && scene.asset ? { id: scene.asset, key: "media" } : null;
+}
+// Two scenes in a row show the same main picture (the same cast screen, product or uploaded layer).
+export function samePicture(prev: Pick<MotionScene, "template" | "asset" | "assetB"> | undefined, scene: Pick<MotionScene, "template" | "asset" | "assetB">): boolean {
+  const a = prev ? carriedAsset(prev) : null;
+  const b = carriedAsset(scene);
+  return Boolean(a && b && a.id === b.id);
+}
+// How the scene really comes in: "through" when asked, "match" when the pictures match and the person did not pick
+// the cut, else the cut (also for a "match" picked by hand whose pictures differ). The first scene: the cut.
+export function entryOf(prev: Pick<MotionScene, "template" | "asset" | "assetB"> | undefined, scene: Pick<MotionScene, "template" | "asset" | "assetB" | "entry">): SceneEntry {
+  if (!prev) return "cut";
+  if (scene.entry === "through") return "through";
+  if (scene.entry === "cut") return "cut";
+  return samePicture(prev, scene) ? "match" : "cut";
+}
 
 // Whether a scene shows only what exists today (real), an idea or roadmap feature (concept), or a mock run of
 // something that is not live (simulation). The renderer labels the last two, like a story's shot.
@@ -239,7 +271,9 @@ export function pickDisclosure(value: string | undefined): Exclude<SceneDisclosu
 // The scene carries a CONCEPTO / SIMULACIÓN label.
 export const labelled = (scene: { disclosure?: SceneDisclosure }) => scene.disclosure === "concept" || scene.disclosure === "simulation";
 
-export const pickEntry = (value: string | undefined): SceneEntry | undefined => (/through|trav[eé]s|dive|zoom/i.test(value ?? "") ? "through" : undefined);
+// The writer's "cut" is no choice (undefined: the carry still applies by itself when the pictures match).
+export const pickEntry = (value: string | undefined): SceneEntry | undefined =>
+  /through|trav[eé]s|dive|zoom/i.test(value ?? "") ? "through" : /match|contin|carry|same/i.test(value ?? "") ? "match" : undefined;
 
 // How "Antes / después" changes: a divider that slides, or a circle that grows from one spot.
 export const BEFORE_AFTER_REVEALS = ["wipe", "iris"] as const;
@@ -371,7 +405,8 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?:
   };
 }
 
-export type TimedScene = MotionScene & { index: number; start: number; end: number };
+// carryIn: the scene comes in by "Continuidad" (entryOf resolved it to "match"); only timeScenes sets it.
+export type TimedScene = MotionScene & { index: number; start: number; end: number; carryIn?: true };
 
 // ── CONCEPTO / SIMULACIÓN ────────────────────────────────────────────────────────────────
 // Only what the series lists in "Lo que existe hoy" is shown as real (PLAYBOOK §1, §4). The writer grades each scene
@@ -443,10 +478,12 @@ export function disclosureAt(scenes: MotionScene[], push: number, t: number): Ex
 
 export function timeScenes(scenes: MotionScene[]): TimedScene[] {
   let t = 0;
-  return scenes.map((s, index) => {
+  return scenes.map((scene, index) => {
     const start = t;
-    t += s.seconds;
-    return { ...s, index, start, end: t };
+    t += scene.seconds;
+    // A scene that was timed before carries a stale mark; it is worked out again from its neighbour.
+    const { carryIn: _stale, ...s } = scene as TimedScene;
+    return entryOf(scenes[index - 1], s) === "match" ? { ...s, index, start, end: t, carryIn: true as const } : { ...s, index, start, end: t };
   });
 }
 
@@ -723,9 +760,10 @@ function entranceDone(scene: MotionScene, el: SceneElement): number {
   }
 }
 
-// How long a scene comes in over the one before it: the tone's push, or THROUGH for a camera journey; 0 for the first.
-export const pushOf = (scene: { index: number; entry?: SceneEntry }, push: number) =>
-  scene.index > 0 ? (scene.entry === "through" ? THROUGH : push) : 0;
+// How long a scene comes in over the one before it: the tone's push, THROUGH for a camera journey, carryOf(push) for
+// "Continuidad" (carryIn, from timeScenes); 0 for the first.
+export const pushOf = (scene: { index: number; entry?: SceneEntry; carryIn?: boolean }, push: number) =>
+  scene.index > 0 ? (scene.carryIn ? carryOf(push) : scene.entry === "through" ? THROUGH : push) : 0;
 
 // ── Motion blur on the cut ("Desenfoque en los cortes") ──────────────────────────────────────────────────────────
 // Only while a scene comes in over the one before (the tone's push, or a camera journey's THROUGH), frame t is the
@@ -904,9 +942,11 @@ export function voiceFitSeconds(raw: MotionScene[], arranged: MotionScene[], sce
 // When something new appears on screen, from the scene's start: the cut itself, then each element. What enters while
 // the scene is still sliding in (`push`) arrives with the cut, not on its own. The 2-to-4-seconds check reads it.
 export function revealTimes(scene: MotionScene, push = 0): number[] {
+  // A picture carried in ("Continuidad", carryIn) arrives with the cut, whenever its own entrance would be.
+  const carried = (scene as Partial<TimedScene>).carryIn ? carriedAsset(scene)?.key : undefined;
   const times = sceneElements(scene)
     .filter((e) => e.lane !== "voice")
-    .map((e) => (e.at < push ? 0 : e.at));
+    .map((e) => (e.at < push || e.key === carried ? 0 : e.at));
   return [...new Set([0, ...times])].sort((a, b) => a - b);
 }
 

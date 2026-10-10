@@ -9,6 +9,7 @@ import {
   TYPE_CPS,
   blurSamples,
   cameraAt,
+  carriedAsset,
   DISCLOSURE_TAG,
   cutPush,
   disclosureAt,
@@ -195,6 +196,8 @@ type Frame = {
   land: (x: number) => number;
   // How a puppet acts (actingFor): its anticipation and overshoot follow the same brand and tone.
   acting: Acting;
+  // "Continuidad": the element (key) the carry draws instead of the scene, while it travels across the cut.
+  hide?: string;
 };
 
 const display = (f: Frame, size: number, weight = 700) => `${weight} ${size}px "${f.world.brand.displayFont}", "Inter", system-ui, sans-serif`;
@@ -521,17 +524,201 @@ function place(f: Frame, s: TimedScene, key: string, ax: number, ay: number, sho
   const k = (spot?.scale ?? 1) * life.k;
   const { ctx } = f;
   ctx.save();
+  // Hidden while the carry draws it: laid out (its box still places what hangs off it), but clipped to nothing.
+  if (f.hide === key) {
+    ctx.beginPath();
+    ctx.rect(0, 0, 0, 0);
+    ctx.clip();
+  }
   ctx.translate(ax + dx, ay + dy);
   ctx.scale(k, k);
   ctx.translate(-ax, -ay);
   const box = draw();
   ctx.restore();
   const out = { x: ax + dx + (box.x - ax) * k, y: ay + dy + (box.y - ay) * k, w: box.w * k, h: box.h * k };
-  if (shown && f.probe && out.w > 0 && out.h > 0) f.probe(s.id, key, out);
+  if (shown && f.hide !== key && f.probe && out.w > 0 && out.h > 0) f.probe(s.id, key, out);
   return out;
 }
 
 const titleBox = (x: number, y: number, size: number, r: { w: number; h: number }): Box => ({ x, y: y - size * 0.95, w: r.w, h: r.h + size * 0.1 });
+
+// On a 9:16 frame the subtitle and the AI notice sit at the bottom of the safe zone (overlayLayout). The templates'
+// own words end above them: the floor leaves room for a two-line subtitle when the scene has a voice. Pictures may
+// still run behind the subtitle, as captions do over a picture. Other formats: the frame's bottom.
+export function floorOf(s: Pick<MotionScene, "voice">, w: number, h: number, notice: boolean): number {
+  if (!isPhoneFrame(w, h)) return h;
+  const unit = Math.min(w, h);
+  const safe = safeRect(w, h);
+  return safe.y + safe.h - unit * (notice ? 0.045 : 0.01) - (s.voice.trim() ? 2 * unit * 0.038 * 1.25 : 0) - unit * 0.02;
+}
+
+// Where a template puts its main picture (the one "Continuidad" carries, carriedAsset): its centre, which is also the
+// anchor of the hand adjustment, and the box it fits in. A device (a real screen in a phone or laptop) is maxH tall; an
+// image fits inside maxW x maxH. The templates draw from this, and the carry reads it, so both agree. Null: the
+// template has no such picture.
+export type MediaLayout = { key: "media" | "prop"; cx: number; cy: number; maxW: number; maxH: number; device: boolean };
+export function mediaLayout(s: Pick<MotionScene, "template" | "assetB" | "items" | "voice">, w: number, h: number, notice: boolean, screen = false): MediaLayout | null {
+  const vertical = h > w;
+  const unit = Math.min(w, h);
+  switch (s.template) {
+    case "hook":
+      return { key: "media", cx: vertical ? w / 2 : w * 0.75, cy: vertical ? h * 0.72 : h / 2, maxW: vertical ? w * 0.6 : w * 0.35, maxH: vertical ? h * 0.3 : h * 0.6, device: false };
+    case "screen": {
+      const maxH = vertical ? h * 0.52 : h * 0.62;
+      return { key: "media", cx: vertical ? w / 2 : w * 0.66, cy: vertical ? h * 0.58 : h * 0.44, maxW: maxH, maxH, device: true };
+    }
+    case "zoom": {
+      const maxH = vertical ? h * 0.55 : h * 0.72;
+      return { key: "media", cx: w / 2, cy: vertical ? h * 0.58 : h * 0.55, maxW: maxH, maxH, device: true };
+    }
+    case "callouts":
+      return { key: "media", cx: vertical ? w / 2 : w * 0.42, cy: vertical ? h * 0.5 : h * 0.55, maxW: vertical ? w * 0.62 : w * 0.38, maxH: vertical ? h * 0.38 : h * 0.6, device: false };
+    case "product": {
+      const phone = isPhoneFrame(w, h);
+      // On a phone frame the product and its price both end above the subtitle.
+      const imageH = phone ? Math.min(h * 0.45, floorOf(s, w, h, notice) - (s.items[0] ? unit * 0.12 : 0) - h * 0.27) : vertical ? h * 0.45 : h * 0.6;
+      const cy = vertical ? (phone ? h * 0.27 + imageH / 2 : h * 0.52) : h * 0.55;
+      return { key: "media", cx: w / 2, cy, maxW: vertical ? w * 0.75 : w * 0.45, maxH: imageH, device: false };
+    }
+    case "character": {
+      if (!s.assetB) return null;
+      const size = vertical ? h * 0.3 : h * 0.5;
+      return { key: "prop", cx: vertical ? w * 0.7 : w * 0.47, cy: vertical ? h * 0.5 : h * 0.47, maxW: size, maxH: size, device: screen };
+    }
+    default:
+      return null;
+  }
+}
+
+// The product floats and tilts a little on seeded noise (a pure function of piece time t).
+export function productWobble(seed: number, index: number, t: number, unit: number): { dy: number; rot: number } {
+  return { dy: noise(seed + index, t * 0.5) * unit * 0.012, rot: noise(seed + 7, t * 0.3) * 0.04 };
+}
+
+// How far the zoom template has zoomed in at scene time lt.
+function zoomAt(s: MotionScene, lt: number): { zoomP: number; z: number } {
+  const zoomP = inOutCubic(span(lt, elementTimes(s).zoom ?? 0, 0.9));
+  return { zoomP, z: 1 + (s.zoom - 1) * zoomP };
+}
+
+// ── "Continuidad": the carried picture ─────────────────────────────────────────────
+// The picture's box at one end of the carry, in frame coordinates: the picture itself (x, y, w, h; inside the device
+// when there is one), its tilt, and the device's bezel, corners and laptop base (0 for a bare image), so that every
+// part can be interpolated and the picture lands exactly where the scene draws it.
+export type CarryBox = { x: number; y: number; w: number; h: number; rot: number; bezel: number; outer: number; inner: number; base: number };
+// What the carry knows of the picture: its shape (null: not loaded, drawn as the placeholder box) and whether it is a
+// real screen (a character presents a real screen in a device).
+export type CarryLook = { aspect: number | null; screen: boolean; notice: boolean; seed: number };
+
+// Where scene s draws its main picture at scene time lt, settled (its own entrance done, as a carried picture is),
+// after the zoom, the hand adjustment and the camera. A pure function of the templates' layout, never of drawing
+// state. Null when the scene has no main picture. The idle breath of soft and springy brands is left out (under 1 %).
+export function carryBox(s: TimedScene, lt: number, w: number, h: number, look: CarryLook): CarryBox | null {
+  const L = mediaLayout(s, w, h, look.notice, look.screen);
+  if (!L || !carriedAsset(s)) return null;
+  const vertical = h > w;
+  const unit = Math.min(w, h);
+  let x: number, y: number, bw: number, bh: number;
+  let bezel = 0, outer = 0, inner = 0, base = 0, rot = 0;
+  if (L.device) {
+    const ratio = look.aspect ?? 9 / 19.5;
+    const landscape = look.aspect !== null && look.aspect > 1;
+    bh = landscape ? L.maxH * 0.62 : L.maxH;
+    bw = bh * ratio;
+    bezel = unit * (landscape ? 0.012 : 0.016);
+    outer = landscape ? unit * 0.012 : unit * 0.05;
+    inner = landscape ? unit * 0.004 : unit * 0.04;
+    base = landscape ? unit * 0.022 : 0;
+  } else if (look.aspect) {
+    const k = Math.min(L.maxW / look.aspect, L.maxH);
+    bh = k;
+    bw = k * look.aspect;
+  } else {
+    bw = L.maxW;
+    bh = L.maxH;
+  }
+  x = L.cx - bw / 2;
+  y = L.cy - bh / 2;
+  let k = 1;
+  if (s.template === "zoom") {
+    const { zoomP, z } = zoomAt(s, lt);
+    const fx = (s.focusX - 0.5) * bw;
+    const fy = (s.focusY - 0.5) * bh;
+    x = L.cx - fx * z * zoomP - (bw / 2) * z;
+    y = L.cy - fy * z * zoomP - (bh / 2) * z;
+    k = z;
+  }
+  if (s.template === "product") {
+    const wob = productWobble(look.seed, s.index, s.start + lt, unit);
+    y += wob.dy;
+    rot = wob.rot;
+  }
+  bw *= k;
+  bh *= k;
+  // The hand adjustment, around the element's anchor.
+  const spot = vertical ? s.tweaks?.[L.key]?.v : s.tweaks?.[L.key]?.h;
+  const sk = spot?.scale ?? 1;
+  const ax = L.cx;
+  const ay = L.cy;
+  x = ax + (spot?.dx ?? 0) * unit + (x - ax) * sk;
+  y = ay + (spot?.dy ?? 0) * unit + (y - ay) * sk;
+  bw *= sk;
+  bh *= sk;
+  k *= sk;
+  // The scene's camera at that moment.
+  const cam = cameraAt(s.camera, lt / Math.max(0.2, s.seconds));
+  x = w / 2 + cam.x * w + (x - w / 2) * cam.z;
+  y = h / 2 + cam.y * h + (y - h / 2) * cam.z;
+  bw *= cam.z;
+  bh *= cam.z;
+  k *= cam.z;
+  return { x, y, w: bw, h: bh, rot, bezel: bezel * k, outer: outer * k, inner: inner * k, base: base * k };
+}
+
+// The box part e of the way from a to b (e may overshoot 1 a little: the brand's or tone's landing).
+export function lerpBox(a: CarryBox, b: CarryBox, e: number): CarryBox {
+  const mix = (p: number, q: number) => p + (q - p) * e;
+  return {
+    x: mix(a.x, b.x),
+    y: mix(a.y, b.y),
+    w: Math.max(1, mix(a.w, b.w)),
+    h: Math.max(1, mix(a.h, b.h)),
+    rot: mix(a.rot, b.rot),
+    bezel: Math.max(0, mix(a.bezel, b.bezel)),
+    outer: Math.max(0, mix(a.outer, b.outer)),
+    inner: Math.max(0, mix(a.inner, b.inner)),
+    base: Math.max(0, mix(a.base, b.base)),
+  };
+}
+
+// The carry's curve: it starts gently and lands as the piece lands things (landFor): a dry piece never overshoots.
+export const carryCurve = (land: (x: number) => number) => (x: number) => land(inOutSine(x));
+
+function drawCarried(f: Frame, asset: MotionAsset | undefined, b: CarryBox) {
+  const { ctx, unit, world } = f;
+  ctx.save();
+  ctx.translate(b.x + b.w / 2, b.y + b.h / 2);
+  ctx.rotate(b.rot);
+  ctx.translate(-(b.x + b.w / 2), -(b.y + b.h / 2));
+  if (b.bezel > 0.3) {
+    ctx.fillStyle = "#0b0b0d";
+    roundRect(ctx, b.x - b.bezel, b.y - b.bezel, b.w + b.bezel * 2, b.h + b.bezel * 2, b.outer);
+    ctx.fill();
+  }
+  if (b.base > 0.3) {
+    ctx.fillStyle = "#1a1a1e";
+    roundRect(ctx, b.x - b.w * 0.08, b.y + b.h + b.bezel, b.w * 1.16, b.base, unit * 0.008);
+    ctx.fill();
+  }
+  roundRect(ctx, b.x, b.y, b.w, b.h, b.inner);
+  ctx.clip();
+  if (asset) ctx.drawImage(asset.image, b.x, b.y, b.w, b.h);
+  else {
+    ctx.fillStyle = hexA(world.brand.text, 0.08);
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+  }
+  ctx.restore();
+}
 
 // ── Templates ───────────────────────────────────────────────────────────────────
 function drawScene(f: Frame, s: TimedScene, lt: number) {
@@ -539,7 +726,10 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
   const m = unit * 0.08;
   const T = elementTimes(s);
   const at = (key: string) => T[key] ?? 0;
-  const put = (key: string, ax: number, ay: number, draw: () => Box) => place(f, s, key, ax, ay, lt >= at(key), draw);
+  // "Continuidad": the picture carried in from the scene before is already in, settled, from the cut.
+  const carried = s.carryIn ? carriedAsset(s)?.key : undefined;
+  const enter = (key: string, dur: number, ease: (x: number) => number = f.land) => (key === carried ? 1 : ease(span(lt, at(key), dur)));
+  const put = (key: string, ax: number, ay: number, draw: () => Box) => place(f, s, key, ax, ay, lt >= at(key) || key === carried, draw);
   const offset = (key: string) => {
     const spot = vertical ? s.tweaks?.[key]?.v : s.tweaks?.[key]?.h;
     return { dx: (spot?.dx ?? 0) * unit, dy: (spot?.dy ?? 0) * unit };
@@ -552,9 +742,8 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
   // still run behind the subtitle, as captions do over a picture.
   const phone = isPhoneFrame(w, h);
   const safe = safeRect(w, h);
-  const floor = phone
-    ? safe.y + safe.h - unit * (world.disclosure ? 0.045 : 0.01) - (s.voice.trim() ? 2 * unit * 0.038 * 1.25 : 0) - unit * 0.02
-    : h;
+  const floor = floorOf(s, w, h, Boolean(world.disclosure));
+  const lay = mediaLayout(s, w, h, Boolean(world.disclosure));
   const titleSize = unit * (vertical ? 0.1 : 0.085);
   // On a 9:16 frame a title near the top starts below the platforms' top bar (shared/safeZone.ts).
   // A scene labelled CONCEPTO or SIMULACIÓN keeps its title under the label, on both formats.
@@ -586,25 +775,23 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         ctx.fillRect(m, ty + r.h - unit * 0.05, (w - m * 2) * 0.35 * bar, unit * 0.014);
       });
       text(m, ty + hTitle + unit * 0.04, unit * 0.045, w - m * 2, outCubic(span(lt, at("text"), 0.5)));
-      if (asset) {
-        const p = land(span(lt, at("media"), 0.6));
-        const cx = vertical ? w / 2 : w * 0.75;
-        const cy = vertical ? h * 0.72 : h / 2;
+      if (asset && lay) {
+        const p = enter("media", 0.6);
+        const { cx, cy } = lay;
         put("media", cx, cy, () => {
           ctx.globalAlpha = clamp01(p);
-          return drawImage(f, asset, cx, cy + (vertical ? (1 - p) * unit * 0.2 : 0), vertical ? w * 0.6 : w * 0.35, vertical ? h * 0.3 : h * 0.6, missing);
+          return drawImage(f, asset, cx, cy + (vertical ? (1 - p) * unit * 0.2 : 0), lay.maxW, lay.maxH, missing);
         });
       }
       break;
     }
     case "screen": {
-      const p = land(span(lt, at("media"), 0.6));
-      const cx = vertical ? w / 2 : w * 0.66;
-      const cy = vertical ? h * 0.58 : h * 0.44;
+      const p = enter("media", 0.6);
+      const { cx, cy } = lay!;
       put("media", cx, cy, () => {
         ctx.translate(cx, cy + (1 - p) * h * 0.6);
-        ctx.rotate((1 - outCubic(span(lt, at("media"), 0.8))) * 0.1);
-        const b = device(f, asset, 0, 0, vertical ? h * 0.52 : h * 0.62, missing);
+        ctx.rotate((1 - enter("media", 0.8, outCubic)) * 0.1);
+        const b = device(f, asset, 0, 0, lay!.maxH, missing);
         return { x: cx + b.x, y: cy + b.y, w: b.w, h: b.h };
       });
       const titleY = topSafe(vertical ? h * 0.12 : h * 0.3, titleSize);
@@ -613,15 +800,13 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       break;
     }
     case "zoom": {
-      const zoomP = inOutCubic(span(lt, at("zoom"), 0.9));
-      const z = 1 + (s.zoom - 1) * zoomP;
-      const dh = vertical ? h * 0.55 : h * 0.72;
+      const { zoomP, z } = zoomAt(s, lt);
+      const dh = lay!.maxH;
       const landscape = asset ? asset.width > asset.height : false;
       const ratio = asset ? asset.width / asset.height : 9 / 19.5;
       const devH = landscape ? dh * 0.62 : dh;
       const dw = devH * ratio;
-      const cx = w / 2;
-      const cy = vertical ? h * 0.58 : h * 0.55;
+      const { cx, cy } = lay!;
       const fx = (s.focusX - 0.5) * dw;
       const fy = (s.focusY - 0.5) * devH;
       put("media", cx, cy, () => {
@@ -659,10 +844,8 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       const height = vertical ? h * (hasProp ? 0.46 : 0.52) : h * 0.8;
       const toward = hasProp ? (vertical ? 1 : -1) : 1;
       if (hasProp) {
-        const p = land(span(lt, at("prop"), 0.55));
-        const px = vertical ? w * 0.7 : w * 0.47;
-        const py = vertical ? h * 0.5 : h * 0.47;
-        const size = vertical ? h * 0.3 : h * 0.5;
+        const p = enter("prop", 0.55);
+        const { cx: px, cy: py, maxH: size } = lay!;
         put("prop", px, py, () => {
           ctx.translate(px, py + (1 - clamp01(p)) * unit * 0.2);
           ctx.rotate((1 - clamp01(p)) * -0.12);
@@ -779,13 +962,12 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       break;
     }
     case "callouts": {
-      const p = land(span(lt, at("media"), 0.6));
-      const cx = vertical ? w / 2 : w * 0.42;
-      const cy = vertical ? h * 0.5 : h * 0.55;
+      const p = enter("media", 0.6);
+      const { cx, cy } = lay!;
       const box = put("media", cx, cy, () => {
         ctx.translate(cx, cy);
         ctx.scale(0.85 + 0.15 * p, 0.85 + 0.15 * p);
-        const b = drawImage(f, asset, 0, 0, vertical ? w * 0.62 : w * 0.38, vertical ? h * 0.38 : h * 0.6, missing);
+        const b = drawImage(f, asset, 0, 0, lay!.maxW, lay!.maxH, missing);
         return { x: cx + b.x, y: cy + b.y, w: b.w, h: b.h };
       });
       title(m, topSafe(vertical ? h * 0.14 : h * 0.15, titleSize * 0.85), titleSize * 0.85, w - m * 2);
@@ -997,17 +1179,15 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       break;
     }
     case "product": {
-      const p = land(span(lt, at("media"), 0.7));
-      const float = noise(world.seed + s.index, f.t * 0.5) * unit * 0.012;
-      const cx = w / 2;
-      // On a phone frame the product and its price both end above the subtitle.
-      const imageH = phone ? Math.min(h * 0.45, floor - (s.items[0] ? unit * 0.12 : 0) - h * 0.27) : vertical ? h * 0.45 : h * 0.6;
-      const cy = vertical ? (phone ? h * 0.27 + imageH / 2 : h * 0.52) : h * 0.55;
+      const p = enter("media", 0.7);
+      const wobble = productWobble(world.seed, s.index, f.t, unit);
+      // On a phone frame the product and its price both end above the subtitle (mediaLayout).
+      const { cx, cy } = lay!;
       put("media", cx, cy, () => {
-        ctx.translate(cx, cy + float);
-        ctx.rotate(noise(world.seed + 7, f.t * 0.3) * 0.04);
+        ctx.translate(cx, cy + wobble.dy);
+        ctx.rotate(wobble.rot);
         ctx.scale(0.6 + 0.4 * p, 0.6 + 0.4 * p);
-        const b = drawImage(f, asset, 0, 0, vertical ? w * 0.75 : w * 0.45, imageH, missing);
+        const b = drawImage(f, asset, 0, 0, lay!.maxW, lay!.maxH, missing);
         return { x: cx + b.x, y: cy + b.y, w: b.w, h: b.h };
       });
       title(m, topSafe(vertical ? h * 0.15 : h * 0.18, titleSize), titleSize, w - m * 2);
@@ -1243,7 +1423,7 @@ function drawPicture(f: Frame, scenes: TimedScene[], push: number) {
   const lt = t - s.start;
   // moveSet redraws the backdrop inside the camera, so a push or a pan moves the set and not only the type.
   // During a scene change the backdrop stays put, the same as before the camera existed.
-  const drawShot = (scene: TimedScene, sceneTime: number, hit: boolean, moveSet: boolean) => {
+  const drawShot = (scene: TimedScene, sceneTime: number, hit: boolean, moveSet: boolean, hide?: string) => {
     const cam = cameraAt(scene.camera, sceneTime / Math.max(0.2, scene.seconds));
     ctx.save();
     ctx.translate(w / 2 + cam.x * w, h / 2 + cam.y * h);
@@ -1251,6 +1431,7 @@ function drawPicture(f: Frame, scenes: TimedScene[], push: number) {
     ctx.translate(-w / 2, -h / 2);
     const shot: Frame = {
       ...f,
+      hide,
       probe:
         hit && probe
           ? (id, key, box) => {
@@ -1268,7 +1449,21 @@ function drawPicture(f: Frame, scenes: TimedScene[], push: number) {
     ctx.restore();
   };
   const coming = pushOf(s, push);
-  if (i > 0 && lt < coming && s.entry === "through") {
+  const carry = i > 0 && lt < coming && s.carryIn ? carryEnds(f, scenes[i - 1], s, lt) : null;
+  if (carry) {
+    // "Continuidad": the new scene is in place behind (its other elements enter as usual), the rest of the old one
+    // leaves (at once on a hard cut, else sliding out), and the shared picture travels from where it was to where it
+    // settles, on top of both.
+    const prev = scenes[i - 1];
+    drawShot(s, lt, false, false, carry.keyB);
+    if (push > 0) {
+      ctx.save();
+      ctx.translate(-w * inOutCubic(lt / coming), 0);
+      drawShot(prev, prev.seconds - 0.001, false, false, carry.keyA);
+      ctx.restore();
+    }
+    drawCarried(f, carry.asset, lerpBox(carry.from, carry.to, carryCurve(f.land)(lt / coming)));
+  } else if (i > 0 && lt < coming && s.entry === "through") {
     // A camera journey: the camera dives into the previous scene's main thing, faster and faster, and this scene opens
     // from inside it in a circle that grows from that spot, ringed in the accent, until it fills the frame.
     const prev = scenes[i - 1];
@@ -1305,7 +1500,8 @@ function drawPicture(f: Frame, scenes: TimedScene[], push: number) {
       ctx.stroke();
       ctx.restore();
     }
-  } else if (i > 0 && lt < coming) {
+  } else if (i > 0 && lt < coming && !(s.carryIn && push === 0)) {
+    // (A carry with nothing to draw falls back to the tone's change: a push, or on a dry piece the hard cut below.)
     const p = inOutCubic(lt / coming);
     const prev = scenes[i - 1];
     ctx.save();
@@ -1319,6 +1515,22 @@ function drawPicture(f: Frame, scenes: TimedScene[], push: number) {
     ctx.fillStyle = world.brand.accent;
     ctx.fillRect(w * (1 - p) - f.unit * 0.02, 0, f.unit * 0.02, h);
   } else drawShot(s, lt, true, true);
+}
+
+// The two ends of a carry at scene time lt of the incoming scene b: where the picture was at the end of a, and where
+// b draws it now (b may still be moving it: a zoom, a camera move), with the elements each scene hides meanwhile.
+// Null when there is nothing to carry (the picture is not loaded and one end is a hook, which draws none then).
+function carryEnds(f: Frame, a: TimedScene, b: TimedScene, lt: number) {
+  const id = carriedAsset(b)?.id;
+  const keyA = carriedAsset(a)?.key;
+  const keyB = carriedAsset(b)?.key;
+  if (!id || !keyA || !keyB) return null;
+  const asset = f.world.assets[id];
+  if (!asset && (a.template === "hook" || b.template === "hook")) return null;
+  const look: CarryLook = { aspect: asset ? asset.width / Math.max(1, asset.height) : null, screen: Boolean(asset?.screen), notice: Boolean(f.world.disclosure), seed: f.world.seed };
+  const from = carryBox(a, a.seconds - 0.001, f.w, f.h, look);
+  const to = carryBox(b, lt, f.w, f.h, look);
+  return from && to ? { asset, from, to, keyA, keyB } : null;
 }
 
 // The editor's guide (never in the video): where a phone's top bar, caption and buttons will cover a 9:16 frame.

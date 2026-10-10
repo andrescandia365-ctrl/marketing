@@ -9,6 +9,7 @@ import {
   MOTION_CAMERA_LABEL,
   SCENE_ENTRIES,
   SCENE_ENTRY_LABEL,
+  samePicture,
   BEFORE_AFTER_REVEALS,
   BEFORE_AFTER_REVEAL_LABEL,
   MOTION_GESTURES,
@@ -442,7 +443,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
 
   // The sound is rebuilt when anything it depends on changes: the timing, not where things sit on screen.
   const soundKey = JSON.stringify(
-    timeScenes(scenes).map((s) => [s.start, s.template, s.entry ?? "cut", revealTimes(s), elementTimes(s).voice ?? null]),
+    timeScenes(scenes).map((s) => [s.start, s.template, s.carryIn ? "match" : s.entry ?? "cut", revealTimes(s), elementTimes(s).voice ?? null]),
   );
   // A change makes the loaded mix stale. While it plays, a new mix is built after a short pause in the edits and
   // carries on from the same second; stopped, the next ▶ builds it.
@@ -1761,14 +1762,19 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
                     {s.index > 0 && (
                       <select
                         className={`${smallInput} py-1 text-xs`}
-                        value={raw.entry ?? "cut"}
+                        value={raw.entry ?? "auto"}
                         aria-label="Entrada"
-                        title="Pasar a través: la cámara se mete en lo principal de la escena anterior (la pantalla, el producto, el número) y esta escena se abre desde adentro."
-                        onChange={(e) => updateScene(s.id, { entry: e.target.value === "through" ? "through" : undefined })}
+                        title="Pasar a través: la cámara se mete en lo principal de la escena anterior (la pantalla, el producto, el número) y esta escena se abre desde adentro. Continuidad: si las dos escenas muestran la misma imagen, esa imagen viaja de donde estaba a su lugar nuevo. Automática usa Continuidad cuando se puede y si no, el corte del tono."
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          updateScene(s.id, { entry: v === "through" || v === "match" || v === "cut" ? v : undefined });
+                        }}
                       >
+                        <option value="auto">Entrada: Automática ({s.carryIn ? SCENE_ENTRY_LABEL.match : SCENE_ENTRY_LABEL.cut})</option>
                         {SCENE_ENTRIES.map((c) => (
                           <option key={c} value={c}>
                             Entrada: {SCENE_ENTRY_LABEL[c]}
+                            {c === "match" && !samePicture(script.scenes[s.index - 1], raw) ? " (no muestra la misma imagen: va el corte)" : ""}
                           </option>
                         ))}
                       </select>

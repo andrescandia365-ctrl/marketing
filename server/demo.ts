@@ -290,6 +290,8 @@ export function demoMotion(brief: Brief, target: number | null): MotionScript {
   const shop = series?.type === "ecommerce";
   const scenes = shop
     ? [
+        // The product, then its callouts on the same picture: the cut carries it across by itself ("Continuidad"), as
+        // it does from the host presenting the product or the screen to the next scene showing it.
         { template: "hook", seconds: 3.5, title: "Entra frío por abajo", text: "La puerta deja pasar el aire.", items: [], asset: "", camera: "hold", voice: "¿Sentís el frío que entra por abajo de la puerta?", emotion: "cercana" },
         { template: "product", seconds: 3, title: brief.product.split(/[,.:]/)[0] || "El producto", text: "", items: ["Precio [VERIFY]"], asset: product, camera: "push", voice: "Esto lo frena.", emotion: "segura" },
         { template: "callouts", seconds: 4, title: "Cómo es", text: "", items: ["Se pega en un minuto", "Para cualquier puerta", "Se lava"], asset: product, camera: "hold", voice: "Se pega en un minuto y sirve para cualquier puerta.", emotion: "clara" },
