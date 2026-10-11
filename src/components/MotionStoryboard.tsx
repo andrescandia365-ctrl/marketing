@@ -6,6 +6,7 @@ import type { MotionPiece, MotionScene, MotionScript } from "../../shared/motion
 import { download, slug } from "../lib/markdown.ts";
 import type { MotionWorld } from "../lib/motion.ts";
 import { PANEL_SIZE, drawPanelFrame, soundsLine, storyboardMarkdown, storyboardName, storyboardPanels, storyboardPng, type StoryboardPanel } from "../lib/motionStoryboard.ts";
+import { VideoDeck, latestOnly, withOwnVideos } from "../lib/screenVideo.ts";
 import { Button, Notice, Spinner } from "./ui.tsx";
 
 type Props = {
@@ -20,18 +21,38 @@ type Props = {
   onSeek: (t: number, sceneId: string) => void;
 };
 
-function PanelFrame({ panel, script, world, format }: { panel: StoryboardPanel; script: MotionScript; world: MotionWorld; format: MotionPiece["format"] }) {
+// One panel's frame. A screen's recording on screen is sought to the panel's frame first (the storyboard's own players,
+// one panel at a time, and only the newest request draws).
+function PanelFrame({ panel, script, world, format, queue }: { panel: StoryboardPanel; script: MotionScript; world: MotionWorld; format: MotionPiece["format"]; queue: SerialQueue }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [w, h] = PANEL_SIZE[format];
+  const latest = useMemo(() => latestOnly(), []);
   useEffect(() => {
     const ctx = ref.current?.getContext("2d");
-    if (ctx) drawPanelFrame(ctx, w, h, panel, script, world);
-  }, [panel, script, world, w, h]);
+    if (!ctx) return;
+    void queue(() => latest(() => readyFor(world, script, panel.frameAt), () => drawPanelFrame(ctx, w, h, panel, script, world)));
+  }, [panel, script, world, w, h, queue, latest]);
   return <canvas ref={ref} width={w} height={h} className="w-full rounded-md bg-black" aria-label={`Cuadro de la escena ${panel.number}`} />;
 }
 
-export function MotionStoryboard({ script, scenes, world, format, music, effects, voice, onSeek }: Props) {
+type SerialQueue = (job: () => Promise<unknown>) => Promise<void>;
+const readyFor = (world: MotionWorld, script: MotionScript, t: number) => (world.videos instanceof VideoDeck && !world.videos.empty ? world.videos.ready(script, t) : Promise.resolve());
+
+export function MotionStoryboard({ script, scenes, world: shared, format, music, effects, voice, onSeek }: Props) {
   const played = useMemo(() => ({ ...script, scenes }), [script, scenes]);
+  // The storyboard's own players for the screens' recordings, so it never moves the preview's.
+  const deck = useMemo(() => (shared.videos instanceof VideoDeck && !shared.videos.empty ? shared.videos.fork() : null), [shared.videos]);
+  useEffect(() => () => deck?.dispose(), [deck]);
+  const world = useMemo(() => (deck ? { ...shared, videos: deck } : shared), [shared, deck]);
+  // The panels share those players, so each one seeks and draws in turn.
+  const queue = useMemo<SerialQueue>(() => {
+    let tail: Promise<unknown> = Promise.resolve();
+    return (job) => {
+      const next = tail.then(job, job);
+      tail = next.catch(() => undefined);
+      return next.then(() => undefined);
+    };
+  }, [deck]);
   const panels = useMemo(() => storyboardPanels(played, { music, effects, voice }), [played, music, effects, voice]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -41,7 +62,7 @@ export function MotionStoryboard({ script, scenes, world, format, music, effects
     setBusy(true);
     setError("");
     try {
-      const blob = await storyboardPng(played, world, panels, format);
+      const blob = await withOwnVideos(world, (own) => storyboardPng(played, own, panels, format, (t) => readyFor(own, played, t)));
       if (blob) download(blob, sheetName);
       else setError("No se pudo armar la hoja del storyboard.");
     } finally {
@@ -73,7 +94,7 @@ export function MotionStoryboard({ script, scenes, world, format, music, effects
         {panels.map((p) => (
           <li key={p.id} className="space-y-1.5 rounded-xl border border-line bg-white p-2 text-xs">
             <button type="button" className="block w-full" title="Ver esta escena en la vista previa" onClick={() => onSeek(p.frameAt, p.id)}>
-              <PanelFrame panel={p} script={played} world={world} format={format} />
+              <PanelFrame panel={p} script={played} world={world} format={format} queue={queue} />
             </button>
             <div className="flex items-baseline justify-between gap-2">
               <span className="font-mono font-semibold">
@@ -88,6 +109,7 @@ export function MotionStoryboard({ script, scenes, world, format, music, effects
             <p>
               <b>Cámara:</b> {p.camera.label}
             </p>
+            {p.recording && <p>{p.recording}</p>}
             {p.voice && (
               <p>
                 <b>{p.voiceHeard ? "Se dice" : "Subtítulo (sin voz)"}:</b> “{p.voice}”

@@ -124,6 +124,7 @@ async function renderOne(browser, format, index) {
   const canvas = page.locator("canvas");
   const frames = Math.round(info.duration * info.fps);
   for (let f = 0; f < frames; f++) {
+    // seek resolves once every screen recording on screen sits on this frame's second and the frame is drawn.
     await page.evaluate((t) => window.seek(t), f === 0 ? info.poster : f / info.fps);
     await feed(ffmpeg.stdin, await canvas.screenshot({ type: "png", animations: "disabled" }));
     if (f % 15 === 0) console.log(`progreso ${format} ${((index + f / frames) / formats.length).toFixed(3)}`);

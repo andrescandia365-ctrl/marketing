@@ -10,6 +10,8 @@ import { drawMotionFrame, scriptDuration } from "./lib/motion.ts";
 import { toWav } from "./lib/motionAudio.ts";
 import { arrangeScenes, layerAssets, loadPieceMedia, loadSeriesImages, makeWorld, motionBeats, motionSound, pieceSubtitles, speechLevels, usesAiImages } from "./lib/motionProject.ts";
 import { toSrt } from "../shared/subtitles.ts";
+import { videoAssetOf } from "../shared/screenVideo.ts";
+import { VideoDeck, drawReady, unreadableVideos, videoSources } from "./lib/screenVideo.ts";
 
 export type MotionRender = {
   width: number;
@@ -19,7 +21,7 @@ export type MotionRender = {
   notice: string;
   // The thumbnail's second: render.mjs paints it as frame 0.
   poster: number;
-  seek: (t: number) => void;
+  seek: (t: number) => Promise<void>;
   // The mix (music, hits and voices, as the preview plays it) as a WAV file, base64.
   sound: () => Promise<string>;
   // The subtitles as an .srt file, with the same cues the frames draw (render.mjs saves it next to the video).
@@ -30,7 +32,7 @@ declare global {
   interface Window {
     motionRender?: MotionRender;
     motionRenderError?: string;
-    seek?: (t: number) => void;
+    seek?: (t: number) => Promise<void>;
   }
 }
 
@@ -70,16 +72,24 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       const notice = piece.disclosure && usesAiImages(scenes, series);
       const speech = await speechLevels(snapped, piece, media.voices);
       const subtitles = pieceSubtitles(scenes, piece, media.voices);
+      // "Videos de la app funcionando": the screens' recordings, each scene's player sought to the exact frame before
+      // it is drawn. One that cannot be read here stops the render (never a still in its place).
+      const deck = new VideoDeck(videoSources(images.cast));
+      const used = new Set(scenes.flatMap((s) => (s.recording ? [videoAssetOf(s)?.id ?? ""] : [])));
+      const broken = deck.empty || !used.size ? [] : await deck.check(used);
+      if (broken.length) throw new Error(unreadableVideos(broken, series));
       const world = makeWorld(series.brand, { ...images.cast, ...layerAssets(media.layers) }, images.logo, beats, notice, {
         puppets: images.puppets,
         actors: images.actors,
         speech,
         cutBlur: cutBlurOn(piece),
         subtitles,
+        videos: deck,
       });
       const ctx = canvasRef.current!.getContext("2d")!;
-      const seek = (t: number) => drawMotionFrame(ctx, w, h, t, snapped, world);
-      seek(0);
+      // render.mjs awaits each seek, so the frame it captures is the one drawn after every recording got there.
+      const seek = (t: number) => drawReady(world, snapped, t, () => drawMotionFrame(ctx, w, h, t, snapped, world));
+      await seek(0);
       window.seek = seek;
       window.motionRender = {
         width: w,

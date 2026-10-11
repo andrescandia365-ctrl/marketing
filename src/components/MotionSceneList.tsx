@@ -34,6 +34,7 @@ import type { PuppetAsset } from "../lib/puppet.ts";
 import type { ActorAsset } from "../lib/actor.ts";
 import { Recorder, type AudioFile } from "./Audio.tsx";
 import type { Selection } from "./MotionTimeline.tsx";
+import { SceneRecording } from "./SceneRecording.tsx";
 import { Button, inputClass } from "./ui.tsx";
 
 const smallInput = inputClass.replace("w-full", "");
@@ -69,7 +70,7 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
       .filter((m) => m.kind !== "character" || m.image || m.puppet?.layers.length || m.rig?.file)
       .map((m) => ({
         value: m.id,
-        label: `${m.name} (${m.kind === "screen" ? "pantalla" : m.kind === "product" ? "producto" : m.kind === "place" ? "lugar" : m.rig?.file ? "personaje · camina" : m.puppet?.layers.length ? "personaje · títere 3D" : "personaje"})${m.image || m.puppet?.layers.length || m.rig?.file ? "" : " · sin imagen"}`,
+        label: `${m.name} (${m.kind === "screen" ? (m.video ? "pantalla · con video" : "pantalla") : m.kind === "product" ? "producto" : m.kind === "place" ? "lugar" : m.rig?.file ? "personaje · camina" : m.puppet?.layers.length ? "personaje · títere 3D" : "personaje"})${m.image || m.puppet?.layers.length || m.rig?.file ? "" : " · sin imagen"}`,
       })),
     ...layers.map((_, k) => ({ value: `layer:${k}`, label: `Capa ${k + 1} (Grok)` })),
   ];
@@ -332,6 +333,7 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
                         )}
                       </div>
                     )}
+                    <SceneRecording scene={raw} cast={series.cast} update={(patch) => updateScene(s.id, patch)} />
                     {raw.template === "zoom" && (
                       <div className="grid grid-cols-3 gap-1 text-[11px] text-muted">
                         {(["focusX", "focusY", "zoom"] as const).map((k) => (

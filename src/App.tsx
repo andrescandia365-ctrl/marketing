@@ -152,7 +152,11 @@ export function App() {
   const library: Record<string, LibraryEntry> = Object.fromEntries(
     (pieceSeries?.cast ?? []).map((m) => [
       m.id,
-      { ...m, url: m.image ? libraryFileUrl(pieceSeries!.id, m.image, libraryVersion) : undefined },
+      {
+        ...m,
+        url: m.image ? libraryFileUrl(pieceSeries!.id, m.image, libraryVersion) : undefined,
+        ...(m.video && { videoUrl: libraryFileUrl(pieceSeries!.id, m.video.file) }),
+      },
     ]),
   );
   const currentSeries = status?.series.find((s) => s.id === brief.series);

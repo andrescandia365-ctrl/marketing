@@ -40,6 +40,8 @@ import { slug } from "../lib/markdown.ts";
 import type { PuppetAsset } from "../lib/puppet.ts";
 import type { ActorAsset } from "../lib/actor.ts";
 import { drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
+import { VideoDeck, drawReady, unreadableVideos, videoSources, withOwnVideos } from "../lib/screenVideo.ts";
+import { videoAssetOf } from "../../shared/screenVideo.ts";
 import { TARGET_LUFS } from "../lib/motionAudio.ts";
 import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
 import {
@@ -277,14 +279,18 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const total = scenes.reduce((n, s) => n + s.seconds, 0);
 
   const assets: Record<string, MotionAsset> = useMemo(() => ({ ...castImages, ...layerAssets(layers) }), [castImages, layers]);
+  // "Videos de la app funcionando": one player per scene for the screens' recordings (the preview's; every capture
+  // forks its own).
+  const deck = useMemo(() => new VideoDeck(videoSources(castImages)), [castImages]);
+  useEffect(() => () => deck.dispose(), [deck]);
   const usesAi = usesAiImages(scenes, series);
   // "Desenfoque en los cortes": the preview, the contact sheet, the poster and every render read it from the world.
   const cutBlur = cutBlurOn(piece);
   // The subtitles (word by word unless turned off): the preview, the contact sheet, the renders and the .srt read them.
   const subtitles = useMemo(() => pieceSubtitles(scenes, piece, voices), [scenes, piece.voice, piece.wordByWord, piece.wordTimes, voices]);
   const world: MotionWorld = useMemo(
-    () => makeWorld(brand, assets, logo, beats, piece.disclosure && usesAi, { puppets, actors, speech, cutBlur, subtitles }),
-    [brand, assets, logo, beats, piece.disclosure, usesAi, puppets, actors, speech, cutBlur, subtitles],
+    () => makeWorld(brand, assets, logo, beats, piece.disclosure && usesAi, { puppets, actors, speech, cutBlur, subtitles, videos: deck }),
+    [brand, assets, logo, beats, piece.disclosure, usesAi, puppets, actors, speech, cutBlur, subtitles, deck],
   );
 
   // Word times for the subtitles, heard in each scene's voice (or estimated).
@@ -315,10 +321,22 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   // The thumbnail: frame 0 of every render.
   const posterT = posterTime(scenes, piece.poster, push);
   const posterRef = useRef<HTMLCanvasElement>(null);
+  // What the poster canvas last showed, so a recording is sought again only when something it shows changed.
+  const posterDrawn = useRef<{ c: HTMLCanvasElement; t: number; scenes: MotionScene[]; world: MotionWorld } | null>(null);
   useEffect(() => {
     const c = posterRef.current;
     const ctx = c?.getContext("2d");
-    if (c && ctx && snapped) drawMotionFrame(ctx, c.width, c.height, posterT, snapped, world);
+    if (!c || !ctx || !snapped) return;
+    const deck = world.videos instanceof VideoDeck ? world.videos : null;
+    if (!deck || !deck.plan(snapped, posterT).length) {
+      drawMotionFrame(ctx, c.width, c.height, posterT, snapped, world);
+      return;
+    }
+    const last = posterDrawn.current;
+    if (last && last.c === c && last.t === posterT && last.scenes === scenes && last.world === world) return;
+    posterDrawn.current = { c, t: posterT, scenes, world };
+    // A recording on screen is sought to the poster's frame first (its own players).
+    void withOwnVideos(world, (own) => drawReady(own, snapped, posterT, () => drawMotionFrame(ctx, c.width, c.height, posterT, snapped, own)));
   });
 
   const savedState = (p: MotionPiece) => ({ version: 1, kind: "motion", step: "motion", pieceBrief: brief, motion: p });
@@ -600,8 +618,10 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           speech,
           cutBlur,
           subtitles: pieceSubtitles(roundScenes, piece, voices),
+          videos: deck,
         });
-        const made = formats.map((format) => ({ format, ...contactSheet(played, roundWorld, format) }));
+        const made = [];
+        for (const format of formats) made.push({ format, ...(await contactSheet(played, roundWorld, format)) });
         const blobs = await Promise.all(made.map((m) => new Promise<Blob | null>((done) => m.canvas.toBlob(done, "image/jpeg", 0.85))));
         setSheets(made.map((m, k) => ({ format: m.format, url: blobs[k] ? objectUrl(blobs[k]!) : "" })));
         lastSheets = made.map((m, k) => ({ format: m.format, blob: blobs[k] }));
@@ -714,7 +734,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       played: { ...next, scenes: sc },
       beats: b,
       subtitles: subs,
-      world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series), { puppets, actors, speech, cutBlur, subtitles: subs }),
+      world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series), { puppets, actors, speech, cutBlur, subtitles: subs, videos: deck }),
     };
   }
 
@@ -755,15 +775,24 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       const sound = await makeSound(played, playedBeats);
       for (const [n, format] of formats.entries()) {
         const [w, h] = format === "vertical" ? [1080, 1920] : [1920, 1080];
+        // A recording that cannot be read stops the render (never a still in its place in a finished video).
+        const own = playedWorld.videos instanceof VideoDeck ? playedWorld.videos.fork() : null;
+        const used = new Set(played.scenes.flatMap((sc) => (sc.recording ? [videoAssetOf(sc)?.id ?? ""] : [])));
+        const broken = own && used.size ? await own.check(used) : [];
+        if (broken.length) {
+          own?.dispose();
+          throw new Error(unreadableVideos(broken, series));
+        }
         const out = await encodeFrames({
           width: w,
           height: h,
           duration: scriptDuration(played),
           audio: sound,
-          // Frame 0 is the thumbnail (platforms show the first frame); every other frame is the piece as it plays.
-          draw: (ctx, t) => drawMotionFrame(ctx, w, h, t === 0 ? cover : t, played, playedWorld),
+          // Frame 0 is the thumbnail (platforms show the first frame); every other frame is the piece as it plays. A
+          // recording on screen is sought to the frame's second before it is drawn.
+          draw: (ctx, t) => drawReady({ ...playedWorld, videos: own ?? undefined }, played, t === 0 ? cover : t, () => drawMotionFrame(ctx, w, h, t === 0 ? cover : t, played, { ...playedWorld, videos: own ?? undefined })),
           onProgress: (f) => setProgress((n + f) / formats.length),
-        });
+        }).finally(() => own?.dispose());
         let saved = "";
         if (projectId) {
           const file = (await api.saveVideo(projectId, out.blob, format)).file;

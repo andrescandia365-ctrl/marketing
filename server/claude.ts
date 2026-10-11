@@ -35,6 +35,7 @@ import { EMPTY_BRIEF } from "../shared/example.ts";
 import type { SiteFacts } from "./brandWeb.ts";
 import { MOTION_TEMPLATES, MotionNoteSchema, MotionScriptSchema, READ_LETTERS_PER_SECOND, hostScenes, normalizeMotion, pickCamera, readingNeed, type MotionScript } from "../shared/motion.ts";
 import { mergeNote, noteView, type NoteMerge } from "../shared/motionNote.ts";
+import { recordingNote, settleClips } from "../shared/screenVideo.ts";
 import { MotionReviewSchema, normalizeReview, type MotionReview } from "../shared/motionQuality.ts";
 import {
   BackgroundPromptsSchema,
@@ -796,16 +797,19 @@ function explainerCast(brief: Brief) {
   const host = series ? explainerHost(series) : null;
   const cast = (series?.cast ?? [])
     .filter((m) => !(m.kind === "screen" && m.pending))
-    .map((m) => `- ${m.id} (${m.kind}${m.kind === "screen" && m.device ? `, ${m.device === "phone" ? "phone" : "computer"}` : ""}${m.image ? ", has image" : ", no image yet"}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}${m.id === host?.id ? ", the series' explainer character" : ""}): ${m.name}. ${m.identity}`)
+    .map((m) => `- ${m.id} (${m.kind}${m.kind === "screen" && m.device ? `, ${m.device === "phone" ? "phone" : "computer"}` : ""}${m.image || m.video?.poster ? ", has image" : ", no image yet"}${m.kind === "screen" && m.video ? `, ${recordingNote(m.video.seconds)}` : ""}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}${m.id === host?.id ? ", the series' explainer character" : ""}): ${m.name}. ${m.identity}`)
     .join("\n");
   const characters = (series?.cast ?? []).filter((m) => m.kind === "character").map((m) => m.id);
-  return { series, host, cast, characters };
+  // "Videos de la app funcionando": each real screen's recording length, so a clip stays inside it.
+  const recordings = new Map((series?.cast ?? []).flatMap((m) => (m.kind === "screen" && m.video ? [[m.id, m.video.seconds] as const] : [])));
+  return { series, host, cast, characters, recordings: (id: string) => recordings.get(id) };
 }
 
 function castBlock(cast: string, layers: number): string {
   return `What you can show (the series' fixed cast; use ids exactly; only members with an image will render, others show a placeholder):
 ${cast || "- (nothing yet: use hook, steps, stat and logo, and say in note what is missing)"}
-${layers ? `Uploaded layers: ${Array.from({ length: layers }, (_, i) => `layer:${i}`).join(", ")}.` : ""}`;
+${layers ? `Uploaded layers: ${Array.from({ length: layers }, (_, i) => `layer:${i}`).join(", ")}.` : ""}
+${/screen recording/.test(cast) ? "A real screen that has a screen recording can play it instead of its still screenshot, the product working for real (entry, key action, result): in hook, screen, zoom or callouts (its asset) or what a character presents (assetB), set clip to the stretch of the recording, as from-to seconds of the recording (e.g. '3-8'), with ' x1.5' to speed up a slow stretch or ' en bucle' to loop it. It starts when the screen comes in and plays muted. Make the scene about as long as the stretch takes at that speed plus its entrance; otherwise it holds the last frame. Play the stretch that shows what the voice says; leave clip empty for the still. Only screens marked with a recording can play one." : ""}`;
 }
 
 // The studio's rules for an explainer script (a new one or one revised by a note).
@@ -845,7 +849,7 @@ ${brief.narrator === "without" ? "- No narrator: leave every scene's voice and e
 // A motion-graphics explainer (software: how the app does something; e-commerce: the episode's product). Follows the
 // studio's rules: hook in 2 s, something new every 2 to 4 s, no stock defaults, one accent, the brand's fonts.
 export async function motionScript(brief: Brief, target: number | null, layers: number): Promise<MotionScript> {
-  const { series, host, cast, characters } = explainerCast(brief);
+  const { series, host, cast, characters, recordings } = explainerCast(brief);
   const wire = await ask(
     brief,
     false,
@@ -864,13 +868,13 @@ ${explainerRules(brief, host)}`,
   // The series' explainer character hosts every character scene, whatever id the writer put there. A writer that gave
   // no place at all (not even none) gets the one the series leans to.
   const world = motion.world ?? (pickWorld(wireWorld) === "none" ? undefined : worldLean(series?.type));
-  return { ...motion, ...(world && { world }), scenes: hostScenes(motion.scenes, host?.id, characters, false), tone: brief.tone };
+  return { ...motion, ...(world && { world }), scenes: settleClips(hostScenes(motion.scenes, host?.id, characters, false), recordings), tone: brief.tone };
 }
 
 // "Nota del director" for an explainer: the writer returns the whole script with only what the note asks changed,
 // each scene naming the current scene it comes from; mergeNote keeps the rest as it was (ids, hand tweaks, voices).
 export async function reviseMotion(brief: Brief, current: MotionScript, note: string, layers: number): Promise<NoteMerge> {
-  const { series, host, cast, characters } = explainerCast(brief);
+  const { series, host, cast, characters, recordings } = explainerCast(brief);
   const wire = await ask(
     brief,
     false,
@@ -893,7 +897,7 @@ ${explainerRules(brief, host)}`,
   const links = wire.scenes.map((s) => ({ from: s.from, camera: pickCamera(s.camera) }));
   const revised = normalizeMotion({ ...wire, scenes: wire.scenes.map(({ from: _from, ...s }) => s) }, current.tone ?? brief.tone, { revising: true });
   // keepOthers as in the studio: a character the person chose for a scene stays.
-  const hosted = { ...revised, scenes: hostScenes(revised.scenes, host?.id, characters, true), tone: current.tone ?? brief.tone };
+  const hosted = { ...revised, scenes: settleClips(hostScenes(revised.scenes, host?.id, characters, true), recordings), tone: current.tone ?? brief.tone };
   return mergeNote(current, hosted, links);
 }
 

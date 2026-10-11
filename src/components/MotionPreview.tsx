@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { sceneElements, timeScenes, tweakScene, type MotionScene, type MotionScript } from "../../shared/motion.ts";
 import { drawMotionFrame, drawPhoneGuides, sceneAt, scriptDuration, type Box, type MotionWorld } from "../lib/motion.ts";
 import { MixPlayer } from "../lib/playClock.ts";
+import { VideoDeck } from "../lib/screenVideo.ts";
 import type { Selection } from "./MotionTimeline.tsx";
 import { Button, Spinner } from "./ui.tsx";
 
@@ -116,6 +117,8 @@ export function useMotionPreview(o: PreviewOptions) {
       const t = timeRef.current;
       if (canvas && ctx && snapped) {
         const found = new Map<string, Box>();
+        // A screen's recording follows the mix's clock while it plays, and is sought to frame t when stopped.
+        if (world.videos instanceof VideoDeck) world.videos.follow(snapped, t, Boolean(mix?.playing));
         drawMotionFrame(ctx, canvas.width, canvas.height, t, snapped, world, (sceneId, key, box) => found.set(`${sceneId}:${key}`, box));
         boxes.current = found;
         const sel = selectedRef.current;

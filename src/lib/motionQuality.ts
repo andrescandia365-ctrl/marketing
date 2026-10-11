@@ -25,6 +25,7 @@ import {
 import { CONTRAST_ACCENT, CONTRAST_TEXT, STEP_DOWN_CONTRAST, brandContrast, contrastRatio, stepDownContrast, type Brand } from "../../shared/series.ts";
 import { WORLD_PLACE_LABEL, worldOf, worldPalette } from "../../shared/world.ts";
 import { OVERLAP, SAFE_BAND_LABEL, overlapShare, safeBands, type SafeBand } from "../../shared/safeZone.ts";
+import { drawReady, withOwnVideos } from "./screenVideo.ts";
 import { disclosureBox, drawMotionFrame, sceneAt, scriptDuration, subtitleBox, type Box, type MotionWorld } from "./motion.ts";
 
 export type SheetFormat = "vertical" | "horizontal";
@@ -65,11 +66,20 @@ export function sheetTimes(script: MotionScript, beats: number[]): number[] {
   return [...new Set(all.map((t) => Math.round(Math.min(end, t) * 100) / 100))].sort((a, b) => a - b);
 }
 
+// A screen recording on screen is sought to each frame's second before that frame is drawn (its own players).
 export function contactSheet(
   script: MotionScript,
   world: MotionWorld,
   format: SheetFormat,
-): { canvas: HTMLCanvasElement; times: number[]; outside: Outside[]; zoned: Zoned[]; overlaps: Overlap[] } {
+): Promise<{ canvas: HTMLCanvasElement; times: number[]; outside: Outside[]; zoned: Zoned[]; overlaps: Overlap[] }> {
+  return withOwnVideos(world, (own) => drawSheet(script, own, format));
+}
+
+async function drawSheet(
+  script: MotionScript,
+  world: MotionWorld,
+  format: SheetFormat,
+): Promise<{ canvas: HTMLCanvasElement; times: number[]; outside: Outside[]; zoned: Zoned[]; overlaps: Overlap[] }> {
   const vertical = format === "vertical";
   const [cw, ch] = vertical ? [216, 384] : [384, 216];
   const cols = vertical ? 7 : 4;
@@ -91,9 +101,9 @@ export function contactSheet(
   const outside: Outside[] = [];
   const zoned: Zoned[] = [];
   const overlaps: Overlap[] = [];
-  times.forEach((t, n) => {
+  for (const [n, t] of times.entries()) {
     const seen = new Map<string, Box>();
-    drawMotionFrame(fctx, cw, ch, t, script, world, (sceneId, key, box) => seen.set(`${sceneId}:${key}`, box));
+    await drawReady(world, script, t, () => drawMotionFrame(fctx, cw, ch, t, script, world, (sceneId, key, box) => seen.set(`${sceneId}:${key}`, box)));
     for (const [id, box] of seen) {
       if (box.x < -1 || box.y < -1 || box.x + box.w > cw + 1 || box.y + box.h > ch + 1) {
         const [sceneId, key] = id.split(":");
@@ -140,7 +150,7 @@ export function contactSheet(
     ctx.fillText(cut ? `${t.toFixed(2)} s · corte ${i}→${i + 1}` : `${t.toFixed(2)} s · escena ${i + 1}`, x + 6, y + ch + label / 2);
     ctx.strokeStyle = "#d9dbe0";
     ctx.strokeRect(x + 0.5, y + 0.5, cw - 1, ch + label - 1);
-  });
+  }
   return { canvas, times, outside, zoned, overlaps };
 }
 

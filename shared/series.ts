@@ -335,6 +335,20 @@ export type CastRef = z.infer<typeof CastRefSchema>;
 export const SheetViewSchema = z.object({ title: z.string().trim().max(120), prompt: z.string().trim().max(3000) });
 export type SheetView = z.infer<typeof SheetViewSchema>;
 
+// "Videos de la app funcionando": a real screen can also carry a screen recording of the app (shared/screenVideo.ts),
+// kept in the series library like its image, with a poster frame (the still shown while it loads or when it cannot be
+// read) and what the browser measured when it was uploaded: its length in seconds and its size in pixels.
+export const ScreenVideoSchema = z.object({
+  file: LibraryFileSchema,
+  poster: LibraryFileSchema.default(""),
+  seconds: z.number().min(0.1).max(3600),
+  width: z.number().int().min(1).max(10000),
+  height: z.number().int().min(1).max(10000),
+  // The name of the file the person uploaded, so the card can say which recording it is.
+  name: z.string().max(120).default(""),
+});
+export type ScreenVideo = z.infer<typeof ScreenVideoSchema>;
+
 // The most members a series' cast holds (a software series can bring ~50 real screens besides its characters).
 export const CAST_MAX = 150;
 
@@ -361,6 +375,8 @@ export const CastMemberSchema = z.object({
   views: z.array(SheetViewSchema).max(20).default([]),
   // Real screens only: the device it was taken on (shared/screenBatch.ts; none on older screens).
   device: z.enum(["phone", "pc"]).optional(),
+  // Real screens only: a screen recording of the app working (the server owns it, like the puppet's files).
+  video: ScreenVideoSchema.optional(),
   // Real screens only: uploaded in a batch and not reviewed yet ("Revisá las pantallas"). The writers never get it.
   pending: z.boolean().optional(),
 });

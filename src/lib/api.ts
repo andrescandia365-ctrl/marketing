@@ -195,6 +195,18 @@ export const api = {
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}`, undefined, "DELETE"),
   uploadRig: (seriesId: string, castId: string, file: Blob) =>
     upload<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/rig`, file, "model/gltf-binary"),
+  // "Videos de la app funcionando": a real screen's recording (raw body, up to 200 MB), with what the browser measured,
+  // then its poster frame; or remove it.
+  uploadScreenVideo: (seriesId: string, castId: string, file: Blob, info: { seconds: number; width: number; height: number; name: string }) =>
+    upload<{ member: CastMember; series: SeriesInfo[] }>(
+      `/api/series/${enc(seriesId)}/cast/${enc(castId)}/video?seconds=${info.seconds}&width=${info.width}&height=${info.height}&name=${enc(info.name)}`,
+      file,
+      file.type || "application/octet-stream",
+    ),
+  uploadScreenVideoPoster: (seriesId: string, castId: string, image: Blob) =>
+    upload<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/video/poster`, image, image.type || "image/jpeg"),
+  removeScreenVideo: (seriesId: string, castId: string) =>
+    call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/video`, undefined, "DELETE"),
   // An extra reference image (a crop of the sheet, or a loose view): its own @ reference, named by the server.
   addCastRef: (seriesId: string, castId: string, image: Blob, label: string) =>
     upload<{ member: CastMember; series: SeriesInfo[] }>(

@@ -1,7 +1,8 @@
 // Series bibles: one Markdown file per series in server/series/ (iman.md, masogar.md). The writer reads the
 // chosen series' file with every request. The app edits them in the "Editar serie" form (PUT/POST/DELETE
 // /api/series); editing a file by hand works too and is picked up on the next restart.
-import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { SCREEN_VIDEO_MAX_BYTES, SCREEN_VIDEO_TYPES, videoTypeOf } from "../shared/screenVideo.ts";
 import { join, resolve, sep } from "node:path";
 import type { LyricStyle } from "../shared/lyrics.ts";
 import type { SeriesInfo } from "../shared/schema.ts";
@@ -10,6 +11,7 @@ import { SCREEN_MAX_BYTES, reorderSubset, screenMember, screenTypeOf, type Scree
 import {
   CAST_MAX,
   PUPPET_MAX_LAYERS,
+  ScreenVideoSchema,
   markdownToSeries,
   seriesId,
   seriesToMarkdown,
@@ -132,6 +134,13 @@ function keepRefs(old: CastMember | undefined): CastMember["refs"] {
   return old?.refs ?? [];
 }
 
+// A real screen's recording is the server's too (uploaded or removed on its own route): what the app sends never
+// brings one back or points it at another file.
+function keepVideo(old: CastMember | undefined, next: CastMember): Pick<CastMember, "video"> {
+  return next.kind === "screen" && old?.video ? { video: old.video } : {};
+}
+const withoutVideo = ({ video: _v, ...m }: CastMember): CastMember => m;
+
 // The series as the app saves it from "Editar serie", with each character's puppet kept.
 export function saveSeriesFromApp(id: string, fields: SeriesFields) {
   const old = getSeriesFields(id).cast;
@@ -139,14 +148,14 @@ export function saveSeriesFromApp(id: string, fields: SeriesFields) {
   const host = fields.cast.some((m) => m.id === fields.explainerCharacter && m.kind === "character") ? fields.explainerCharacter : "";
   // The same for a correspondent who left the cast.
   const correspondent = fields.cast.some((m) => m.id === fields.correspondent && m.kind === "character") ? fields.correspondent : "";
-  saveSeries(id, { ...fields, explainerCharacter: host, correspondent, cast: fields.cast.map((m) => ({ ...m, puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m), refs: keepRefs(old.find((o) => o.id === m.id)) })) });
+  saveSeries(id, { ...fields, explainerCharacter: host, correspondent, cast: fields.cast.map((m) => ({ ...withoutVideo(m), puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m), refs: keepRefs(old.find((o) => o.id === m.id)), ...keepVideo(old.find((o) => o.id === m.id), m) })) });
 }
 
 // Adds a cast member to the series, or replaces the one with the same id (keeping its image if none is given).
 export function upsertCastMember(id: string, member: CastMember) {
   const fields = getSeriesFields(id);
   const old = fields.cast.find((m) => m.id === member.id);
-  const next = { ...member, image: member.image || old?.image || "", puppet: keepPuppet(old, member), rig: keepRig(old, member), refs: keepRefs(old) };
+  const next = { ...withoutVideo(member), image: member.image || old?.image || "", puppet: keepPuppet(old, member), rig: keepRig(old, member), refs: keepRefs(old), ...keepVideo(old, member) };
   fields.cast = old ? fields.cast.map((m) => (m.id === member.id ? next : m)) : [...fields.cast, next];
   saveSeries(id, fields);
 }
@@ -381,6 +390,95 @@ export function setLogo(id: string, data: Buffer, type: string): string {
   return file;
 }
 
+// "Videos de la app funcionando": a real screen's recording, written by the route as it streams in (a temporary file in
+// the series folder, checked here: its size, and its type read from the first bytes), then kept as
+// <castId>-video-<time>.<ext>, the old one removed. Its length and size are what the browser measured on upload.
+export function setScreenVideo(
+  id: string,
+  castId: string,
+  temp: string,
+  info: { seconds: number; width: number; height: number; name: string },
+): CastMember {
+  try {
+    const fields = getSeriesFields(id);
+    const member = fields.cast.find((m) => m.id === castId);
+    if (!member) throw new SeriesError("Ese integrante del elenco no existe.");
+    if (member.kind !== "screen") throw new SeriesError("Solo las pantallas reales llevan un video de la app.");
+    const size = statSync(temp).size;
+    if (!size) throw new SeriesError("El archivo está vacío.");
+    if (size > SCREEN_VIDEO_MAX_BYTES) throw new SeriesError(`El video pesa más de ${SCREEN_VIDEO_MAX_BYTES / 1024 / 1024} MB: acortalo o bajale la calidad.`);
+    const head = Buffer.alloc(64);
+    const fd = openSync(temp, "r");
+    try {
+      readSync(fd, head, 0, 64, 0);
+    } finally {
+      closeSync(fd);
+    }
+    const type = videoTypeOf(head);
+    if (!type) throw new SeriesError("Ese archivo no es un video MP4, WebM o MOV.");
+    const video = ScreenVideoSchema.parse({ file: `${castId.slice(0, 24)}-video-${Date.now().toString(36)}.${type}`, poster: "", ...info, name: info.name.slice(0, 120) });
+    const dir = join(LIBRARY_DIR, id);
+    renameSync(temp, join(dir, video.file));
+    if (member.video) {
+      removeLibraryFile(id, member.video.file);
+      removeLibraryFile(id, member.video.poster);
+    }
+    member.video = video;
+    saveSeries(id, fields);
+    return member;
+  } finally {
+    rmSync(temp, { force: true });
+  }
+}
+
+// The poster frame of the recording (the browser takes it on upload): the still while it loads or when it cannot be read.
+export function setScreenVideoPoster(id: string, castId: string, data: Buffer): CastMember {
+  const fields = getSeriesFields(id);
+  const member = fields.cast.find((m) => m.id === castId);
+  if (!member?.video) throw new SeriesError("Esa pantalla no tiene video.");
+  const type = screenTypeOf(data);
+  if (!type) throw new SeriesError("La portada del video tiene que ser una imagen PNG, JPG o WebP.");
+  const file = `${castId.slice(0, 24)}-poster-${Date.now().toString(36)}.${IMAGE_EXT[type]}`;
+  writeFileSync(join(LIBRARY_DIR, id, file), data);
+  removeLibraryFile(id, member.video.poster);
+  member.video = { ...member.video, poster: file };
+  saveSeries(id, fields);
+  return member;
+}
+
+export function removeScreenVideo(id: string, castId: string): CastMember {
+  const fields = getSeriesFields(id);
+  const member = fields.cast.find((m) => m.id === castId);
+  if (!member) throw new SeriesError("Ese integrante del elenco no existe.");
+  if (member.video) {
+    removeLibraryFile(id, member.video.file);
+    removeLibraryFile(id, member.video.poster);
+    delete member.video;
+    saveSeries(id, fields);
+  }
+  return member;
+}
+
+// Where a recording being uploaded is written first (inside the series folder, so the rename is on the same disk).
+export function screenVideoTemp(id: string): string {
+  if (!ID.test(id) || !getSeries(id)) throw new SeriesError("Esa serie no existe.");
+  const dir = join(LIBRARY_DIR, id);
+  mkdirSync(dir, { recursive: true });
+  return join(dir, `.subida-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`);
+}
+
+// A recording in the series library, for playing and seeking: its path, size and type (null: no such video).
+export function libraryVideo(id: string, name: string): { path: string; size: number; type: string } | null {
+  const m = /^[a-z0-9-]{1,60}\.(mp4|webm|mov)$/.exec(name);
+  const path = m ? libraryPath(id, name) : null;
+  if (!m || !path) return null;
+  try {
+    return { path, size: statSync(path).size, type: SCREEN_VIDEO_TYPES[m[1] as keyof typeof SCREEN_VIDEO_TYPES] };
+  } catch {
+    return null;
+  }
+}
+
 export function readLibraryFile(id: string, name: string): { data: Buffer; type: string } {
   if (!ID.test(id) || !/^[a-z0-9-]{1,60}\.(png|jpg|webp|gif|glb)$/.test(name)) throw new SeriesError("Ese archivo no existe.");
   const type = name.endsWith(".glb") ? "model/gltf-binary" : Object.entries(IMAGE_EXT).find(([, e]) => name.endsWith(`.${e}`))?.[0] ?? "application/octet-stream";
@@ -396,7 +494,7 @@ export function createSeries(fields: SeriesFields): string {
   let id = base;
   for (let n = 2; getSeries(id); n++) id = `${base}-${n}`;
   // A new series has no files of its own yet: images, puppet parts, rigs and extra references are uploaded after.
-  write(id, { ...fields, brand: { ...fields.brand, logo: "" }, cast: fields.cast.map((m) => ({ ...m, image: "", puppet: { layers: [] }, rig: { ...m.rig, file: "" }, refs: [] })) });
+  write(id, { ...fields, brand: { ...fields.brand, logo: "" }, cast: fields.cast.map((m) => ({ ...withoutVideo(m), image: "", puppet: { layers: [] }, rig: { ...m.rig, file: "" }, refs: [] })) });
   return id;
 }
 

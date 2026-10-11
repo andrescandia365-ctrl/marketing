@@ -5,6 +5,7 @@ import type { HeardWordTimes } from "./subtitles.ts";
 import { z } from "zod";
 import type { QualityState } from "./motionQuality.ts";
 import { pickWorld, type SceneWorld, type WorldPlace } from "./world.ts";
+import { pickClip, type ScreenClip } from "./screenVideo.ts";
 
 export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "contradiction", "notify", "flow", "slots", "product", "stat", "logo"] as const;
 export type MotionTemplate = (typeof MOTION_TEMPLATES)[number];
@@ -149,6 +150,12 @@ const SceneWire = z.object({
     .string()
     .optional()
     .describe("The illustrated place behind this scene when it differs from the piece's world: store, street, home, desk, or none (the plain background). Empty: the piece's world."),
+  clip: z
+    .string()
+    .optional()
+    .describe(
+      "Only when the scene shows a real screen that has a screen recording (hook, screen, zoom, callouts: asset; character: assetB): the stretch of the recording to play inside the device, as 'from-to' seconds of the recording (e.g. '2-7'; 'fin' for its end), optionally ' x1.5' to speed it up or ' en bucle' to loop it. It plays muted. Empty: the still screenshot.",
+    ),
 });
 
 export const MotionScriptSchema = z.object({
@@ -191,9 +198,12 @@ export const MotionNoteSchema = MotionScriptSchema.extend({
 export type Spot = { dx?: number; dy?: number; scale?: number };
 export type Tweak = { at?: number; v?: Spot; h?: Spot };
 
-export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture" | "entry" | "reveal" | "camera" | "disclosure" | "beyondToday" | "world"> & {
+export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture" | "entry" | "reveal" | "camera" | "disclosure" | "beyondToday" | "world" | "clip"> & {
   id: string;
   template: MotionTemplate;
+  // "Videos de la app funcionando": the stretch of its real screen's recording the scene plays (shared/screenVideo.ts).
+  // None: the still screenshot (every older scene). The writer's word for it is the wire's `clip` ("2-7 x1.5").
+  recording?: ScreenClip;
   // "Un mundo ilustrado": this scene's own place, or "none" (plain) when the piece has one. Older scenes have none:
   // the piece's (shared/world.ts, worldOf).
   world?: SceneWorld;
@@ -517,8 +527,9 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?:
     ...rest,
     ...(pieceWorld && { world: pieceWorld }),
     scenes: planCameras(
-      wire.scenes.map(({ disclosure, beyondToday, world, ...s }, i) => withBeyond({
+      wire.scenes.map(({ disclosure, beyondToday, world, clip, ...s }, i) => withBeyond({
         ...s,
+        ...(pickClip(clip) && { recording: pickClip(clip) }),
         ...(sceneWorld(world) && { world: sceneWorld(world) }),
         id: sceneId(),
         disclosure: pickDisclosure(disclosure),

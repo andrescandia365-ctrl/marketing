@@ -1,6 +1,7 @@
 // The quality loop before any full render (the studio's rule): a contact sheet with one frame per beat, the AI scores
 // six things from 1 to 10, the three worst problems are fixed as edits to the script, and it repeats until every score
 // is 8 or more, up to a set number of rounds.
+import { clipText, videoAssetOf } from "./screenVideo.ts";
 import { z } from "zod";
 import { DISCLOSURE_TAG, MOTION_TEMPLATES, MOTION_TEMPLATE_LABEL, beyondNow, conceptIssues, labelled, planCameras, sceneElements, timeScenes, tweakScene, type MotionScene, type MotionScript, type Spot } from "./motion.ts";
 
@@ -148,7 +149,9 @@ export function describeScenes(scenes: MotionScene[]): string {
       const label = labelled(s) ? `, labelled ${DISCLOSURE_TAG[s.disclosure as "concept" | "simulation"]} on screen` : "";
       const flagged = beyondNow(s);
       const flag = flagged ? `, flagged by the ${flagged.by === "ia" ? "writer" : "reviewer"} as not on the working-today list ("${flagged.what}")` : "";
-      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}${entry}${reveal}${camera}${label}${flag}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
+      // "Videos de la app funcionando": the real screen plays its recording (the sheet shows the frame at each moment).
+      const played = s.recording && videoAssetOf(s) ? `, its real screen plays the app's screen recording (stretch ${clipText(s.recording)} s of the recording, muted)` : "";
+      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}${entry}${reveal}${camera}${label}${flag}${played}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
     })
     .join("\n");
 }

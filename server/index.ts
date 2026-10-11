@@ -131,7 +131,15 @@ import {
   getSeries,
   addScreen,
   confirmScreens,
+  libraryVideo,
+  removeScreenVideo,
+  screenVideoTemp,
+  setScreenVideo,
+  setScreenVideoPoster,
 } from "./series.ts";
+import { SCREEN_VIDEO_MAX_BYTES } from "../shared/screenVideo.ts";
+import { createReadStream, createWriteStream, rmSync as removeFile } from "node:fs";
+import { Readable } from "node:stream";
 import { listTools, referenceLimit } from "./tools.ts";
 import { AdsError } from "./ads.ts";
 import { checkErrorText } from "../shared/errors.ts";
@@ -400,7 +408,76 @@ app.put("/api/series/:id/cast/:castId/rig", async (c) => {
   return c.json({ member, series: listSeries() });
 });
 
+// "Videos de la app funcionando": a real screen's recording. The body streams to a temporary file and stops past the
+// cap; the series code reads its type from the bytes. What the browser measured (length, size) comes in the query.
+app.put("/api/series/:id/cast/:castId/video", async (c) => {
+  const info = z
+    .object({
+      seconds: z.coerce.number().min(0.1, "El video dura menos de una décima de segundo.").max(3600, "El video dura más de una hora."),
+      width: z.coerce.number().int().min(1).max(10000),
+      height: z.coerce.number().int().min(1).max(10000),
+      name: z.string().max(200).default(""),
+    })
+    .parse({ seconds: c.req.query("seconds"), width: c.req.query("width"), height: c.req.query("height"), name: c.req.query("name") ?? "" });
+  const declared = Number(c.req.header("content-length") ?? 0);
+  if (declared > SCREEN_VIDEO_MAX_BYTES) return c.json({ error: `El video pesa más de ${SCREEN_VIDEO_MAX_BYTES / 1024 / 1024} MB: acortalo o bajale la calidad.` }, 413);
+  const body = c.req.raw.body;
+  if (!body) return c.json({ error: "El archivo está vacío." }, 400);
+  const temp = screenVideoTemp(c.req.param("id"));
+  const out = createWriteStream(temp);
+  let size = 0;
+  try {
+    const reader = body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > SCREEN_VIDEO_MAX_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new SeriesError(`El video pesa más de ${SCREEN_VIDEO_MAX_BYTES / 1024 / 1024} MB: acortalo o bajale la calidad.`);
+      }
+      if (!out.write(value)) await new Promise((done) => out.once("drain", done));
+    }
+    await new Promise<void>((done, failed) => out.end((e?: Error | null) => (e ? failed(e) : done())));
+  } catch (e) {
+    out.destroy();
+    removeFile(temp, { force: true });
+    throw e;
+  }
+  const member = setScreenVideo(c.req.param("id"), c.req.param("castId"), temp, info);
+  return c.json({ member, series: listSeries() });
+});
+
+app.put("/api/series/:id/cast/:castId/video/poster", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
+  const member = setScreenVideoPoster(c.req.param("id"), c.req.param("castId"), data);
+  return c.json({ member, series: listSeries() });
+});
+
+app.delete("/api/series/:id/cast/:castId/video", (c) => {
+  const member = removeScreenVideo(c.req.param("id"), c.req.param("castId"));
+  return c.json({ member, series: listSeries() });
+});
+
 app.get("/api/series/:id/files/:name", (c) => {
+  // A recording plays and seeks by byte ranges (the preview and the render page jump to exact frames).
+  const video = libraryVideo(c.req.param("id"), c.req.param("name"));
+  if (video) {
+    const range = /^bytes=(\d*)-(\d*)$/.exec(c.req.header("range") ?? "");
+    const head = { "Content-Type": video.type, "Accept-Ranges": "bytes", "Cache-Control": "no-cache" };
+    if (!range || (!range[1] && !range[2])) {
+      const stream = Readable.toWeb(createReadStream(video.path)) as ReadableStream;
+      return c.body(stream, 200, { ...head, "Content-Length": String(video.size) });
+    }
+    let start = range[1] ? Number(range[1]) : Math.max(0, video.size - Number(range[2]));
+    let end = range[1] && range[2] ? Math.min(Number(range[2]), video.size - 1) : video.size - 1;
+    if (start >= video.size || start > end) return c.body(null, 416, { "Content-Range": `bytes */${video.size}` });
+    start = Math.max(0, start);
+    end = Math.max(start, end);
+    const stream = Readable.toWeb(createReadStream(video.path, { start, end })) as ReadableStream;
+    return c.body(stream, 206, { ...head, "Content-Range": `bytes ${start}-${end}/${video.size}`, "Content-Length": String(end - start + 1) });
+  }
   const { data, type } = readLibraryFile(c.req.param("id"), c.req.param("name"));
   return c.body(new Uint8Array(data), 200, { "Content-Type": type, "Cache-Control": "no-cache" });
 });

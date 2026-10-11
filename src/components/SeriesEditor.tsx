@@ -494,6 +494,11 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
                           onPuppetRemove={(index) => memberPuppetRemove(m, index)}
                           onPuppetArranged={(next) => memberPuppetArranged(next)}
                           onRigFile={(file) => memberRigFile(m, file)}
+                          onVideo={(next, series) => {
+                            setFields((f) => (f ? { ...f, cast: f.cast.map((x) => (x.id === next.id ? { ...x, video: next.video } : x)) } : f));
+                            // Saved at once (like the extra references): the app's copy of the series follows.
+                            onLogoSaved?.(series);
+                          }}
                         />
                       ))}
                     </ul>
