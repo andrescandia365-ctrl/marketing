@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import {
   CAST_KIND_LABEL,
@@ -15,7 +15,7 @@ import {
   type SeriesFields,
 } from "../../shared/series.ts";
 import { inDays, momentLine, upcomingMoments } from "../../shared/calendar.ts";
-import { webCastMember } from "../../shared/webCast.ts";
+import { addWebCast, webCastMember } from "../../shared/webCast.ts";
 import { SheetBuilder } from "./SheetBuilder.tsx";
 import { api } from "../lib/api.ts";
 import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
@@ -46,6 +46,8 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
   const [moments, setMoments] = useState("");
   const [sheetFor, setSheetFor] = useState<null | "person" | "place">(null);
   const [version, setVersion] = useState(Date.now());
+  // Web pictures whose member reached the server but whose image upload failed, by pick (see addWebCast).
+  const webPending = useRef(new Map<string, CastMember>());
   const [busy, setBusy] = useState<null | "save" | "delete">(null);
   const [error, setError] = useState("");
 
@@ -236,9 +238,20 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
         seriesType={fields.type}
         onCast={async (pick, file, confirmed) => {
           if (!id) return;
-          const member = webCastMember(pick, fields.cast, { confirmed, date: new Date().toLocaleDateString("es-AR") });
-          setFields((f) => (f ? { ...f, cast: [...f.cast, member] } : f));
-          await memberImage(member, file);
+          // Saved and its image stored before it joins the form: a failed upload leaves nothing behind, and a retry
+          // reuses the same member instead of adding a second one.
+          const member = await addWebCast(
+            webPending.current,
+            `${pick.kind}:${pick.url}`,
+            fields.cast,
+            (taken) => webCastMember(pick, taken, { confirmed, date: new Date().toLocaleDateString("es-AR") }),
+            async (m) => {
+              await api.upsertCast(id, m);
+              return (await api.uploadCastImage(id, m.id, file)).file;
+            },
+          );
+          setFields((f) => (f ? { ...f, cast: [...f.cast.filter((m) => m.id !== member.id), member] } : f));
+          setVersion(Date.now());
         }}
       />
 

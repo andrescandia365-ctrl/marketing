@@ -131,3 +131,11 @@ test("an invented correspondent is offered to the cast, once", () => {
   assert.match(m.note, /Formal\./);
   assert.equal(correspondentMember({ id: "Raro Id", name: "Doña Pía", voice: "", identity: "" }, []).id, "dona-pia");
 });
+
+test("correspondentMember never reuses a cast member's @ref", () => {
+  const cast = [{ ...member("mara"), ref: "Mara" }, { ...member("mara-2"), ref: "mara2" }];
+  const m = correspondentMember({ id: INVENTED_CORRESPONDENT, name: "Mara", voice: "", identity: "" }, cast);
+  assert.equal(m.id, INVENTED_CORRESPONDENT);
+  assert.equal(m.ref, "Mara3");
+  assert.equal(correspondentMember({ id: INVENTED_CORRESPONDENT, name: "Juan", voice: "", identity: "" }, cast).ref, "Juan");
+});

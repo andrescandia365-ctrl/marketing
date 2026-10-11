@@ -84,3 +84,24 @@ export function webCastMember(
     views: [],
   };
 }
+
+// Adds a picked picture to the cast: the member is saved and its image stored (`store`, which returns the image's
+// file) before it joins the form, so a failed upload leaves nothing in the form. A retry of the same pick (`key`)
+// reuses the member id an earlier failed attempt already sent to the server, and members still pending for other
+// picks count as taken, so a retry never adds a second member for the same picture.
+export async function addWebCast(
+  pending: Map<string, CastMember>,
+  key: string,
+  cast: CastMember[],
+  make: (taken: CastMember[]) => CastMember,
+  store: (member: CastMember) => Promise<string>,
+): Promise<CastMember> {
+  const others = [...pending].filter(([k, m]) => k !== key && !cast.some((c) => c.id === m.id)).map(([, m]) => m);
+  const prev = pending.get(key);
+  const fresh = make([...cast, ...others]);
+  const member = prev && !cast.some((c) => c.id === prev.id) ? { ...fresh, id: prev.id } : fresh;
+  pending.set(key, member);
+  const image = await store(member);
+  pending.delete(key);
+  return { ...member, image };
+}

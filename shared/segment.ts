@@ -86,8 +86,12 @@ export function inventedCorrespondent(
 
 // A story character as a cast member (no image yet): its id kept when it is free and valid, else one made from its
 // name that does not clash with the cast.
-export function correspondentMember(c: Pick<Character, "id" | "name" | "voice" | "identity">, cast: Pick<CastMember, "id">[]): CastMember {
+export function correspondentMember(
+  c: Pick<Character, "id" | "name" | "voice" | "identity">,
+  cast: (Pick<CastMember, "id"> & Partial<Pick<CastMember, "ref">>)[],
+): CastMember {
   const taken = new Set(cast.map((m) => m.id));
+  const refs = new Set(cast.map((m) => (m.ref ?? "").toLowerCase()).filter(Boolean));
   const slug = (s: string) =>
     s
       .toLowerCase()
@@ -100,10 +104,14 @@ export function correspondentMember(c: Pick<Character, "id" | "name" | "voice" |
   let id = base;
   for (let n = 2; taken.has(id); n++) id = `${base.slice(0, 36)}-${n}`;
   const name = c.name.trim().slice(0, 60) || "Corresponsal";
+  // One @ name per member: Grok cannot tell two cast references with the same name apart.
+  const stem = castRef(name).slice(0, 27);
+  let ref = castRef(name);
+  for (let k = 2; refs.has(ref.toLowerCase()); k++) ref = `${stem}${k}`;
   return {
     id,
     name,
-    ref: castRef(name),
+    ref,
     kind: "character",
     identity: c.identity.trim().slice(0, 600),
     note: `Corresponsal de la serie: sale «en el lugar», escala lo absurdo y vuelve al problema real.${c.voice.trim() ? ` Cómo habla: ${c.voice.trim()}` : ""}`.slice(0, 600),

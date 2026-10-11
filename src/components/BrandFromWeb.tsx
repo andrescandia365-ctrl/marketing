@@ -51,6 +51,8 @@ export function BrandFromWeb({
   const [url, setUrl] = useState("");
   const [own, setOwn] = useState(false);
   const [busy, setBusy] = useState<null | "read" | "logo" | "cast">(null);
+  // The picture being added to the cast right now: only its button shows the spinner.
+  const [adding, setAdding] = useState<string | null>(null);
   // Per picture (by its address): the name the person gave it, and for a screen whether they confirmed it.
   const [names, setNames] = useState<Record<string, string>>({});
   const [sure, setSure] = useState<Record<string, boolean>>({});
@@ -297,6 +299,7 @@ export function BrandFromWeb({
                               title={seriesId ? undefined : "Guardá la serie primero"}
                               onClick={async () => {
                                 setBusy("cast");
+                                setAdding(key);
                                 setError("");
                                 try {
                                   await onCast({ ...pick, name }, await pictureFile(pick), Boolean(sure[key]));
@@ -305,10 +308,11 @@ export function BrandFromWeb({
                                   setError(e instanceof Error ? e.message : String(e));
                                 } finally {
                                   setBusy(null);
+                                  setAdding(null);
                                 }
                               }}
                             >
-                              {busy === "cast" ? <Spinner /> : null} {done ? "En el elenco" : `Sumar al elenco como ${CAST_KIND_LABEL[pick.kind]}`}
+                              {adding === key ? <Spinner /> : null} {done ? "En el elenco" : `Sumar al elenco como ${CAST_KIND_LABEL[pick.kind]}`}
                             </Button>
                           </li>
                         );

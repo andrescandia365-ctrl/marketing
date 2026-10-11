@@ -19,7 +19,7 @@ import {
   type PictureCandidate,
 } from "../server/brandWeb.ts";
 import { CastMemberSchema } from "../shared/series.ts";
-import { webCastMember, webPictureKinds } from "../shared/webCast.ts";
+import { addWebCast, webCastMember, webPictureKinds } from "../shared/webCast.ts";
 
 const base = new URL("https://tienda.example.com/productos/taza");
 
@@ -241,4 +241,37 @@ test("a picked picture becomes a cast member labelled as from the website; a scr
   assert.equal(unnamed.name, "Producto 1");
   const full = Array.from({ length: 60 }, (_, i) => ({ id: `x-${i}`, ref: `X${i}` }));
   assert.throws(() => webCastMember({ kind: "product", name: "Otro", url: "https://a.example/" }, full, { confirmed: false, date: "" }), /60/);
+});
+
+test("addWebCast: a failed upload adds nothing to the form and a retry reuses the same member", async () => {
+  const pending = new Map<string, import("../shared/series.ts").CastMember>();
+  const pick = { kind: "product" as const, name: "Taza Nube", url: "https://tienda.example.com/a.jpg", source: "og" as const, image: "", width: 1, height: 1 };
+  const make = (taken: import("../shared/series.ts").CastMember[]) => webCastMember(pick, taken, { confirmed: false, date: "10/10/2026" });
+  const saved: string[] = [];
+  let fail = true;
+  const store = async (m: import("../shared/series.ts").CastMember) => {
+    saved.push(m.id);
+    if (fail) throw new Error("red caída");
+    return `${m.id}.jpg`;
+  };
+  await assert.rejects(addWebCast(pending, pick.url, [], make, store), /red caída/);
+  fail = false;
+  const m = await addWebCast(pending, pick.url, [], make, store);
+  assert.equal(m.id, "producto-1");
+  assert.equal(m.image, "producto-1.jpg");
+  assert.equal(m.ref, "TazaNube");
+  assert.deepEqual(saved, ["producto-1", "producto-1"]);
+  assert.equal(pending.size, 0);
+});
+
+test("addWebCast: a pending member's id is taken for other picks", async () => {
+  const pending = new Map<string, import("../shared/series.ts").CastMember>();
+  const pick = { kind: "product" as const, name: "Taza", url: "a", source: "og" as const, image: "", width: 1, height: 1 };
+  const make = (p: typeof pick) => (t: import("../shared/series.ts").CastMember[]) => webCastMember(p, t, { confirmed: false, date: "x" });
+  await assert.rejects(addWebCast(pending, "a", [], make(pick), async () => Promise.reject(new Error("no"))));
+  const b = await addWebCast(pending, "b", [], make({ ...pick, name: "Mate", url: "b" }), async (m) => `${m.id}.jpg`);
+  assert.equal(b.id, "producto-2");
+  const a = await addWebCast(pending, "a", [b], make(pick), async (m) => `${m.id}.jpg`);
+  assert.equal(a.id, "producto-1");
+  assert.equal(pending.size, 0);
 });
