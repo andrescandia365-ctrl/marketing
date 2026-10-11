@@ -291,7 +291,18 @@ export type Batch = Omit<z.infer<typeof BatchSchema>, "ads"> & { ads: AdCombo[] 
 
 export const AdsMediaSchema = z.object({
   image: z.string().optional(),
-  clip: z.object({ file: z.string(), name: z.string(), duration: z.number() }).optional(),
+  clip: z
+    .object({
+      file: z.string(),
+      name: z.string(),
+      duration: z.number(),
+      // Where the piece starts playing the clip (seconds into it; 0 or missing: its start).
+      from: z.number().min(0).max(3600).optional(),
+      // The clip is a finished explainer of the same series (shared/adsFromExplainer.ts): it brings its own words,
+      // subtitles and notice, so the render draws nothing on top of it.
+      explainer: z.object({ project: z.string().max(80), file: z.string().max(80), title: z.string().max(200) }).optional(),
+    })
+    .optional(),
   voice: z.object({ file: z.string(), name: z.string(), duration: z.number() }).optional(),
 });
 export type AdsMedia = z.infer<typeof AdsMediaSchema>;

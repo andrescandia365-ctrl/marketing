@@ -405,6 +405,12 @@ export async function readProjectFile(id: string, name: string): Promise<{ data:
   }
 }
 
+// The names of the files in a project folder (Publicidad lists an explainer's renders from them).
+export async function listProjectFiles(id: string): Promise<string[]> {
+  await read(id);
+  return (await readdir(folder(id))).filter((name) => FILE.test(name) && name !== "project.json");
+}
+
 export function deleteProject(id: string) {
   return locked(id, () => rm(folder(id), { recursive: true, force: true }));
 }

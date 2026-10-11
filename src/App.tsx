@@ -11,6 +11,7 @@ import { BriefForm } from "./components/BriefForm.tsx";
 import { MenuPicker } from "./components/MenuPicker.tsx";
 import type { LyricOpen } from "./components/LyricStudio.tsx";
 import type { MotionOpen } from "./components/MotionStudio.tsx";
+import type { AdSeed } from "../shared/adsFromExplainer.ts";
 import type { StillOpen } from "./components/StillStudio.tsx";
 import { ProjectsPanel } from "./components/ProjectsPanel.tsx";
 import { DirectionLog, StoryNotes, type LibraryEntry } from "./components/ScriptView.tsx";
@@ -429,23 +430,41 @@ export function App() {
     }
   }
 
-  // A lyric video, an explainer or a still: its own project folder, then its studio.
-  async function startStudio(kind: "lyrics" | "motion" | "still") {
+  // A lyric video, an explainer or a still: its own project folder, then its studio. An explainer can start from a
+  // given brief and piece ("Hacelo como explicativo" in Publicidad).
+  async function startStudio(kind: "lyrics" | "motion" | "still", from?: { brief: Brief; motion: MotionOpen }) {
+    const b = from?.brief ?? brief;
     resetPiece();
     setError("");
-    setPieceBrief(brief);
+    setPieceBrief(b);
     let id: string | null = null;
     try {
-      id = (await api.createProject(brief.series)).id;
+      id = (await api.createProject(b.series)).id;
     } catch (e) {
       setError(`Se puede seguir, pero no se pudo crear la carpeta del proyecto: ${message(e)}`);
     }
     setProjectId(id);
+    if (kind === "motion" && from) {
+      setMotion({ key: id ?? String(Date.now()), initial: from.motion });
+      setStep("motion");
+      return;
+    }
     const open = { key: id ?? String(Date.now()), initial: null };
     if (kind === "lyrics") setLyric(open);
     else if (kind === "still") setStill(open);
     else setMotion(open);
     setStep(kind);
+  }
+
+  // "Hacelo como explicativo": a new explainer of the same series, its brief noting the piece's text, its script a
+  // starting one built from that text (no AI needed); with a key, "Escribir el guion" writes it from the notes.
+  // The explainer's code comes with the studio, not with the first screen.
+  async function startExplainerFrom(seed: AdSeed) {
+    const { seedNotes, starterPiece } = await import("../shared/adsFromExplainer.ts");
+    const b: Brief = { ...brief, piece: "explainer", notes: [brief.notes.trim(), seedNotes(seed)].filter(Boolean).join("\n") };
+    setBrief(b);
+    setSection("playbook");
+    await startStudio("motion", { brief: b, motion: { piece: starterPiece(seed, b.format, b.tone), media: {}, music: null } });
   }
 
   // Step 1 → menu. A new piece gets its own project folder.
@@ -708,6 +727,7 @@ export function App() {
           setSection={setSection}
           setStep={setStep}
           setShowModels={setShowModels}
+          onToExplainer={(seed) => void startExplainerFrom(seed)}
         />
       )}
 

@@ -69,6 +69,8 @@ import {
   writeMeats,
 } from "./adsWriter.ts";
 import { getSeries } from "./series.ts";
+import { getProject, listProjectFiles, readProjectFile } from "./projects.ts";
+import { EXPLAINER_KINDS, EXPLAINER_VIDEO, explainerPiece, explainerVideos, fitClip } from "../shared/adsFromExplainer.ts";
 
 const demo = () => currentWriter() === null;
 const Series = z.string().regex(/^[a-z0-9-]{1,40}$/);
@@ -91,6 +93,15 @@ function findPiece(s: AdsState, id: string): Piece | undefined {
   return pieceLists(s)
     .flat()
     .find((p) => p.id === id);
+}
+
+// An explainer project of this series (its studio saves kind "motion" and the brief it was made with).
+async function explainerProject(seriesId: string, projectId: string | undefined): Promise<{ id: string; title: string }> {
+  const project = await getProject(z.string().regex(/^[a-z0-9-]{1,80}$/, "Ese proyecto no existe.").parse(projectId));
+  const st = project.state as { kind?: string; pieceBrief?: { series?: string }; motion?: { script?: { title?: string } | null } };
+  if (st.kind !== "motion") throw new AdsError("Ese proyecto no es un explicativo.");
+  if (st.pieceBrief?.series && st.pieceBrief.series !== seriesId) throw new AdsError("Ese explicativo es de otra serie: solo puede ir a la Publicidad de su serie.");
+  return { id: project.id, title: (st.motion?.script?.title ?? "").trim() };
 }
 
 export function adsRoutes(app: Hono) {
@@ -397,6 +408,55 @@ export function adsRoutes(app: Hono) {
       }
     });
     return c.json({ state });
+  });
+
+  // "Usar en Publicidad": the explainer's renders in its project folder (final render first) and its title.
+  app.get("/api/ads/:series/explainers/:project", async (c) => {
+    const id = series(c);
+    const project = await explainerProject(id, c.req.param("project"));
+    return c.json({ videos: explainerVideos(await listProjectFiles(project.id)), title: project.title });
+  });
+
+  // An explainer's render becomes the clip of a meat or a CTA (an approved one, or a new one made with its voice text),
+  // copied here from the project folder. The piece plays it from `start` for its own seconds (fitClip clamps the in
+  // point), and its cached render goes.
+  app.post("/api/ads/:series/pieces/from-explainer", async (c) => {
+    const id = series(c);
+    const body = z
+      .object({
+        project: z.string().max(80),
+        file: z.string().regex(EXPLAINER_VIDEO, "Ese video del explicativo no existe."),
+        duration: z.number().positive().max(3600),
+        start: z.number().min(0).max(3600).default(0),
+        pieceId: z.string().regex(/^[MC]\d{1,4}$/).optional(),
+        create: z.object({ kind: z.enum(EXPLAINER_KINDS), seconds: z.number().min(1).max(15), text: z.string().max(600) }).optional(),
+      })
+      .refine((b) => Boolean(b.pieceId) !== Boolean(b.create), "Elegí una pieza o creá una nueva.")
+      .parse(await c.req.json());
+    const project = await explainerProject(id, body.project);
+    const { data, type } = await readProjectFile(project.id, body.file);
+    const { state, result } = await updateAds(id, async (s) => {
+      let piece: Piece | undefined;
+      if (body.create) {
+        if (!body.create.text.trim()) throw new AdsError("La pieza nueva necesita texto: el explicativo no tiene voz en ese tramo. Escribilo a mano.");
+        piece = explainerPiece(s, body.create.kind, body.create.seconds, body.create.text, project.title);
+        if (piece.kind === "meat") s.meats.push(piece);
+        else if (piece.kind === "cta") s.ctas.push(piece);
+      } else {
+        piece = findPiece(s, body.pieceId!);
+        if (!piece || piece.kind === "hook") throw new AdsError("Esa pieza no existe.");
+      }
+      const fit = fitClip(body.duration, piece.seconds, body.start);
+      const file = await savePieceMedia(id, piece.id, "clip", data, type);
+      const m = (s.media[piece.id] ??= {});
+      m.clip = { file, name: body.file, duration: body.duration, from: fit.start, explainer: { project: project.id, file: body.file, title: project.title.slice(0, 200) } };
+      if (s.renders[piece.id]) {
+        await removePieceMedia(id, s.renders[piece.id]).catch(() => undefined);
+        delete s.renders[piece.id];
+      }
+      return { pieceId: piece.id, fit };
+    });
+    return c.json({ state, ...result });
   });
 
   // The cache: one render per piece.

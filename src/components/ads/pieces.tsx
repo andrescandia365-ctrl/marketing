@@ -136,6 +136,10 @@ type CardProps = {
   cached: "mp4" | "webm" | null;
   stats?: ReactNode;
   flags?: { kind: string; note: string; fix: string }[];
+  // The clip came from an explainer of this series ("Usar en Publicidad"): its title and in point.
+  explainer?: { title: string; from: number };
+  // "Hacelo como explicativo": a meat or CTA with no clip opens a new explainer with its text. Missing for hooks.
+  onMakeExplainer?: () => void;
 };
 
 export function PieceCard({
@@ -156,6 +160,8 @@ export function PieceCard({
   cached,
   stats,
   flags = [],
+  explainer,
+  onMakeExplainer,
 }: CardProps) {
   const voiceOver = media?.voice ? media.voice.duration + VOICE_START - piece.seconds : 0;
   const [open, setOpen] = useState(false);
@@ -253,6 +259,17 @@ export function PieceCard({
           Borrar
         </Button>
         {media?.clip && <Tag>clip {media.clip.duration.toFixed(1)} s</Tag>}
+        {explainer && (
+          <Tag title="El video trae sus palabras y subtítulos: no se dibuja nada encima">
+            explicativo{explainer.title ? ` «${explainer.title}»` : ""}
+            {explainer.from > 0 ? ` desde ${explainer.from.toFixed(1)} s` : ""}
+          </Tag>
+        )}
+        {onMakeExplainer && !media?.clip && piece.kind !== "hook" && (
+          <Button variant="ghost" className="px-2 py-1 text-xs" title="Abre un explicativo nuevo de esta serie con el texto de la pieza; después se usa acá con «Usar en Publicidad»" onClick={onMakeExplainer}>
+            Hacelo como explicativo
+          </Button>
+        )}
         {media?.image && !media.clip && <Tag>imagen</Tag>}
         {media?.voice ? (
           <Tag title={voiceOver > 0 ? "La voz no entra: se corta al final de la pieza" : "Voz"}>

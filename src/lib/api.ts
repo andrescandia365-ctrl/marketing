@@ -27,6 +27,7 @@ import type { Brand, CastMember, PuppetLayer, SeriesFields, SeriesType, TextStyl
 import type { RoomCard } from "../../shared/room.ts";
 import type { Reference } from "../../shared/reference.ts";
 import type { ScreenDevice } from "../../shared/screenBatch.ts";
+import type { ClipFit, ExplainerKind, ExplainerVideo } from "../../shared/adsFromExplainer.ts";
 import type { AdCombo, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 
 // Demucs on this computer (Modelos → Demucs).
@@ -137,6 +138,12 @@ export const ads = {
     ),
   removePieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice") =>
     call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/media/${kind}`, undefined, "DELETE"),
+  explainerVideos: (series: string, project: string) =>
+    call<{ videos: ExplainerVideo[]; title: string }>(`/api/ads/${enc(series)}/explainers/${enc(project)}`),
+  fromExplainer: (
+    series: string,
+    body: { project: string; file: string; duration: number; start: number; pieceId?: string; create?: { kind: ExplainerKind; seconds: number; text: string } },
+  ) => call<{ state: AdsState; pieceId: string; fit: ClipFit }>(`/api/ads/${enc(series)}/pieces/from-explainer`, body),
   dropRender: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, undefined, "DELETE"),
   uploadRender: (series: string, id: string, video: Blob) => upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, video, video.type),
   createBatch: (series: string, body: { seconds: number; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[] }) =>

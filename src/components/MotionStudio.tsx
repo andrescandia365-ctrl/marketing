@@ -84,6 +84,7 @@ import { Notice } from "./ui.tsx";
 import { MotionChecks } from "./MotionChecks.tsx";
 import { MotionSettings } from "./MotionSettings.tsx";
 import { MotionOutputs } from "./MotionOutputs.tsx";
+import { ExplainerToAds } from "./ExplainerToAds.tsx";
 import { MotionSceneList } from "./MotionSceneList.tsx";
 import { MotionScriptBar } from "./MotionScriptBar.tsx";
 import { MotionToggles } from "./MotionToggles.tsx";
@@ -1073,6 +1074,13 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               progress={progress}
               results={results}
               vertical={vertical}
+            />
+            <ExplainerToAds
+              series={series.id}
+              projectId={projectId}
+              format={piece.format}
+              spans={timeScenes(scenes).map((x) => ({ start: x.start, end: x.end, voice: x.voice }))}
+              version={`${finalJob?.done ? finalJob.id : ""}-${results.length}`}
             />
           </div>
         </div>

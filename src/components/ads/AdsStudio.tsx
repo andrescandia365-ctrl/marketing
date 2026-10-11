@@ -27,6 +27,7 @@ import type { ImageProviderInfo, SeriesInfo, ToolInfo } from "../../../shared/sc
 import { ads as adsApi, adsFileUrl, api } from "../../lib/api.ts";
 import { concatPieces, renderAdWhole, renderPiece, type PieceLook } from "../../lib/adsRender.ts";
 import { blobToDataUrl, readImageFile } from "../../lib/files.ts";
+import type { AdSeed, ExplainerKind } from "../../../shared/adsFromExplainer.ts";
 import { audioDuration } from "../Audio.tsx";
 import { Button, Lazy, Notice, Segmented, Spinner } from "../ui.tsx";
 import { BatchWizard, type Wizard } from "./BatchWizard.tsx";
@@ -59,6 +60,8 @@ type Props = {
   // Generated voices (OpenAI speech): whether the key is there, and the app's default voice.
   voice: { available: boolean; defaultVoice: string };
   onToPlaybook: (text: string) => void;
+  // "Hacelo como explicativo": a new explainer of this series prefilled with a meat's or CTA's text.
+  onToExplainer?: (seed: AdSeed) => void;
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -85,7 +88,7 @@ function loadSettings(): Settings {
   return { seconds: 15, levels: [], format: "vertical", tool: "", provider: "" };
 }
 
-export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPlaybook }: Props) {
+export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPlaybook, onToExplainer }: Props) {
   const [state, setState] = useState<AdsState | null>(null);
   const [ranking, setRanking] = useState<RankedHook[]>([]);
   const [transcription, setTranscription] = useState(false);
@@ -344,6 +347,12 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       onGenerateVoice={voice.available ? () => generateVoice(piece) : null}
       cached={cachedFormat(piece.id)}
       flags={flagsFor(piece.id)}
+      explainer={state?.media[piece.id]?.clip?.explainer ? { title: state.media[piece.id]!.clip!.explainer!.title, from: state.media[piece.id]!.clip!.from ?? 0 } : undefined}
+      onMakeExplainer={
+        onToExplainer && piece.kind !== "hook"
+          ? () => onToExplainer({ id: piece.id, kind: piece.kind as ExplainerKind, text: piece.text, onScreenText: piece.onScreenText, seconds: piece.seconds })
+          : undefined
+      }
       stats={
         piece.kind === "hook" ? (
           <Button variant="ghost" className="px-2 py-1 text-xs" title="Lleva este hook al brief de Playbook como momento/peg" onClick={() => onToPlaybook(piece.text)}>
@@ -409,7 +418,11 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
 
   // ── The run: pieces once (cached), then the ads cut from them ─────────────────
   const look = (): PieceLook => ({ format: settings.format, style: series.textStyle, disclosure: "Imágenes ilustrativas", fullFrame: true, headlines: true });
-  const shotMedia = (id: string) => ({ image: media[id]?.image, clip: media[id]?.clip?.blob, voice: media[id]?.voice?.blob });
+  // An explainer's clip plays from its in point and carries its own words (nothing drawn on top).
+  const shotMedia = (id: string) => {
+    const saved = state?.media[id]?.clip;
+    return { image: media[id]?.image, clip: media[id]?.clip?.blob, voice: media[id]?.voice?.blob, clipFrom: saved?.from ?? 0, finished: Boolean(saved?.explainer) };
+  };
 
   // A piece's render: this session's, the cached file, or a new render saved to the cache.
   async function ensureRender(piece: Piece, current: AdsState): Promise<{ blob: Blob; state: AdsState }> {
