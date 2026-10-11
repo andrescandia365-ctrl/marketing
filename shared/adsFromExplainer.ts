@@ -3,12 +3,17 @@
 // upload). The piece keeps its length budget (6/10/15 s ads, BUDGETS): a longer explainer is used from an in point
 // for the piece's seconds, a shorter one holds its last frame. And the way back: a meat or CTA with no clip can start
 // a new explainer prefilled with its text ("Hacelo como explicativo"), usable with no AI key.
-import { BUDGETS, LEVELS, isAdSeconds, nextId, type AdsState, type Cta, type Meat } from "./ads.ts";
+import { BUDGETS, LEVELS, isAdSeconds, nextId, type AdsState, type Cta, type Hook, type Meat } from "./ads.ts";
+import { MASCOT_ASSET } from "./mascot.ts";
 import { blankScene, newMotionPiece, type MotionPiece, type MotionScene, type MotionScript, type MotionTone } from "./motion.ts";
 
 export const EXPLAINER_KINDS = ["meat", "cta"] as const;
 export type ExplainerKind = (typeof EXPLAINER_KINDS)[number];
-export const EXPLAINER_KIND_LABEL: Record<ExplainerKind, string> = { meat: "cuerpo (meat)", cta: "llamado (CTA)" };
+// "Uno nuevo" can be a meat or a CTA; an explainer can also go into an approved hook already there ("Que lo diga la
+// mascota" starts from hooks too), so the targets are the three kinds.
+export const TARGET_KINDS = ["hook", "meat", "cta"] as const;
+export type TargetKind = (typeof TARGET_KINDS)[number];
+export const EXPLAINER_KIND_LABEL: Record<TargetKind, string> = { hook: "gancho (hook)", meat: "cuerpo (meat)", cta: "llamado (CTA)" };
 
 // ── The explainer's videos in its project folder ────────────────────────────────────────
 // render.mjs writes video-final-<format>.mp4; the in-browser render is video-<format>.mp4 (or .webm).
@@ -33,11 +38,11 @@ export function pickExplainerVideo(videos: ExplainerVideo[], format: "vertical" 
 }
 
 // ── Which piece it goes into ───────────────────────────────────────────────────────────
-export type ExplainerTarget = { piece: Meat | Cta; hasClip: boolean; fromExplainer: boolean };
+export type ExplainerTarget = { piece: Hook | Meat | Cta; hasClip: boolean; fromExplainer: boolean };
 
-// The series' approved meats or CTAs; the ones still without a clip first (they are the ones waiting for one).
-export function explainerTargets(state: AdsState, kind: ExplainerKind): ExplainerTarget[] {
-  const list: (Meat | Cta)[] = kind === "meat" ? state.meats : state.ctas;
+// The series' approved pieces of that kind; the ones still without a clip first (they are the ones waiting for one).
+export function explainerTargets(state: AdsState, kind: TargetKind): ExplainerTarget[] {
+  const list: (Hook | Meat | Cta)[] = kind === "hook" ? state.hooks : kind === "meat" ? state.meats : state.ctas;
   return list
     .filter((p) => p.status === "approved")
     .map((piece) => {
@@ -48,7 +53,7 @@ export function explainerTargets(state: AdsState, kind: ExplainerKind): Explaine
 }
 
 // A new piece's seconds: its share of an ad of that length.
-export const pieceSecondsFor = (kind: ExplainerKind, adSeconds: number): number => BUDGETS[isAdSeconds(adSeconds) ? adSeconds : 15][kind];
+export const pieceSecondsFor = (kind: TargetKind, adSeconds: number): number => BUDGETS[isAdSeconds(adSeconds) ? adSeconds : 15][kind];
 
 // ── The length budget ─────────────────────────────────────────────────────────────────
 export type ClipFit = {
@@ -128,11 +133,13 @@ export function explainerPiece(state: AdsState, kind: ExplainerKind, seconds: nu
 }
 
 // ── The way back: "Hacelo como explicativo" ────────────────────────────────────────────────
-export type AdSeed = { id: string; kind: ExplainerKind; text: string; onScreenText: string; seconds: number };
+// presenter "mascot" ("Que lo diga la mascota"): the series' code mascot says the piece's line (character scenes).
+export type AdSeed = { id: string; kind: TargetKind; text: string; onScreenText: string; seconds: number; presenter?: "mascot"; emotion?: string };
 
 // What goes into the brief's notes, so the writer (when there is one) builds the explainer on the piece's words.
 export function seedNotes(seed: AdSeed): string {
-  return `Desde Publicidad (${seed.id}, ${EXPLAINER_KIND_LABEL[seed.kind]}, ${secs(seed.seconds)} en el anuncio): «${seed.text.trim()}»`;
+  const who = seed.presenter === "mascot" ? " Lo dice la mascota de la serie en cámara (escenas de personaje con la mascota en código)." : "";
+  return `Desde Publicidad (${seed.id}, ${EXPLAINER_KIND_LABEL[seed.kind]}, ${secs(seed.seconds)} en el anuncio): «${seed.text.trim()}»${who}`;
 }
 
 // The piece's text split in sentences (a sentence that is only punctuation is dropped).
@@ -160,6 +167,7 @@ export const sceneSecondsFor = (line: string) => Math.round(Math.min(8, Math.max
 // The starting script with no AI key: one kinetic-title scene per sentence, its line as the voice; a CTA closes on the
 // logo with its call. A starting point to change in the studio (templates, real screens), never a finished piece.
 export function starterScript(seed: AdSeed, tone?: MotionTone): MotionScript {
+  if (seed.presenter === "mascot") return mascotScript(seed, tone);
   const lines = sentencesOf(seed.text);
   const scenes: MotionScene[] = lines.map((line, i) => ({ ...blankScene("hook"), title: titleOf(i === 0 && seed.onScreenText.trim() ? seed.onScreenText : line), voice: line, seconds: sceneSecondsFor(line) }));
   if (seed.kind === "cta") {
@@ -175,6 +183,40 @@ export function starterScript(seed: AdSeed, tone?: MotionTone): MotionScript {
     scenes,
     music: { mood: "drive", bpm: 110 },
     note: `Guion de partida armado con el texto de ${seed.id}: cambiá las plantillas y sumá pantallas reales o el producto.`,
+    caption: "",
+    ...(tone && { tone }),
+  };
+}
+
+// "Que lo diga la mascota": one character scene per sentence, the series' code mascot (MASCOT_ASSET) saying it with
+// the narrator voice (generated, recorded or uploaded in the studio), its mouth by the voice and its face by the
+// emotion. The hook opens surprised, the CTA closes cheering, the rest presents. Same length rule as the starter.
+export const MASCOT_GESTURE: Record<TargetKind, { first: MotionScene["gesture"]; rest: MotionScene["gesture"]; last: MotionScene["gesture"] }> = {
+  hook: { first: "surprise", rest: "present", last: "present" },
+  meat: { first: "present", rest: "point", last: "present" },
+  cta: { first: "present", rest: "present", last: "cheer" },
+};
+export function mascotScript(seed: AdSeed, tone?: MotionTone): MotionScript {
+  const lines = sentencesOf(seed.text);
+  const g = MASCOT_GESTURE[seed.kind];
+  const scenes: MotionScene[] = lines.map((line, i) => ({
+    ...blankScene("character"),
+    asset: MASCOT_ASSET,
+    title: titleOf(i === 0 && seed.onScreenText.trim() ? seed.onScreenText : line),
+    voice: line,
+    emotion: (seed.emotion ?? "").trim(),
+    gesture: i === lines.length - 1 && i > 0 ? g.last : i === 0 ? g.first : g.rest,
+    seconds: sceneSecondsFor(line),
+  }));
+  if (!scenes.length) scenes.push({ ...blankScene("character"), asset: MASCOT_ASSET });
+  const what = EXPLAINER_KIND_LABEL[seed.kind].replace(/ \(.*\)$/, "");
+  return {
+    problem: "",
+    title: `${what.charAt(0).toUpperCase()}${what.slice(1)} ${seed.id} dicho por la mascota`,
+    durationNote: `Arranca del texto de ${seed.id}: en el anuncio dura ${secs(seed.seconds)}.`,
+    scenes,
+    music: { mood: "drive", bpm: 110 },
+    note: `La mascota dice el texto de ${seed.id}. Poné la voz del narrador en cada escena (generada, grabada o subida), generá el video y volvé con «Usar en Publicidad».`,
     caption: "",
     ...(tone && { tone }),
   };

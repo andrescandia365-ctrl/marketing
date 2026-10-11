@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import type { ToolInfo } from "../shared/schema.ts";
 import { referenceCap, toolsRefCap } from "../shared/castRefs.ts";
 import { watermarkKeepOut } from "../shared/stillLayout.ts";
+import { lipSyncNote } from "../shared/adsSpeaker.ts";
 
 const DIR = new URL("./tools/", import.meta.url);
 
@@ -22,6 +23,7 @@ function load(): Tool[] {
         checked: text.match(/^Last checked:\s*(.+)$/m)?.[1].trim() ?? "",
         maxRefs: referenceCap(text),
         watermark: watermarkKeepOut(text),
+        lipSync: lipSyncNote(text),
         text,
       };
     });
@@ -31,7 +33,7 @@ function load(): Tool[] {
 const TOOLS = load();
 
 export function listTools(): ToolInfo[] {
-  return TOOLS.map(({ id, name, checked, maxRefs, watermark }) => ({ id, name, checked, maxRefs, watermark }));
+  return TOOLS.map(({ id, name, checked, maxRefs, watermark, lipSync }) => ({ id, name, checked, maxRefs, watermark, lipSync }));
 }
 
 // The strictest cap on reference images among the tools whose profile names one (Grok: 14), or null. A cast member

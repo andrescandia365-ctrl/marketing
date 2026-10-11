@@ -10,7 +10,7 @@ import {
   pickExplainerVideo,
   pieceSecondsFor,
   voiceInRange,
-  type ExplainerKind,
+  type TargetKind,
   type ExplainerVideo,
   type VoicedSpan,
 } from "../../shared/adsFromExplainer.ts";
@@ -38,7 +38,7 @@ export function ExplainerToAds({ series, projectId, format, spans, version }: Pr
   const [videos, setVideos] = useState<ExplainerVideo[] | null>(null);
   const [file, setFile] = useState("");
   const [duration, setDuration] = useState(0);
-  const [kind, setKind] = useState<ExplainerKind>("meat");
+  const [kind, setKind] = useState<TargetKind>("meat");
   const [target, setTarget] = useState<string>("new");
   const [adSeconds, setAdSeconds] = useState<AdSeconds>(15);
   const [start, setStart] = useState(0);
@@ -90,7 +90,7 @@ export function ExplainerToAds({ series, projectId, format, spans, version }: Pr
         file,
         duration,
         start: fit.start,
-        ...(chosen ? { pieceId: chosen.id } : { create: { kind, seconds: pieceSeconds, text } }),
+        ...(chosen ? { pieceId: chosen.id } : { create: { kind: kind === "hook" ? "meat" : kind, seconds: pieceSeconds, text } }),
       });
       setState(r.state);
       setTarget(r.pieceId);
@@ -123,7 +123,7 @@ export function ExplainerToAds({ series, projectId, format, spans, version }: Pr
           {open ? "Cerrar «Usar en Publicidad»" : "Usar en Publicidad"}
         </Button>
       </div>
-      {!open && <p className="text-xs text-muted">Pasa el video guardado a un cuerpo (meat) o un llamado (CTA) de esta serie, sin descargarlo ni subirlo.</p>}
+      {!open && <p className="text-xs text-muted">Pasa el video guardado a un gancho, un cuerpo (meat) o un llamado (CTA) de esta serie, sin descargarlo ni subirlo.</p>}
       {open && (
         <>
           {error && <Notice tone="error">{error}</Notice>}
@@ -162,10 +162,11 @@ export function ExplainerToAds({ series, projectId, format, spans, version }: Pr
                   className={`mx-auto w-full rounded-lg bg-black ${file.includes("vertical") ? "max-h-[40vh] w-auto" : ""}`}
                 />
               )}
-              <Segmented<ExplainerKind>
+              <Segmented<TargetKind>
                 value={kind}
                 onChange={(k) => (setKind(k), setTarget("new"))}
                 options={[
+                  { value: "hook", label: "Como gancho (hook)" },
                   { value: "meat", label: "Como cuerpo (meat)" },
                   { value: "cta", label: "Como llamado (CTA)" },
                 ]}
@@ -181,21 +182,28 @@ export function ExplainerToAds({ series, projectId, format, spans, version }: Pr
                     </span>
                   </label>
                 ))}
-                {!targets.length && <p className="text-xs text-muted">No hay {EXPLAINER_KIND_LABEL[kind]} aprobados en Publicidad. Podés crear uno nuevo con este video.</p>}
-                <label className="flex items-center gap-2 text-xs">
-                  <input type="radio" name="explainer-target" checked={target === "new"} onChange={() => setTarget("new")} />
-                  <span>
-                    <b>Uno nuevo</b> para anuncios de{" "}
-                    <select className="rounded border border-line bg-white px-1 py-0.5" value={adSeconds} onChange={(e) => setAdSeconds(Number(e.target.value) as AdSeconds)} disabled={target !== "new"}>
-                      {AD_SECONDS.map((n) => (
-                        <option key={n} value={n}>
-                          {n} s
-                        </option>
-                      ))}
-                    </select>{" "}
-                    ({s1(pieceSecondsFor(kind, adSeconds))} de {EXPLAINER_KIND_LABEL[kind]})
-                  </span>
-                </label>
+                {!targets.length && (
+                  <p className="text-xs text-muted">
+                    No hay {EXPLAINER_KIND_LABEL[kind]} aprobados en Publicidad.
+                    {kind === "hook" ? " Un gancho nuevo se escribe en Publicidad: aprobalo y volvé acá." : " Podés crear uno nuevo con este video."}
+                  </p>
+                )}
+                {kind !== "hook" && (
+                  <label className="flex items-center gap-2 text-xs">
+                    <input type="radio" name="explainer-target" checked={target === "new"} onChange={() => setTarget("new")} />
+                    <span>
+                      <b>Uno nuevo</b> para anuncios de{" "}
+                      <select className="rounded border border-line bg-white px-1 py-0.5" value={adSeconds} onChange={(e) => setAdSeconds(Number(e.target.value) as AdSeconds)} disabled={target !== "new"}>
+                        {AD_SECONDS.map((n) => (
+                          <option key={n} value={n}>
+                            {n} s
+                          </option>
+                        ))}
+                      </select>{" "}
+                      ({s1(pieceSecondsFor(kind, adSeconds))} de {EXPLAINER_KIND_LABEL[kind]})
+                    </span>
+                  </label>
+                )}
               </div>
               {fit && fit.fit === "cut" && (
                 <label className="block text-xs">
@@ -220,7 +228,7 @@ export function ExplainerToAds({ series, projectId, format, spans, version }: Pr
                   Ver el tramo
                 </Button>
               )}
-              {target === "new" && fit && (
+              {target === "new" && kind !== "hook" && fit && (
                 <label className="block text-xs">
                   <span className="font-semibold">Texto de la pieza</span> <span className="text-muted">(lo que dice la voz en ese tramo; se puede cambiar)</span>
                   <textarea
@@ -233,8 +241,8 @@ export function ExplainerToAds({ series, projectId, format, spans, version }: Pr
                   />
                 </label>
               )}
-              <Button className="w-full" onClick={use} disabled={busy || !fit || !file || (target === "new" && !text.trim())}>
-                {busy ? <Spinner /> : chosen ? `Usar en ${chosen.id}` : `Crear ${kind === "meat" ? "el meat" : "el CTA"} con este video`}
+              <Button className="w-full" onClick={use} disabled={busy || !fit || !file || (target === "new" && (kind === "hook" || !text.trim()))}>
+                {busy ? <Spinner /> : chosen ? `Usar en ${chosen.id}` : kind === "hook" ? "Elegí un gancho" : `Crear ${kind === "meat" ? "el meat" : "el CTA"} con este video`}
               </Button>
               {!duration && file && <p className="text-xs text-muted">Leyendo cuánto dura el video…</p>}
               <p className="text-xs text-muted">El video ya trae sus palabras, subtítulos y aviso: en el anuncio no se dibuja nada encima. Su sonido (voz y música) va tal cual.</p>

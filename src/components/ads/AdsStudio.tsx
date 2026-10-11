@@ -25,7 +25,7 @@ import {
 } from "../../../shared/ads.ts";
 import type { ImageProviderInfo, SeriesInfo, ToolInfo } from "../../../shared/schema.ts";
 import { ads as adsApi, adsFileUrl, api } from "../../lib/api.ts";
-import { concatPieces, renderAdWhole, renderPiece, type PieceLook } from "../../lib/adsRender.ts";
+import { concatPieces, renderAdWhole, renderPiece, type PieceLook, type PieceMedia } from "../../lib/adsRender.ts";
 import { blobToDataUrl, readImageFile } from "../../lib/files.ts";
 import type { AdSeed, ExplainerKind } from "../../../shared/adsFromExplainer.ts";
 import { audioDuration } from "../Audio.tsx";
@@ -37,6 +37,8 @@ import { OfferForm } from "./OfferForm.tsx";
 import { PiecesPanel } from "./PiecesPanel.tsx";
 import { PieceCard, type PieceMediaState } from "./pieces.tsx";
 import { SourcesPanel } from "./SourcesPanel.tsx";
+import { SpeakerBatch } from "./SpeakerBatch.tsx";
+import { SpeakerPanel } from "./SpeakerPanel.tsx";
 
 // "Estáticos de la tanda" downloads only when opened (it brings the still renderer).
 const StaticsPanel = lazy(() => import("./StaticsPanel.tsx").then((m) => ({ default: m.StaticsPanel })));
@@ -65,6 +67,7 @@ type Props = {
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const findPieceIn = (state: AdsState | null, id: string): Piece | undefined => (state ? [...state.hooks, ...state.meats, ...state.ctas].find((p) => p.id === id) : undefined);
 
 function clipDuration(url: string): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -353,6 +356,26 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           ? () => onToExplainer({ id: piece.id, kind: piece.kind as ExplainerKind, text: piece.text, onScreenText: piece.onScreenText, seconds: piece.seconds })
           : undefined
       }
+      speakerPanel={
+        <SpeakerPanel
+          key={`${piece.id}-${piece.speaker?.castId ?? ""}`}
+          piece={piece}
+          series={series}
+          tool={tools.find((t) => t.id === toolId)}
+          format={settings.format}
+          hasClip={Boolean(media[piece.id]?.clip)}
+          hasVoice={Boolean(media[piece.id]?.voice)}
+          onSave={async (speaker) => {
+            const r = await act("patch", () => adsApi.patchPiece(series.id, piece.id, { speaker }));
+            if (r) renders.current.delete(piece.id);
+          }}
+          onMascot={
+            onToExplainer && series.mascot
+              ? (emotion) => onToExplainer({ id: piece.id, kind: piece.kind, text: piece.text, onScreenText: piece.onScreenText, seconds: piece.seconds, presenter: "mascot", emotion })
+              : undefined
+          }
+        />
+      }
       stats={
         piece.kind === "hook" ? (
           <Button variant="ghost" className="px-2 py-1 text-xs" title="Lleva este hook al brief de Playbook como momento/peg" onClick={() => onToPlaybook(piece.text)}>
@@ -419,9 +442,19 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   // ── The run: pieces once (cached), then the ads cut from them ─────────────────
   const look = (): PieceLook => ({ format: settings.format, style: series.textStyle, disclosure: "Imágenes ilustrativas", fullFrame: true, headlines: true });
   // An explainer's clip plays from its in point and carries its own words (nothing drawn on top).
-  const shotMedia = (id: string) => {
+  // A character's clip ("Que lo diga un personaje") plays from the speaker's in point, muted when the piece's own voice
+  // says the line instead.
+  const shotMedia = (id: string): PieceMedia => {
     const saved = state?.media[id]?.clip;
-    return { image: media[id]?.image, clip: media[id]?.clip?.blob, voice: media[id]?.voice?.blob, clipFrom: saved?.from ?? 0, finished: Boolean(saved?.explainer) };
+    const speaker = findPieceIn(state, id)?.speaker;
+    return {
+      image: media[id]?.image,
+      clip: media[id]?.clip?.blob,
+      voice: media[id]?.voice?.blob,
+      clipFrom: saved?.from ?? speaker?.from ?? 0,
+      finished: Boolean(saved?.explainer),
+      ...(speaker && !saved?.explainer && { clipGain: speaker.sound === "voice" ? 0 : 1 }),
+    };
   };
 
   // A piece's render: this session's, the cached file, or a new render saved to the cache.
@@ -715,6 +748,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           }}
           onStatus={setStatus}
           renderCard={(h: Hook) => renderCard(h)}
+          extra={<SpeakerBatch pieces={state.hooks} series={series} format={settings.format} label="hooks" />}
         />
       )}
       {tab === "meats" && (
@@ -732,6 +766,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
             await generateMeats(count, formats);
           }}
           renderCard={(m) => renderCard(m)}
+          extra={<SpeakerBatch pieces={state.meats} series={series} format={settings.format} label="meats" />}
         />
       )}
       {tab === "ctas" && (
@@ -749,6 +784,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
             await generateCtas(count);
           }}
           renderCard={(c) => renderCard(c)}
+          extra={<SpeakerBatch pieces={state.ctas} series={series} format={settings.format} label="ctas" />}
         />
       )}
       {tab === "combine" && (

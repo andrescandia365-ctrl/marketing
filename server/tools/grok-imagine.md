@@ -17,6 +17,7 @@ Tags: **[DOCS]** in xAI's docs · **[NOT SURE]** not confirmed, don't rely on it
 - [DOCS] Video resolution 480p, 720p or 1080p (1080p for text-to-video and image-to-video on Video 1.5).
 - [DOCS] Sound is generated with the clip by default: ambience, effects and speech.
 - [TESTED] Sound on or off is a control the person sets in Grok for each clip.
+- [NOT SURE] Lip sync: whether a character called by its @reference says a quoted line with the mouth matching the words (Publicidad's "Que lo diga un personaje"). Watch each clip; when the lips drift, mute the clip and play the generated or uploaded voice instead.
 - [NOT SURE] Whether "no music, no speech" in the prompt is always obeyed.
 - [DOCS] Extend continues a clip from its last frame, adding 2 to 10 seconds, capped at 720p.
 - [DOCS] Reference images keep a person or place the same across clips.
@@ -61,3 +62,4 @@ Video: "He slowly lifts the metal shutter a short way; the slats clack and catch
 3. Lengths: done: 6, 10 or 15 s.
 4. Continuous take: a 15 s director's prompt with a hero still as the initial frame, two @ref sheets and three timed lines. Do the beats land near their times, and do the faces hold?
 5. Sheets: does Grok draw a 16:9 character sheet with the same face in every panel? Does attaching it as a reference keep the face?
+6. Lip sync: a 6 s clip from a character's @reference saying one quoted Spanish line. Do the lips match the words, and does it say the line once, as written?

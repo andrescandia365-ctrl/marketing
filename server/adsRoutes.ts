@@ -8,6 +8,7 @@ import {
   CombineRulesSchema,
   LEVEL_INFO,
   MEAT_FORMATS,
+  PieceSpeakerSchema,
   OfferSchema,
   PIECE_STATUS,
   clipFromWire,
@@ -299,6 +300,8 @@ export function adsRoutes(app: Hono) {
         level: z.number().int().min(1).max(5).optional(),
         levels: z.array(z.number().int().min(1).max(5)).min(1).max(5).optional(),
         format: z.enum(MEAT_FORMATS).optional(),
+        // "Que lo diga un personaje": null takes it away.
+        speaker: PieceSpeakerSchema.nullable().optional(),
       })
       .parse(await c.req.json());
     const { state } = await updateAds(id, async (s) => {
@@ -317,6 +320,12 @@ export function adsRoutes(app: Hono) {
       if (piece.kind === "hook" && patch.level) piece.level = toLevel(patch.level);
       if (piece.kind !== "hook" && patch.levels) piece.levels = toLevels(patch.levels, piece.levels);
       if (piece.kind === "meat" && patch.format) piece.format = patch.format;
+      // Who says it changes the render (the corner notice, the clip's sound and in point).
+      if (patch.speaker !== undefined && JSON.stringify(patch.speaker ?? null) !== JSON.stringify(piece.speaker ?? null)) {
+        if (patch.speaker) piece.speaker = patch.speaker;
+        else delete piece.speaker;
+        changed = true;
+      }
       if (changed && s.renders[pieceId]) {
         await removePieceMedia(id, s.renders[pieceId]).catch(() => undefined);
         delete s.renders[pieceId];
@@ -428,7 +437,7 @@ export function adsRoutes(app: Hono) {
         file: z.string().regex(EXPLAINER_VIDEO, "Ese video del explicativo no existe."),
         duration: z.number().positive().max(3600),
         start: z.number().min(0).max(3600).default(0),
-        pieceId: z.string().regex(/^[MC]\d{1,4}$/).optional(),
+        pieceId: z.string().regex(/^[HMC]\d{1,4}$/).optional(),
         create: z.object({ kind: z.enum(EXPLAINER_KINDS), seconds: z.number().min(1).max(15), text: z.string().max(600) }).optional(),
       })
       .refine((b) => Boolean(b.pieceId) !== Boolean(b.create), "Elegí una pieza o creá una nueva.")
@@ -444,7 +453,7 @@ export function adsRoutes(app: Hono) {
         else if (piece.kind === "cta") s.ctas.push(piece);
       } else {
         piece = findPiece(s, body.pieceId!);
-        if (!piece || piece.kind === "hook") throw new AdsError("Esa pieza no existe.");
+        if (!piece) throw new AdsError("Esa pieza no existe.");
       }
       const fit = fitClip(body.duration, piece.seconds, body.start);
       const file = await savePieceMedia(id, piece.id, "clip", data, type);

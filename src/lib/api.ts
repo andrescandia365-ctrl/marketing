@@ -29,7 +29,7 @@ import type { RoomCard } from "../../shared/room.ts";
 import type { Reference } from "../../shared/reference.ts";
 import type { ScreenDevice } from "../../shared/screenBatch.ts";
 import type { ClipFit, ExplainerKind, ExplainerVideo } from "../../shared/adsFromExplainer.ts";
-import type { AdCombo, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
+import type { AdCombo, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceSpeaker, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 
 // Demucs on this computer (Modelos → Demucs).
 export type DemucsStatus = { ready: boolean; command: string; model: string; songs: number; envBin: boolean };
@@ -98,6 +98,7 @@ type PiecePatch = Partial<Pick<Hook, "status" | "text" | "onScreenText" | "visua
   level?: number;
   levels?: number[];
   format?: MeatFormat;
+  speaker?: PieceSpeaker | null;
 };
 
 // Publicidad (Método 50-5-3).

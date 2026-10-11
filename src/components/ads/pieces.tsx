@@ -140,6 +140,8 @@ type CardProps = {
   explainer?: { title: string; from: number };
   // "Hacelo como explicativo": a meat or CTA with no clip opens a new explainer with its text. Missing for hooks.
   onMakeExplainer?: () => void;
+  // "Que lo diga un personaje" (SpeakerPanel), shown under the clip buttons in Producción.
+  speakerPanel?: ReactNode;
 };
 
 export function PieceCard({
@@ -162,6 +164,7 @@ export function PieceCard({
   flags = [],
   explainer,
   onMakeExplainer,
+  speakerPanel,
 }: CardProps) {
   const voiceOver = media?.voice ? media.voice.duration + VOICE_START - piece.seconds : 0;
   const [open, setOpen] = useState(false);
@@ -271,6 +274,7 @@ export function PieceCard({
           </Button>
         )}
         {media?.image && !media.clip && <Tag>imagen</Tag>}
+        {piece.speaker && <Tag title="Que lo diga un personaje">lo dice un personaje</Tag>}
         {media?.voice ? (
           <Tag title={voiceOver > 0 ? "La voz no entra: se corta al final de la pieza" : "Voz"}>
             <span className={voiceOver > 0 ? "text-neg" : ""}>voz {media.voice.duration.toFixed(1)} s</span>
@@ -322,6 +326,7 @@ export function PieceCard({
                 </Button>
               )}
             </div>
+            {speakerPanel}
             <div className="space-y-1.5 border-t border-line pt-2">
               <p className="font-semibold text-ink">Voz</p>
               {media?.voice && <audio src={media.voice.url} controls className="h-8 w-full" />}

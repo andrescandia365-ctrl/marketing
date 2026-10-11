@@ -173,6 +173,31 @@ export type PieceSource = (typeof PIECE_SOURCES)[number];
 const levelField = z.number().int().min(1).max(5);
 const levelsField = z.array(levelField).min(1).max(5);
 
+// Whose voice the piece plays: the clip's own (Grok says the line) or the piece's voice file (generated or uploaded)
+// with the clip muted, for when the lips do not match. "Que lo diga un personaje" (shared/adsSpeaker.ts).
+export const SPEAKER_SOUNDS = ["clip", "voice"] as const;
+export type SpeakerSound = (typeof SPEAKER_SOUNDS)[number];
+export const SPEAKER_SOUND_LABEL: Record<SpeakerSound, string> = {
+  clip: "La voz del clip (la dice Grok)",
+  voice: "Clip mudo y la voz de la pieza (generada o subida)",
+};
+
+export const PieceSpeakerSchema = z.object({
+  castId: z.string().regex(/^[a-z0-9-]{1,40}$/, "Id de personaje no válido."),
+  // How the line is said, in the person's words (Spanish, like a story line's emotion).
+  emotion: z.string().trim().max(120).default(""),
+  // The one thing the character does while saying it (English, the prompt's language).
+  action: z.string().trim().max(200).default(""),
+  // Where it is said (English). Empty: the series type's default place.
+  place: z.string().trim().max(300).default(""),
+  // The name of a voice in Grok's Audio panel (optional).
+  voice: z.string().trim().max(60).default(""),
+  sound: z.enum(SPEAKER_SOUNDS).default("clip"),
+  // Where the piece starts playing the uploaded clip (the character often takes a moment before the first word).
+  from: z.number().min(0).max(14).default(0),
+});
+export type PieceSpeaker = z.infer<typeof PieceSpeakerSchema>;
+
 const PieceBase = z.object({
   id: z.string().regex(/^[HMC]\d{1,4}$/),
   text: z.string().max(600),
@@ -185,6 +210,8 @@ const PieceBase = z.object({
   source: z.enum(PIECE_SOURCES),
   createdAt: z.string(),
   note: z.string().max(600).default(""),
+  // "Que lo diga un personaje" (shared/adsSpeaker.ts): the cast character who says the line on camera. Missing: none.
+  speaker: PieceSpeakerSchema.optional(),
 });
 
 export const HookSchema = PieceBase.extend({

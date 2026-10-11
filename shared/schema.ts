@@ -494,7 +494,15 @@ export function migrateBoard(board: Board): Board {
 // ── Server status ───────────────────────────────────────────────────────────────
 // maxRefs: how many reference images the tool takes at once, from its profile (null: the profile names no cap).
 // watermark: where the tool's mark sits on its pictures ("Watermark keep-out:" in its profile), null when it names none.
-export type ToolInfo = { id: string; name: string; checked: string; maxRefs?: number | null; watermark?: KeepOut | null };
+// lipSync: the profile's "Lip sync:" line and its tag (shared/adsSpeaker.ts lipSyncNote), null when it says nothing.
+export type ToolInfo = {
+  id: string;
+  name: string;
+  checked: string;
+  maxRefs?: number | null;
+  watermark?: KeepOut | null;
+  lipSync?: { tag: "DOCS" | "NOT SURE" | "TESTED"; text: string } | null;
+};
 // productPerEpisode: every episode features a different product (Máshogar), so the brief must name it.
 export type SeriesInfo = {
   id: string;
