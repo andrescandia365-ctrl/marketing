@@ -15,6 +15,7 @@ export const EXAMPLE_BRIEF: Brief = {
   takes: "lines",
   piece: "story",
   narrator: "with",
+  segment: "desk",
 };
 
 export const EMPTY_BRIEF: Brief = {
@@ -31,4 +32,5 @@ export const EMPTY_BRIEF: Brief = {
   takes: "lines",
   piece: "story",
   narrator: "with",
+  segment: "desk",
 };

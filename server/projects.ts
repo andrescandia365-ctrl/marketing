@@ -3,7 +3,7 @@
 // can open, copy or back up the folder like any other; the app autosaves into it.
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { SKETCH_BASE } from "../shared/prompt.ts";
+import { APP_SKETCH, SKETCH_BASE, appSketchFile } from "../shared/prompt.ts";
 import { storyCard, type RoomCard } from "../shared/room.ts";
 
 export const PROJECTS_DIR = resolve(process.env.PROJECTS_DIR || "proyectos");
@@ -59,6 +59,7 @@ const TYPES: Record<string, string> = {
   weba: "audio/webm",
   md: "text/markdown; charset=utf-8",
   json: "application/json",
+  srt: "application/x-subrip; charset=utf-8",
 };
 
 const AUDIO_TYPES: Record<string, string> = {
@@ -262,6 +263,32 @@ export function saveMedia(
   });
 }
 
+// The app's pencil sketch of one shot, as a PNG the browser drew (so pieza.md can link it). Not a media slot: the
+// board's sketch view draws it live, this file is only for the Markdown and the folder.
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+export async function saveAppSketch(id: string, index: number, data: Buffer) {
+  if (!Number.isInteger(index) || index < 0 || index > 98) throw new ProjectError("Toma no válida.");
+  if (data.length < PNG.length || !data.subarray(0, PNG.length).equals(PNG)) throw new ProjectError("Ese boceto no es un PNG.");
+  if (data.length > 8 * 1024 * 1024) throw new ProjectError("El boceto es demasiado grande.");
+  const file = appSketchFile(index);
+  return locked(id, async () => {
+    await read(id);
+    await writeFile(join(folder(id), file), data);
+    return file;
+  });
+}
+
+// Removes the app's sketches of shots the board no longer has (count = how many shots it has now).
+export function pruneAppSketches(id: string, count: number) {
+  return locked(id, async () => {
+    await read(id);
+    const names = await readdir(folder(id));
+    const gone = names.filter((name) => Number(APP_SKETCH.exec(name)?.[1] ?? 0) > count);
+    await Promise.all(gone.map((name) => rm(join(folder(id), name), { force: true })));
+    return gone;
+  });
+}
+
 export function removeMedia(id: string, index: number, kind: MediaKind) {
   return locked(id, async () => {
     const project = await read(id);
@@ -296,6 +323,21 @@ export function saveVideo(id: string, data: Buffer, type: string, variant?: "ver
     else project.video = file;
     project.updatedAt = new Date().toISOString();
     await write(project);
+    return file;
+  });
+}
+
+// An explainer's subtitles (.srt) next to the video the browser rendered, with its base name (video-vertical.srt).
+// Empty text removes the file: a video with no voice has no subtitles.
+export function saveSubtitles(id: string, video: string, text: string) {
+  const m = /^(video(?:-vertical|-horizontal)?)\.(?:mp4|webm|mov)$/.exec(video);
+  if (!m) throw new ProjectError("Ese video no existe.");
+  if (text.length > 1_000_000) throw new ProjectError("Los subtítulos son demasiado largos.");
+  const file = `${m[1]}.srt`;
+  return locked(id, async () => {
+    await read(id);
+    if (text.trim()) await writeFile(join(folder(id), file), text);
+    else await rm(join(folder(id), file), { force: true });
     return file;
   });
 }

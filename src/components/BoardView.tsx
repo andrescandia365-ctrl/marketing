@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { actionWords, runnerLandings, type Problem } from "../../shared/checks.ts";
 import { sketchPrompt } from "../../shared/prompt.ts";
-import type { Board, Brief, Setup, Story } from "../../shared/schema.ts";
+import type { Board, Brief, Story } from "../../shared/schema.ts";
 import type { TextStyle } from "../../shared/series.ts";
 import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 import { drawShot, loadImage, type Speaker } from "../lib/render.ts";
-import type { SketchSetup } from "../lib/sketch.ts";
+import { sketchSetups, type SketchSetup } from "../lib/sketch.ts";
 import { copyText } from "../lib/files.ts";
 import { ChecksPanel } from "./Checks.tsx";
 import { Button, PieceTitle, ROLE_TEXT, Segmented, Spinner, inputClass } from "./ui.tsx";
@@ -41,22 +41,6 @@ type Look = {
   sketches: Record<number, string | undefined>;
   castKinds: Record<string, string>;
 };
-
-// What a shot's setups are, for its sketch: the cast says it; a new setup that sounds like a place is drawn as one.
-function sketchSetups(shot: TimedShot, setups: Record<string, Setup>, castKinds: Record<string, string>): SketchSetup[] {
-  const list: SketchSetup[] = shot.setups.flatMap((id) => {
-    const s = setups[id];
-    if (!s) return [];
-    const known = s.castId ? castKinds[s.castId] : undefined;
-    // A person first (an owner "of a corner store" is still a person), then a place, else a thing or someone unnamed.
-    const person = /\b(man|woman|person|owner|girl|boy|guy|lady|kid|child|he|she|his|her|years? old|\d{2}s)\b/i.test(s.identity);
-    const place = /\b(store|shop|kiosk|room|kitchen|street|office|counter|aisle|house|living)\b/i.test(s.identity);
-    const kind = (["character", "place", "product", "screen"].includes(known ?? "") ? known : person ? "character" : place ? "place" : "other") as SketchSetup["kind"];
-    return [{ name: s.name, kind }];
-  });
-  if (shot.kind === "screen" && !list.some((s) => s.kind === "screen")) list.push({ name: "Pantalla real", kind: "screen" });
-  return list;
-}
 
 // "Boceto con IA" for one shot: copy the sketch prompt for Grok (or any image tool), then upload what it made.
 function SketchTools({ prompt, uploaded, onFile, onRemove }: { prompt: string; uploaded: boolean; onFile: (file: File) => Promise<void>; onRemove: () => void }) {
@@ -516,7 +500,7 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
                   ) : (
                     <p className="text-muted">
                       {s.kind === "transform" && <b className="text-ink">Inicial: </b>}
-                      {s.visualPrompt}
+                      {s.kind === "transform" && s.screenAt === "start" ? `captura real (${s.screen}), no se genera` : s.visualPrompt}
                       {s.kind === "transform" && s.middlePrompt && (
                         <>
                           <br />
@@ -528,7 +512,7 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
                         <>
                           <br />
                           <b className="text-ink">Final: </b>
-                          {s.endPrompt}
+                          {s.screenAt === "end" ? `captura real (${s.screen}), no se genera` : s.endPrompt}
                         </>
                       )}
                     </p>

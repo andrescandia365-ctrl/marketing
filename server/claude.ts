@@ -33,7 +33,8 @@ import {
 } from "../shared/schema.ts";
 import { EMPTY_BRIEF } from "../shared/example.ts";
 import type { SiteFacts } from "./brandWeb.ts";
-import { MotionScriptSchema, normalizeMotion, type MotionScript } from "../shared/motion.ts";
+import { MOTION_TEMPLATES, MotionNoteSchema, MotionScriptSchema, READ_LETTERS_PER_SECOND, hostScenes, normalizeMotion, pickCamera, readingNeed, type MotionScript } from "../shared/motion.ts";
+import { mergeNote, noteView, type NoteMerge } from "../shared/motionNote.ts";
 import { MotionReviewSchema, normalizeReview, type MotionReview } from "../shared/motionQuality.ts";
 import {
   BackgroundPromptsSchema,
@@ -47,14 +48,19 @@ import {
 } from "../shared/lyrics.ts";
 import { LyricPlatesSchema, type LyricPlatesDraft } from "../shared/plates.ts";
 import { LENGTHS } from "../shared/template.ts";
-import { CAST, PRACTICES, WORKS_TODAY } from "../shared/series.ts";
+import { CAST, PRACTICES, WORKS_TODAY, explainerHost, seriesCorrespondent } from "../shared/series.ts";
+import { segmentRules } from "../shared/segment.ts";
+import { pickWorld, worldLean } from "../shared/world.ts";
 import { momentsForWriter } from "../shared/calendar.ts";
 import { getSeries } from "./series.ts";
 import { askKimi, listChatModels, type ChatTarget, type ListedModel } from "./kimi.ts";
 import { baseUrlOf, claudeEffort, keyOf, labelOf, visionChoice, writerChoice, EFFORTS, type Effort, type ProviderId } from "./settings.ts";
 import { getTool } from "./tools.ts";
+import { meter } from "./usage.ts";
+import { claudeUsage } from "../shared/usage.ts";
 import { offerOf } from "./ads.ts";
 import { offerBlock } from "../shared/ads.ts";
+import { settleEditFrom, settleScreenShot } from "../shared/transformScreen.ts";
 
 const ENGINE = readFileSync(new URL("./engine.md", import.meta.url), "utf8");
 const PLAYBOOK = readFileSync(new URL("./playbook.md", import.meta.url), "utf8");
@@ -167,7 +173,7 @@ function contextBlocks(brief: Brief, withTool: boolean): string[] {
   const series = getSeries(brief.series);
   if (!series) throw new WriterError(`No existe la serie "${brief.series}".`);
   const blocks = [
-    `The series for this piece (its bible is written in Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real. Its "${PRACTICES}" list, if any, is how people work today without the brand: pains are built only on it and the brief's notes. Its "${CAST}", if any, is the series' fixed cast: characters, places and products with an approved image (reuse them: same id as castId, identity word for word) and real screens of the product (kind "screen": real screenshots, shown only in screen shots).\n\n${series.text}`,
+    `The series for this piece (its bible is written in Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real. Its "${PRACTICES}" list, if any, is how people work today without the brand: pains are built only on it and the brief's notes. Its "${CAST}", if any, is the series' fixed cast: characters, places and products with an approved image (reuse them: same id as castId, identity word for word) and real screens of the product (kind "screen": real screenshots, shown only in screen shots). A member's "refs" are extra reference images of that same member (its face cut from the sheet, a loose view), each its own @ref in the image tool; "views" are its sheet's loose views as prompts.\n\n${series.text}`,
   ];
   // The series' calendar moments, nearest first with how far each one is (after the cache: it changes every day).
   const moments = momentsForWriter(series.moments, new Date());
@@ -189,7 +195,18 @@ function screensFor(brief: Brief): string {
   return screens.length ? screens.map((m) => `${m.id} (${m.name}: ${m.identity})`).join("; ") : "none; never use kind screen";
 }
 
-function describeBrief(brief: Brief): string {
+// The series' real screens by id, with their names, for a transform that ends on one. Any of them is a real
+// screenshot, so a screen the person picked in the shot editor survives a revision even if the brief left it out.
+function allowedScreens(brief: Brief): Record<string, string> {
+  return Object.fromEntries((getSeries(brief.series)?.cast ?? []).filter((m) => m.kind === "screen").map((m) => [m.id, m.name]));
+}
+
+function settleScreens(brief: Brief, board: Board): Board {
+  const screens = allowedScreens(brief);
+  return { ...board, shots: settleEditFrom(board.shots.map((s) => settleScreenShot(s, screens))) };
+}
+
+export function describeBrief(brief: Brief): string {
   const len = LENGTHS[brief.length];
   const lines = [
     `Series: ${getSeries(brief.series)?.name ?? brief.series}`,
@@ -208,6 +225,9 @@ function describeBrief(brief: Brief): string {
       ? "Narrator: NONE. No character has the narrator role and nobody speaks from outside the scene. The characters' own words, what they do, and the text on screen carry the whole piece; every beat must be clear without a narrator. A shot may have no line at all (action only)."
       : "Narrator: allowed (the narrator role may speak when it helps).",
   ];
+  const series = getSeries(brief.series);
+  const segment = segmentRules(brief, series ? seriesCorrespondent(series) : null);
+  if (segment) lines.push(segment);
   return lines.map((l) => `- ${l}`).join("\n");
 }
 
@@ -227,8 +247,30 @@ async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z
 }
 
 // The system blocks: the first (engine and playbook) is cached; the series and tool blocks come after it.
+// Every reply's tokens go to the usage log (server/usage.ts), the failed requests' too.
 export async function askWith<T>(who: Writer, system: string[], prompt: string, schema: z.ZodType<T>, pictures: Picture[] = []): Promise<T> {
-  if (who.provider !== "claude") return askKimi(chatTarget(who), system, prompt, schema, pictures);
+  const used = meter(who.provider, who.model);
+  let ok = false;
+  try {
+    const reply =
+      who.provider === "claude"
+        ? await askClaude(who, system, prompt, schema, pictures, used.add)
+        : await askKimi(chatTarget(who), system, prompt, schema, pictures, used.add);
+    ok = true;
+    return reply;
+  } finally {
+    await used.done(ok);
+  }
+}
+
+async function askClaude<T>(
+  who: Writer,
+  system: string[],
+  prompt: string,
+  schema: z.ZodType<T>,
+  pictures: Picture[],
+  usage: ReturnType<typeof meter>["add"],
+): Promise<T> {
   const caps = capsOf(who.model);
   if (!caps.structured) {
     throw new WriterError(`${who.model} no devuelve respuestas con forma fija, y la app las necesita. Elegí otro modelo de Claude en Modelos.`);
@@ -268,6 +310,7 @@ export async function askWith<T>(who: Writer, system: string[], prompt: string, 
   } catch (error) {
     throw claudeError(error);
   }
+  usage(claudeUsage(message.usage), undefined, message.model);
 
   if (message.stop_reason === "refusal") {
     throw new WriterError("Claude no aceptó este pedido. Reformulalo y probá de nuevo.");
@@ -421,8 +464,8 @@ const BOARD_RULES = `Shot rules:
 - seconds: exactly 6, 10 or 15, the only clip lengths the tool makes. Pick the shortest that fits the spoken line at about 2.5 words per second (6 s up to 15 words, 10 s up to 25, 15 s up to 37). Split a longer line into two shots. A silent shot is 6 s. toolSettings says the same length.
 - onScreenText is the headline at the top of the frame: up to 6 words that make sense without the voice (a fact, a time, a number, a name). Leave it empty rather than write a joke that needs the spoken line. The spoken line is added on its own as the subtitle.
 - setups: every character, place and product that appears in more than one shot gets a setup with a short identity line; reuse the story's character identity lines word for word. A setup that matches a member of the series' fixed cast takes its id as castId and its identity line word for word; the person already has its approved image. Each shot lists in setups every setup in the frame, main one first, and every prompt repeats the identity line of everything it shows, word for word.
-- kind: "single" for most shots. "transform" where one clip should carry a change on screen, usually the turn from the Bad to the Good: visualPrompt is the initial frame, endPrompt the final frame and middlePrompt an optional middle frame (each one frozen moment), and videoPrompt describes the change between them; give it 10 or 15 s. "screen" only to show the product's real interface with one of the real screens the brief allows: put its id in screen and leave the image prompts empty; the videoPrompt can be empty too.
-- editFrom: when a shot shows the same setup in the same place as an earlier shot, set editFrom to that shot's number and write editPrompt: only what changes in that image, keeping everything else. The person edits the earlier image instead of drawing a new one, so the character stays the same. Still write the full visualPrompt as a fallback.
+- kind: "single" for most shots. "transform" where one clip should carry a change on screen, usually the turn from the Bad to the Good: visualPrompt is the initial frame, endPrompt the final frame and middlePrompt an optional middle frame (each one frozen moment), and videoPrompt describes the change between them; give it 10 or 15 s. "screen" only to show the product's real interface with one of the real screens the brief allows: put its id in screen and leave the image prompts empty; the videoPrompt can be empty too. When the brief allows real screens, a Good transform may end on one: screenAt "end", its id in screen, endPrompt empty; visualPrompt is the AI scene with the phone or computer (its screen still facing away or out of focus) and videoPrompt is the camera moving into that screen until the real screenshot fills the frame. The screenshot is never described or drawn in any prompt. screenAt "start" is the reverse (the clip leaves the real screenshot into the scene; endPrompt is the scene). Otherwise screenAt is empty.
+- editFrom: when a shot shows the same setup in the same place as an earlier shot, set editFrom to that shot's number and write editPrompt: only what changes in that image, keeping everything else. The person edits the earlier image instead of drawing a new one, so the character stays the same. Still write the full visualPrompt as a fallback. Never point editFrom at a screen shot or at a transform that starts on a real screen: that picture is a real screenshot, never edited by AI.
 - Put the style line inside each visualPrompt so it stands alone. No text, signs, logos, brand names or real people's likeness in any image. A phone or computer screen faces away from the camera or is out of focus; the tool cannot draw the real interface. How the Bad looks on screen follows the story's character line.
 - The spoken lines and captions are added on top later, so video prompts never ask anyone to speak or sing, and ask for no music (continuous takes are the exception: their dialogue is spoken in the clip).
 - Continuous takes, only when the brief asks for them: each shot is ONE continuous handheld take of exactly 15 s, holding the consecutive lines of one scene (one topic or part of it), kind "single". speaker is the first one who speaks and voiceover all its lines in order. timeline lists every beat from 0 to 15 s: who speaks, the exact line, its emotion, and what the bodies and the camera do, including real camera mistakes (a pan that arrives late and clips a face, autofocus hunting, auto-exposure rolling between inside and outside, a laugh that shakes the frame). visualPrompt is the hero still, frame 0 of the take: exact camera, exact flaws, exact light, everyone in place. videoPrompt is the director's prompt: first a reference map (the initial frame = the hero still; each character = its cast @ref; the place = its cast @ref, environment only; "these images are law"), then "one continuous handheld take, no cuts", then the timed spine with emotion and camera mistakes, then the hard rules: skin never smooth (visible pores, freckles, peach fuzz); grain the whole time; no stabilization, no grade, no music, no text, no digital zoom, no punch-in, no slow motion; brightness changes only from auto-exposure, the light never changes; each line spoken once, exactly as written, in Rioplatense Spanish, with the emotion given; raw phone-mic audio (room tone, handling noise, no denoising). One-line shots have an empty timeline.
@@ -432,7 +475,7 @@ const BOARD_RULES = `Shot rules:
 
 // Step 3: the storyboard.
 export async function writeBoard(brief: Brief, story: Story): Promise<Board> {
-  return normalizeBoard(
+  return settleScreens(brief, normalizeBoard(
     await ask(
       brief,
       true,
@@ -447,7 +490,7 @@ Break it into a storyboard.
 ${BOARD_RULES}`,
       BoardWireSchema,
     ),
-  );
+  ));
 }
 
 export async function reviseBoard(
@@ -458,7 +501,7 @@ export async function reviseBoard(
   shotNotes: { index: number; note: string }[],
 ): Promise<Board> {
   const perShot = shotNotes.map((n) => `- Shot ${n.index + 1}: "${n.note}"`).join("\n");
-  return normalizeBoard(
+  return settleScreens(brief, normalizeBoard(
     await ask(
       brief,
       true,
@@ -480,7 +523,7 @@ Revise the storyboard to answer every note. Keep the shots the notes don't touch
 ${BOARD_RULES}`,
       BoardWireSchema,
     ),
-  );
+  ));
 }
 
 // In production: one shot, one note. The neighbours come along so the shot keeps following on.
@@ -514,7 +557,8 @@ Rewrite this one shot to answer the note, so it follows the shot before and lead
 ${BOARD_RULES}`,
     ShotWireSchema,
   );
-  const next = normalizeShot(wire);
+  const settled = settleScreenShot(normalizeShot(wire), allowedScreens(brief));
+  const next = settleEditFrom(board.shots.map((s, i) => (i === index ? settled : s)))[index];
   return { ...next, topic: shot.topic, beat: shot.beat, speaker: shot.speaker };
 }
 
@@ -713,9 +757,9 @@ Details (in Spanish; choose any that are empty so the character fits the series 
 ${given}
 
 The look: a stylized 3D render, soft rounded shapes, matte materials with a little texture (clay, felt or soft plastic), gentle studio light from the upper left, readable at phone size, the brand's colours where they fit. Never the style of a named studio, film or game, and never a known character. Nothing revealing or sexualized.
-The sheet prompt: 16:9, plain flat mid-grey background, no text, no labels, no floor shadow. Top row: full body front, three-quarter, side profile, back. Bottom row: the face with four expressions (neutral, happy, surprised, worried) and four mouth shapes (closed, A, O, E). Identical shapes and colours in every panel. Put the full description inside the prompt.
+The sheet prompt: 16:9, plain flat mid-grey background, no text, no labels, no floor shadow. Top row: full body front, three-quarter, side profile, back (the three-quarter and the profile both turned toward screen right, arms hanging relaxed). Bottom row: the face with four expressions (neutral, happy, surprised, worried; each one with the mouth closed, same size and angle as the front view) and four mouth shapes (closed, A wide open, O round, E stretched), each mouth alone at the same size. Identical shapes and colours in every panel. Put the full description inside the prompt.
 The views, as separate prompts with the same description; the FIRST view must be "Para el títere": full body, front, standing straight, arms held a little away from the body (a relaxed A-pose, hands not touching anything), mouth closed, eyes open looking at the camera, centred with space around it, plain flat mid-grey background, even light, no shadow, nothing in front of the body. That picture is cut into parts with the tool's Segments (head, body, each arm, mouth, eyes), so the parts must not overlap.
-In note (Spanish): remind to make "Para el títere" in the tool, then Segmentos → select head, body, each arm, mouth and eyes → Descargar todo, and upload the layers in the character's card ("Títere 3D").`
+In note (Spanish): remind to make "Para el títere" in the tool, then Segmentos → select head, body, each arm, mouth and eyes → Descargar todo, and upload the layers in the character's card ("Títere 3D"). Optionally, from the sheet: cut the mouths A, O and E, the happy, surprised and worried faces and the 3/4 and profile bodies, upload them as "Partes sueltas" with those roles and line them up in "Armar a mano" (the mouths change with the voice, the face follows the line's emotion, the body turns when it points at something).`
     : person
     ? `Build a photorealistic character reference sheet of one invented adult ${template === "girl" ? "woman" : "man"}, ${age} years old, for this series' fixed cast. Never a real person or a lookalike of anyone famous. Everyday clothes, neutral relaxed poses, nothing revealing or sexualized.
 
@@ -736,46 +780,110 @@ The views: each panel as a separate standalone prompt with the full description.
 
 // A motion-graphics explainer (software: how the app does something; e-commerce: the episode's product). Follows the
 // studio's rules: hook in 2 s, something new every 2 to 4 s, no stock defaults, one accent, the brand's fonts.
-export async function motionScript(brief: Brief, target: number | null, layers: number): Promise<MotionScript> {
+// What the explainer writer can show (the series' cast) and its host, shared by a new script and a director's note.
+function explainerCast(brief: Brief) {
   const series = getSeries(brief.series);
+  const host = series ? explainerHost(series) : null;
   const cast = (series?.cast ?? [])
-    .map((m) => `- ${m.id} (${m.kind}${m.image ? ", has image" : ", no image yet"}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}): ${m.name}. ${m.identity}`)
+    .map((m) => `- ${m.id} (${m.kind}${m.image ? ", has image" : ", no image yet"}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}${m.id === host?.id ? ", the series' explainer character" : ""}): ${m.name}. ${m.identity}`)
     .join("\n");
-  const motion = normalizeMotion(
-    await ask(
-      brief,
-      false,
-      `Brief:
-${describeBrief(brief)}
+  const characters = (series?.cast ?? []).filter((m) => m.kind === "character").map((m) => m.id);
+  return { series, host, cast, characters };
+}
 
-Write a motion-graphics explainer, not a story: ${series?.type === "ecommerce" ? "this episode's product, what it is and what it fixes at home" : "how the app solves one concrete problem, shown on its real screens"}. ${target ? `It lasts ${target} seconds in total.` : "Choose the length from how much there is to explain (15 to 60 seconds) and say why in durationNote."}
-
-What you can show (the series' fixed cast; use ids exactly; only members with an image will render, others show a placeholder):
+function castBlock(cast: string, layers: number): string {
+  return `What you can show (the series' fixed cast; use ids exactly; only members with an image will render, others show a placeholder):
 ${cast || "- (nothing yet: use hook, steps, stat and logo, and say in note what is missing)"}
-${layers ? `Uploaded layers: ${Array.from({ length: layers }, (_, i) => `layer:${i}`).join(", ")}.` : ""}
+${layers ? `Uploaded layers: ${Array.from({ length: layers }, (_, i) => `layer:${i}`).join(", ")}.` : ""}`;
+}
 
-The studio's rules:
+// The studio's rules for an explainer script (a new one or one revised by a note).
+function explainerRules(brief: Brief, host: ReturnType<typeof explainerHost>): string {
+  return `The studio's rules:
 - The first scene is a hook that names the problem within 2 seconds, as the question the viewer already asks themselves, in their words.
 - Something new appears on screen every 2 to 4 seconds: a scene change, a label, a step, a zoom. Never a still stretch longer than 4 seconds.
 - Never the stock defaults: a centred title on a gradient, everything fading in, corner labels, frame borders, glow on UI chrome, generic particle bursts.
 - The brand's colours with one accent, its display face for titles and its UI face for the rest (the "Marca" line).
-- Readable on a phone: titles up to 6 words, up to 4 labels of up to 5 words. Every line stays fully on screen about 0.3 s per word (a 1-3 word label 0.8 s) after it is fully in: fast in, then hold. Too much text for a scene's length: fewer words or another scene, never faster.
+- Readable on a phone: titles up to 6 words, up to 4 labels of up to 5 words. In callouts, steps, notify, flow and slots the labels arrive one by one and only the newest is at full strength (the earlier ones step back as context), so list them in the order the voice names them. Every line stays fully on screen about 0.3 s per word (a 1-3 word label 0.8 s) after it is fully in, and never less than 1 s per ${READ_LETTERS_PER_SECOND} letters: long Spanish words need more ("Planificación automatizada" ${readingNeed("Planificación automatizada").toFixed(1)} s), so prefer short words. Fast in, then hold. Too much text for a scene's length: fewer words or another scene, never faster.
 - Show the product in use when you can (entry → key action → result): for software, a real screen, then the type template (search or write something, tap the button, see the result).
 - Only what the series lists as working today is shown as real; never invent a feature, a price or a number (leave items empty and note it).
+- Grade every scene against that list: in beyondToday say, in a few Spanish words, anything it shows or says that is not on it (a roadmap feature, a screen that does not exist, a result the product does not give today), else leave it empty. Real cast screens and the cast product shown as they are count as real. A scene that does show something beyond today sets disclosure concept (an idea: how it could look) or simulation (a mock run of something not live), and the app labels it CONCEPTO or SIMULACIÓN on screen; every other scene is real. Lead with what works today; a concept, if any, comes after it and never as the payoff.
 - Voice lines in Rioplatense Spanish, each with its emotion, fitting its scene at about 2.5 words per second.
-- A character from the cast (a 3D puppet, or one with an image) can host with the character template: it says its scene's voice line (its mouth moves), makes one gesture (presenta, saluda, señala, festeja, se sorprende) and can point at or present a real screen or the product (assetB). Use it once or twice, to guide, never to replace showing the product.
+- In a character scene the emotion also sets the puppet's face: name it plainly (contento, sorprendido, preocupado, or a calm word for a neutral face); a worried face only on the pain, never on the product.
+${
+  host
+    ? `- The series has a fixed explainer character: ${host.id}, ${host.name}${host.note ? ` (${host.note})` : ""}. It is the same host in every explainer of the series, so the audience knows it. Every character scene uses it (asset ${host.id}), never another character. Bring it back at least once in this piece where a character scene fits (to present the product or point at the real screen), and at most twice: it guides, it never replaces showing the product. With the character template it says its scene's voice line (its mouth moves), makes one gesture (presenta, saluda, señala, festeja, se sorprende) and can point at or present a real screen or the product (assetB). Its voice lines sound like the same person every time.`
+    : "- A character from the cast (a 3D puppet, or one with an image) can host with the character template: it says its scene's voice line (its mouth moves), makes one gesture (presenta, saluda, señala, festeja, se sorprende) and can point at or present a real screen or the product (assetB). Use it once or twice, to guide, never to replace showing the product."
+}
 - The Contradiction (contradiction template), when the pain is a mismatch people already live with: items[0] what the system, the label or the habit says, items[1] what really happens; the first gets struck through. Build it only on the series' "Cómo se trabaja hoy" list and the brief, never on an invented habit, and with real numbers only.
+- notify, when the pain or the payoff is what arrives on the phone (the supplier's message, the reminder, the alert the app sends): up to 3 notifications, each "title | body" (title up to 3 words, body up to 6), in the order they arrive; give the scene about 1 s per notification plus 2.5 s for the last. A notification the product sends must be on the series' working-today list; one from a person or another app follows "Cómo se trabaja hoy".
+- flow, when one thing goes to several places (one order to every supplier, one sale into stock, the cash and the report): title is the source (up to 3 words, its picture in asset if the cast has it), items up to 4 places of up to 3 words, named in the order the voice says them; about 1 s per place plus 1.5 s. Only connections the series lists as working today, unless the scene is labelled concept.
+- slots, the open loop on screen, at most one row per piece: the first slots scene names 2 to 5 boxes (items, up to 3 words each: what the piece promises to settle) and the voice promises them; later slots scenes (2.5 to 3.5 s, items empty, a short title) each fill the next box right after the scene that settles it, so the row fills as the piece goes and the last box fills before the logo. Use it in pieces of 30 s or more, never for fewer than 2 boxes.
 - Travel between scales when it helps the idea: from the whole to the detail (the shelf, the product on it, its expiry date) or back out to the whole. Make that move with entry "through" on the scene that opens inside the previous one (the camera dives into its main thing), once or twice per piece, never on every cut.
+- Continuity: when the next scene says more about the same picture (the real screen, then a zoom or labels on it; the product, then its callouts; the host presenting the screen, then the screen), give both scenes the same asset: the app carries that picture across the cut from where it was to where it settles (entry "cut" lets it do so by itself; "match" asks for it). Leave it to the scenes that really continue; a new idea gets its own picture.
 - In beforeAfter, reveal "iris" when the change starts in one spot and spreads (set focusX, focusY on that spot); "wipe" when it is a plain side-by-side.
+- camera, the move inside each scene: hold (still), push (slowly closer), pull (slowly back to the whole), pan (slides across), drift (floats a little). Choose it for what the scene shows and vary it across the piece; never the same move three scenes in a row. Hold on scenes that are mostly words to read (a hook with no picture, type, steps, contradiction, stat, logo) and on zoom, which makes its own move: words never move while they are read. Push in on the product or the real screen. callouts and beforeAfter only hold, push or pull, so their labels stay pinned to the picture. Drift and pan suit a character or a picture.${brief.tone === "dry" ? " This piece is dry: mostly hold, and a slow push on the product or the real screen; no pull, pan or drift." : ""}
+- world, the flat illustrated place the scenes sit in, drawn by the app in tints of the brand's own colours, quiet behind the words: store (shelves, counter, fridge), street (shop fronts, an awning), home (window, sofa, shelf), desk (monitor, desk, notes) or none (the plain background). Pick the place where the problem lives and set it once for the piece${getSeries(brief.series)?.type === "ecommerce" ? "; this series sells products for the home, so lean to home" : "; this series is software for a business, so lean to store (the shop floor) or desk (the back office)"}. Give a scene its own world only when it happens somewhere else (the street outside before the store), or none where the scene needs nothing behind it. The place is a setting, never a claim: it never shows a feature, a number or a word.
 - The last scene is the logo with a soft call to action. Its line calls back to the hook: the same problem, now solved, not a new idea.
 ${brief.narrator === "without" ? "- No narrator: leave every scene's voice and emotion empty. Titles, labels, the typed text and the product in use carry the meaning; keep it readable without a voice.\n" : ""}- Pace for the brief's comic voice (${brief.tone}): ${TONE_PACE[brief.tone]}
 - The product and the logo are the big moments: they land on the music's strongest hits (the app moves their cuts there).
 - music: a mood (calm, drive or bright) and a tempo for the synthesized score.
-- caption: the text to post with the video, 1 to 3 sentences in the piece's tone, about this problem in its own words; never "excited to share" or generic SaaS language; nothing unverified without [VERIFY].`,
-      MotionScriptSchema,
-    ),
+- caption: the text to post with the video, 1 to 3 sentences in the piece's tone, about this problem in its own words; never "excited to share" or generic SaaS language; nothing unverified without [VERIFY].`;
+}
+
+// A motion-graphics explainer (software: how the app does something; e-commerce: the episode's product). Follows the
+// studio's rules: hook in 2 s, something new every 2 to 4 s, no stock defaults, one accent, the brand's fonts.
+export async function motionScript(brief: Brief, target: number | null, layers: number): Promise<MotionScript> {
+  const { series, host, cast, characters } = explainerCast(brief);
+  const wire = await ask(
+    brief,
+    false,
+    `Brief:
+${describeBrief(brief)}
+
+Write a motion-graphics explainer, not a story: ${series?.type === "ecommerce" ? "this episode's product, what it is and what it fixes at home" : "how the app solves one concrete problem, shown on its real screens"}. ${target ? `It lasts ${target} seconds in total.` : "Choose the length from how much there is to explain (15 to 60 seconds) and say why in durationNote."}
+
+${castBlock(cast, layers)}
+
+${explainerRules(brief, host)}`,
+    MotionScriptSchema,
   );
-  return { ...motion, tone: brief.tone };
+  const wireWorld = wire.world;
+  const motion = normalizeMotion(wire, brief.tone);
+  // The series' explainer character hosts every character scene, whatever id the writer put there. A writer that gave
+  // no place at all (not even none) gets the one the series leans to.
+  const world = motion.world ?? (pickWorld(wireWorld) === "none" ? undefined : worldLean(series?.type));
+  return { ...motion, ...(world && { world }), scenes: hostScenes(motion.scenes, host?.id, characters, false), tone: brief.tone };
+}
+
+// "Nota del director" for an explainer: the writer returns the whole script with only what the note asks changed,
+// each scene naming the current scene it comes from; mergeNote keeps the rest as it was (ids, hand tweaks, voices).
+export async function reviseMotion(brief: Brief, current: MotionScript, note: string, layers: number): Promise<NoteMerge> {
+  const { series, host, cast, characters } = explainerCast(brief);
+  const wire = await ask(
+    brief,
+    false,
+    `Brief:
+${describeBrief(brief)}
+
+This is a motion-graphics explainer about ${series?.type === "ecommerce" ? "this episode's product, what it is and what it fixes at home" : "how the app solves one concrete problem, shown on its real screens"}. The current script, each scene with its id:
+${noteView(current)}
+
+The director's note on this script: "${note}"
+
+Return the whole script with only what the note asks changed. Every scene the note does not touch comes back exactly as it is, field by field, with its id in from. A scene you change keeps its id in from. A new scene has an empty from. A scene the note asks to remove is left out. Never change a voice line, a title or a timing the note does not ask about. Keep problem, title, music and caption unless the note changes them. In note, say in Spanish what you changed (one sentence), or what the note asks that the rules do not allow. The rules below are how the script was written: follow them in what you change, but never change an untouched scene only to follow them.
+
+${castBlock(cast, layers)}
+
+${explainerRules(brief, host)}`,
+    MotionNoteSchema,
+  );
+  if (!wire.scenes.length) throw new WriterError("La IA devolvió el guion sin escenas. Probá de nuevo o escribí la nota de otra forma.");
+  const links = wire.scenes.map((s) => ({ from: s.from, camera: pickCamera(s.camera) }));
+  const revised = normalizeMotion({ ...wire, scenes: wire.scenes.map(({ from: _from, ...s }) => s) }, current.tone ?? brief.tone, { revising: true });
+  // keepOthers as in the studio: a character the person chose for a scene stays.
+  const hosted = { ...revised, scenes: hostScenes(revised.scenes, host?.id, characters, true), tone: current.tone ?? brief.tone };
+  return mergeNote(current, hosted, links);
 }
 
 // "Traer la marca desde su web": the writer reads what the page uses and says, and proposes the brand kit.
@@ -832,18 +940,20 @@ ${scenes}
 What the app measured (trust these over your eyes for timing and sound):
 ${facts}
 ${earlier ? `\nEarlier rounds, already applied:\n${earlier}\n` : ""}
-The brand ("Marca" line of the series): ${JSON.stringify(series?.brand ?? {})}. Templates: hook, screen, zoom, type, character, callouts, steps, beforeAfter, contradiction, product, stat, logo.
+The brand ("Marca" line of the series): ${JSON.stringify(series?.brand ?? {})}. Templates: ${MOTION_TEMPLATES.join(", ")}.
 
 Score each from 1 to 10, strictly (8 = ready to publish):
 - hook: within the first 2 seconds the problem is named and something moves; no slow start.
-- readability: every word reads at phone size (big enough, enough contrast, nothing cut off, not too many words at once) and stays on screen long enough to read (about 0.3 s per word once fully in; the measured list above). On 9:16 no text sits under the platform's top bar, caption or buttons, and no settled text covers other text (both measured above). The subtitle and the AI notice cannot move: move the other element (dy, dx or scale).
+- readability: every word reads at phone size (big enough, enough contrast, nothing cut off, not too many words at once) and stays on screen long enough to read (about 0.3 s per word once fully in, and 1 s per ${READ_LETTERS_PER_SECOND} letters when the words are long; the measured list above). On 9:16 no text sits under the platform's top bar, caption or buttons, and no settled text covers other text (both measured above). The subtitle and the AI notice cannot move: move the other element (dy, dx or scale). In callouts, steps, notify, flow and the slots that name their boxes only the newest label is at full strength and the earlier ones are dimmer on purpose (the measured "Focus one at a time" line): judge them by that measured contrast, never as a fault to fix.
 - motion also covers the cuts: frames marked "corte" are the middle of a scene change; two busy layouts muddled together there is a problem.
 - motion: purposeful, eased movement; no stock defaults (centred title on a gradient, everything fading in, corner labels or frame borders, glow on UI chrome, particle bursts).
 - variety: the scenes do not repeat the same layout and move; something new every 2 to 4 seconds.
 - brand: the brand's colours with one accent, its fonts, its logo at the end; nothing off-brand.
 - sync: cuts and entrances land on the beats; voices fit their scenes.
 
-Then fix the three worst problems (only scores under 8), worst first, each as one edit of one scene with the fields given. Fix with the script: shorter words, a bigger element (scale), an earlier or on-beat entrance (at), a scene shorter or longer, another template for variety, a move away from the edge. Never invent a feature, a number or a price; only what the series lists as working today may be shown as real. Never change what the voice says. Leave fixes empty when every score is 8 or more.
+Then fix the three worst problems (only scores under 8), worst first, each as one edit of one scene with the fields given. Fix with the script: shorter words, a bigger element (scale), an earlier or on-beat entrance (at), a scene shorter or longer, another template for variety, a move away from the edge. Never invent a feature, a number or a price; only what the series lists as working today may be shown as real. Never change what the voice says.
+
+Then the hard rule on what is real: only the series' "${WORKS_TODAY}" list may be shown as real. In beyondToday list every scene that shows or says a feature, screen, result or capability not on that list and has no CONCEPTO or SIMULACIÓN label (the script says which scenes are labelled). Real cast screens and the cast product shown as they are count as real. A scene already flagged in the script needs no new entry. The person decides whether to label it or change it. Leave fixes empty when every score is 8 or more.
 
 Also pick the thumbnail (poster): the second of the strongest settled frame, never a "corte" frame.`,
       MotionReviewSchema,

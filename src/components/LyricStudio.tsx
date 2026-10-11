@@ -1,14 +1,10 @@
 // Lyric videos (series of type music): the song and its lyrics, the sync (automatic or tapping), and the look with a
 // live preview and the final video. Autosaves into the project folder like a story piece.
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   LYRIC_ELEMENT_MAX,
   LYRIC_ELEMENT_SLOT,
   LYRIC_ELEMENT_SLOTS,
-  LYRIC_ENTRANCES,
-  LYRIC_ENTRANCE_LABEL,
-  LYRIC_FONT_LABEL,
-  LYRIC_FONTS,
   LYRIC_LANGUAGE_LABEL,
   LYRIC_LANGUAGES,
   SECOND_LANGUAGES,
@@ -22,9 +18,7 @@ import {
   tapLines,
   toLrc,
   type LyricElement,
-  type LyricLine,
   type LyricPiece,
-  type BackgroundPrompts,
   type LyricStyle,
   type SecondLanguage,
 } from "../../shared/lyrics.ts";
@@ -33,24 +27,19 @@ import { buildPlates } from "../../shared/plates.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { api, projectFileUrl, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
 import { blobToDataUrl } from "../lib/files.ts";
-import type { MotionAsset } from "../lib/motion.ts";
-import { decodeSong, drawLyricFrame, loadLyricFonts, renderLyricVideo, songBeats, type Backdrop, type ElementGlyph } from "../lib/lyricRender.ts";
+import { lyricPulse } from "../../shared/lyricPulse.ts";
+import { levelsFor, monoOf, wordLevels, wordSpans } from "../../shared/lyricAct.ts";
+import { decodeSong, songBeats } from "../lib/lyricRender.ts";
 import { rasterSvg } from "../lib/svgSanitize.ts";
 import { ClockPanel } from "./ClockPanel.tsx";
 import { LyricElements } from "./LyricElements.tsx";
 import { LyricPlates } from "./LyricPlates.tsx";
-import { download, slug } from "../lib/markdown.ts";
-import { mediaClock } from "../lib/playClock.ts";
-import { CopyButton } from "./ScriptView.tsx";
-import type { RenderResult } from "../lib/render.ts";
 import { audioDuration, type AudioFile } from "./Audio.tsx";
 import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
+import { MAX_CLIPS, VideoTab, type BgClip } from "./LyricVideoTab.tsx";
+import { TapSync, LineEditor } from "./LyricSync.tsx";
 
 export type LyricOpen = { piece: LyricPiece; music: MediaFileRecord | null; media: Record<string, MediaRecord> };
-// Background clips (Grok's or the person's own) play one after the other; each sits in a media slot of the project.
-type BgClip = { slot: number; url: string; blob: Blob; name: string };
-const MAX_CLIPS = 8;
-const FRAME = 1 / 30;
 const LAYER_BASE = 200;
 
 type Props = {
@@ -68,8 +57,6 @@ type Props = {
 
 type Tab = "song" | "sync" | "clock" | "plates" | "elements" | "video";
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
-// inputClass without its full width, for the small time fields.
-const smallInput = inputClass.replace("w-full", "");
 const clock = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
 function pieceMarkdown(piece: LyricPiece): string {
@@ -95,6 +82,8 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
       plates: base.plates ?? [],
       plateOn: base.plateOn ?? false,
       plateNote: base.plateNote ?? "",
+      // On for new pieces; a piece saved with lyrics before the switch keeps the video it had until it is turned on.
+      act: initial ? (initial.piece.act ?? !initial.piece.lines?.length) : true,
       secondLanguage,
       secondOther: base.secondOther ?? "",
     };
@@ -107,9 +96,10 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
   const [layers, setLayers] = useState<HTMLImageElement[]>([]);
   const [elementImages, setElementImages] = useState<Record<number, HTMLImageElement>>({});
   const [bgClips, setBgClips] = useState<BgClip[]>([]);
-  const [busy, setBusy] = useState<null | "sync" | "ideas" | "second" | "elements" | "plates" | "render" | "upload" | "style" | "prompts" | "lrc">(null);
-  // Downbeats from the Reloj. Plate cuts use these, and never peaks off the master.
-  const [cuts, setCuts] = useState<number[]>([]);
+  const [busy, setBusy] = useState<null | "sync" | "ideas" | "second" | "elements" | "plates" | "render" | "upload" | "style" | "prompts" | "lrc" | "levels">(null);
+  // The Reloj's grid. Plate cuts use its downbeats, and never peaks off the master; the pulse uses its kicks.
+  const [grid, setGrid] = useState<{ usable: boolean; kicks: number[]; downbeats: number[] } | null>(null);
+  const cuts = useMemo(() => (grid?.usable && grid.downbeats.length ? grid.downbeats : []), [grid]);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   // The automatic sync hears the vocal stem Demucs splits (worth it when the music covers the voice).
@@ -120,6 +110,9 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
   const [nudge, setNudge] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(null);
   const urls = useRef<string[]>([]);
+  // The piece as last rendered: a measurement that took a while checks it before writing its levels back.
+  const current = useRef(piece);
+  current.current = piece;
 
   const set = (patch: Partial<LyricPiece>) => setPiece((p) => ({ ...p, ...patch }));
   const setStyle = (patch: Partial<LyricStyle>) => setPiece((p) => ({ ...p, style: { ...p.style, ...patch } }));
@@ -131,7 +124,10 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
   // What "Seguir → sincronizar" still needs, said next to it.
   const missingSong = [!song && "subir la canción", !texts.length && "escribir la letra"].filter(Boolean);
   const stale = piece.lines.length > 0 && piece.lines.map((l) => l.text).join("\n") !== texts.join("\n");
-  const beats = useMemo(() => (buffer ? songBeats(buffer) : []), [buffer]);
+  // The master's peaks only matter while there is no kick grid (shared/lyricPulse.ts).
+  const kickGrid = !!(grid?.usable && grid.kicks.length);
+  const masterBeats = useMemo(() => (buffer && !kickGrid ? songBeats(buffer) : []), [buffer, kickGrid]);
+  const beats = useMemo(() => lyricPulse(masterBeats, grid), [masterBeats, grid]);
 
   useEffect(() => () => urls.current.forEach((u) => URL.revokeObjectURL(u)), []);
   const objectUrl = (blob: Blob) => {
@@ -209,8 +205,8 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
       .readClock(projectId)
       .then((found) => {
         if (cancel) return;
-        const grid = found?.sync.grid;
-        setCuts(grid?.usable && grid.downbeats.length ? grid.downbeats : []);
+        const g = found?.sync.grid;
+        setGrid(g ? { usable: g.usable, kicks: g.kicks ?? [], downbeats: g.downbeats ?? [] } : null);
       })
       .catch(() => undefined);
     return () => {
@@ -342,6 +338,47 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
     setNote(
       `Sincronizado${separated ? " sobre la voz separada" : ""}: encontró ${result.matched} de ${result.total} palabras de la letra (las demás quedan entre sus vecinas). Revisá los tiempos abajo.`,
     );
+  }
+
+  // "La letra actúa el canto": each word's loudness on the voice alone. Demucs splits it on the server (cached per song);
+  // an uploaded vocal stem is read here. The master is never measured.
+  async function measureWithDemucs() {
+    if (!song || !piece.lines.length) return;
+    const spans = wordSpans(piece.lines);
+    const result = await work("levels", () => api.lyricLevels(song.blob, song.name, spans));
+    if (!result) return;
+    if (!keepLevels(spans, result.levels)) return;
+    setNote(`Medí la fuerza del canto en la voz que separó Demucs: ${result.levels.filter((x) => x !== null).length} palabras.`);
+  }
+
+  // Writes measured levels onto the current lines, never over them: when the words' times changed while measuring,
+  // nothing is written and the note asks to measure again.
+  function keepLevels(spans: { start: number; end: number }[], levels: (number | null)[]): boolean {
+    if (!levelsFor(current.current.lines, spans, levels)) {
+      setNote("Cambiaste los tiempos de la letra mientras medía la voz: no guardé la medición. Medila de nuevo.");
+      return false;
+    }
+    setPiece((p) => {
+      const lines = levelsFor(p.lines, spans, levels);
+      return lines ? { ...p, lines } : p;
+    });
+    return true;
+  }
+
+  async function measureStem(file: File) {
+    if (!piece.lines.length) return;
+    await work("levels", async () => {
+      const stem = await decodeSong(file);
+      const channels = Array.from({ length: stem.numberOfChannels }, (_, c) => stem.getChannelData(c));
+      const spans = wordSpans(piece.lines);
+      const levels = wordLevels({ samples: monoOf(channels), sampleRate: stem.sampleRate }, spans);
+      if (!keepLevels(spans, levels)) return;
+      const off = buffer && Math.abs(buffer.duration - stem.duration) > 1;
+      setNote(
+        `Medí la fuerza del canto en el stem de voz: ${levels.filter((x) => x !== null).length} palabras.` +
+          (off ? " Ojo: el stem no dura lo mismo que la canción; tiene que empezar en el mismo segundo." : ""),
+      );
+    });
   }
 
   // An .lrc brings its own times; if its lines match the pasted lyrics they keep the pasted text, else it brings the text too.
@@ -863,6 +900,7 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
           song={song}
           beats={beats}
           cuts={cuts}
+          grid={grid}
           audio={audioRef}
           bgImage={bgImage}
           bgClips={bgClips}
@@ -888,753 +926,12 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
           onSaveStyle={saveStyleToSeries}
           setBusy={setBusy}
           setError={setError}
+          demucs={demucs}
+          onMeasureDemucs={() => void measureWithDemucs()}
+          onMeasureStem={(file) => void measureStem(file)}
         />
       )}
     </section>
-  );
-}
-
-// Hand sync: the song plays and the person taps (or presses the space bar) when each line starts.
-function TapSync({
-  texts,
-  audio,
-  onDone,
-}: {
-  texts: string[];
-  audio: React.RefObject<HTMLAudioElement | null>;
-  onDone: (starts: number[]) => void;
-}) {
-  const [starts, setStarts] = useState<number[] | null>(null);
-
-  function begin() {
-    const a = audio.current;
-    if (!a) return;
-    a.currentTime = 0;
-    a.play().catch(() => undefined);
-    setStarts([]);
-  }
-
-  function tap() {
-    const a = audio.current;
-    if (!a || !starts) return;
-    const next = [...starts, a.currentTime];
-    if (next.length >= texts.length) {
-      setStarts(null);
-      onDone(next);
-    } else setStarts(next);
-  }
-
-  useEffect(() => {
-    if (!starts) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.code !== "Space" || (e.target as HTMLElement).tagName === "TEXTAREA" || (e.target as HTMLElement).tagName === "INPUT") return;
-      e.preventDefault();
-      tap();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-
-  if (!starts) {
-    if (!texts.length) {
-      return (
-        <div className="space-y-2 rounded-xl border border-line bg-white p-4">
-          <p className="text-sm font-semibold">Tocando</p>
-          <p className="text-xs text-muted">Primero pegá la letra en "Canción y letra".</p>
-        </div>
-      );
-    }
-    return (
-      <div className="space-y-2 rounded-xl border border-line bg-white p-4">
-        <p className="text-sm font-semibold">Tocando</p>
-        <p className="text-xs text-muted">
-          Suena la canción desde el principio y tocás <b>Ahora</b> (o la barra espaciadora) justo cuando empieza cada línea. Sirve
-          para cualquier idioma.
-        </p>
-        <Button variant="secondary" onClick={begin}>
-          Empezar a tocar
-        </Button>
-      </div>
-    );
-  }
-  const i = starts.length;
-  return (
-    <div className="space-y-3 rounded-xl border-2 border-ink bg-white p-4">
-      <p className="text-xs text-muted">
-        Línea {i + 1} de {texts.length}. Tocá cuando empiece:
-      </p>
-      <p className="text-lg font-bold">{texts[i]}</p>
-      {texts[i + 1] && <p className="text-sm text-muted">Después: {texts[i + 1]}</p>}
-      <div className="flex gap-2">
-        <Button className="flex-1 py-4 text-base" onClick={tap}>
-          Ahora
-        </Button>
-        <Button variant="secondary" onClick={() => setStarts(starts.slice(0, -1))} disabled={!i}>
-          Deshacer
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            audio.current?.pause();
-            setStarts(null);
-          }}
-        >
-          Cancelar
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function stamp(t: number) {
-  const s = Math.max(0, t);
-  const m = Math.floor(s / 60);
-  return `${m}:${(s - m * 60).toFixed(2).padStart(5, "0")}`;
-}
-
-// One lane per line that overlaps another, so a long song does not stack every block on the same pixel.
-function lineLanes(lines: { start: number; end: number }[]): number[] {
-  const laneEnd: number[] = [];
-  return lines.map((l) => {
-    let lane = laneEnd.findIndex((end) => end <= l.start + 0.02);
-    if (lane < 0) {
-      lane = laneEnd.length;
-      laneEnd.push(l.end);
-    } else laneEnd[lane] = l.end;
-    return lane;
-  });
-}
-
-function LineEditor({
-  lines,
-  duration,
-  nudge,
-  onNudge,
-  onStart,
-  onShift,
-  onKey,
-  onPlay,
-}: {
-  lines: LyricLine[];
-  duration: number;
-  nudge: number;
-  onNudge: (n: number) => void;
-  onStart: (i: number, start: number) => void;
-  onShift: (delta: number) => void;
-  onKey: (line: number, word: number) => void;
-  onPlay: (t: number) => void;
-}) {
-  const [picked, setPicked] = useState(0);
-  const trackRef = useRef<HTMLDivElement>(null);
-  const i = Math.min(picked, Math.max(0, lines.length - 1));
-  const line = lines[i];
-  const span = Math.max(duration, ...lines.map((l) => l.end), 1);
-  const lanes = lineLanes(lines);
-  const rows = lanes.length ? Math.max(...lanes) + 1 : 1;
-  const px = 96;
-
-  useEffect(() => {
-    trackRef.current?.querySelector(`[data-line="${i}"]`)?.scrollIntoView({ inline: "center", block: "nearest" });
-  }, [i]);
-
-  // The slider and the buttons share one offset, clamped to ±4 s, so they cannot drift apart.
-  function applyNudge(next: number) {
-    const clamped = Math.max(-4, Math.min(4, Math.round(next * 1000) / 1000));
-    const delta = Math.round((clamped - nudge) * 1000) / 1000;
-    onNudge(clamped);
-    if (delta !== 0) onShift(delta);
-  }
-
-  function dragLine(index: number, event: ReactPointerEvent<HTMLButtonElement>) {
-    const track = event.currentTarget.parentElement;
-    if (!track) return;
-    const originX = event.clientX;
-    const origin = lines[index].start;
-    const width = track.getBoundingClientRect().width || 1;
-    setPicked(index);
-    const move = (ev: PointerEvent) => onStart(index, Math.max(0, Math.min(span, origin + ((ev.clientX - originX) / width) * span)));
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
-
-  return (
-    <div className="space-y-3 rounded-xl border border-line bg-white p-4">
-      <div>
-        <div className="mb-1 flex items-baseline justify-between gap-2">
-          <p className="text-sm font-semibold">Correr toda la letra</p>
-          <p className="font-mono text-xs text-muted">{nudge >= 0 ? "+" : ""}{nudge.toFixed(2)} s</p>
-        </div>
-        <input
-          type="range"
-          min={-4}
-          max={4}
-          step={FRAME}
-          aria-label="Correr toda la letra"
-          className="h-10 w-full cursor-ew-resize accent-ink"
-          value={nudge}
-          onChange={(e) => applyNudge(Number(e.target.value))}
-        />
-        <div className="mt-1 flex flex-wrap gap-1">
-          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => applyNudge(nudge - 0.5)}>−0.5 s</Button>
-          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => applyNudge(nudge - 0.1)}>−0.1 s</Button>
-          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => applyNudge(nudge - FRAME)}>−1 cuadro</Button>
-          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => applyNudge(nudge + FRAME)}>+1 cuadro</Button>
-          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => applyNudge(nudge + 0.1)}>+0.1 s</Button>
-          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => applyNudge(nudge + 0.5)}>+0.5 s</Button>
-        </div>
-      </div>
-
-      <div>
-        <p className="mb-1 text-xs text-muted">Arrastrá una línea en la canción. El slider de abajo afina la que está elegida, de a un cuadro.</p>
-        <div ref={trackRef} className="overflow-x-auto rounded-lg bg-paper">
-          <div className="relative" style={{ width: Math.max(span * px, 280), height: rows * 40 + 8 }}>
-            {lines.map((l, n) => (
-              <button
-                key={n}
-                type="button"
-                data-line={n}
-                title={`${n + 1}. ${l.text}`}
-                aria-label={`Mover la línea ${n + 1}`}
-                className={`absolute truncate rounded px-1.5 text-left text-[11px] leading-8 ${n === i ? "z-10 bg-ink text-white" : "bg-ink/15 text-ink hover:bg-ink/25"}`}
-                style={{ left: l.start * px, width: Math.max(44, (l.end - l.start) * px), top: 4 + lanes[n] * 40, height: 32 }}
-                onPointerDown={(e) => dragLine(n, e)}
-              >
-                {n + 1}. {l.text}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {line && (
-        <div className="space-y-2">
-          <div className="flex items-baseline justify-between gap-2">
-            <p className="min-w-0 truncate text-sm font-semibold">Línea {i + 1} · {line.text}</p>
-            <p className="shrink-0 font-mono text-xs text-muted">{stamp(line.start)}</p>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={span}
-            step={FRAME}
-            aria-label={`Empieza la línea ${i + 1}`}
-            className="h-12 w-full cursor-ew-resize accent-ink"
-            value={Math.min(span, line.start)}
-            onChange={(e) => onStart(i, Number(e.target.value))}
-          />
-          <div className="flex flex-wrap items-center gap-1">
-            <Button variant="ghost" className="px-2 py-1 text-xs" title="Escuchar desde acá" onClick={() => onPlay(Math.max(0, line.start - 0.4))}>▶</Button>
-            <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onStart(i, line.start - FRAME)}>−1 cuadro</Button>
-            <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onStart(i, line.start - 0.1)}>−0.1</Button>
-            <input
-              type="number"
-              step={0.01}
-              min={0}
-              aria-label={`Segundos de la línea ${i + 1}`}
-              className={`${smallInput} w-24 px-2 py-1 font-mono text-xs`}
-              value={Number(line.start.toFixed(2))}
-              onChange={(e) => onStart(i, Number(e.target.value))}
-            />
-            <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onStart(i, line.start + 0.1)}>+0.1</Button>
-            <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onStart(i, line.start + FRAME)}>+1 cuadro</Button>
-          </div>
-        </div>
-      )}
-
-      <ol className="divide-y divide-line border-t border-line">
-        {lines.map((l, n) => (
-          <li key={n} className={`flex flex-wrap items-center gap-3 py-2 ${n === i ? "bg-paper/80" : ""}`}>
-            <button type="button" className="w-16 shrink-0 text-left font-mono text-xs text-muted" onClick={() => setPicked(n)}>
-              {stamp(l.start)}
-            </button>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap gap-1">
-                {l.words.map((w, wi) => (
-                  <button
-                    key={wi}
-                    type="button"
-                    onClick={() => {
-                      setPicked(n);
-                      onKey(n, wi);
-                    }}
-                    aria-pressed={w.key}
-                    className={`rounded px-1 text-sm ${w.key ? "bg-touch-soft font-bold text-touch" : "hover:bg-black/5"}`}
-                  >
-                    {w.text}
-                  </button>
-                ))}
-              </div>
-              {l.second && <p className="text-xs text-muted">{l.second}</p>}
-            </div>
-          </li>
-        ))}
-      </ol>
-      <p className="text-xs text-muted">Tocá una palabra para que salga más grande. Un cuadro es 1/30 de segundo.</p>
-    </div>
-  );
-}
-
-type VideoTabProps = {
-  piece: LyricPiece;
-  song: AudioFile | null;
-  beats: number[];
-  cuts: number[];
-  audio: React.RefObject<HTMLAudioElement | null>;
-  bgImage: HTMLImageElement | null;
-  bgClips: BgClip[];
-  layers: HTMLImageElement[];
-  elementImages: Record<number, HTMLImageElement>;
-  onLayers: (files: File[]) => void;
-  onClearLayers: () => void;
-  onRemoveClip: (slot: number) => void;
-  onPrompts: () => Promise<BackgroundPrompts | null>;
-  busy: string | null;
-  projectId: string | null;
-  projectsDir: string;
-  set: (patch: Partial<LyricPiece>) => void;
-  setStyle: (patch: Partial<LyricStyle>) => void;
-  onBackground: (files: File[]) => void;
-  onRemoveBackground: () => void;
-  onIdeas: () => void;
-  onSaveStyle: () => void;
-  setBusy: (b: null | "render") => void;
-  setError: (e: string) => void;
-};
-
-function VideoTab(props: VideoTabProps) {
-  const { piece, song, beats, cuts, audio, bgImage, bgClips, layers, elementImages, busy, set, setStyle } = props;
-  const layerAssets: MotionAsset[] = useMemo(
-    () => layers.map((img, k) => ({ image: img, width: img.naturalWidth, height: img.naturalHeight, name: `layer:${k}` })),
-    [layers],
-  );
-  const glyphs: Record<number, ElementGlyph> = useMemo(() => {
-    const out: Record<number, ElementGlyph> = {};
-    for (const [slot, img] of Object.entries(elementImages)) {
-      if (img.naturalWidth) out[Number(slot)] = { source: img, width: img.naturalWidth, height: img.naturalHeight };
-    }
-    return out;
-  }, [elementImages]);
-  const style = piece.style;
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const pieceRef = useRef(piece);
-  pieceRef.current = piece;
-  const [progress, setProgress] = useState<number | null>(null);
-  const [results, setResults] = useState<(RenderResult & { url: string; format: LyricPiece["format"]; saved: string })[]>([]);
-  const [prompts, setPrompts] = useState<BackgroundPrompts | null>(null);
-  // The preview plays the background clips one after the other.
-  const [clipIndex, setClipIndex] = useState(0);
-  const clip = bgClips.length ? bgClips[clipIndex % bgClips.length] : null;
-  const vertical = piece.format === "vertical";
-  const [pw, ph] = vertical ? [360, 640] : [640, 360];
-
-  useEffect(() => {
-    loadLyricFonts(piece).catch(() => undefined);
-    // Fonts only depend on the words.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [piece.lines]);
-
-  // The live preview follows the song player, through a smooth clock: the player's own time moves in steps.
-  useEffect(() => {
-    let frame = 0;
-    const clock = mediaClock();
-    const draw = () => {
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext("2d");
-      if (canvas && ctx) {
-        const t = clock(audio.current);
-        const video = videoRef.current;
-        let bg: Backdrop = null;
-        if (video && video.readyState >= 2) bg = { source: video, width: video.videoWidth, height: video.videoHeight };
-        else if (bgImage) bg = { source: bgImage, width: bgImage.naturalWidth, height: bgImage.naturalHeight };
-        drawLyricFrame(ctx, canvas.width, canvas.height, t, pieceRef.current, bg, beats, layerAssets, glyphs, cuts);
-      }
-      frame = requestAnimationFrame(draw);
-    };
-    frame = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(frame);
-  }, [audio, bgImage, beats, cuts, layerAssets, glyphs]);
-
-  // One format, or both one after the other; each is saved in the project as video-vertical / video-horizontal.
-  async function render(formats: LyricPiece["format"][]) {
-    if (!song) return;
-    props.setError("");
-    props.setBusy("render");
-    setProgress(0);
-    setResults([]);
-    try {
-      for (const [n, format] of formats.entries()) {
-        const out = await renderLyricVideo(
-          song.blob,
-          { image: bgImage ?? undefined, clips: bgClips.map((c) => c.blob), layers, elements: elementImages },
-          { ...piece, format },
-          (f) => setProgress((n + f) / formats.length),
-          cuts,
-        );
-        let saved = "";
-        if (props.projectId) {
-          const { file } = await api.saveVideo(props.projectId, out.blob, format);
-          saved = `${props.projectsDir}/${props.projectId}/${file}`;
-        }
-        setResults((r) => [...r, { ...out, url: URL.createObjectURL(out.blob), format, saved }]);
-      }
-    } catch (e) {
-      props.setError(message(e));
-    } finally {
-      setProgress(null);
-      props.setBusy(null);
-    }
-  }
-
-  const missing = [!song && "la canción", !piece.lines.length && "sincronizar la letra", !piece.rights && "confirmar los derechos"].filter(Boolean);
-  const color = (key: "textColor" | "highlightColor", label: string) => (
-    <label className="flex items-center gap-2 text-sm">
-      <input type="color" value={style[key]} onChange={(e) => setStyle({ [key]: e.target.value })} />
-      {label}
-    </label>
-  );
-
-  return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-      <div className="space-y-3">
-        <div className="flex justify-center rounded-xl bg-black/90 p-3">
-          <canvas
-            ref={canvasRef}
-            width={pw}
-            height={ph}
-            className={vertical ? "h-[640px] max-h-[70vh] w-auto" : "w-full"}
-            aria-label="Vista previa"
-          />
-        </div>
-        {clip && (
-          <video
-            ref={videoRef}
-            key={clip.url}
-            src={clip.url}
-            muted
-            loop={bgClips.length === 1}
-            autoPlay
-            playsInline
-            onEnded={() => setClipIndex((i) => i + 1)}
-            className="hidden"
-          />
-        )}
-        <p className="text-center text-xs text-muted">La vista previa sigue al reproductor de arriba: dale play.</p>
-      </div>
-
-      <div className="space-y-5">
-        <Field label="Fondo" group>
-          <Segmented
-            value={style.background}
-            onChange={(background) => setStyle({ background })}
-            options={[
-              { value: "organic", label: "Orgánico" },
-              { value: "layers", label: "Capas de Grok" },
-              { value: "media", label: "Foto o video propio" },
-            ]}
-          />
-        </Field>
-        {style.background === "layers" && (
-          <div className="space-y-2">
-            <p className="text-xs text-muted">
-              Las capas que separa Grok (Segmentos → Descargar todo), del fondo al frente. Cada una se mueve según su profundidad y
-              late con el ritmo.
-            </p>
-            <input
-              type="file"
-              accept="image/png,image/webp,image/*"
-              multiple
-              aria-label="Subir capas"
-              className="text-sm"
-              onChange={(e) => {
-                if (e.target.files?.length) props.onLayers([...e.target.files]);
-                e.target.value = "";
-              }}
-            />
-            {layers.length > 0 && (
-              <p className="flex items-center gap-2 text-xs text-muted">
-                {layers.length} capa(s).
-                <button type="button" className="font-semibold hover:text-ink" onClick={props.onClearLayers}>
-                  Quitar
-                </button>
-              </p>
-            )}
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" className="mt-1" checked={piece.aiBackground} onChange={(e) => set({ aiBackground: e.target.checked })} />
-              <span>
-                <b>Aviso: fondo hecho con IA</b>
-              </span>
-            </label>
-          </div>
-        )}
-        {style.background === "layers" ? null : style.background === "organic" ? (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              {style.palette.map((c, i) => (
-                <input
-                  key={i}
-                  type="color"
-                  aria-label={`Color ${i + 1}`}
-                  value={c}
-                  onChange={(e) => setStyle({ palette: style.palette.map((x, j) => (j === i ? e.target.value : x)) })}
-                />
-              ))}
-              <Segmented
-                value={style.mood}
-                onChange={(mood) => setStyle({ mood })}
-                options={[
-                  { value: "calm", label: "Calmo" },
-                  { value: "lively", label: "Movido" },
-                ]}
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={style.pulse} onChange={(e) => setStyle({ pulse: e.target.checked })} />
-              Late con el ritmo
-            </label>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <p className="text-xs text-muted">
-              Una foto, o hasta {MAX_CLIPS} videos que se pasan uno tras otro en loop (por ejemplo, clips de Grok).
-            </p>
-            <input
-              type="file"
-              accept="image/*,video/*"
-              multiple
-              aria-label="Subir fondo"
-              className="text-sm"
-              onChange={(e) => {
-                if (e.target.files?.length) props.onBackground([...e.target.files]);
-                e.target.value = "";
-              }}
-            />
-            {bgClips.length > 0 && (
-              <ol className="space-y-1 text-sm">
-                {bgClips.map((c, i) => (
-                  <li key={c.slot} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-white px-2 py-1">
-                    <span className="min-w-0 truncate">
-                      {i + 1}. {c.name}
-                    </span>
-                    <Button variant="ghost" className="px-2 py-0.5 text-xs" onClick={() => props.onRemoveClip(c.slot)}>
-                      Quitar
-                    </Button>
-                  </li>
-                ))}
-              </ol>
-            )}
-            {(bgImage || bgClips.length > 0) && (
-              <Button variant="ghost" className="px-2 py-1 text-xs" onClick={props.onRemoveBackground}>
-                Quitar todo el fondo
-              </Button>
-            )}
-            <div className="rounded-lg border border-line bg-white p-3">
-              <Button
-                variant="secondary"
-                className="px-3 py-1 text-xs"
-                disabled={busy !== null || !piece.lines.length}
-                onClick={async () => setPrompts(await props.onPrompts())}
-              >
-                {busy === "prompts" ? <Spinner /> : null} Prompts para Grok (fondo en loop)
-              </Button>
-              {prompts && (
-                <div className="mt-2 space-y-3">
-                  {prompts.note && <p className="text-xs text-muted">{prompts.note}</p>}
-                  {prompts.prompts.map((p, i) => (
-                    <div key={i} className="space-y-1 border-t border-line pt-2 text-xs">
-                      <p className="font-semibold">
-                        {i + 1}. {p.title} · {p.seconds} s
-                      </p>
-                      <p className="text-muted">Imagen: {p.image}</p>
-                      <p className="text-muted">Video: {p.video}</p>
-                      <div className="flex gap-2">
-                        <CopyButton text={p.image} idle="Copiar imagen" variant="secondary" />
-                        <CopyButton text={p.video} idle="Copiar video" variant="secondary" />
-                      </div>
-                    </div>
-                  ))}
-                  <p className="text-xs text-muted">Generalos en Grok, descargalos y subilos arriba: se pasan en orden.</p>
-                </div>
-              )}
-            </div>
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" className="mt-1" checked={piece.fullFrame} onChange={(e) => set({ fullFrame: e.target.checked })} />
-              <span>
-                <b>Cuadro completo</b>
-                <span className="block text-xs text-muted">Se ve entera, sin recortar (la marca de agua de Grok queda visible).</span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" className="mt-1" checked={piece.aiBackground} onChange={(e) => set({ aiBackground: e.target.checked })} />
-              <span>
-                <b>Aviso: fondo hecho con IA</b>
-                <span className="block text-xs text-muted">Dejalo prendido si la foto o el video los hizo una IA.</span>
-              </span>
-            </label>
-          </div>
-        )}
-
-        <Button variant="secondary" onClick={props.onIdeas} disabled={busy !== null || !piece.lines.length}>
-          {busy === "ideas" ? <Spinner /> : null} Ideas de la IA: colores y palabras clave
-        </Button>
-
-        <Field label="Letra" group>
-          <div className="space-y-3">
-            <Segmented
-              value={style.font}
-              onChange={(font) => setStyle({ font })}
-              options={LYRIC_FONTS.map((f) => ({ value: f, label: LYRIC_FONT_LABEL[f] }))}
-            />
-            <label className="block text-sm">
-              Tamaño {style.size}%
-              <input
-                type="range"
-                min={50}
-                max={200}
-                step={5}
-                className="block w-full"
-                value={style.size}
-                onChange={(e) => setStyle({ size: Number(e.target.value) })}
-              />
-            </label>
-            <div className="flex flex-wrap gap-4">
-              {color("textColor", "Texto")}
-              {color("highlightColor", "Resaltado")}
-            </div>
-            <Segmented
-              value={style.position}
-              onChange={(position) => setStyle({ position })}
-              options={[
-                { value: "center", label: "Al centro" },
-                { value: "lower", label: "Abajo" },
-              ]}
-            />
-            <div>
-              <p className="mb-1 text-sm">Entrada de la letra</p>
-              <div className="grid grid-cols-3 gap-1">
-                {LYRIC_ENTRANCES.map((entrance) => (
-                  <button
-                    key={entrance}
-                    type="button"
-                    onClick={() => setStyle({ entrance })}
-                    className={`rounded-md px-2 py-1.5 text-sm font-medium ${style.entrance === entrance ? "bg-ink text-white" : "border border-line bg-white text-muted hover:text-ink"}`}
-                  >
-                    {LYRIC_ENTRANCE_LABEL[entrance]}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={style.karaoke} onChange={(e) => setStyle({ karaoke: e.target.checked })} />
-              Karaoke: se ilumina la palabra que suena
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={style.keywords} onChange={(e) => setStyle({ keywords: e.target.checked })} />
-              Palabras clave más grandes
-            </label>
-          </div>
-        </Field>
-
-        <Button variant="ghost" className="px-2 py-1 text-xs" onClick={props.onSaveStyle} disabled={busy !== null}>
-          Guardar este estilo en la serie
-        </Button>
-
-        <Field label="Video" group>
-          <div className="space-y-3">
-            <Segmented
-              value={piece.format}
-              onChange={(format) => set({ format })}
-              options={[
-                { value: "vertical", label: "Vertical 9:16" },
-                { value: "horizontal", label: "Horizontal 16:9" },
-              ]}
-            />
-            <div className="flex items-center gap-2 text-sm">
-              Desde
-              <input
-                type="number"
-                min={0}
-                step={0.5}
-                className={`${smallInput} w-20 px-2 py-1`}
-                value={piece.from}
-                onChange={(e) => set({ from: Math.max(0, Number(e.target.value)) })}
-              />
-              hasta
-              <input
-                type="number"
-                min={0}
-                step={0.5}
-                className={`${smallInput} w-20 px-2 py-1`}
-                value={piece.to || ""}
-                placeholder="el final"
-                onChange={(e) => set({ to: Math.max(0, Number(e.target.value)) })}
-              />
-              s
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={piece.credit} onChange={(e) => set({ credit: e.target.checked })} />
-              Crédito de la canción al pie
-            </label>
-          </div>
-        </Field>
-
-        <div className="flex gap-2">
-          <Button className="flex-1" onClick={() => render([piece.format])} disabled={busy !== null || missing.length > 0}>
-            {busy === "render" ? (
-              <>
-                <Spinner /> Generando…
-              </>
-            ) : (
-              `Generar ${vertical ? "9:16" : "16:9"}`
-            )}
-          </Button>
-          <Button
-            variant="secondary"
-            className="flex-1"
-            onClick={() => render(["vertical", "horizontal"])}
-            disabled={busy !== null || missing.length > 0}
-          >
-            Generar los dos formatos
-          </Button>
-        </div>
-        {missing.length > 0 && <p className="text-xs text-muted">Falta: {missing.join(", ")}.</p>}
-        {progress !== null && (
-          <div className="h-1.5 overflow-hidden rounded-full bg-paper">
-            <div className="h-full bg-good transition-all" style={{ width: `${progress * 100}%` }} />
-          </div>
-        )}
-        {results.map((result) => (
-          <div key={result.format} className="space-y-2">
-            <p className="text-xs font-semibold">{result.format === "vertical" ? "Vertical 9:16" : "Horizontal 16:9"}</p>
-            <video
-              src={result.url}
-              controls
-              playsInline
-              className={`mx-auto w-full rounded-lg bg-black ${result.format === "vertical" ? "max-h-[70vh] w-auto" : ""}`}
-            />
-            <Button
-              variant="secondary"
-              className="w-full"
-              onClick={() =>
-                download(result.blob, `${slug(piece.title) || "video-de-letra"}-${result.format === "vertical" ? "9x16" : "16x9"}.${result.extension}`)
-              }
-            >
-              Descargar {result.format === "vertical" ? "9:16" : "16:9"} .{result.extension}
-            </Button>
-            {result.saved && <p className="text-xs text-good">Guardado en el proyecto: {result.saved}</p>}
-            {result.notes.map((n) => (
-              <p key={n} className="text-xs text-muted">
-                {n}
-              </p>
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }
 

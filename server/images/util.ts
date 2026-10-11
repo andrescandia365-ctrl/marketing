@@ -2,7 +2,8 @@ import { buildImagePrompt } from "../../shared/prompt.ts";
 
 export type Aspect = "vertical" | "horizontal";
 
-export type ImageRequest = { prompt: string; style: string; aspect: Aspect; beat: string };
+// look: the series look as one line (lookPhrase), "" with none.
+export type ImageRequest = { prompt: string; style: string; aspect: Aspect; beat: string; look?: string };
 
 export interface ImageProvider {
   id: string;
@@ -19,6 +20,6 @@ export async function toDataUrl(res: Response): Promise<string> {
 }
 
 // Every prompt gets the same guardrails, whatever the shot says.
-export function guardedPrompt({ prompt, style }: ImageRequest): string {
-  return buildImagePrompt(prompt, style);
+export function guardedPrompt({ prompt, style, look }: ImageRequest): string {
+  return buildImagePrompt(prompt, style, look);
 }

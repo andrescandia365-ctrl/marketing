@@ -26,13 +26,14 @@ export type SoundPlan = {
   bed?: number;
 };
 
-export type HitKind = "whoosh" | "pop" | "reveal" | "logo" | "tap" | "key";
+// glide: the soft move cue of "Continuidad" (a picture carried across the cut), quieter and darker than the whoosh.
+export type HitKind = "whoosh" | "glide" | "pop" | "reveal" | "logo" | "tap" | "key";
 
 // A voice that runs past its scene fades out over this long, ending on the cut.
 export const VOICE_FADE = 0.08;
 
 // How loud each kind sits in the effects bus: soft under the music, repeated little sounds lowest.
-const HIT_GAIN: Record<HitKind, number> = { whoosh: 0.55, pop: 0.6, reveal: 0.75, logo: 0.5, tap: 0.55, key: 0.28 };
+const HIT_GAIN: Record<HitKind, number> = { whoosh: 0.55, glide: 0.3, pop: 0.6, reveal: 0.75, logo: 0.5, tap: 0.55, key: 0.28 };
 
 const midi = (n: number) => 440 * 2 ** ((n - 69) / 12);
 
@@ -153,12 +154,28 @@ function addHits(ctx: OfflineAudioContext, out: AudioNode, plan: SoundPlan) {
       src.connect(g).connect(out);
       // The slide runs across the cut. Everything else starts with its motion: its attack (not the file's silence
       // before it) lands on the element's time.
-      const at = hit.kind === "whoosh" ? hit.at - 0.12 : hit.at - shape.onset;
+      const at = hit.kind === "whoosh" || hit.kind === "glide" ? hit.at - 0.12 : hit.at - shape.onset;
       if (at >= 0) src.start(at);
       else src.start(0, -at);
       continue;
     }
-    if (hit.kind === "whoosh") {
+    if (hit.kind === "glide") {
+      // A soft, low air move that swells to the middle of the carry and lets go.
+      const start = Math.max(0, hit.at - 0.25);
+      const src = ctx.createBufferSource();
+      src.buffer = noise;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.Q.value = 0.9;
+      bp.frequency.setValueAtTime(260, start);
+      bp.frequency.exponentialRampToValueAtTime(1300, hit.at + 0.1);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.001, start);
+      g.gain.exponentialRampToValueAtTime(0.16, hit.at);
+      g.gain.exponentialRampToValueAtTime(0.001, hit.at + 0.3);
+      src.connect(bp).connect(g).connect(out);
+      src.start(start, 0.3, 0.6);
+    } else if (hit.kind === "whoosh") {
       // Peaks right on the cut.
       const start = Math.max(0, hit.at - 0.28);
       const src = ctx.createBufferSource();

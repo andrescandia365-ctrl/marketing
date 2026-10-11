@@ -5,7 +5,8 @@
 //
 // Usage (with the app running):  node render.mjs <proyecto> [vertical|horizontal|ambos] [--url http://localhost:5173]
 // The video lands in the project's folder as video-final-vertical.mp4 / video-final-horizontal.mp4. Frame 0 is the
-// piece's thumbnail (platforms show the first frame), also saved as portada-9x16.jpg / portada-16x9.jpg.
+// piece's thumbnail (platforms show the first frame), also saved as portada-9x16.jpg / portada-16x9.jpg. The subtitles
+// go next to it as video-final-vertical.srt / video-final-horizontal.srt.
 // Browser: Google Chrome if installed, or the one at CHROME_PATH.
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
@@ -62,8 +63,8 @@ async function renderOne(browser, format, index) {
   const problem = await page.evaluate(() => window.motionRenderError);
   if (problem) fail(problem);
   const info = await page.evaluate(() => {
-    const { width, height, fps, duration, notice, poster } = window.motionRender;
-    return { width, height, fps, duration, notice, poster };
+    const { width, height, fps, duration, notice, poster, srt } = window.motionRender;
+    return { width, height, fps, duration, notice, poster, srt: srt ?? "" };
   });
   const temp = await mkdtemp(join(tmpdir(), "render-"));
   const wav = join(temp, "sonido.wav");
@@ -149,6 +150,13 @@ async function renderOne(browser, format, index) {
   } else console.log(`aviso no encontré ffprobe para revisar el video ${format}`);
   await rename(partial, out);
   await writeFile(join(folder, `portada-${vertical ? "9x16" : "16x9"}.jpg`), poster);
+  // The subtitles next to the video, with its base name (video-final-vertical.srt): the same cues the frames draw.
+  // A piece with no voice has no subtitles, and an old .srt would no longer match: it goes.
+  const srt = join(folder, `video-final-${format}.srt`);
+  if (info.srt) {
+    await writeFile(srt, info.srt);
+    console.log(`subtitulos video-final-${format}.srt`);
+  } else await rm(srt, { force: true });
   console.log(`listo video-final-${format}.mp4`);
 }
 

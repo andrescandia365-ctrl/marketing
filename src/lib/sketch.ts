@@ -1,6 +1,7 @@
 // The drawn storyboard: each shot as a grey pencil sketch made from what the shot already says (who is in frame,
 // the place, a real screen, the framing in its image prompt), before anything is generated. Free and instant. Every
 // line is a pure function of the shot (seeded wobble, no Math.random), so the sketch never changes between draws.
+import type { Setup } from "../../shared/schema.ts";
 import type { TimedShot } from "../../shared/template.ts";
 
 export type SketchKind = "character" | "place" | "product" | "screen" | "other";
@@ -8,6 +9,24 @@ export type SketchSetup = { name: string; kind: SketchKind };
 export type Framing = "close" | "medium" | "wide";
 
 export const FRAMING_LABEL: Record<Framing, string> = { close: "Primer plano", medium: "Plano medio", wide: "Plano general" };
+
+// What a shot's setups are, for its sketch: the cast says it; a new setup that sounds like a place is drawn as one.
+export function sketchSetups(shot: TimedShot, setups: Record<string, Setup>, castKinds: Record<string, string>): SketchSetup[] {
+  const list: SketchSetup[] = shot.setups.flatMap((id) => {
+    const s = setups[id];
+    if (!s) return [];
+    const known = s.castId ? castKinds[s.castId] : undefined;
+    // A person first (an owner "of a corner store" is still a person), then a place, else a thing or someone unnamed.
+    const person = /\b(man|woman|person|owner|girl|boy|guy|lady|kid|child|he|she|his|her|years? old|\d{2}s)\b/i.test(s.identity);
+    const place = /\b(store|shop|kiosk|room|kitchen|street|office|counter|aisle|house|living)\b/i.test(s.identity);
+    const kind = (["character", "place", "product", "screen"].includes(known ?? "") ? known : person ? "character" : place ? "place" : "other") as SketchSetup["kind"];
+    return [{ name: s.name, kind }];
+  });
+  // A transform that starts or ends on a real screen shows it too.
+  if ((shot.kind === "screen" || (shot.kind === "transform" && shot.screenAt)) && !list.some((s) => s.kind === "screen"))
+    list.push({ name: "Pantalla real", kind: "screen" });
+  return list;
+}
 
 // The framing and camera height the image prompt asks for.
 export function framingOf(prompt: string): { framing: Framing; angle: "low" | "eye" | "high" } {

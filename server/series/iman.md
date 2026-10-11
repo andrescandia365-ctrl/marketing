@@ -4,6 +4,7 @@ Frase: Números claros. Local que crece.
 Tipo: Software (SaaS)
 Estilo de texto: {"subtitleSize":100,"headlineSize":100,"textColor":"#ffffff","headlineColor":"#ffffff","backing":"shadow","backingColor":"#000000"}
 Marca (logo, colores y fuentes para motion graphics): {"bg":"#111418","text":"#f4f1ea","accent":"#ff5a36","displayFont":"Space Grotesk","uiFont":"Inter","logo":""}
+Personaje de los explicativos: mica (Mica)
 
 ## Qué es
 Una app de caja y gestión para kioscos y almacenes de Argentina. Se vende como un lector láser de código de barras más una licencia (12, 24 o 36 meses).

@@ -1,10 +1,12 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { clipPrompt } from "../../shared/audio.ts";
+import { clipMusicNotice, clipPrompt } from "../../shared/audio.ts";
 import { polishWords } from "../../shared/checks.ts";
 import { buildCopyPrompt } from "../../shared/prompt.ts";
 import { SHOT_LENGTHS, type Board, type Brief, type ImageReview, type SegmentEdit, type Setup, type Shot, type Story } from "../../shared/schema.ts";
 import type { CastMember } from "../../shared/series.ts";
+import { shotReferences } from "../../shared/castRefs.ts";
 import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
+import { editsFrom, generatesImage, transformScreen, withScreenMove } from "../../shared/transformScreen.ts";
 import { copyText } from "../lib/files.ts";
 import { formatElapsed, type LogEntry } from "../lib/markdown.ts";
 import { SpeakButton, VoiceRow, type AudioFile, type VoiceRowProps } from "./Audio.tsx";
@@ -19,6 +21,8 @@ export type ReviewState = { what: "image" | "clip"; loading: boolean; result?: I
 
 export type MediaState = {
   image?: string;
+  // The image's file name in the project folder (kept for sketches, which pieza.md links).
+  imageFile?: string;
   clip?: ClipFile;
   review?: ReviewState;
   voice?: AudioFile;
@@ -218,6 +222,8 @@ type CardProps = {
   onRewrite: (index: number, note: string) => Promise<boolean>;
   // The series' fixed cast by id: approved images, @ references and real screens.
   library: Record<string, LibraryEntry>;
+  // The tool's cap on reference images (its profile in server/tools/), or null.
+  maxRefs?: number | null;
   // How lines are heard: the voice row under each shot.
   voice: Omit<VoiceRowProps, "shot" | "index" | "speaker" | "voice" | "sfx">;
 };
@@ -283,60 +289,78 @@ function InFrame({
   setups,
   library,
   toolName,
+  maxRefs,
   onChange,
 }: {
   shot: Shot;
   setups: Setup[];
   library: Record<string, LibraryEntry>;
   toolName: string;
+  maxRefs: number | null;
   onChange: (setups: string[]) => void;
 }) {
   const byId = Object.fromEntries(setups.map((s) => [s.id, s]));
   const missing = setups.filter((s) => !shot.setups.includes(s.id));
+  const members = shot.setups.map((id) => byId[id]?.castId).flatMap((c) => (c && library[c] ? [library[c]] : []));
+  const refs = shotReferences(members);
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs">
-      <span className="font-semibold text-muted">En cuadro:</span>
-      {shot.setups.map((id) => {
-        const setup = byId[id];
-        const member = setup?.castId ? library[setup.castId] : undefined;
-        return (
-          <span
-            key={id}
-            className="inline-flex items-center gap-1 rounded-full border border-line bg-white py-0.5 pr-1 pl-1"
-            title={member ? `En ${toolName}: escribí @${member.ref} para usar su imagen aprobada` : setup?.identity}
-          >
-            {member?.url ? (
-              <img src={member.url} alt="" className="size-5 rounded-full object-cover" />
-            ) : (
-              <span className="grid size-5 place-items-center rounded-full bg-ink text-[10px] font-bold text-white">{id}</span>
-            )}
-            {setup?.name ?? id}
-            {member && <b className="font-mono text-good">@{member.ref}</b>}
-            <button
-              type="button"
-              onClick={() => onChange(shot.setups.filter((x) => x !== id))}
-              className="rounded-full px-1 text-muted hover:text-neg"
-              aria-label={`Sacar ${setup?.name ?? id} de la toma`}
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        <span className="font-semibold text-muted">En cuadro:</span>
+        {shot.setups.map((id) => {
+          const setup = byId[id];
+          const member = setup?.castId ? library[setup.castId] : undefined;
+          return (
+            <span
+              key={id}
+              className="inline-flex items-center gap-1 rounded-full border border-line bg-white py-0.5 pr-1 pl-1"
+              title={member ? `En ${toolName}: escribí @${member.ref} para usar su imagen aprobada` : setup?.identity}
             >
-              ×
-            </button>
-          </span>
-        );
-      })}
-      {missing.length > 0 && (
-        <select
-          value=""
-          onChange={(e) => e.target.value && onChange([...shot.setups, e.target.value])}
-          className="rounded-full border border-dashed border-line bg-white px-2 py-0.5 text-xs text-muted"
-          aria-label="Sumar a la toma"
-        >
-          <option value="">+ sumar</option>
-          {missing.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+              {member?.url ? (
+                <img src={member.url} alt="" className="size-5 rounded-full object-cover" />
+              ) : (
+                <span className="grid size-5 place-items-center rounded-full bg-ink text-[10px] font-bold text-white">{id}</span>
+              )}
+              {setup?.name ?? id}
+              {member && <b className="font-mono text-good">@{member.ref}</b>}
+              {(member?.refs ?? [])
+                .filter((r) => r.image)
+                .map((r) => (
+                  <b key={r.ref} className="font-mono text-good/80" title={`Otra referencia de ${member?.name}: ${r.label}`}>
+                    @{r.ref}
+                  </b>
+                ))}
+              <button
+                type="button"
+                onClick={() => onChange(shot.setups.filter((x) => x !== id))}
+                className="rounded-full px-1 text-muted hover:text-neg"
+                aria-label={`Sacar ${setup?.name ?? id} de la toma`}
+              >
+                ×
+              </button>
+            </span>
+          );
+        })}
+        {missing.length > 0 && (
+          <select
+            value=""
+            onChange={(e) => e.target.value && onChange([...shot.setups, e.target.value])}
+            className="rounded-full border border-dashed border-line bg-white px-2 py-0.5 text-xs text-muted"
+            aria-label="Sumar a la toma"
+          >
+            <option value="">+ sumar</option>
+            {missing.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      {maxRefs !== null && refs.length > maxRefs && (
+        <p className="text-xs text-amber-800">
+          Esta toma tiene {refs.length} referencias y {toolName} acepta hasta {maxRefs}: llamá con @ solo las que se ven.
+        </p>
       )}
     </div>
   );
@@ -368,8 +392,14 @@ function ShotCard(props: CardProps) {
   const vertical = brief.format === "vertical";
   const setup = board.setups.find((s) => s.id === shot.setups[0]);
   const screen = shot.kind === "screen" ? library[shot.screen] : undefined;
-  // A screen shot shows the real screenshot from the series unless the person uploaded another image.
-  const image = media.image ?? screen?.url;
+  // A transform can start or end on a real screen from the cast: that frame is the screenshot, never generated.
+  const realEnd = transformScreen(shot);
+  const editFrom = editsFrom(board.shots, shot.editFrom) ? shot.editFrom : 0;
+  const realScreen = realEnd ? library[realEnd.screen] : undefined;
+  const screens = Object.values(library).filter((m) => m.kind === "screen");
+  // A screen shot (or a transform that starts on a real screen) shows the real screenshot from the series unless
+  // the person uploaded another image.
+  const image = media.image ?? screen?.url ?? (realEnd?.at === "start" ? realScreen?.url : undefined);
   const who = story.characters.find((c) => c.id === shot.speaker);
   const set = <K extends keyof Shot>(key: K, value: Shot[K]) => onShotChange(shot.index, { ...shot, [key]: value });
 
@@ -407,6 +437,12 @@ function ShotCard(props: CardProps) {
     setRewriting(false);
     if (ok) setNote("");
   }
+
+  // "Final: pantalla real": the end (or start) frame becomes a cast screenshot and the video prompt says so.
+  const setRealScreen = (at: Shot["screenAt"], id: string) => {
+    const name = library[id]?.name ?? id;
+    onShotChange(shot.index, { ...shot, screenAt: id ? at : "", screen: id && at ? id : "", videoPrompt: withScreenMove(shot.videoPrompt, id ? at : "", name) });
+  };
 
   const setSeconds = (seconds: number) =>
     onShotChange(shot.index, { ...shot, seconds, toolSettings: shot.toolSettings.replace(/\d+(\.\d+)?\s*s\b/, `${seconds} s`) });
@@ -515,10 +551,28 @@ function ShotCard(props: CardProps) {
             </DropSlot>
           </div>
           {media.clip && <p className="text-xs text-muted">{clipNote(media.clip, shot)}</p>}
+          {media.clip && clipMusicNotice(voice.audio, shot.index) && (
+            <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900" role="status">
+              <p>
+                <span className="font-semibold">Este clip parece traer música.</span> La música va aparte, con su licencia;
+                si no la tiene, que el clip suene mudo. Es una estimación: puede equivocarse.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="font-semibold underline" onClick={() => voice.onClipLevel(shot.index, "mute")}>
+                  Ponerlo en Mudo
+                </button>
+                {voice.onClipMusicOk && (
+                  <button type="button" className="font-semibold underline" onClick={() => voice.onClipMusicOk?.(shot.index)}>
+                    Tiene licencia / no es música
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           {!media.clip && !image && setup && shot.kind === "single" && (
             <p className="text-xs text-muted">
-              {shot.editFrom > 0
-                ? `Partí de la imagen de la toma ${shot.editFrom} y editala; después animala en ${toolName}.`
+              {editFrom > 0
+                ? `Partí de la imagen de la toma ${editFrom} y editala; después animala en ${toolName}.`
                 : `Primero la imagen (${setup.name}); después animala en ${toolName}.`}
             </p>
           )}
@@ -526,7 +580,22 @@ function ShotCard(props: CardProps) {
             <p className="text-xs text-muted">
               En {toolName}: cargá la imagen inicial{shot.middlePrompt ? ", la intermedia" : ""} y la final en la barra del
               clip, y pegá el prompt de video.
+              {realEnd &&
+                (realScreen
+                  ? ` La ${realEnd.at === "end" ? "final" : "inicial"} es la captura real de ${realScreen.name}: no se genera con IA.`
+                  : ` Falta la pantalla "${realEnd.screen}" en el elenco de la serie.`)}
             </p>
+          )}
+          {realEnd?.at === "end" && realScreen?.url && (
+            <a
+              href={realScreen.url}
+              download={`${realScreen.id}.png`}
+              className="block overflow-hidden rounded-md border border-line text-xs"
+              title="Bajala y cargala como imagen final en la barra del clip"
+            >
+              <img src={realScreen.url} alt="" className="max-h-28 w-full object-contain bg-paper" />
+              <span className="block px-2 py-1 font-semibold">Imagen final: {realScreen.name} (bajar)</span>
+            </a>
           )}
           {shot.kind === "screen" && (
             <p className="text-xs text-muted">
@@ -535,7 +604,8 @@ function ShotCard(props: CardProps) {
           )}
           <button
             type="button"
-            disabled={media.loading}
+            disabled={media.loading || !generatesImage(shot)}
+            title={generatesImage(shot) ? undefined : "Es una pantalla real: no se genera con IA"}
             onClick={() => onGenerate(shot.index)}
             className="w-full rounded-md py-1 text-xs font-semibold text-muted hover:bg-black/5 hover:text-ink disabled:opacity-50"
           >
@@ -552,6 +622,7 @@ function ShotCard(props: CardProps) {
             setups={board.setups}
             library={library}
             toolName={toolName}
+            maxRefs={props.maxRefs ?? null}
             onChange={(setups) => set("setups", setups)}
           />
           {shot.timeline.length > 0 && (
@@ -576,7 +647,34 @@ function ShotCard(props: CardProps) {
               </ol>
             </div>
           )}
-          {shot.kind !== "screen" && (
+          {shot.kind === "transform" && (
+            <label className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-semibold text-muted">Pantalla real en la transformación</span>
+              <select
+                value={shot.screenAt ? `${shot.screenAt}:${shot.screen}` : ""}
+                onChange={(e) => {
+                  const [at, id] = e.target.value.split(":") as [Shot["screenAt"], string | undefined];
+                  setRealScreen(at, id ?? "");
+                }}
+                className="rounded border border-line bg-white px-1.5 py-0.5"
+                title="Una punta del clip puede ser una captura real de la serie (nunca dibujada por IA)"
+              >
+                <option value="">Ninguna: las dos imágenes con IA</option>
+                {screens.map((m) => (
+                  <option key={`end:${m.id}`} value={`end:${m.id}`}>
+                    Final: pantalla real · {m.name}
+                  </option>
+                ))}
+                {screens.map((m) => (
+                  <option key={`start:${m.id}`} value={`start:${m.id}`}>
+                    Inicial: pantalla real · {m.name}
+                  </option>
+                ))}
+              </select>
+              {screens.length === 0 && <span className="text-muted">(la serie no tiene pantallas reales en el elenco)</span>}
+            </label>
+          )}
+          {shot.kind !== "screen" && realEnd?.at !== "start" && (
             <PromptBox
               label={shot.kind === "transform" ? "Imagen inicial" : "Prompt de imagen"}
               hint={shot.kind === "transform" ? "el Malo, el arranque" : "se hace primero"}
@@ -587,9 +685,9 @@ function ShotCard(props: CardProps) {
               onChange={(v) => set("visualPrompt", v)}
             />
           )}
-          {shot.editFrom > 0 && shot.kind !== "screen" && (
+          {editFrom > 0 && shot.kind !== "screen" && realEnd?.at !== "start" && (
             <PromptBox
-              label={`Editar la imagen de la toma ${shot.editFrom}`}
+              label={`Editar la imagen de la toma ${editFrom}`}
               hint="mismo personaje, solo cambia esto"
               value={shot.editPrompt}
               copy={shot.editPrompt}
@@ -608,21 +706,31 @@ function ShotCard(props: CardProps) {
                 still
                 onChange={(v) => set("middlePrompt", v)}
               />
-              <PromptBox
-                label="Imagen final"
-                hint="el Bueno, el cierre"
-                value={shot.endPrompt}
-                copy={buildCopyPrompt(shot.endPrompt, brief.format)}
-                rows={3}
-                still
-                onChange={(v) => set("endPrompt", v)}
-              />
+              {realEnd?.at !== "end" && (
+                <PromptBox
+                  label="Imagen final"
+                  hint={realEnd ? "la escena a la que sale la pantalla" : "el Bueno, el cierre"}
+                  value={shot.endPrompt}
+                  copy={buildCopyPrompt(shot.endPrompt, brief.format)}
+                  rows={3}
+                  still
+                  onChange={(v) => set("endPrompt", v)}
+                />
+              )}
             </>
           )}
           {(shot.kind !== "screen" || shot.videoPrompt) && (
             <PromptBox
               label="Prompt de video"
-              hint={shot.kind === "transform" ? "el cambio de una imagen a la otra" : "anima la imagen"}
+              hint={
+                realEnd
+                  ? realEnd.at === "end"
+                    ? "de la escena a la pantalla real"
+                    : "de la pantalla real a la escena"
+                  : shot.kind === "transform"
+                    ? "el cambio de una imagen a la otra"
+                    : "anima la imagen"
+              }
               value={shot.videoPrompt}
               // What is heard inside the clip (the voice row's "Sonido dentro del clip") replaces its "Audio:" line.
               copy={clipPrompt(voice.audio, shot, shot.index)}
@@ -795,166 +903,6 @@ export function ScriptView({ strictLook, ...props }: Props) {
         ))}
       </ol>
     </StrictLook.Provider>
-  );
-}
-
-type SetupsProps = {
-  board: Board;
-  media: Record<number, MediaState>;
-  toolName: string;
-  seriesName: string;
-  library: Record<string, LibraryEntry>;
-  // Saves a setup into the series' fixed cast (with an image), or replaces the image of a linked one.
-  onFix: (setup: Setup, kind: CastMember["kind"], image: Blob | null) => Promise<void>;
-};
-
-function SetupRow({ setup, board, media, toolName, seriesName, library, onFix }: SetupsProps & { setup: Setup }) {
-  const shots = timeShots(board.shots).filter((sh) => sh.setups.includes(setup.id));
-  const withImage = shots.filter((sh) => media[sh.index]?.image);
-  const member = setup.castId ? library[setup.castId] : undefined;
-  const [kind, setKind] = useState<CastMember["kind"]>(member?.kind ?? "character");
-  const [from, setFrom] = useState<string>("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const input = useRef<HTMLInputElement>(null);
-
-  async function fix(image: Blob | null) {
-    setBusy(true);
-    setError("");
-    try {
-      await onFix(setup, kind, image);
-      setFrom("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function fromShot(index: string) {
-    const src = media[Number(index)]?.image;
-    if (src) await fix(await (await fetch(src)).blob());
-  }
-
-  return (
-    <li className="grid grid-cols-[56px_minmax(0,1fr)] gap-x-3 text-sm">
-      {member?.url ? (
-        <a href={member.url} download className="block" title="Descargar la imagen fija">
-          <img src={member.url} alt="" className="aspect-[9/16] w-14 rounded-md object-cover" />
-        </a>
-      ) : (
-        <span className="grid aspect-[9/16] w-14 place-items-center rounded-md border border-dashed border-line text-xs font-bold text-muted">
-          {setup.id}
-        </span>
-      )}
-      <div className="min-w-0 space-y-1">
-        <div className="flex flex-wrap items-center justify-between gap-1">
-          <span className="font-semibold">{setup.name}</span>
-          {member ? (
-            <span className="font-mono text-xs text-good">@{member.ref}</span>
-          ) : (
-            <span className="text-xs text-muted">solo en esta pieza</span>
-          )}
-        </div>
-        <p className="text-xs text-muted">
-          Tomas {shots.map((sh) => sh.index + 1).join(", ") || "—"} · “{setup.identity}”
-        </p>
-        {member ? (
-          <p className="text-xs text-muted">
-            Fijo en {seriesName}. En {toolName}: Referencias → + Nuevo, subí esta imagen y llamala <b>@{member.ref}</b>.
-          </p>
-        ) : (
-          <label className="flex items-center gap-1 text-xs">
-            Guardar en la serie como
-            <select
-              value={kind}
-              onChange={(e) => setKind(e.target.value as CastMember["kind"])}
-              className="rounded border border-line bg-white px-1 py-0.5"
-            >
-              <option value="character">personaje</option>
-              <option value="place">lugar</option>
-              <option value="product">producto</option>
-            </select>
-          </label>
-        )}
-        <div className="flex flex-wrap items-center gap-1">
-          <CopyButton text={setup.identity} idle="Copiar descripción" variant="secondary" />
-          {withImage.length > 0 && (
-            <select
-              value={from}
-              disabled={busy}
-              onChange={(e) => {
-                setFrom(e.target.value);
-                if (e.target.value) fromShot(e.target.value);
-              }}
-              className="rounded-lg border border-line bg-white px-2 py-1 text-xs"
-              aria-label={`Imagen fija de ${setup.name}`}
-            >
-              <option value="">{member ? "Cambiar por la imagen de…" : "Fijar con la imagen de…"}</option>
-              {withImage.map((sh) => (
-                <option key={sh.index} value={sh.index}>
-                  la toma {sh.index + 1}
-                </option>
-              ))}
-            </select>
-          )}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => input.current?.click()}
-            className="rounded px-2 py-1 text-xs font-semibold text-muted hover:bg-black/5 hover:text-ink"
-          >
-            {busy ? <Spinner /> : member ? "Subir otra" : "Subir imagen"}
-          </button>
-          {!member && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => fix(null)}
-              className="rounded px-2 py-1 text-xs font-semibold text-muted hover:bg-black/5 hover:text-ink"
-              title="Guarda la descripción ahora; la imagen la sumás después"
-            >
-              Guardar sin imagen
-            </button>
-          )}
-          <input
-            ref={input}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) fix(file);
-              e.target.value = "";
-            }}
-          />
-        </div>
-        {error && <p className="text-xs text-neg">{error}</p>}
-      </div>
-    </li>
-  );
-}
-
-// The piece's setups. Each one can be fixed into the series' cast with an approved image, so every episode
-// (and the image tool, through its @ reference) uses the same face, place or product.
-export function SetupsPanel(props: SetupsProps) {
-  if (!props.board.setups.length) return null;
-  return (
-    <div className="space-y-3 rounded-xl border border-line bg-white p-4">
-      <div>
-        <p className="text-sm font-semibold">Setups · imágenes fijas</p>
-        <p className="mt-1 text-xs text-muted">
-          {props.toolName} mantiene igual a un personaje o un lugar gracias a la imagen, no a las palabras. Fijá una
-          imagen por setup: queda en el elenco de {props.seriesName || "la serie"} para todos los episodios y se usa
-          como referencia con @ en {props.toolName}.
-        </p>
-      </div>
-      <ul className="space-y-4">
-        {props.board.setups.map((s) => (
-          <SetupRow key={s.id} {...props} setup={s} />
-        ))}
-      </ul>
-    </div>
   );
 }
 

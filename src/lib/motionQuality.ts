@@ -1,20 +1,43 @@
 // The quality loop's eyes: the contact sheet (one frame per beat, at phone-thumbnail size, with the second under
 // each frame) and the facts the app measures itself (cuts and entrances against the beats, still stretches, the
 // hook's timing, voices that run over, elements off the frame), so the reviewer never has to guess them.
-import { cutPush, pushOf, quietGaps, readingIssues, sceneElements, settledAt, timeScenes, type MotionScript } from "../../shared/motion.ts";
-import { CONTRAST_ACCENT, CONTRAST_TEXT, brandContrast, type Brand } from "../../shared/series.ts";
+import {
+  BLUR_SHUTTER,
+  BLUR_SUBFRAMES,
+  DISCLOSURE_TAG,
+  READ_LETTERS_PER_SECOND,
+  STEP_DOWN_OVER,
+  cutPush,
+  focusShare,
+  itemsOf,
+  beyondNow,
+  labelled,
+  pushOf,
+  pushWindows,
+  quietGaps,
+  readingIssues,
+  sceneElements,
+  settledAt,
+  timeScenes,
+  type MotionScript,
+  type TimedScene,
+} from "../../shared/motion.ts";
+import { CONTRAST_ACCENT, CONTRAST_TEXT, STEP_DOWN_CONTRAST, brandContrast, contrastRatio, stepDownContrast, type Brand } from "../../shared/series.ts";
+import { WORLD_PLACE_LABEL, worldOf, worldPalette } from "../../shared/world.ts";
 import { OVERLAP, SAFE_BAND_LABEL, overlapShare, safeBands, type SafeBand } from "../../shared/safeZone.ts";
-import { drawMotionFrame, sceneAt, scriptDuration, subtitleBox, type Box, type MotionWorld } from "./motion.ts";
+import { disclosureBox, drawMotionFrame, sceneAt, scriptDuration, subtitleBox, type Box, type MotionWorld } from "./motion.ts";
 
 export type SheetFormat = "vertical" | "horizontal";
 export type Outside = { t: number; scene: number; key: string; format: SheetFormat };
 // Text under a phone's top bar, caption or buttons (9:16 only).
 export type Zoned = { t: number; scene: number; key: string; bands: SafeBand[] };
-// Two settled lines of text on top of each other ("subtitle" is the voice's subtitle).
-export type Overlap = { t: number; scene: number; a: string; b: string; format: SheetFormat };
+// Two settled lines of text on top of each other ("subtitle" is the voice's subtitle, "label" the CONCEPTO /
+// SIMULACIÓN label). `down`: which of the two is an
+// earlier label stepped down for the newest ("Foco de a uno"): still text on screen, so still an overlap.
+export type Overlap = { t: number; scene: number; a: string; b: string; format: SheetFormat; down?: string[] };
 
 // The elements that carry words to read.
-const isText = (key: string) => key === "title" || key === "text" || key === "tag" || key === "subtitle" || /^item\d+$/.test(key);
+const isText = (key: string) => key === "title" || key === "text" || key === "tag" || key === "subtitle" || key === "label" || /^item\d+$/.test(key);
 
 
 const MAX_FRAMES = 28;
@@ -90,14 +113,18 @@ export function contactSheet(
           return isText(key) && el !== undefined && t - scene.start >= settledAt(scene, el, pushOf(scene, push));
         });
       const sub = t - scene.start >= pushOf(scene, push) ? subtitleBox(fctx, cw, ch, t, script, world) : null;
-      const texts = sub ? [...settled, { key: "subtitle", box: sub }] : settled;
+      const label = disclosureBox(fctx, cw, ch, t, script, world);
+      const texts = [...settled, ...(sub ? [{ key: "subtitle", box: sub }] : []), ...(label ? [{ key: "label", box: label }] : [])];
       for (const { key, box } of settled) {
         const bands = safeBands(box, cw, ch);
         if (bands.length) zoned.push({ t, scene: scene.index + 1, key, bands });
       }
+      const stepped = (key: string) => focusShare(scene, key, t - scene.start) > 0;
       texts.forEach((a, i) =>
         texts.slice(i + 1).forEach((b) => {
-          if (overlapShare(a.box, b.box) > OVERLAP) overlaps.push({ t, scene: scene.index + 1, a: a.key, b: b.key, format });
+          if (overlapShare(a.box, b.box) <= OVERLAP) return;
+          const down = [a.key, b.key].filter(stepped);
+          overlaps.push({ t, scene: scene.index + 1, a: a.key, b: b.key, format, ...(down.length && { down }) });
         }),
       );
     }
@@ -123,6 +150,22 @@ export function sheetJpeg(canvas: HTMLCanvasElement): string {
 
 const nearestGap = (t: number, beats: number[]) => beats.reduce((best, b) => Math.min(best, Math.abs(b - t)), Infinity);
 
+// "Casilleros", said up front: which scene names the boxes and which fills which, so an empty dashed box is read as
+// the open loop it is. Null when the piece has no slots scene.
+export function slotsFacts(timed: TimedScene[]): string | null {
+  const rows = timed.filter((s) => s.slots);
+  if (!rows.length) return null;
+  const said = rows.map((s) => {
+    const r = s.slots!;
+    if (r.naming) return `scene ${s.index + 1} names ${r.names.length} empty boxes (${r.names.map((n) => `"${n}"`).join(", ")})`;
+    if (r.fills !== null) return `scene ${s.index + 1} fills box ${r.fills + 1} ("${r.names[r.fills]}"), ${r.filled} already filled`;
+    return `scene ${s.index + 1} shows the row with ${r.filled} of ${r.names.length} filled and nothing left to fill`;
+  });
+  const end = rows.at(-1)!.slots!;
+  const filledAtEnd = end.naming ? 0 : end.filled + (end.fills !== null ? 1 : 0);
+  return `Open loop boxes (slots, on purpose): ${said.join("; ")}. A box filled in an earlier scene is already filled from the cut, and an empty dashed box is a promise still open, not a fault. At the end ${filledAtEnd} of ${end.names.length} are filled.`;
+}
+
 // What the app measured, in English for the reviewer.
 export function measureFacts(
   script: MotionScript,
@@ -133,6 +176,10 @@ export function measureFacts(
   zoned: Zoned[] = [],
   overlaps: Overlap[] = [],
   brand?: Brand,
+  // The piece's "Desenfoque en los cortes" (world.cutBlur): the sheet's cut frames are motion blurred.
+  cutBlur = false,
+  // "Palabra por palabra": how the subtitles look, and in how many voiced scenes the word times were heard.
+  subtitles?: { wordByWord: boolean; heard: number; voiced: number },
 ): string {
   const timed = timeScenes(script.scenes);
   const total = scriptDuration(script);
@@ -150,6 +197,17 @@ export function measureFacts(
     lines.push(`Cuts on a beat (within ${ON_BEAT * 1000} ms): ${onCuts} of ${cuts.length}. Elements entering on a beat: ${onEntries} of ${entries.length} (each sound hit lands exactly with its element).`);
   }
   const push = cutPush(script.tone);
+  // The blur is the cut's own look: said up front, so a smeared "corte" frame is not read as a fault.
+  if (cutBlur && pushWindows(script.scenes, push).length)
+    lines.push(
+      `Motion blur on the cuts: during each push between scenes a frame is the average of ${BLUR_SUBFRAMES} moments over the ${Math.round(BLUR_SHUTTER * 1000)} ms before it (a 180° shutter at 30 fps), so on the frames marked "corte" whatever moves is smeared along its path, on purpose. Outside the pushes every frame is sharp. The smear is not a fault; two busy layouts muddled together still is.`,
+    );
+  if (subtitles && subtitles.voiced)
+    lines.push(
+      subtitles.wordByWord
+        ? `Subtitles: word by word, on purpose. The line (or its chunk of at most two lines) stays still while the word being said is in the full text colour with a short accent bar under it and the other words are dimmer; word times ${subtitles.heard ? `heard in the voice for ${subtitles.heard} of ${subtitles.voiced} scenes, the rest estimated` : "estimated from each voice's length"}. Dim words are not a fault.`
+        : "Subtitles: each scene's whole line, all through its scene.",
+    );
   const gaps = quietGaps(script.scenes, push);
   lines.push(`Still stretches over 4 s: ${gaps.length ? gaps.map((g) => `${g.from.toFixed(1)}–${g.to.toFixed(1)} s`).join(", ") : "none"}.`);
   const first = timed[0];
@@ -184,7 +242,14 @@ export function measureFacts(
   const covered = [...new Map(overlaps.map((o) => [`${o.scene}:${o.a}:${o.b}:${o.format}`, o])).values()];
   lines.push(
     `Settled text on top of other text: ${
-      covered.length ? covered.map((o) => `scene ${o.scene} ${o.a} over ${o.b} (${o.format === "vertical" ? "9:16" : "16:9"}, at ${o.t.toFixed(2)} s)`).join("; ") : "none"
+      covered.length
+        ? covered
+            .map((o) => {
+              const name = (key: string) => (o.down?.includes(key) ? `${key} (stepped down)` : key);
+              return `scene ${o.scene} ${name(o.a)} over ${name(o.b)} (${o.format === "vertical" ? "9:16" : "16:9"}, at ${o.t.toFixed(2)} s)`;
+            })
+            .join("; ")
+        : "none"
     }.`,
   );
   if (brand?.motion && brand.motion !== "even")
@@ -196,10 +261,43 @@ export function measureFacts(
     lines.push(
       `Brand contrast (WCAG): text on background ${c.text.toFixed(1)}:1 (needs ${CONTRAST_TEXT}:1), accent on background ${c.accent.toFixed(1)}:1 (needs ${CONTRAST_ACCENT}:1 for big words and numbers).`,
     );
+    // "Un mundo ilustrado": the place behind the scenes is the setting, on purpose; say what it keeps.
+    const placed = timed.flatMap((s) => {
+      const place = worldOf(s, script.world);
+      return place ? [`scene ${s.index + 1} ${place} (${WORLD_PLACE_LABEL[place]})`] : [];
+    });
+    if (placed.length) {
+      const p = worldPalette(brand);
+      const tones = [p.wall, p.far, p.mid, p.near, p.detail];
+      const least = (colour: string) => Math.min(...tones.map((t) => contrastRatio(colour, t)));
+      lines.push(
+        `Illustrated world, on purpose (${placed.join(", ")}): flat shapes of a place in tints of the brand's background, moving with the camera by depth; every tone keeps text ${least(brand.text).toFixed(1)}:1 and accent ${least(brand.accent).toFixed(1)}:1, and small details are left out wherever words sit. It is the setting, not filler or a fault; judge it only if it makes a word hard to read.`,
+      );
+    }
+    // "Foco de a uno": earlier labels are dimmer on the sheet on purpose; say how far, so it is not read as a fault.
+    const focused = timed.filter((s) => STEP_DOWN_OVER[s.template] !== undefined && itemsOf(s).filter((i) => i.trim()).length > 1);
+    if (focused.length) {
+      const d = stepDownContrast(brand);
+      lines.push(
+        `Focus one at a time (${focused.map((s) => `scene ${s.index + 1} ${s.template}`).join(", ")}): when a new label or step enters, the earlier ones step down toward the background during its entrance and stay as readable context, on purpose: text ${d.text.toFixed(1)}:1 and accent ${d.accent.toFixed(1)}:1 on the background once down (a step down never goes under ${STEP_DOWN_CONTRAST}:1, WCAG large text, and a colour already under it does not step down); the newest keeps the brand's full contrast. A dimmer earlier label is not a contrast fault or a fade-out.`,
+      );
+    }
   }
+  const loop = slotsFacts(timed);
+  if (loop) lines.push(loop);
+  // CONCEPTO / SIMULACIÓN: what the frames show on purpose, and what was flagged as beyond "Lo que existe hoy".
+  const tagged = timed.filter((s) => labelled(s));
+  const flagged = timed.filter((s) => beyondNow(s) && !labelled(s));
+  lines.push(
+    `Concept / simulation labels (a hard rule: only what the series lists as working today is shown as real; the app draws the label in the top right corner, inside the 9:16 safe zone, and keeps that scene's title under it; it cannot move or go): ${
+      tagged.length ? tagged.map((s) => `scene ${s.index + 1} ${DISCLOSURE_TAG[s.disclosure as "concept" | "simulation"]}`).join(", ") : "none"
+    }. Scenes already flagged as showing something not on the working-today list, with no label yet: ${
+      flagged.length ? flagged.map((s) => `scene ${s.index + 1} ("${s.beyond!.what}")`).join("; ") : "none"
+    }.`,
+  );
   const reading = readingIssues(script.scenes, push);
   lines.push(
-    `Lines on screen too briefly to read (need about 0.3 s per word once fully in, 0.8 s for a 1-3 word label): ${
+    `Lines on screen too briefly to read (need about 0.3 s per word once fully in, 0.8 s for a 1-3 word label, and 1 s per ${READ_LETTERS_PER_SECOND} letters when the words are long): ${
       reading.length
         ? reading.map((r) => `scene ${r.index + 1} ${r.key} "${r.text}" has ${r.has.toFixed(1)} s, needs ${r.needs.toFixed(1)} s`).join("; ")
         : "none"

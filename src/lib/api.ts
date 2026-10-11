@@ -18,10 +18,12 @@ import type {
   TopicIdea,
 } from "../../shared/schema.ts";
 import type { MotionScript } from "../../shared/motion.ts";
+import type { NoteMerge } from "../../shared/motionNote.ts";
 import type { MotionReview } from "../../shared/motionQuality.ts";
 import type { BackgroundPrompts, LyricElement, LyricLanguage, LyricLine, LyricPlate, LyricStyle, SecondLanguage } from "../../shared/lyrics.ts";
 import type { SyncDoc } from "../../shared/clock.ts";
-import type { Brand, CastMember, PuppetLayer, SeriesFields, TextStyle } from "../../shared/series.ts";
+import type { KindAverage, UsageEntry } from "../../shared/usage.ts";
+import type { Brand, CastMember, PuppetLayer, SeriesFields, SeriesType, TextStyle } from "../../shared/series.ts";
 import type { RoomCard } from "../../shared/room.ts";
 import type { AdCombo, AdsState, Batch, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 
@@ -38,7 +40,7 @@ export type ProjectSummary = {
   hasVideo: boolean;
 };
 // The final render (render.mjs + ffmpeg) as the server reports it.
-export type FinalJob = { id: string; project: string; formats: string[]; current: string; progress: number; done: boolean; error: string; files: string[] };
+export type FinalJob = { id: string; project: string; formats: string[]; current: string; progress: number; done: boolean; error: string; files: string[]; subtitles?: string[] };
 export type MediaFileRecord = { file: string; name: string; duration: number };
 export type MediaRecord = { image?: string; clip?: MediaFileRecord; voice?: MediaFileRecord; sfx?: MediaFileRecord };
 export type MediaKind = "image" | "clip" | "voice" | "sfx";
@@ -52,8 +54,8 @@ export type ProjectData = {
 };
 
 // Uploads a file as the raw request body (images and clips can be large; no base64).
-async function upload<T>(path: string, body: Blob, type: string): Promise<T> {
-  const res = await fetch(path, { method: "PUT", headers: { "Content-Type": type || "application/octet-stream" }, body });
+async function upload<T>(path: string, body: Blob, type: string, method: "PUT" | "POST" = "PUT"): Promise<T> {
+  const res = await fetch(path, { method, headers: { "Content-Type": type || "application/octet-stream" }, body });
   const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
   if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
   return data as T;
@@ -63,6 +65,14 @@ const enc = encodeURIComponent;
 export const libraryFileUrl = (seriesId: string, file: string, version = 0) =>
   `/api/series/${enc(seriesId)}/files/${enc(file)}${version ? `?v=${version}` : ""}`;
 export const projectFileUrl = (id: string, file: string) => `/api/projects/${enc(id)}/files/${enc(file)}`;
+
+export type EpisodesView = {
+  episodes: { n: number; title: string; moves: string[] }[];
+  next: number;
+  moves: { name: string; episodes: number[]; inPlaybook: boolean; propose: boolean }[];
+  repeatMin: number;
+  drift: string;
+};
 
 async function call<T>(path: string, body?: unknown, method?: "PUT" | "PATCH" | "DELETE"): Promise<T> {
   const res = await fetch(path, {
@@ -150,8 +160,8 @@ export const api = {
     call<{ board: Board } & Demo>("/api/board/revise", { brief, story, board, note, shotNotes }),
   rewriteShot: (brief: Brief, story: Story, board: Board, index: number, note: string) =>
     call<{ shot: Shot } & Demo>("/api/shot/rewrite", { brief, story, board, index, note }),
-  image: (provider: string, prompt: string, style: string, aspect: Brief["format"], beat: string) =>
-    call<{ dataUrl: string }>("/api/image", { provider, prompt, style, aspect, beat }),
+  image: (provider: string, prompt: string, style: string, aspect: Brief["format"], beat: string, look = "") =>
+    call<{ dataUrl: string }>("/api/image", { provider, prompt, style, aspect, beat, look }),
   seriesFields: (id: string) => call<{ fields: SeriesFields }>(`/api/series/${encodeURIComponent(id)}`),
   saveSeries: (id: string, fields: SeriesFields) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${encodeURIComponent(id)}`, { fields }, "PUT"),
@@ -162,6 +172,8 @@ export const api = {
 
   upsertCast: (seriesId: string, member: CastMember) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(member.id)}`, member, "PUT"),
+  addCorrespondent: (seriesId: string, member: CastMember) =>
+    call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/correspondent`, member),
   uploadPuppetLayer: (seriesId: string, castId: string, index: number, image: Blob, role: string, name = "") =>
     upload<{ member: CastMember; series: SeriesInfo[] }>(
       `/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}?role=${enc(role)}&name=${enc(name)}`,
@@ -170,13 +182,24 @@ export const api = {
     ),
   replacePuppet: (seriesId: string, castId: string, layers: { role: string; name: string; png: string }[]) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PUT"),
-  brandFromWeb: (url: string, series: string | null) => call<BrandFromWeb>("/api/brand/from-web", { url, series: series ?? undefined, own: true }),
+  brandFromWeb: (url: string, series: string | null, type?: SeriesType) =>
+    call<BrandFromWeb>("/api/brand/from-web", { url, series: series ?? undefined, type, own: true }),
   arrangePuppet: (seriesId: string, castId: string, layers: Pick<PuppetLayer, "file" | "role" | "pivot" | "place">[]) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PATCH"),
   removePuppetLayer: (seriesId: string, castId: string, index: number) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}`, undefined, "DELETE"),
   uploadRig: (seriesId: string, castId: string, file: Blob) =>
     upload<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/rig`, file, "model/gltf-binary"),
+  // An extra reference image (a crop of the sheet, or a loose view): its own @ reference, named by the server.
+  addCastRef: (seriesId: string, castId: string, image: Blob, label: string) =>
+    upload<{ member: CastMember; series: SeriesInfo[] }>(
+      `/api/series/${enc(seriesId)}/cast/${enc(castId)}/refs?label=${enc(label)}`,
+      image,
+      image.type,
+      "POST",
+    ),
+  removeCastRef: (seriesId: string, castId: string, ref: string) =>
+    call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/refs/${enc(ref)}`, undefined, "DELETE"),
   uploadCastImage: (seriesId: string, castId: string, image: Blob) =>
     upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/image`, image, image.type),
 
@@ -186,6 +209,14 @@ export const api = {
   saveProject: (id: string, state: Record<string, unknown>, markdown?: string) =>
     call<{ updatedAt: string }>(`/api/projects/${enc(id)}`, { state, markdown }, "PUT"),
   deleteProject: (id: string) => call<{ ok: true }>(`/api/projects/${enc(id)}`, undefined, "DELETE"),
+  // "Exportar .zip": a download link (the server streams the folder); "Importar .zip" always makes a new project.
+  exportProjectUrl: (id: string) => `/api/projects/${enc(id)}/export`,
+  importProject: async (zip: Blob) => {
+    const res = await fetch("/api/projects/import", { method: "POST", headers: { "Content-Type": "application/zip" }, body: zip });
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    return data as { id: string; files: number };
+  },
   uploadMedia: (id: string, index: number, kind: MediaKind, file: Blob, meta?: { name: string; duration: number }) =>
     upload<{ file: string }>(
       `/api/projects/${enc(id)}/media/${index}/${kind}${meta ? `?name=${enc(meta.name)}&duration=${meta.duration}` : ""}`,
@@ -194,6 +225,9 @@ export const api = {
     ),
   removeMedia: (id: string, index: number, kind: MediaKind) =>
     call<{ ok: true }>(`/api/projects/${enc(id)}/media/${index}/${kind}`, undefined, "DELETE"),
+  // The app's pencil sketch of a shot as a PNG (boceto-app-NN.png), and dropping those of shots that are gone.
+  saveAppSketch: (id: string, index: number, png: Blob) => upload<{ file: string }>(`/api/projects/${enc(id)}/sketches/${index}`, png, "image/png"),
+  pruneAppSketches: (id: string, keep: number) => call<{ removed: string[] }>(`/api/projects/${enc(id)}/sketches?keep=${keep}`, undefined, "DELETE"),
   clearMedia: (id: string) => call<{ ok: true }>(`/api/projects/${enc(id)}/media`, undefined, "DELETE"),
   uploadMusic: (id: string, file: Blob, meta: { name: string; duration: number }) =>
     upload<{ music: MediaFileRecord }>(
@@ -237,6 +271,10 @@ export const api = {
   demucs: () => call<{ demucs: DemucsStatus; ffmpeg: boolean }>("/api/tools/demucs"),
   testDemucs: () => call<{ seconds: number; command: string }>("/api/tools/demucs/test", {}),
   saveDemucsBin: (bin: string | null) => call<{ demucs: DemucsStatus; ffmpeg: boolean }>("/api/tools/demucs", { bin }, "PUT"),
+  // "Episodios estudiados": PLAYBOOK.md §2.6 (only answers from this computer).
+  episodes: () => call<EpisodesView & Demo>("/api/episodes"),
+  draftEpisode: (summary: string) => call<{ n: number; entry: string } & Demo>("/api/episodes/draft", { summary }),
+  addEpisode: (entry: string) => call<{ n: number; record: "recorded" | "patched" | "left"; view: EpisodesView }>("/api/episodes", { entry, ok: true }),
   // Modelos (only answers from this computer).
   settings: () => call<SettingsView>("/api/settings"),
   saveKey: (name: string, key: string | null) => call<SettingsView>("/api/settings/key", { name, key }, "PUT"),
@@ -246,6 +284,7 @@ export const api = {
   models: (provider: string) => call<{ models: ListedModel[] }>(`/api/settings/models?provider=${enc(provider)}`),
   efforts: (model: string) => call<{ efforts: string[] }>(`/api/settings/efforts?model=${enc(model)}`),
   testModel: (provider: string, model: string, vision: boolean) => call<{ result: string }>("/api/settings/test", { provider, model, vision }),
+  usage: () => call<{ entries: UsageEntry[]; averages: KindAverage[] }>("/api/settings/usage"),
   uploadLogo: (seriesId: string, image: Blob) =>
     upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/logo`, image, image.type),
   saveLyricStyle: (id: string, lyricStyle: LyricStyle) =>
@@ -297,6 +336,16 @@ export const api = {
     // matched of total: the lyric words the transcription really heard.
     return data as { lines: LyricLine[]; heard: number; matched: number; total: number };
   },
+  // Each word's loudness on the vocal stem Demucs splits from the song (never the master); null where it is silent.
+  lyricLevels: async (song: Blob, name: string, words: { start: number; end: number }[]) => {
+    const form = new FormData();
+    form.append("audio", song, name);
+    form.append("words", JSON.stringify(words));
+    const res = await fetch("/api/lyrics/levels", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    return data as { levels: (number | null)[] };
+  },
   lyricIdeas: (series: string, title: string, artist: string, lines: string[]) =>
     call<{ palette: string[]; mood: "calm" | "lively"; keywords: { line: number; words: string[] }[]; note: string } & Demo>(
       "/api/lyrics/ideas",
@@ -339,6 +388,9 @@ export const api = {
     }),
   motion: (brief: Brief, target: number | null, layers: number) =>
     call<{ script: MotionScript } & Demo>("/api/motion", { brief, target, layers }),
+  // "Nota del director": sample mode (no AI key) changes nothing.
+  motionRevise: (brief: Brief, script: MotionScript, note: string, layers: number) =>
+    call<({ demo: true } | (NoteMerge & { demo: false }))>("/api/motion/revise", { brief, script, note, layers }),
   sheet: (series: string, template: SheetTemplate, details: Record<string, string>, age: number) =>
     call<Sheet & Demo>("/api/sheet", { series, template, details, age }),
   productShot: (brief: Brief) => call<ProductShot & Demo>("/api/product-shot", { brief }),
@@ -352,4 +404,18 @@ export const api = {
   ) => call<ImageReview & Demo>("/api/review", { brief, shot, setups, picture, refs }),
   saveVideo: (id: string, video: Blob, variant?: "vertical" | "horizontal") =>
     upload<{ file: string }>(`/api/projects/${enc(id)}/video${variant ? `?variant=${variant}` : ""}`, video, video.type),
+  // The .srt next to a video the browser rendered (same base name); empty text removes it.
+  saveSubtitles: (id: string, video: string, srt: string) =>
+    upload<{ file: string }>(`/api/projects/${enc(id)}/subtitles?video=${encodeURIComponent(video)}`, new Blob([srt], { type: "text/plain" }), "text/plain"),
+  // An explainer scene's voice heard with word times (whisper-1), for its subtitles.
+  voiceWords: async (voice: Blob, name: string, text: string, language: LyricLanguage) => {
+    const form = new FormData();
+    form.append("audio", voice, name);
+    form.append("text", text);
+    form.append("language", language);
+    const res = await fetch("/api/voice/words", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    if (!res.ok) throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+    return data as { words: { word: string; start: number; end: number }[]; duration: number };
+  },
 };

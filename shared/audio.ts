@@ -1,5 +1,5 @@
 // How each line is heard, and the piece's music. Saved with the project.
-import type { Shot } from "./schema.ts";
+import type { Shot, Story } from "./schema.ts";
 
 // subtitles: only the subtitle. grok: the clip carries the voice (Grok says the line). generated: a synthetic voice
 // made by the app. recorded: the person's own voice, recorded in the app or uploaded.
@@ -33,7 +33,11 @@ export type AudioSettings = {
   // the clip's own sound plays in the video. Missing (older pieces): the defaults below.
   clipSound?: Record<number, ClipSound>;
   clipLevel?: Record<number, ClipLevel>;
+  // Per shot: the uploaded clip seems to carry music ("likely", from `shared/musicLike.ts`) or the person said it has
+  // a licence or is not music ("ok"). Missing: nothing to say (no clip, no music heard, or an older piece).
+  clipMusic?: Record<number, ClipMusic>;
 };
+export type ClipMusic = "likely" | "ok";
 
 export const DEFAULT_AUDIO: AudioSettings = { characters: {}, shots: {}, musicVolume: 0.35, sfxVolume: 0.8, beatSync: false, clipSound: {}, clipLevel: {} };
 
@@ -55,6 +59,19 @@ export function clipSoundOf(audio: AudioSettings, shot: Shot, index: number): Cl
   const set = audio.clipSound?.[index];
   if (set) return set;
   return { hear: voiceModeOf(audio, shot, index) === "grok" ? ["dialogue", "ambient"] : ["ambient"], detail: "" };
+}
+
+// The "Este clip parece traer música" notice shows while the clip still plays with its sound and nobody cleared it.
+export function clipMusicNotice(audio: AudioSettings, index: number): boolean {
+  return audio.clipMusic?.[index] === "likely" && clipLevelOf(audio, index) !== "mute";
+}
+
+// Sets or clears (null) a shot's music mark, leaving the other shots as they are.
+export function withClipMusic(audio: AudioSettings, index: number, mark: ClipMusic | null): AudioSettings {
+  const next = { ...(audio.clipMusic ?? {}) };
+  if (mark) next[index] = mark;
+  else delete next[index];
+  return { ...audio, clipMusic: next };
 }
 
 // Default: the whole clip sound, unless another voice is laid on top (then it is ducked anyway in the mix).
@@ -102,12 +119,21 @@ export function voiceModeOf(audio: AudioSettings, shot: Shot, index: number): Vo
 
 // The shot's video prompt with the line spoken on screen, for when Grok says it. The app normally asks for
 // silent clips, so the "no speech" part is taken out.
-export function speakingPrompt(videoPrompt: string, name: string, line: string, voice: string, language: "es" | "en"): string {
+// The line's written emotion goes in as a short tone note, in the story's own words.
+export function speakingPrompt(videoPrompt: string, name: string, line: string, voice: string, language: "es" | "en", emotion = ""): string {
   const base = videoPrompt
     .replace(/,?\s*no (?:speech|dialogue|talking|voices?)\b/gi, "")
     .replace(/,?\s*nobody speaks\b/gi, "")
     .replace(/\s+\./g, ".")
     .trim();
   const tongue = language === "es" ? "Rioplatense Spanish (Buenos Aires accent)" : "English";
-  return `${base} ${name} says, in ${tongue}, lips in sync${voice ? `, with the voice ${voice}` : ""}: "${line.trim()}"`;
+  const tone = emotion.trim().replace(/[.:;,]+$/, "").replace(/"/g, "'");
+  return `${base} ${name} says, in ${tongue}${tone ? `, tone: ${tone}` : ""}, lips in sync${voice ? `, with the voice ${voice}` : ""}: "${line.trim()}"`;
+}
+
+// The emotion the story wrote for a shot's line (the story line with the same text), "" when none matches.
+export function lineEmotion(story: Pick<Story, "topics"> | null | undefined, voiceover: string): string {
+  const said = voiceover.trim();
+  if (!said || !story) return "";
+  return story.topics.flatMap((t) => t.lines).find((l) => l.text.trim() === said)?.emotion?.trim() ?? "";
 }

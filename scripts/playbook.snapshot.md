@@ -81,12 +81,12 @@ These are my labels for recurring moves, derived from the sources above. Test th
 
 ## 2.6 Episode case library
 
-The user supplies episode breakdowns one at a time; each is logged here in the same format. Tag `[EP]` = **user-supplied episode summary, not checked against the video.** Extract the *structure*; do not repeat an episode's political claims, names, or quotes in marketing (§3 rule 7). Keep the user's own labels, and flag any term we are interpreting.
+The user supplies episode breakdowns one at a time; each is logged here in the same format. Tag `[EP]` = **user-supplied episode summary, not checked against the video.** Extract the *structure*; do not repeat an episode's political claims, names, or quotes in marketing (§3 rule 7). Keep the user's own labels, and flag any term we are interpreting. The app's "Episodios estudiados" panel drafts an entry from a pasted summary and appends it here only after the user's ok; the **Moves** line is what it counts across episodes.
 
 **Entry template for new episodes:**
 ```
 #### EP-NN — <title> [EP]
-Source (URL/date) · Runtime covered · Topic table (timecode · duration · how it opens · key beats · callback)
+Source (URL/date) · Runtime covered · Moves (§2.5 names; a new device in plain words) · Topic table (timecode · duration · how it opens · key beats · callback)
 Observations [INF] · Marketing translation · Check against the video
 ```
 
@@ -94,6 +94,7 @@ Observations [INF] · Marketing translation · Check against the video
 - **Source:** user-supplied summary. Video URL and air date **not yet provided** (ask). Runtime covered: 0:00–10:44, which may be an excerpt of a longer episode.
 - **Subject:** satirical commentary on Trump-administration headlines and Pete Hegseth's military policies. Quotes and names ("no beardos, weirdos, wimps, or radicals," "Project Meridian," the "best minds" panel) are **as given in the summary and not independently verified.**
 - **Terminology:** the summary's label "Autos-comeback" is read here as **"callback"**, a return to an earlier topic or joke. `[INF]` Confirm with the user.
+- **Moves** (§2.5): The Callback · The Contradiction · The Remote Stand-up
 
 | # | Time | Dur. | Topic | How it opens | Key beats | Callback |
 |---|---|---|---|---|---|---|

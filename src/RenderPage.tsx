@@ -2,13 +2,14 @@
 // fonts, voices and track, then exposes window.seek(t), which paints frame t at full size, and the finished mix.
 // Nothing here moves on its own: every frame comes from seek(t).
 import { useEffect, useRef, useState } from "react";
-import { cutPush, newMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
+import { cutBlurOn, cutPush, newMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
 import type { Brief } from "../shared/schema.ts";
 import { api } from "./lib/api.ts";
 import { ensureFont, fontLoaded } from "./lib/fonts.ts";
 import { drawMotionFrame, scriptDuration } from "./lib/motion.ts";
 import { toWav } from "./lib/motionAudio.ts";
-import { arrangeScenes, layerAssets, loadPieceMedia, loadSeriesImages, makeWorld, motionBeats, motionSound, speechLevels, usesAiImages } from "./lib/motionProject.ts";
+import { arrangeScenes, layerAssets, loadPieceMedia, loadSeriesImages, makeWorld, motionBeats, motionSound, pieceSubtitles, speechLevels, usesAiImages } from "./lib/motionProject.ts";
+import { toSrt } from "../shared/subtitles.ts";
 
 export type MotionRender = {
   width: number;
@@ -21,6 +22,8 @@ export type MotionRender = {
   seek: (t: number) => void;
   // The mix (music, hits and voices, as the preview plays it) as a WAV file, base64.
   sound: () => Promise<string>;
+  // The subtitles as an .srt file, with the same cues the frames draw (render.mjs saves it next to the video).
+  srt: string;
 };
 
 declare global {
@@ -66,7 +69,14 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       const snapped = { ...script, scenes };
       const notice = piece.disclosure && usesAiImages(scenes, series);
       const speech = await speechLevels(snapped, piece, media.voices);
-      const world = makeWorld(series.brand, { ...images.cast, ...layerAssets(media.layers) }, images.logo, beats, notice, { puppets: images.puppets, actors: images.actors, speech });
+      const subtitles = pieceSubtitles(scenes, piece, media.voices);
+      const world = makeWorld(series.brand, { ...images.cast, ...layerAssets(media.layers) }, images.logo, beats, notice, {
+        puppets: images.puppets,
+        actors: images.actors,
+        speech,
+        cutBlur: cutBlurOn(piece),
+        subtitles,
+      });
       const ctx = canvasRef.current!.getContext("2d")!;
       const seek = (t: number) => drawMotionFrame(ctx, w, h, t, snapped, world);
       seek(0);
@@ -79,6 +89,7 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
         notice: notice ? world.disclosure : "",
         poster: posterTime(scenes, piece.poster, cutPush(script.tone)),
         seek,
+        srt: toSrt(subtitles),
         sound: async () => {
           const { buffer } = await motionSound(snapped, piece, media.voices, media.track?.buffer ?? null);
           return base64(toWav(buffer));

@@ -21,10 +21,13 @@ export async function hearSong(
   name: string,
   language: LyricLanguage,
   lyrics: string,
+  // "voice": an explainer scene's voice, heard for its subtitles' word times (the messages say so).
+  what: "song" | "voice" = "song",
 ): Promise<{ words: HeardWord[]; duration: number }> {
-  if (!autoSyncAvailable()) throw new LyricsError("Para sincronizar automático falta OPENAI_API_KEY en .env.");
+  const song = what === "song";
+  if (!autoSyncAvailable()) throw new LyricsError(song ? "Para sincronizar automático falta OPENAI_API_KEY en .env." : "Para escuchar las palabras de la voz falta OPENAI_API_KEY en .env.");
   if (audio.size > MAX_BYTES) {
-    throw new LyricsError("La canción pesa más de 25 MB. Pasala a mp3 o sincronizá tocando.");
+    throw new LyricsError(song ? "La canción pesa más de 25 MB. Pasala a mp3 o sincronizá tocando." : "La voz pesa más de 25 MB. Pasala a mp3.");
   }
   const form = new FormData();
   form.append("file", audio, name || "cancion.mp3");
@@ -47,11 +50,11 @@ export async function hearSong(
   }
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-    throw new LyricsError(`No se pudo escuchar la canción (${res.status}): ${body.error?.message ?? res.statusText}`);
+    throw new LyricsError(`No se pudo escuchar ${song ? "la canción" : "la voz"} (${res.status}): ${body.error?.message ?? res.statusText}`);
   }
   const data = (await res.json()) as { words?: HeardWord[]; duration?: number };
   if (!data.words?.length) {
-    throw new LyricsError("La transcripción no devolvió palabras con tiempo. Probá sincronizar tocando.");
+    throw new LyricsError(song ? "La transcripción no devolvió palabras con tiempo. Probá sincronizar tocando." : "La transcripción no devolvió palabras con tiempo: los subtítulos siguen con tiempos estimados.");
   }
   return { words: data.words, duration: data.duration ?? 0 };
 }

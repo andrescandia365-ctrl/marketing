@@ -131,6 +131,46 @@ export function brandContrast(brand: Pick<Brand, "bg" | "text" | "accent">): { t
   return { text, accent, problems };
 }
 
+// "Foco de a uno" (explainer labels and steps): an earlier label steps down by mixing toward the background, as far as
+// the 60 % the steps always had (STEP_DOWN), but never under STEP_DOWN_CONTRAST against the background (WCAG's
+// minimum for large text: it is context, not hidden). A colour already under that floor does not step down at all.
+export const STEP_DOWN = 0.4;
+export const STEP_DOWN_CONTRAST = 3;
+
+// `a` mixed toward `b` by k (0: a, 1: b), channel by channel as canvas alpha blends; #rrggbb in and out.
+export function mixHex(a: string, b: string, k: number): string {
+  const v = Math.min(1, Math.max(0, Number.isFinite(k) ? k : 0));
+  const ch = (hex: string, i: number) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  const out = [0, 1, 2].map((i) => Math.round(ch(a, i) + (ch(b, i) - ch(a, i)) * v));
+  if (out.some((n) => !Number.isFinite(n))) return a;
+  return `#${out.map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+}
+
+// How far `colour` may mix toward `bg` (0 to STEP_DOWN) with every step on the way keeping STEP_DOWN_CONTRAST.
+export function stepDownMix(colour: string, bg: string): number {
+  const steps = 20;
+  let k = 0;
+  for (let n = 1; n <= steps; n++) {
+    const next = (STEP_DOWN * n) / steps;
+    if (contrastRatio(mixHex(colour, bg, next), bg) < STEP_DOWN_CONTRAST) break;
+    k = next;
+  }
+  return k;
+}
+
+// The colour of an element `share` of the way stepped down (stepDownShare): full strength at 0.
+export function stepDownColour(colour: string, bg: string, share: number): string {
+  return share > 0 ? mixHex(colour, bg, stepDownMix(colour, bg) * Math.min(1, share)) : colour;
+}
+
+// What a label all the way stepped down keeps against the background, for the brand kit and the reviewer.
+export function stepDownContrast(brand: Pick<Brand, "bg" | "text" | "accent">): { text: number; accent: number } {
+  return {
+    text: contrastRatio(stepDownColour(brand.text, brand.bg, 1), brand.bg),
+    accent: contrastRatio(stepDownColour(brand.accent, brand.bg, 1), brand.bg),
+  };
+}
+
 // The two jobs of the playbook, plus lyric videos. Software: features that exist today, the product's loop, real
 // screens. E-commerce: a different product in every episode. Music: lyric videos, with no story.
 export const SERIES_TYPES = ["software", "ecommerce", "music"] as const;
@@ -155,17 +195,48 @@ export const CAST_KIND_LABEL: Record<CastKind, string> = {
 // A character as a 3D-look puppet for motion graphics: the layers Grok's Segments export from one picture (all the
 // same size, so they line up), each with the body part it is. The pivot (where it turns: the neck, a shoulder) is in
 // shares of the layer's width and height; null means found from the layer's shape.
-export const PUPPET_ROLES = ["body", "head", "armL", "armR", "mouth", "eyes", "extra"] as const;
+// Optional alternates from the "puppet" sheet (all swapped in by the pose, never drawn together with what they
+// replace): the mouth shapes A, O and E (the plain mouth is the closed one), the faces happy, surprised and worried
+// (the plain head is the neutral one; a face goes over the head and hides the eyes) and the whole figure seen in 3/4
+// or in profile, facing screen right (shown while it points at something). A puppet without them acts as before.
+export const PUPPET_ROLES = [
+  "body",
+  "head",
+  "armL",
+  "armR",
+  "mouth",
+  "eyes",
+  "extra",
+  "mouthA",
+  "mouthO",
+  "mouthE",
+  "faceHappy",
+  "faceSurprised",
+  "faceWorried",
+  "view34",
+  "viewSide",
+] as const;
 export type PuppetRole = (typeof PUPPET_ROLES)[number];
 export const PUPPET_ROLE_LABEL: Record<PuppetRole, string> = {
   body: "Cuerpo",
   head: "Cabeza",
   armL: "Brazo (izquierda de la pantalla)",
   armR: "Brazo (derecha de la pantalla)",
-  mouth: "Boca",
+  mouth: "Boca (cerrada)",
   eyes: "Ojos",
   extra: "Otra (atrás)",
+  mouthA: "Boca A (bien abierta)",
+  mouthO: "Boca O (redonda)",
+  mouthE: "Boca E (estirada)",
+  faceHappy: "Cara contenta",
+  faceSurprised: "Cara sorprendida",
+  faceWorried: "Cara preocupada",
+  view34: "Cuerpo de 3/4 (mirando a la derecha)",
+  viewSide: "Cuerpo de perfil (mirando a la derecha)",
 };
+export const PUPPET_MOUTHS = ["mouthA", "mouthO", "mouthE"] as const satisfies readonly PuppetRole[];
+export const PUPPET_FACES = ["faceHappy", "faceSurprised", "faceWorried"] as const satisfies readonly PuppetRole[];
+export const PUPPET_VIEWS = ["view34", "viewSide"] as const satisfies readonly PuppetRole[];
 export const PuppetPlaceSchema = z.object({
   x: z.number().min(-2).max(3),
   y: z.number().min(-2).max(3),
@@ -185,7 +256,8 @@ export const PuppetLayerSchema = z.object({
   // a loose crop of another size gets a starting place from its role.
   place: PuppetPlaceSchema.nullable().default(null),
 });
-export const PuppetSchema = z.object({ layers: z.array(PuppetLayerSchema).max(12).default([]) });
+export const PUPPET_MAX_LAYERS = 20;
+export const PuppetSchema = z.object({ layers: z.array(PuppetLayerSchema).max(PUPPET_MAX_LAYERS).default([]) });
 export type PuppetLayer = z.infer<typeof PuppetLayerSchema>;
 export type Puppet = z.infer<typeof PuppetSchema>;
 
@@ -227,13 +299,40 @@ export function guessClip(name: string): RigMove | null {
 // The part a layer probably is, from its file name (Grok names segments by what they are).
 export function guessRole(name: string): PuppetRole {
   const n = name.toLowerCase();
-  if (/boca|mouth|lips|labio/.test(n)) return "mouth";
+  // "3-4", "3_4" or a bare "34", never the 34 inside a longer number or a code ("1734", "20261003_134512", "34ab").
+  if (/(?<![0-9])3[-_ ]?4(?![0-9a-z])|tres ?cuartos|three.?quarter/.test(n)) return "view34";
+  if (/perfil|profile|(?<![a-z])side/.test(n)) return "viewSide";
+  if (/content|feliz|happy|smil|sonri/.test(n)) return "faceHappy";
+  if (/sorpre|surpris/.test(n)) return "faceSurprised";
+  if (/preocup|worr/.test(n)) return "faceWorried";
+  if (/boca|mouth|lips|labio/.test(n)) {
+    const shape = /(?:^|[^a-z])([aoe])(?:[^a-z]|$)/.exec(n.replace(/boca|mouth|lips|labios?/g, " "));
+    return shape ? (`mouth${shape[1].toUpperCase()}` as PuppetRole) : "mouth";
+  }
   if (/ojo|eye/.test(n)) return "eyes";
   if (/brazo|arm|mano|hand/.test(n)) return /izq|left|_l\b|-l\b/.test(n) ? "armL" : "armR";
   if (/cabeza|head|cara|face|hair|pelo|cabello/.test(n)) return "head";
   if (/cuerpo|body|torso|tronco|jacket|campera|remera|shirt|jean|pantal|sneaker|zapati|shoe|hoodie|falda|skirt/.test(n)) return "body";
   return "extra";
 }
+
+// A file in the series library (biblioteca/<series>/): a plain name, never a path ("" until there is one). The server
+// deletes these files by name, so a name that could climb out of the folder never gets in.
+export const LibraryFileSchema = z.string().max(120).regex(/^([a-z0-9][a-z0-9.-]{0,119})?$/, "Nombre de archivo no válido.");
+
+// An extra reference image of a cast member (shared/castRefs.ts): a part cut from its sheet (the face) or a loose view
+// made on its own, named as its own reference in the tool (@MartaCara). image is its file in the series library.
+export const CastRefSchema = z.object({
+  ref: z.string().regex(/^[A-Za-z0-9_]{1,30}$/, "El nombre de referencia va sin espacios ni acentos."),
+  // What it shows, in Spanish ("cara", "perfil").
+  label: z.string().trim().max(60),
+  image: LibraryFileSchema,
+});
+export type CastRef = z.infer<typeof CastRefSchema>;
+
+// A loose view of the sheet ("Perfil", "Para el títere"), as its own prompt, kept for when the tool does not hold the grid.
+export const SheetViewSchema = z.object({ title: z.string().trim().max(120), prompt: z.string().trim().max(3000) });
+export type SheetView = z.infer<typeof SheetViewSchema>;
 
 export const CastMemberSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{1,40}$/, "Id no válido."),
@@ -245,13 +344,17 @@ export const CastMemberSchema = z.object({
   // When to use it, in Spanish.
   note: z.string().trim().max(600),
   // File name in the series library ("" until an image is uploaded).
-  image: z.string().max(120),
+  image: LibraryFileSchema,
   // The reference sheet's prompt, when the member was built with "+ con hoja".
   sheet: z.string().max(6000).default(""),
   // Characters only: the puppet for motion graphics (empty: none).
   puppet: PuppetSchema.default({ layers: [] }),
   // Characters only: a rigged GLB that walks and turns (empty file: none).
   rig: RigSchema.default({ file: "", clips: { idle: "", walk: "", turnL: "", turnR: "", point: "" } }),
+  // Extra reference images (a face cut from the sheet, a loose view): the server owns them, like the puppet's files.
+  refs: z.array(CastRefSchema).max(40).default([]),
+  // The sheet's loose views, kept with the member (older series have none).
+  views: z.array(SheetViewSchema).max(20).default([]),
 });
 export type CastMember = z.infer<typeof CastMemberSchema>;
 
@@ -296,6 +399,12 @@ export const SeriesFieldsSchema = z.object({
   look: SeriesLookSchema,
   brand: BrandSchema,
   cast: z.array(CastMemberSchema).max(60),
+  // "Personaje de los explicativos": the cast id of the character who hosts every explainer ("": none, the writer
+  // and the studio pick as before).
+  explainerCharacter: z.string().max(40).default(""),
+  // "Corresponsal": the cast id of the character who reports "on location" in stories with a correspondent and
+  // visits the people in a field visit ("": none; the writer invents one and the app offers to add it).
+  correspondent: z.string().max(40).default(""),
 });
 export type SeriesFields = z.infer<typeof SeriesFieldsSchema>;
 
@@ -319,6 +428,8 @@ export const EMPTY_SERIES: SeriesFields = {
   look: EMPTY_LOOK,
   brand: DEFAULT_BRAND,
   cast: [],
+  explainerCharacter: "",
+  correspondent: "",
 };
 
 // The heading each field is written under. The writer is told that the WORKS_TODAY list is the only thing
@@ -328,6 +439,26 @@ export const PRACTICES = "Cómo se trabaja hoy";
 export const LOOP = "El loop de la serie";
 export const CAST = "Elenco fijo";
 export const MOMENTS = "Momentos del calendario";
+export const EXPLAINER_CHARACTER = "Personaje de los explicativos";
+export const CORRESPONDENT = "Corresponsal";
+
+// A cast character the explainers can draw: a puppet, an image (a puppet of one piece) or a rigged GLB.
+export const drawableCharacter = (m: CastMember) => m.kind === "character" && Boolean(m.image || m.puppet?.layers.length || m.rig?.file);
+
+// The series' explainer character, when it is set and still a drawable character of its cast.
+export function explainerHost(series: { cast: CastMember[]; explainerCharacter?: string }): CastMember | null {
+  const id = series.explainerCharacter?.trim();
+  if (!id) return null;
+  const m = series.cast.find((x) => x.id === id);
+  return m && drawableCharacter(m) ? m : null;
+}
+// The series' correspondent, when it is set and still a character of its cast (no image needed: the writer only
+// needs its name, voice and identity line).
+export function seriesCorrespondent(series: { cast: CastMember[]; correspondent?: string }): CastMember | null {
+  const id = series.correspondent?.trim();
+  if (!id) return null;
+  return series.cast.find((m) => m.id === id && m.kind === "character") ?? null;
+}
 const LISTS = ["worksToday", "practices", "loop", "moments"] as const;
 type ListKey = (typeof LISTS)[number];
 const isList = (key: string): key is ListKey => (LISTS as readonly string[]).includes(key);
@@ -344,6 +475,14 @@ const SECTIONS = [
   ["audience", "Quién mira"],
 ] as const;
 
+// The id first (what the app reads back), then the name for whoever reads the bible.
+function castLine(f: SeriesFields, heading: string, value: string): string[] {
+  const id = value.trim();
+  if (!id) return [];
+  const name = f.cast.find((m) => m.id === id)?.name;
+  return [`${heading}: ${id}${name ? ` (${name})` : ""}`];
+}
+
 export function seriesToMarkdown(f: SeriesFields): string {
   const parts = [
     `# ${f.name.trim()}`,
@@ -354,6 +493,8 @@ export function seriesToMarkdown(f: SeriesFields): string {
     ...(f.type === "music" ? [`Estilo de letra: ${JSON.stringify(f.lyricStyle)}`] : []),
     ...(hasLook(f.look) ? [`Look (cámara y defectos, en todos los prompts): ${JSON.stringify(f.look)}`] : []),
     `Marca (logo, colores y fuentes para motion graphics): ${JSON.stringify(f.brand)}`,
+    ...castLine(f, EXPLAINER_CHARACTER, f.explainerCharacter),
+    ...castLine(f, CORRESPONDENT, f.correspondent),
   ];
   for (const [key, heading] of SECTIONS) {
     const body = isList(key) ? f[key].map((w) => `- ${w}`).join("\n") : f[key].trim();
@@ -420,6 +561,10 @@ export function markdownToSeries(text: string, fallbackName: string): SeriesFiel
       // A hand-edited line that is not JSON keeps the default style.
     }
   }
+
+  // Only the id is read back; the name in brackets is for people.
+  fields.explainerCharacter = text.match(new RegExp(`^${EXPLAINER_CHARACTER}:[ \\t]*([a-z0-9-]{1,40})`, "im"))?.[1].toLowerCase() ?? "";
+  fields.correspondent = text.match(new RegExp(`^${CORRESPONDENT}:[ \\t]*([a-z0-9-]{1,40})`, "im"))?.[1].toLowerCase() ?? "";
 
   const other: string[] = [];
   const chunks = text.split(/^## /m).slice(1);

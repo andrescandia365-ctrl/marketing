@@ -3,6 +3,7 @@
 import { z } from "zod";
 import type { LyricStyle } from "./lyrics.ts";
 import type { Brand, CastMember, SeriesLook, SeriesType, TextStyle } from "./series.ts";
+import type { WebCastPick } from "./webCast.ts";
 import { MOVES_FOR_WRITER, pickMove, pickMoves, type Move } from "./moves.ts";
 
 export const BEATS = ["negative", "touching", "good"] as const;
@@ -32,6 +33,9 @@ export const BriefSchema = z.object({
   // with: a narrator may speak (a story character with the narrator role, the explainer's voice lines). without: the
   // characters' own words, the action and the text on screen carry the piece.
   narrator: z.enum(["with", "without"]).default("with"),
+  // How a story is staged (PLAYBOOK §2.5, shared/segment.ts). desk: the story in its own scenes (as before).
+  // correspondent: a cut to the series' correspondent "on location" (Remote Stand-up). field: a Field Visit.
+  segment: z.enum(["desk", "correspondent", "field"]).default("desk"),
 });
 export type Brief = z.infer<typeof BriefSchema>;
 
@@ -301,7 +305,14 @@ export const ShotWireSchema = z.object({
     .describe(
       "One of: single (one image, then animate it), transform (the clip moves from an initial to a final frame, optionally through a middle one), screen (a real screenshot of the product, no image prompt).",
     ),
-  screen: z.string().describe("screen only: the id of the real screen from the series' fixed cast. Empty otherwise."),
+  screen: z
+    .string()
+    .describe("screen, or a transform with screenAt: the id of the real screen from the series' fixed cast. Empty otherwise."),
+  screenAt: z
+    .string()
+    .describe(
+      "transform only: \"end\" when the final frame is the real screen in screen (the clip moves from the AI scene into the real screenshot; endPrompt empty), \"start\" when the initial frame is (the clip leaves the screenshot into the scene; endPrompt is that scene). Empty otherwise.",
+    ),
   visualPrompt: z
     .string()
     .describe(
@@ -341,9 +352,11 @@ export type TimelineBeat = z.infer<typeof ShotWireSchema>["timeline"][number];
 export const SHOT_KINDS = ["single", "transform", "screen"] as const;
 export type ShotKind = (typeof SHOT_KINDS)[number];
 
-export type Shot = Omit<z.infer<typeof ShotWireSchema>, "beat" | "disclosure" | "kind"> & {
+export type ScreenAt = "" | "start" | "end";
+export type Shot = Omit<z.infer<typeof ShotWireSchema>, "beat" | "disclosure" | "kind" | "screenAt"> & {
   beat: Beat;
   kind: ShotKind;
+  screenAt: ScreenAt;
   disclosure: "none" | "concept" | "simulation";
 };
 
@@ -427,11 +440,16 @@ export function normalizeShot(wire: z.infer<typeof ShotWireSchema>): Shot {
     .filter((b) => b.to > b.from)
     .sort((a, b) => a.from - b.from);
   let kind = pick(wire.kind, SHOT_KINDS, "single");
+  const at = (wire.screenAt ?? "").toLowerCase();
+  // A real screen as one end of a transform needs a screen id; the other end stays an AI frame.
+  let screenAt: ScreenAt = kind === "transform" && wire.screen.trim() ? (at.includes("end") ? "end" : at.includes("start") ? "start" : "") : "";
   if (kind === "screen" && !wire.screen.trim()) kind = "single";
-  if (kind === "transform" && !wire.endPrompt.trim()) kind = "single";
+  if (kind === "transform" && !wire.endPrompt.trim() && screenAt !== "end") kind = "single";
+  if (kind !== "transform") screenAt = "";
   return {
     ...wire,
     kind,
+    screenAt,
     setups: wire.setups.map((x) => x.trim()).filter(Boolean),
     editFrom: Math.max(0, Math.round(wire.editFrom || 0)),
     beat: pick(wire.beat, BEATS, "negative"),
@@ -459,6 +477,7 @@ export function migrateBoard(board: Board): Board {
         setups: old.setups ?? (old.setup ? [old.setup] : []),
         kind: old.kind ?? "single",
         screen: old.screen ?? "",
+        screenAt: old.screenAt ?? "",
         middlePrompt: old.middlePrompt ?? "",
         endPrompt: old.endPrompt ?? "",
         editFrom: old.editFrom ?? 0,
@@ -470,7 +489,8 @@ export function migrateBoard(board: Board): Board {
 }
 
 // ── Server status ───────────────────────────────────────────────────────────────
-export type ToolInfo = { id: string; name: string; checked: string };
+// maxRefs: how many reference images the tool takes at once, from its profile (null: the profile names no cap).
+export type ToolInfo = { id: string; name: string; checked: string; maxRefs?: number | null };
 // productPerEpisode: every episode features a different product (Máshogar), so the brief must name it.
 export type SeriesInfo = {
   id: string;
@@ -485,6 +505,10 @@ export type SeriesInfo = {
   cast: CastMember[];
   // "Momentos del calendario": "cuándo: qué pasa", one per line (shared/calendar.ts).
   moments: string[];
+  // "Personaje de los explicativos": the cast id of the explainers' host ("" or missing: none).
+  explainerCharacter?: string;
+  // "Corresponsal": the cast id of the series' correspondent ("" or missing: none).
+  correspondent?: string;
 };
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };
 
@@ -529,6 +553,8 @@ export type BrandFromWeb = {
   suggestion: BrandSuggestion;
   // The chosen logo as a data URL (an SVG comes as SVG: the browser cleans and rasterizes it), or empty.
   logo: string;
+  // Product photos or screenshots from the page for the cast (by the series type), checked and brought as data URLs.
+  cast?: WebCastPick[];
   demo: boolean;
 };
 

@@ -5,11 +5,16 @@
 // says why it was empty. The schema always goes into the prompt too: some providers (NVIDIA's catalog among them)
 // accept response_format json_schema and ignore it, and the model would never see the field names.
 import { z } from "zod";
+import { chatUsage, chunkUsage, type Tokens } from "../shared/usage.ts";
 
 // Where a request goes: the provider's name for messages, its base URL, key and model.
 export type ChatTarget = { label: string; baseUrl: string; key: string; model: string };
 
 export class KimiError extends Error {}
+
+// Told the usage of every reply that arrives (a retry is told again): tokens, the provider's own cost when it sends
+// one, and the model that answered. Null tokens: the reply carried no usage.
+export type UsageSink = (tokens: Tokens | null, cost?: number, model?: string) => void;
 
 type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 type Message = { role: "system" | "user" | "assistant"; content: string | Part[] };
@@ -23,6 +28,8 @@ type Learnt = {
   temperature: number | undefined;
   // Room for the reasoning and the answer. Some providers cap it lower and reject it.
   maxTokens: number | undefined;
+  // Ask a streamed reply to end with its usage (stream_options.include_usage); dropped if the provider rejects it.
+  includeUsage: boolean;
 };
 const learnt = new Map<string, Learnt>();
 
@@ -36,6 +43,7 @@ function learntFor(target: ChatTarget): Learnt {
       format: "json_schema",
       temperature: temperature !== undefined && Number.isFinite(temperature) ? temperature : undefined,
       maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : undefined,
+      includeUsage: true,
     };
     learnt.set(id, l);
   }
@@ -49,6 +57,7 @@ export async function askKimi<T>(
   prompt: string,
   schema: z.ZodType<T>,
   pictures: { label: string; jpeg: string }[] = [],
+  usage: UsageSink = () => {},
 ): Promise<T> {
   const jsonSchema = z.toJSONSchema(schema);
   delete (jsonSchema as { $schema?: string }).$schema;
@@ -72,11 +81,11 @@ export async function askKimi<T>(
   const l = learntFor(target);
   let text: string;
   try {
-    text = await complete(target, messages, jsonSchema);
+    text = await complete(target, messages, jsonSchema, usage);
   } catch (error) {
     if (!(error instanceof FormatRejected)) throw error;
     l.format = "json_object";
-    text = await complete(target, messages, jsonSchema);
+    text = await complete(target, messages, jsonSchema, usage);
   }
 
   const first = parse(text, schema);
@@ -97,6 +106,7 @@ export async function askKimi<T>(
       },
     ],
     jsonSchema,
+    usage,
   );
   const second = parse(retry, schema);
   if (second.ok) return second.value;
@@ -115,22 +125,22 @@ class FormatRejected extends Error {}
 
 class ConnectionLost extends KimiError {}
 
-type Reply = { content: string; finish: string | null; reasoning: number; ended: boolean };
+type Reply = { content: string; finish: string | null; reasoning: number; ended: boolean; usage?: unknown; model?: string };
 
 // One request, retried once when it comes back empty (a cut connection or a reasoning pass that used up the room).
-async function complete(target: ChatTarget, messages: Message[], jsonSchema: object): Promise<string> {
+async function complete(target: ChatTarget, messages: Message[], jsonSchema: object, usage: UsageSink): Promise<string> {
   const name = target.label;
   let reply: Reply;
   try {
-    reply = await request(target, messages, jsonSchema);
+    reply = await request(target, messages, jsonSchema, usage);
   } catch (error) {
     if (!(error instanceof ConnectionLost)) throw error;
     console.warn(`${error.message}; reintento.`);
-    reply = await request(target, messages, jsonSchema);
+    reply = await request(target, messages, jsonSchema, usage);
   }
   if (!reply.content.trim() && reply.finish !== "length" && reply.finish !== "content_filter") {
     console.warn(`${name} devolvió vacío (finish=${reply.finish}, razonamiento=${reply.reasoning} caracteres); reintento.`);
-    reply = await request(target, messages, jsonSchema);
+    reply = await request(target, messages, jsonSchema, usage);
   }
   if (reply.finish === "length") {
     throw new KimiError(
@@ -152,16 +162,17 @@ async function complete(target: ChatTarget, messages: Message[], jsonSchema: obj
   return reply.content;
 }
 
-async function request(target: ChatTarget, messages: Message[], jsonSchema: object): Promise<Reply> {
+async function request(target: ChatTarget, messages: Message[], jsonSchema: object, usage: UsageSink): Promise<Reply> {
   const { key, baseUrl, label: name } = target;
   if (!key) throw new KimiError(`Falta la clave de ${name}. Cargala en Modelos.`);
   const l = learntFor(target);
-  const { format, temperature, maxTokens } = l;
+  const { format, temperature, maxTokens, includeUsage } = l;
 
   const body: Record<string, unknown> = {
     model: target.model,
     messages,
     stream: true,
+    ...(includeUsage && { stream_options: { include_usage: true } }),
     response_format:
       format === "json_schema"
         ? { type: "json_schema", json_schema: { name: "reply", strict: true, schema: jsonSchema } }
@@ -187,12 +198,17 @@ async function request(target: ChatTarget, messages: Message[], jsonSchema: obje
     if (response.status === 400 && temperature !== undefined && /temperature/i.test(detail)) {
       console.warn(`${name} no acepta temperature=${temperature}; sigo sin ella. (${detail})`);
       l.temperature = undefined;
-      return request(target, messages, jsonSchema);
+      return request(target, messages, jsonSchema, usage);
     }
     if (response.status === 400 && maxTokens !== undefined && /max_tokens|max_completion_tokens|maximum/i.test(detail)) {
       console.warn(`${name} no acepta max_tokens=${maxTokens}; sigo sin él. (${detail})`);
       l.maxTokens = undefined;
-      return request(target, messages, jsonSchema);
+      return request(target, messages, jsonSchema, usage);
+    }
+    if (response.status === 400 && includeUsage && /stream_options|include_usage/i.test(detail)) {
+      // Usage is a nicety: a provider that does not take the option is asked again without it, quietly.
+      l.includeUsage = false;
+      return request(target, messages, jsonSchema, usage);
     }
     if (response.status === 400 && format === "json_schema" && /response_format|json_schema|schema/i.test(detail)) {
       throw new FormatRejected(detail);
@@ -208,8 +224,12 @@ async function request(target: ChatTarget, messages: Message[], jsonSchema: obje
   }
 
   // Some gateways answer with one JSON body even when asked to stream.
-  if (!(response.headers.get("content-type") ?? "").includes("text/event-stream")) return readWhole(response, name);
-  return readStream(response, name);
+  const reply = (response.headers.get("content-type") ?? "").includes("text/event-stream")
+    ? await readStream(response, name)
+    : await readWhole(response, name);
+  const read = chatUsage(reply.usage);
+  usage(read?.tokens ?? null, read?.cost, reply.model);
+  return reply;
 }
 
 type Choice = {
@@ -221,7 +241,7 @@ type Choice = {
 
 async function readWhole(response: Response, name: string): Promise<Reply> {
   const raw = await response.text();
-  let data: { choices?: Choice[]; error?: { message?: string } };
+  let data: { choices?: Choice[]; error?: { message?: string }; usage?: unknown; model?: unknown };
   try {
     data = JSON.parse(raw);
   } catch {
@@ -235,6 +255,8 @@ async function readWhole(response: Response, name: string): Promise<Reply> {
     finish: choice?.finish_reason ?? null,
     reasoning: (m?.reasoning_content ?? m?.reasoning ?? "").length,
     ended: true,
+    usage: data.usage,
+    model: typeof data.model === "string" ? data.model : undefined,
   };
 }
 
@@ -249,7 +271,7 @@ async function errorDetail(response: Response): Promise<string> {
   }
 }
 
-type Chunk = { choices?: Choice[]; error?: { message?: string } };
+type Chunk = { choices?: Choice[]; error?: { message?: string }; model?: unknown };
 
 async function readStream(response: Response, name: string): Promise<Reply> {
   if (!response.body) throw new KimiError(`${name} no devolvió nada.`);
@@ -259,6 +281,8 @@ async function readStream(response: Response, name: string): Promise<Reply> {
   let reasoning = 0;
   let finish: string | null = null;
   let ended = false;
+  let usage: unknown;
+  let model: string | undefined;
 
   const handle = (line: string) => {
     if (!line.startsWith("data:")) return;
@@ -272,6 +296,8 @@ async function readStream(response: Response, name: string): Promise<Reply> {
       return;
     }
     if (chunk.error) throw new KimiError(`${name} cortó la respuesta: ${chunk.error.message ?? "error"}`);
+    usage = chunkUsage(chunk) ?? usage;
+    if (typeof chunk.model === "string" && chunk.model) model = chunk.model;
     const choice = chunk.choices?.[0];
     const part = choice?.delta ?? choice?.message;
     if (part?.content) content += part.content;
@@ -290,10 +316,10 @@ async function readStream(response: Response, name: string): Promise<Reply> {
   } catch (error) {
     if (error instanceof KimiError) throw error;
     // The connection dropped mid-answer: what arrived is kept and the caller decides.
-    return { content, finish, reasoning, ended: false };
+    return { content, finish, reasoning, ended: false, usage, model };
   }
   handle(buffer.trim());
-  return { content, finish, reasoning, ended: ended || finish !== null };
+  return { content, finish, reasoning, ended: ended || finish !== null, usage, model };
 }
 
 // Reasoning models may write their thinking into the content: <think>…</think>, or only the closing tag.

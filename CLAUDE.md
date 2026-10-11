@@ -171,6 +171,167 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   (`layerRects`); pivots come from the alpha box or are dragged. The `character` template poses it as a pure function of time (breath, seeded blink, gesture
   present/wave/point/cheer/surprise, mouth from `speechLevels` of the voice file or the line's rhythm). The sheet
   template "puppet" (`/api/sheet`) writes the 3D-look sheet and the "Para el títere" view; never a known character.
+- Explainer craft (idea 64):
+  - `readingNeed` (shared/motion.ts) takes the larger of the word rule (0.3 s per word, a sentence 1.2 s, a 1-3 word
+    label 0.8 s) and the letters: `READ_LETTERS_PER_SECOND` (15 letters or digits a second, rounded to the tenth), so
+    long Spanish words get more time. The explainer writer and reviewer prompts and the measured facts quote the same
+    constant.
+  - "Foco de a uno": in callouts and steps only the newest label is at full strength. Earlier ones (with their line,
+    dot or number) mix toward the background while a newer one enters (`stepDownShare`/`focusShare` in
+    shared/motion.ts, `STEP_DOWN_OVER`), and `stepDownColour` (shared/series.ts) never takes them under 3:1
+    (`STEP_DOWN_CONTRAST`; a colour already under it does not dim). The contact sheet marks stepped-down labels in
+    overlaps, and measureFacts reports their contrast so the reviewer does not treat them as a fault.
+  - Puppet gestures anticipate: a small opposite move `lead` 0.12–0.2 s before the main move (`windUp`), sized by
+    `actingFor(tone, brand.motion)` like `landFor` (dry small and never overshoots, absurdist/springy further); the
+    main move still starts on the gesture's beat. The explainer writer chooses each scene's `camera` (`pickCamera`,
+    `cameraBy: "ai"`), and `planCameras` keeps those choices within the rules (reading scenes and zoom hold,
+    callouts/beforeAfter only hold, push or pull, product/screen push in, dry hold or push, never the same move three
+    scenes in a row); it runs in `normalizeMotion`, `applyFixes` and every studio edit and never changes a camera the
+    person picked.
+  - "Desenfoque en los cortes" (`MotionPiece.cutBlur`, on by default, old pieces count as on via `cutBlurOn`; reaches
+    the drawing as `MotionWorld.cutBlur` through `makeWorld`): inside a push window (`pushWindowAt`/`pushWindows`, the
+    tone's cutPush or THROUGH) `drawMotionFrame` averages `blurSamples` — 8 subframes (`BLUR_SUBFRAMES`) over the 1/60
+    s before t (`BLUR_SHUTTER`, 180° at 30 fps), never before the push starts — drawn on a scratch canvas that is
+    reset for every subframe and blended as a running mean; outside pushes and on hard cuts the frame is drawn once,
+    as before, the subtitle and AI notice are always drawn once on top, and the probe hears only the frame at t.
+  - Explainer scenes have an optional `disclosure` (real/concept/simulation, `pickDisclosure`). `src/lib/motion.ts`
+    draws CONCEPTO / SIMULACIÓN in the top right of the safe zone while the scene is on screen (`disclosureAt`, and
+    through the push out of it), and a labelled scene's titles start under it (`labelFloor`). The writer grades each
+    scene (`beyondToday`) and the reviewer can add flags (`flagBeyond`); a flagged scene with no label blocks the
+    render (`conceptIssues`, "Lo que existe hoy" panel) until it is labelled, changed (`showsSig`) or confirmed
+    (`piece.conceptsOk`, `conceptKey`).
+  - A series can name its explainer host ("Personaje de los explicativos", `explainerCharacter` in `shared/series.ts`,
+    stored as one header line of the bible, read back by id; `explainerHost` returns it only if it is a drawable cast
+    character). When it is set, the explainer writer is told who it is and `hostScenes` (shared/motion.ts) gives it
+    every character scene (server: always; studio template switch and applied fixes: only scenes with no character
+    yet), and the sample pieces use it (IMAN: Mica, Máshogar: Mara).
+  - A puppet can also carry the sheet's alternates (`mouthA`/`mouthO`/`mouthE`,
+    `faceHappy`/`faceSurprised`/`faceWorried`, `view34`/`viewSide`, up to `PUPPET_MAX_LAYERS` 20). `puppetPose` picks
+    them as pure selectors in `src/lib/puppet.ts`: the mouth shape from the voice held per 0.1 s block (`mouthShape`,
+    `mouthBlockStart`; closed under `MOUTH_CLOSED`), the face from the scene's emotion (`expressionFor`,
+    Spanish/English, neutral fallback; the surprise and cheer gestures override it) and the view while it points or
+    presents (`viewFor`; the views face screen right and are mirrored). Without those layers the puppet draws exactly
+    as before.
+  - "Nota del director" for an explainer (`POST /api/motion/revise`, `reviseMotion`, `shared/motionNote.ts`): the
+    writer returns the whole script, each scene naming its current id in `from` (`MotionNoteSchema`), and `mergeNote`
+    keeps untouched scenes as they were (ids, hand tweaks, the person's cameras, voices), keeps a changed scene's id
+    and its tweaks on elements it still has, and reports changed/added/removed/voiceChanged. The studio drops a
+    generated voice (`generatedVoice`) whose line changed and «Deshacer» restores it; sample mode changes nothing and
+    says so.
+  - Explainer subtitles are word by word ("Palabra por palabra", `piece.wordByWord`, on by default via
+    `wordByWordOn`): `shared/subtitles.ts` `subtitleCues` (via `pieceSubtitles` into `world.subtitles`) shows the line
+    in chunks of up to two 37-character lines, each chunk still while the word being said is lit (`litWord`) and
+    nothing outliving its scene. Word times come from whisper-1 (`POST /api/voice/words`, `alignWordTimes`, stored in
+    `piece.wordTimes` while the line and the file still match, `wordTimesFresh`), or else are estimated by letters
+    from the voice's length (`estimateWordTimes`). The same cues go out as an .srt (`toSrt`): it can be downloaded in
+    the studio, and it is saved next to each video as `<video base>.srt`, by render.mjs for the final render and by
+    `PUT /api/projects/:id/subtitles` for in-browser renders.
+  - "Continuidad" (entry "match", `SCENE_ENTRY_LABEL`): when two scenes in a row show the same main picture
+    (`carriedAsset`: the picture of hook/screen/zoom/callouts/product, a character's assetB), the cut carries it from
+    its last box in the old scene to its box in the new one (`carryBox` from `mediaLayout`, `lerpBox`, `carryCurve`;
+    drawn once, both scenes hide their copy with `Frame.hide`) while the rest of the old scene leaves and the new
+    scene's other elements enter. It applies by itself when the person picked no entry (`entryOf`; timeScenes marks it
+    `carryIn`), a hand "cut" never carries and a hand "match" falls back to the cut; `pushOf` gives it `carryOf(push)`
+    (dry 0.32 s with no overshoot, absurdist 0.42 s, warm 0.6 s), and the carry sounds a soft "glide" cue (none for
+    dry).
+  - Avisos, Flujo y Casilleros (templates `notify`, `flow`, `slots`): their items go through `itemsOf` (empty lines
+    dropped, capped by `LIST_MAX`: 3 notifications written "title | body" via `noticeParts`, 4 places, 5 boxes) and
+    arrive by `sequenceTimes`, laid out by `noticeLayout`/`flowLayout`/`slotsLayout` in src/lib/motion.ts with Foco de
+    a uno. In Casilleros the first slots scene with items names the boxes and each later slots scene without items
+    fills the next one, from the script's order alone (`slotsPlan`, attached by `timeScenes` as `TimedScene.slots`;
+    `normalizeMotion` clears the items of later slots scenes; the reviewer gets `slotsFacts`).
+  - Explainer scenes can sit in a flat illustrated place ("Mundo ilustrado", `shared/world.ts`:
+    store/street/home/desk, `script.world` for the piece, `scene.world` to override or "none"; `worldOf`, `pickWorld`,
+    the writer leans store/desk for software and home for e-commerce, `worldLean`), seeded flat shapes (`worldShapes`)
+    in three layers that take the camera by depth (`WORLD_DEPTH`) and travel with the scene's push, carry and "Pasar a
+    través"; its tones keep the brand's text 4.5:1 and accent 3:1 (`worldPalette`/`worldSafe`, labels step down with
+    `worldStepDown`), and busy shapes are left out wherever a measuring pass of the scene finds words, the subtitle or
+    the AI notice, at every camera position (`busyClear`, `wordBoxes` in src/lib/motion.ts).
+  - "Storyboard" in MotionStudio (`MotionStoryboard`, lazy-loaded only when opened): `storyboardPanels(arranged
+    script, {music, effects, voice})` in `src/lib/motionStoryboard.ts` builds one panel per scene from the scenes as
+    they play. Each panel has the settled frame time (past `pushOf`, every element's `settledAt`) drawn by
+    `drawMotionFrame`, the range, template, on-screen words (`shownText`), the voice, the `soundHits` in the scene
+    plus the bed's `roomWindows` dip, the entry (tone cut with seconds, hard cut, through, Continuidad), the camera
+    and CONCEPTO / SIMULACIÓN. It downloads as Markdown (`storyboardMarkdown`, which links the sheet) and as one PNG
+    sheet (`storyboardSheet`).
+- Lyric, story and app additions (idea 65):
+  - Lyric videos pulse (organic background, Grok layers, "beat" elements) on the Reloj's kick grid when it has one
+    (`shared/lyricPulse.ts`: `lyricPulse`, `pulseAt` = downbeats for the big move, kicks for small accents,
+    `layerHits` = downbeats); with no drums stem they fall back to `findBeats` on the master as decoration only (never
+    a cut, never the Reloj) and the Video tab says so (`pulseNote`).
+  - Lyric videos: "La letra actúa el canto" (`piece.act`, on for new pieces and off for old ones that already have
+    lyrics; `shared/lyricAct.ts`): a word that was heard by the auto sync (`LyricWord.heard`, set by `alignLyrics`)
+    and held at least 0.6 s stretches horizontally while it is sung (`stretchAt`, at most +20 %, rows break on the
+    peak width), and a word in the song's loudest tenth and at least 3 dB over its median (`loudCut`) shakes slightly
+    (`shakeAt`, half on calm). Loudness is `LyricWord.level`, the vocal-stem RMS from `wordLevels` (Demucs in
+    `/api/lyrics/sync` voice=demucs or `/api/lyrics/levels`, or a stem uploaded and measured in the browser), never
+    the master.
+  - Generated image prompts close with the series look (`lookPhrase`, sent as `look` to /api/image) or, without one,
+    the plain `PLAIN_PHOTO` line, never "cinematic" (`buildImagePrompt` in shared/prompt.ts); Grok's speaking prompt
+    carries the line's written emotion as "tone: …" (`speakingPrompt`, `lineEmotion` in shared/audio.ts).
+  - "Exportar .zip" / "Importar .zip" in ProjectsPanel (`server/projectZip.ts`, localhost-only `GET
+    /api/projects/:id/export` and `POST /api/projects/import`): a node:zlib zip32 reader/writer that allows only a
+    project folder's own paths (`projectPathAllowed`) and rejects traversal, symlinks, encryption and zip64; sizes are
+    capped as files inflate. project.json is checked with `ProjectFileSchema` (errors via checkErrorText), and an
+    import always lands in a new free id (id-2, id-3…), never overwriting.
+  - pieza.md shows each shot's sketch: the uploaded boceto-NN (MediaState.imageFile) or the app's pencil sketch, which
+    App writes as boceto-app-NN.png (`src/lib/sketchFiles.ts` `sketchJobs`/`sketchPng`, `PUT/DELETE
+    /api/projects/:id/sketches`, `saveAppSketch`/`pruneAppSketches`, `appSketchFile` in shared/prompt.ts) only when
+    its drawn inputs change. `pieceToMarkdown(..., SketchLinks)` links them relatively, and "Descargar todo .md" adds
+    a note that the images are in the project folder.
+  - "Cambiar descripción" in the setups panel (`SetupsPanel`) carries a setup's new identity line into every shot's
+    prompts (`propagateSetupIdentity` in `shared/setupEdit.ts`: matches the old line word for word, reports shots that
+    list the setup without it). It can also save the line to the series cast, and the last change can be undone
+    (`undoSetupIdentity` keeps prompts edited by hand since).
+  - A transform shot can start or end on a real cast screen (`screenAt` "start"/"end" + `screen`;
+    `shared/transformScreen.ts`: `shotFrames`, `generatesImage`, `withScreenMove` puts a "Frames (real screen):"
+    sentence before "Audio:" in the video prompt, `settleScreenShot` runs after the writer). That frame is the cast
+    screenshot, never generated, and is chosen in Producción with "Pantalla real en la transformación".
+  - Cast members carry extra references (`refs`: a crop of the sheet such as the face, or a loose view, each its own
+    @ref, e.g. @MartaCara, saved in biblioteca/<series>/ by `POST/DELETE /api/series/:id/cast/:castId/refs`, server-
+    owned like puppet files) and the sheet's loose views (`views`). The crop math, the naming and the cap
+    (`referenceCap` reads "Up to N reference images" from server/tools/*.md) are in `shared/castRefs.ts`, the cropper
+    is `CastRefs.tsx`, and a linked setup in Producción opens `SheetBuilder` prefilled with its member ("Hoja de
+    personaje").
+  - "Este clip parece traer música": uploadClip listens to each new story clip once (`src/lib/clipMusic.ts`, the pure,
+    conservative [NOT SURE] heuristic `musicFeatures`/`likelyMusic` in `shared/musicLike.ts`: tonal coverage, held
+    notes, distinct pitches, beat regularity) and marks `audio.clipMusic` ("likely"/"ok", `withClipMusic`). The shot
+    shows the notice (`clipMusicNotice`) with "Ponerlo en Mudo" (clipLevel mute) or "Tiene licencia / no es música";
+    it never blocks.
+  - "Formato del segmento" (`brief.segment`: desk/correspondent/field, default desk; `shared/segment.ts`) stages a
+    story at the desk, with the series' correspondent "on location" (PLAYBOOK §2.5 Remote Stand-up, roadmap only as a
+    labelled concept gag) or as a Field Visit. `segmentRules` goes into `describeBrief`, `storyProblems` blocks a
+    tagged story without the format's move (`SEGMENT_MOVE`), and `demoStory` shows it in sample mode. A series names
+    its correspondent in Editar serie (`correspondent`, header line "Corresponsal: id", `seriesCorrespondent`); when
+    there is none, the writer invents one with the id "corresponsal" and `CorrespondentOffer`
+    (`inventedCorrespondent`, `correspondentMember`, `POST /api/series/:id/correspondent`) offers to add it to the
+    cast.
+  - "Tokens por pedido" in Modelos: every writer reply's usage (Claude's and the OpenAI-compatible providers',
+    streamed ones asking stream_options.include_usage and dropping it if rejected) is normalised by
+    `claudeUsage`/`chatUsage`/`chunkUsage` (`shared/usage.ts`) and logged per askWith call by `meter`
+    (`server/usage.ts`; last 200 in memory and PROJECTS_DIR/.tokens.json, kind from the route via
+    `usageScope`/`usageKind`), shown from `GET /api/settings/usage` (localhost-only) with per-kind averages
+    (`usageAverages`); tokens only, a price only when the provider returns one.
+  - "Episodios estudiados" (`EpisodesPanel`, `server/episodes.ts`, `shared/episodes.ts`, `/api/episodes*`, localhost-
+    only) drafts a PLAYBOOK §2.6 EP-NN entry from a pasted summary (`EpisodeWireSchema` → `episodeMarkdown`), and with
+    the person's ok appends it as the next number (`appendEpisode`, `prepareEntry`); the snapshot records only that
+    append (`recordAppend` in scripts/playbookSync.ts: full rewrite if in step, else §2.6 only, never over a hand edit
+    to §2.6), server/playbook.md never gets episodes, and moves on each entry's **Moves** line that repeat in 3+
+    episodes and are new to §2.5 are only proposed (`moveTally`).
+  - "Traer la marca desde su web" also offers cast pictures by series type (`sitePictures`, `bringPictures`,
+    `fetchPicture`/`checkPicture` in server/brandWeb.ts: JSON-LD Product/SoftwareApplication, product og:image,
+    hero/feature/gallery images; same address/redirect checks, 2.5 MB, type read from the bytes, returned as data URLs
+    in `BrandFromWeb.cast`). A picked one joins the cast via `webCastMember` (shared/webCast.ts) as Producto, or as
+    Pantalla real only after the person confirms the app looks like that today, with a note saying it came from the
+    website.
+  - The open story piece's project folder (autosave of project.json/pieza.md/boceto-app, each shot's media and music,
+    `loadMedia`/`clearMedia`/`keep`) lives in the hook `useProject` (src/useProject.ts), and step 5 is
+    `ProductionView` (lazy VideoPanel; `Lazy` is in ui.tsx). The studios are split by role: MotionStudio's preview
+    (clock, canvas, playback) is `useMotionPreview`/`MotionPreview` and its panels are
+    MotionChecks/MotionSettings/MotionOutputs/MotionSceneList/MotionScriptBar/MotionToggles/MotionStoryboardPanel
+    (lazy MotionStoryboard), with `useHeardWords` and `pieceMarkdown` (src/lib/motionMarkdown.ts). LyricStudio's are
+    LyricPreview/LyricVideoTab/LyricSync, SeriesEditor's are CastCard/SeriesBrandLook, and ScriptView's SetupsPanel is
+    its own file (lazy SheetBuilder/CastRefs). tests/splitFiles.test.ts guards these lazy boundaries.
 - Publicidad (Método 50-5-3, `src/components/ads/`, `server/ads*.ts`, `shared/ads.ts`): the second section of the app,
   paid ads next to Playbook's organic content (header toggle). An ad = Hook + Meat + CTA; pieces are written and
   rendered separately and the combination hook × meat × CTA is pure code (`combine`, `varyHook`), never the AI. Per

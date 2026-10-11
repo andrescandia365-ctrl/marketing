@@ -25,6 +25,7 @@ import {
   lyricIdeas,
   lyricPlates,
   motionScript,
+  reviseMotion,
   brandFromSite,
   proposeMenu,
   productShot,
@@ -45,17 +46,19 @@ import {
 } from "./claude.ts";
 import { KimiError } from "./kimi.ts";
 import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
-import { BrandWebError, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.ts";
+import { BrandWebError, bringPictures, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.ts";
 import { EMPTY_BRIEF } from "../shared/example.ts";
 import { ClockError } from "../shared/clock.ts";
 import { roomBrief } from "../shared/room.ts";
 import { buildProjectSync, critiqueProject, loadSync } from "./sync.ts";
 import { checkDemucsBin, demucsAvailable, demucsStatus, separate, speechWav, tryDemucs } from "./demucs.ts";
 import { decodeWav, fitKicks } from "../shared/clock.ts";
-import { BrandSchema, DEFAULT_BRAND } from "../shared/series.ts";
+import { withLevels, wordLevels, wordSpans } from "../shared/lyricAct.ts";
+import { BrandSchema, DEFAULT_BRAND, SERIES_TYPES } from "../shared/series.ts";
+import { webPictureKinds, type WebCastPick } from "../shared/webCast.ts";
 import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, SECOND_LANGUAGES, LyricStyleSchema, alignLyrics, cleanElements, cleanIdeas } from "../shared/lyrics.ts";
 import { buildPlates, cleanPlates } from "../shared/plates.ts";
-import { DEMO_BOARD, DEMO_MENU, DEMO_STORY, demoHookVariants, demoMotion, demoMotionReview } from "./demo.ts";
+import { DEMO_BOARD, DEMO_MENU, demoHookVariants, demoStory, demoMotion, demoMotionReview } from "./demo.ts";
 import { RenderError, ffmpegAvailable, getFinal, startFinal } from "./finalRender.ts";
 import {
   EFFORTS,
@@ -76,7 +79,9 @@ import {
   type ProviderId,
 } from "./settings.ts";
 import { getProvider, listProviders } from "./images/index.ts";
-import { CastMemberSchema, PUPPET_ROLES, PuppetPlaceSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
+import { addEpisode, draftEpisode, episodesView } from "./episodes.ts";
+import { ENTRY_MAX, EpisodeError, SUMMARY_MAX } from "../shared/episodes.ts";
+import { CastMemberSchema, PUPPET_MAX_LAYERS, PUPPET_ROLES, PuppetPlaceSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
 import {
   PROJECTS_DIR,
   ProjectError,
@@ -90,9 +95,12 @@ import {
   removeMedia,
   removeMusic,
   saveMedia,
+  saveAppSketch,
+  pruneAppSketches,
   saveMusic,
   saveState,
   saveVideo,
+  saveSubtitles,
 } from "./projects.ts";
 import { DEFAULT_VOICE, VoiceError, speak, voiceAvailable } from "./voice.ts";
 import {
@@ -113,13 +121,24 @@ import {
   saveTextStyle,
   setCastImage,
   upsertCastMember,
+  addCorrespondent,
+  addCastRef,
+  removeCastRef,
 } from "./series.ts";
-import { listTools } from "./tools.ts";
+import { listTools, referenceLimit } from "./tools.ts";
 import { AdsError } from "./ads.ts";
 import { checkErrorText } from "../shared/errors.ts";
+import { MAX_ZIP_TOTAL, exportProjectZip, importProjectZip } from "./projectZip.ts";
 import { adsRoutes } from "./adsRoutes.ts";
+import { usageScope, usageView } from "./usage.ts";
+import { usageKind } from "../shared/usage.ts";
+import { MotionScriptInput } from "../shared/motionNote.ts";
+import type { MotionScript } from "../shared/motion.ts";
 
 const app = new Hono();
+
+// Each writer request is logged under the kind of the route that asked (Modelos → Tokens por pedido).
+app.use("/api/*", (c, next) => usageScope.run({ kind: usageKind(c.req.path) }, next));
 
 app.onError((error, c) => {
   if (error instanceof WriterError || error instanceof KimiError) return c.json({ error: error.message }, 502);
@@ -127,7 +146,7 @@ app.onError((error, c) => {
     return c.json({ error: error.message }, 400);
   }
   if (error instanceof VoiceError || error instanceof LyricsError) return c.json({ error: error.message }, 502);
-  if (error instanceof ClockError || error instanceof BrandWebError || error instanceof AdsError) return c.json({ error: error.message }, 400);
+  if (error instanceof ClockError || error instanceof BrandWebError || error instanceof AdsError || error instanceof EpisodeError) return c.json({ error: error.message }, 400);
   // Which field and what is wrong with it: an old project with a renamed field says which one.
   if (error instanceof z.ZodError) return c.json({ error: checkErrorText(error) }, 400);
   console.error(error);
@@ -144,7 +163,7 @@ function fillOld(value: unknown): unknown {
   return {
     ...v,
     ...(v.topics && { topics: v.topics.map((t) => ({ moves: [], ...t, lines: t.lines?.map((l) => ({ emotion: "", ...l })) })) }),
-    ...(v.shots && { shots: v.shots.map((s) => ({ timeline: [], ...s })) }),
+    ...(v.shots && { shots: v.shots.map((s) => ({ timeline: [], screenAt: "", ...s })) }),
   };
 }
 function fillStory(value: unknown): unknown {
@@ -239,11 +258,31 @@ app.put("/api/series/:id/cast/:castId", async (c) => {
   return c.json({ series: listSeries() });
 });
 
+// "Sumar al elenco como corresponsal": the correspondent the writer invented joins the cast as the series' own.
+app.post("/api/series/:id/correspondent", async (c) => {
+  const member = CastMemberSchema.parse(await c.req.json());
+  addCorrespondent(c.req.param("id"), member);
+  return c.json({ series: listSeries() });
+});
+
 app.put("/api/series/:id/cast/:castId/image", async (c) => {
   const data = Buffer.from(await c.req.arrayBuffer());
   if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
   const file = setCastImage(c.req.param("id"), c.req.param("castId"), data, c.req.header("content-type") ?? "");
   return c.json({ file, series: listSeries() });
+});
+
+// Extra reference images of a cast member: a crop of its sheet (the face) or a loose view, each its own @ reference.
+app.post("/api/series/:id/cast/:castId/refs", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
+  const member = addCastRef(c.req.param("id"), c.req.param("castId"), data, c.req.header("content-type") ?? "", c.req.query("label") ?? "", referenceLimit());
+  return c.json({ member, series: listSeries() });
+});
+
+app.delete("/api/series/:id/cast/:castId/refs/:ref", (c) => {
+  const member = removeCastRef(c.req.param("id"), c.req.param("castId"), c.req.param("ref"));
+  return c.json({ member, series: listSeries() });
 });
 
 // The parts of a character's puppet (motion graphics): upload one (index = its place; one past the end adds), remove one.
@@ -277,7 +316,7 @@ app.put("/api/series/:id/cast/:castId/puppet", async (c) => {
           }),
         )
         .min(1)
-        .max(12),
+        .max(PUPPET_MAX_LAYERS),
     })
     .parse(await c.req.json());
   const parts = body.layers.map((layer) => {
@@ -301,7 +340,7 @@ app.patch("/api/series/:id/cast/:castId/puppet", async (c) => {
             place: PuppetPlaceSchema.nullable(),
           }),
         )
-        .max(12),
+        .max(PUPPET_MAX_LAYERS),
     })
     .parse(await c.req.json());
   const member = arrangePuppet(c.req.param("id"), c.req.param("castId"), layers);
@@ -385,6 +424,18 @@ app.delete("/api/projects/:id/media/:index/:kind", async (c) => {
   return c.json({ ok: true });
 });
 
+// The app's pencil sketch of a shot, drawn by the browser, for pieza.md (boceto-app-NN.png).
+app.put("/api/projects/:id/sketches/:index", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  const file = await saveAppSketch(c.req.param("id"), Number(c.req.param("index")), data);
+  return c.json({ file });
+});
+
+app.delete("/api/projects/:id/sketches", async (c) => {
+  const count = z.coerce.number().int().min(0).max(99).parse(c.req.query("keep") ?? "0");
+  return c.json({ removed: await pruneAppSketches(c.req.param("id"), count) });
+});
+
 app.delete("/api/projects/:id/media", async (c) => {
   await clearMedia(c.req.param("id"));
   return c.json({ ok: true });
@@ -427,6 +478,22 @@ app.post("/api/motion", async (c) => {
     .parse(await c.req.json());
   if (demo()) return c.json({ script: demoMotion(brief, target), demo: true });
   return c.json({ script: await motionScript(brief, target, layers), demo: false });
+});
+
+// "Nota del director" for an explainer: the whole script back with only what the note asks changed (mergeNote keeps
+// the rest). Sample mode changes nothing and says so.
+app.post("/api/motion/revise", async (c) => {
+  const { brief, script, note, layers } = z
+    .object({
+      brief: BriefSchema,
+      script: MotionScriptInput,
+      note: z.string().trim().min(1, "Escribí la nota antes de aplicarla.").max(4000),
+      layers: z.number().int().min(0).max(12).default(0),
+    })
+    .parse(await c.req.json());
+  if (demo()) return c.json({ demo: true as const });
+  const merge = await reviseMotion(brief, script as unknown as MotionScript, note, layers);
+  return c.json({ ...merge, demo: false as const });
 });
 
 // An explainer's own track (the file as uploaded): Demucs separates its drums on this computer and the kicks are
@@ -473,7 +540,7 @@ app.post("/api/sheet", async (c) => {
       filled: [],
       note:
         template === "puppet"
-          ? "Hoja de muestra: sin clave de IA. Hacé «Para el títere» en Grok, después Segmentos → cabeza, cuerpo, brazos, boca y ojos → Descargar todo, y subí las capas en la tarjeta (Títere 3D)."
+          ? "Hoja de muestra: sin clave de IA. Hacé «Para el títere» en Grok, después Segmentos → cabeza, cuerpo, brazos, boca y ojos → Descargar todo, y subí las capas en la tarjeta (Títere 3D). Si querés, sumá de la hoja las bocas A, O y E, las caras y el cuerpo de 3/4 y de perfil como Partes sueltas."
           : "Hoja de muestra: sin clave de IA.",
       demo: true,
     });
@@ -501,7 +568,7 @@ app.post("/api/product-shot", async (c) => {
 const WATERMARK = /marca de agua|watermark|logo de grok|firma de la ia|metadat/i;
 app.post("/api/shot/segment", async (c) => {
   const { brief, shot, note } = z
-    .object({ brief: BriefSchema, shot: z.preprocess((s) => (s && typeof s === "object" ? { timeline: [], ...s } : s), ShotWireSchema).transform(normalizeShot), note: z.string().trim().min(1).max(500) })
+    .object({ brief: BriefSchema, shot: z.preprocess((s) => (s && typeof s === "object" ? { timeline: [], screenAt: "", ...s } : s), ShotWireSchema).transform(normalizeShot), note: z.string().trim().min(1).max(500) })
     .parse(await c.req.json());
   if (WATERMARK.test(note)) {
     throw new WriterError("Eso no: los segmentos no se usan para tapar ni borrar la marca de agua o la identificación de la IA.");
@@ -541,11 +608,12 @@ const LOOPBACK = /^(127\.|::1$|::ffff:127\.)/;
 const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/;
 const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/;
 // Only the app open on this computer: a loopback address, a localhost Host and Origin, and a JSON body.
-const onlyHere = (refusal: string) => async (c: Context, next: () => Promise<void>) => {
+// `body` is the one content type a non-GET request may carry (a JSON body by default; a .zip for the project import).
+const onlyHere = (refusal: string, body = "application/json") => async (c: Context, next: () => Promise<void>) => {
   const address = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress ?? "";
   const origin = c.req.header("origin");
-  const json = (c.req.header("content-type") ?? "").includes("application/json");
-  if (!LOOPBACK.test(address) || !LOCAL_HOST.test(c.req.header("host") ?? "") || (origin && !LOCAL_ORIGIN.test(origin)) || (c.req.method !== "GET" && !json)) {
+  const typed = (c.req.header("content-type") ?? "").includes(body);
+  if (!LOOPBACK.test(address) || !LOCAL_HOST.test(c.req.header("host") ?? "") || (origin && !LOCAL_ORIGIN.test(origin)) || (c.req.method !== "GET" && !typed)) {
     return c.json({ error: refusal }, 403);
   }
   await next();
@@ -569,12 +637,71 @@ app.put("/api/tools/demucs", async (c) => {
   await setEnv({ DEMUCS_BIN: bin ? checkDemucsBin(bin) : null });
   return c.json({ demucs: demucsStatus(true), ffmpeg: ffmpegAvailable() });
 });
+// "Episodios estudiados" (PLAYBOOK.md §2.6): it writes the research file and its snapshot, so only from the app on this
+// computer. A draft needs the writer; the append needs the person's ok and never touches server/playbook.md.
+app.use("/api/episodes", onlyHere("El registro de episodios se cambia solo desde la app en esta compu."));
+app.use("/api/episodes/*", onlyHere("El registro de episodios se cambia solo desde la app en esta compu."));
+app.get("/api/episodes", (c) => c.json({ ...episodesView(), demo: demo() }));
+app.post("/api/episodes/draft", async (c) => {
+  const { summary } = z.object({ summary: z.string().trim().min(1).max(SUMMARY_MAX) }).parse(await c.req.json());
+  if (demo()) {
+    return c.json({ error: "Para pasar un resumen a la plantilla hace falta una IA conectada: cargá una clave en Modelos. Mientras, podés escribir la ficha a mano." }, 400);
+  }
+  return c.json({ ...(await draftEpisode(summary)), demo: false });
+});
+app.post("/api/episodes", async (c) => {
+  const { entry } = z.object({ entry: z.string().min(1).max(ENTRY_MAX), ok: z.literal(true) }).parse(await c.req.json());
+  return c.json(addEpisode(entry));
+});
+
+// "Exportar .zip" / "Importar .zip" (projectZip.ts): a whole project folder as one file. Only from the app on this
+// computer: the export hands out every file of a piece, and the import writes a new folder.
+app.use("/api/projects/:id/export", onlyHere("Los proyectos se exportan solo desde la app en esta compu."));
+app.get("/api/projects/:id/export", async (c) => {
+  const id = c.req.param("id");
+  const chunks = exportProjectZip(id);
+  // The first chunk is read here, so a missing project answers with its error instead of a broken download.
+  const first = await chunks.next();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      if (!first.done) controller.enqueue(new Uint8Array(first.value));
+    },
+    async pull(controller) {
+      try {
+        const next = await chunks.next();
+        if (next.done) controller.close();
+        else controller.enqueue(new Uint8Array(next.value));
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    async cancel() {
+      await chunks.return(undefined);
+    },
+  });
+  return c.body(stream, 200, {
+    "Content-Type": "application/zip",
+    "Content-Disposition": `attachment; filename="${id}.zip"`,
+    "Cache-Control": "no-store",
+  });
+});
+app.use("/api/projects/import", onlyHere("Los proyectos se importan solo desde la app en esta compu.", "application/zip"));
+app.post("/api/projects/import", async (c) => {
+  if (Number(c.req.header("content-length") ?? 0) > MAX_ZIP_TOTAL) return c.json({ error: "Ese .zip es demasiado grande para importarlo." }, 400);
+  const data = new Uint8Array(await c.req.arrayBuffer());
+  if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
+  if (data.length > MAX_ZIP_TOTAL) return c.json({ error: "Ese .zip es demasiado grande para importarlo." }, 400);
+  return c.json(await importProjectZip(data));
+});
+
 const HEX = /^#[0-9a-f]{6}$/i;
 app.post("/api/brand/from-web", async (c) => {
-  const { url, series } = z
+  const { url, series, type } = z
     .object({
       url: z.string().trim().min(4).max(500),
       series: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(),
+      // The series type as the form has it now: which cast pictures to bring (products or screens).
+      type: z.enum(SERIES_TYPES).optional(),
       own: z.literal(true, { message: "Confirmá que es la web de la marca." }),
     })
     .parse(await c.req.json());
@@ -606,10 +733,12 @@ app.post("/api/brand/from-web", async (c) => {
   // The chosen logo, or the next candidate that loads.
   const order = [suggestion.logo, ...facts.logos.map((_, i) => i)].filter((i, k, all) => i >= 0 && i < facts.logos.length && all.indexOf(i) === k);
   let logo = "";
+  const pictures = bringPictures(facts.pictures, webPictureKinds(type));
   for (const i of order) {
     logo = await fetchLogo(facts.logos[i].url).catch(() => "");
     if (logo) break;
   }
+  const cast: WebCastPick[] = (await pictures).map(({ kind, name, url, source, image, width, height }) => ({ kind, name, url, source, image, width, height }));
   const result: BrandFromWeb = {
     url: facts.url,
     title: facts.title,
@@ -617,6 +746,7 @@ app.post("/api/brand/from-web", async (c) => {
     fonts: [...new Set([...facts.googleFonts, ...facts.fonts.map((f) => f.family)])].slice(0, 8),
     suggestion,
     logo,
+    cast,
     demo: demo(),
   };
   return c.json(result);
@@ -702,6 +832,9 @@ app.post("/api/settings/test", async (c) => {
   return c.json({ result: await testModel({ provider: id, label: labelOf(id), model }, vision) });
 });
 
+// Tokens of the last writer requests, newest first, and the average of each kind.
+app.get("/api/settings/usage", async (c) => c.json(await usageView()));
+
 // The motion quality loop: the reviewer scores the contact sheet(s) against the app's measurements.
 app.post("/api/motion/review", async (c) => {
   const { brief, scenes, facts, sheets, round, earlier } = z
@@ -779,18 +912,54 @@ app.post("/api/lyrics/sync", async (c) => {
   const language = z.enum(LYRIC_LANGUAGES).parse(form.get("language") ?? "auto");
   // "voice=demucs": the transcription hears the vocal stem only (the same split the Reloj reuses).
   let heard;
+  let vocalStem: Uint8Array | null = null;
   if (form.get("voice") === "demucs") {
     // The key first: a split takes minutes, and without the key nothing would hear it.
     if (!autoSyncAvailable()) throw new LyricsError("Para sincronizar automático falta OPENAI_API_KEY en .env.");
     const { vocals } = await separate(new Uint8Array(await audio.arrayBuffer()));
     if (!vocals) throw new ClockError("Demucs no devolvió la voz de este tema.");
+    vocalStem = vocals;
     const speech = speechWav(vocals);
     heard = await hearSong(new Blob([speech.buffer as ArrayBuffer], { type: "audio/wav" }), "voz.wav", language, lines.join("\n"));
   } else {
     heard = await hearSong(audio, audio instanceof File ? audio.name : "cancion.mp3", language, lines.join("\n"));
   }
   const share = { matched: 0, total: 0 };
-  return c.json({ lines: alignLyrics(lines, seconds, heard.words, heard.duration, share), heard: heard.words.length, ...share });
+  let aligned = alignLyrics(lines, seconds, heard.words, heard.duration, share);
+  // With the vocal stem at hand, each word's loudness comes with it ("La letra actúa el canto"; never the master).
+  if (vocalStem) aligned = withLevels(aligned, wordLevels(decodeWav(vocalStem), wordSpans(aligned)));
+  return c.json({ lines: aligned, heard: heard.words.length, ...share });
+});
+
+// How loud each lyric word is sung, on the vocal stem Demucs splits from the song (cached per song). The master is
+// never measured: without Demucs this says so, and the studio offers to read a vocal stem the person uploads instead.
+app.post("/api/lyrics/levels", async (c) => {
+  const form = await c.req.formData();
+  const audio = form.get("audio");
+  if (!(audio instanceof Blob)) throw new LyricsError("Falta la canción.");
+  const spans = z
+    .array(z.object({ start: z.number(), end: z.number() }))
+    .min(1)
+    .max(8000)
+    .parse(JSON.parse(String(form.get("words") ?? "[]")));
+  if (!demucsAvailable()) {
+    throw new ClockError("Para medir la fuerza del canto hace falta la voz sola: instalá Demucs (Modelos → Demucs) o subí el stem de voz.");
+  }
+  const { vocals } = await separate(new Uint8Array(await audio.arrayBuffer()));
+  if (!vocals) throw new ClockError("Demucs no devolvió la voz de este tema.");
+  return c.json({ levels: wordLevels(decodeWav(vocals), spans) });
+});
+
+// An explainer scene's voice file (multipart "audio"), heard with word times for its subtitles; the line ("text")
+// helps it spell. The studio aligns the words to the written line (shared/subtitles.ts alignWordTimes).
+app.post("/api/voice/words", async (c) => {
+  const form = await c.req.formData();
+  const audio = form.get("audio");
+  if (!(audio instanceof Blob)) throw new LyricsError("Falta la voz.");
+  const text = z.string().max(2000).parse(String(form.get("text") ?? ""));
+  const language = z.enum(LYRIC_LANGUAGES).parse(form.get("language") ?? "auto");
+  const heard = await hearSong(audio, audio instanceof File ? audio.name : "voz.mp3", language, text, "voice");
+  return c.json({ words: heard.words, duration: heard.duration });
 });
 
 const LyricRequest = z.object({ series: z.string(), title: z.string().default(""), artist: z.string().default(""), lines: z.array(z.string()).min(1).max(400) });
@@ -888,6 +1057,12 @@ app.put("/api/projects/:id/video", async (c) => {
   return c.json({ file });
 });
 
+app.put("/api/projects/:id/subtitles", async (c) => {
+  const video = z.string().max(80).parse(c.req.query("video") ?? "");
+  const file = await saveSubtitles(c.req.param("id"), video, await c.req.text());
+  return c.json({ file });
+});
+
 app.get("/api/projects/:id/files/:name", async (c) => {
   const { data, type } = await readProjectFile(c.req.param("id"), c.req.param("name"));
   return c.body(new Uint8Array(data), 200, { "Content-Type": type, "Cache-Control": "no-cache" });
@@ -913,7 +1088,7 @@ app.post("/api/story", async (c) => {
       projectId: z.string().max(80).default(""),
     })
     .parse(await c.req.json());
-  if (demo()) return c.json({ story: DEMO_STORY, demo: true });
+  if (demo()) return c.json({ story: demoStory(brief), demo: true });
   const room = roomBrief(await listRoom(brief.series, projectId));
   return c.json({ story: await writeStory(brief, topics, room, note), demo: false });
 });
@@ -983,6 +1158,7 @@ app.post("/api/image", async (c) => {
       style: z.string(),
       aspect: z.enum(["vertical", "horizontal"]),
       beat: z.string(),
+      look: z.string().max(2400).default(""),
     })
     .parse(await c.req.json());
   const provider = getProvider(req.provider);

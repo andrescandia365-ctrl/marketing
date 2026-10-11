@@ -1,17 +1,26 @@
 // What the explainer studio and the render page (render.mjs) share: loading a piece's images, voices and track,
 // the beat grid, the scenes on it, the world the engine draws with, and the sound. Both build frame t and the mix
 // the same way, so the final render matches the preview.
-import { STAT_COUNT, THROUGH, TYPE_CPS, cutPush, elementTimes, sceneElements, snapElements, snapScenes, timeScenes, type MotionPiece, type MotionScene, type MotionScript, type TrackKicks } from "../../shared/motion.ts";
+import { STAT_COUNT, THROUGH, TYPE_CPS, carriedAsset, carryOf, cutPush, elementTimes, sceneElements, snapElements, snapScenes, timeScenes, type MotionPiece, type MotionScene, type MotionScript, type TrackKicks } from "../../shared/motion.ts";
 import { fitKicks, type Pcm } from "../../shared/clock.ts";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import type { Brand } from "../../shared/series.ts";
 import { libraryFileUrl, projectFileUrl, type MediaFileRecord, type MediaRecord } from "./api.ts";
 import { buildPuppet, singlePuppet, type PuppetAsset } from "./puppet.ts";
 import type { ActorAsset } from "./actor.ts";
+import { subtitleCues, wordByWordOn, type SubtitleCue } from "../../shared/subtitles.ts";
 import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "./motion.ts";
 import { buildSound, type HitKind, type SoundPlan } from "./motionAudio.ts";
 
 export const VOICE_BASE = 100;
+
+// The slot for a scene's new voice file: past every slot in use and every slot an undo can still bring back (a voice a
+// director note dropped keeps its file there), so a new voice never overwrites a file the undo restores.
+export function nextVoiceSlot(slots: Record<string, number>, held: Iterable<Record<string, number>>): number {
+  let next = 0;
+  for (const map of [slots, ...held]) for (const x of Object.values(map)) next = Math.max(next, x + 1);
+  return next;
+}
 export const LAYER_BASE = 200;
 export const SHEET_BASE = 300;
 // The thumbnail of the last render, per format: 302 (9:16) and 303 (16:9).
@@ -204,14 +213,24 @@ export function makeWorld(
   logo: MotionAsset | null,
   beats: number[],
   notice: boolean,
-  extra: Pick<MotionWorld, "puppets" | "speech" | "actors"> = {},
+  extra: Pick<MotionWorld, "puppets" | "speech" | "actors" | "cutBlur" | "subtitles"> = {},
 ): MotionWorld {
   return { brand, assets, logo, beats, seed: MOTION_SEED, disclosure: notice ? AI_NOTICE : "", ...extra };
+}
+
+// The subtitle cues of the scenes as they play (arrangeScenes): word by word unless the person turned it off, with the
+// heard word times when they still fit the line and the file, else estimated from each voice file's length (none when
+// the piece has no voice). The preview, the contact sheet, the render page and the .srt files all read these.
+export function pieceSubtitles(scenes: MotionScene[], piece: MotionPiece, voices: Record<string, { duration: number }>): SubtitleCue[] {
+  const voiceSeconds = piece.voice === "none" ? {} : Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.duration]));
+  return subtitleCues(timeScenes(scenes), { karaoke: wordByWordOn(piece), voiceSeconds, heard: piece.wordTimes });
 }
 
 // The bundled public-domain effects (public/sfx, CC0; see CREDITOS.md there), loaded once.
 const SFX_FILES: Record<HitKind, string[]> = {
   whoosh: ["desliza"],
+  // The same slide, lower (HIT_GAIN): a soft move cue.
+  glide: ["desliza"],
   pop: ["cae-1", "cae-2"],
   reveal: ["golpe-suave"],
   logo: ["campana"],
@@ -244,27 +263,38 @@ export function soundHits(snapped: MotionScript): SoundPlan["hits"] {
   // Dry: only the big moments sound (the product, the logo, a tap or key that is the action itself); no whoosh.
   const dry = snapped.tone === "dry";
   const hit = (t: number, kind: HitKind, n?: number) => {
-    if (dry && (kind === "pop" || kind === "whoosh")) return;
+    if (dry && (kind === "pop" || kind === "whoosh" || kind === "glide")) return;
     hits.push({ at: Math.max(0, t), kind, n });
   };
   for (const s of timeScenes(snapped.scenes)) {
     // A camera journey's whoosh rides the dive and peaks as the new scene opens; a cut's lands on the cut.
-    if (s.index > 0) hit(s.entry === "through" ? s.start + THROUGH * 0.55 : s.start, "whoosh");
+    // "Continuidad": a soft move cue in the middle of the carry instead (none in a dry piece).
+    if (s.index > 0) {
+      if (s.carryIn) hit(s.start + carryOf(cutPush(snapped.tone)) * 0.5, "glide");
+      else hit(s.entry === "through" ? s.start + THROUGH * 0.55 : s.start, "whoosh");
+    }
     const T = elementTimes(s);
+    // A carried picture is already there: it makes no entrance sound of its own.
+    const carried = s.carryIn ? carriedAsset(s)?.key : undefined;
     const has = (key: string) => key in T;
     const within = (r: number) => r < s.seconds - 0.05;
     switch (s.template) {
       case "callouts":
-      case "steps": {
+      case "steps":
+      case "notify":
+      case "flow":
+      case "slots": {
         const items = sceneElements(s)
           .filter((e) => e.lane === "items" && within(e.at))
           .sort((a, b) => a.at - b.at);
         if (items.length) hit(s.start + items[0].at, "pop");
         if (items.length > 1) hit(s.start + items[items.length - 1].at, "pop", 1);
+        // "Casilleros": the box this scene fills is the action itself, a tap in every tone, as its fill starts.
+        if (has("fill") && within(T.fill)) hit(s.start + T.fill, "tap");
         break;
       }
       case "product":
-        hit(s.start + Math.max(0.05, T.media ?? 0), "reveal");
+        if (carried !== "media") hit(s.start + Math.max(0.05, T.media ?? 0), "reveal");
         if (has("tag") && within(T.tag)) hit(s.start + T.tag, "pop");
         break;
       case "logo":
@@ -284,7 +314,7 @@ export function soundHits(snapped: MotionScript): SoundPlan["hits"] {
         if (has("strike") && within(T.strike)) hit(s.start + T.strike, "tap");
         break;
       case "character": {
-        if (has("prop") && within(T.prop)) hit(s.start + T.prop, "reveal");
+        if (has("prop") && within(T.prop) && carried !== "prop") hit(s.start + T.prop, "reveal");
         const g = s.gesture ?? "present";
         if ((g === "cheer" || g === "surprise") && within(T.gesture)) hit(s.start + T.gesture, "pop");
         break;

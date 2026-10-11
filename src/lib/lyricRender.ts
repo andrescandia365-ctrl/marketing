@@ -21,6 +21,8 @@ import { isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import { drawPlateFrame } from "./plateDraw.ts";
 import { drawLayers, type MotionAsset } from "./motion.ts";
 import { findBeats, type RenderResult } from "./render.ts";
+import { NO_PULSE, layerHits, lyricPulse, pulseAt, type LyricPulse } from "../../shared/lyricPulse.ts";
+import { STILL, pieceActs, shakeAt, stretchAt, type WordAct } from "../../shared/lyricAct.ts";
 
 const FPS = 30;
 const SAMPLE_RATE = 48000;
@@ -39,25 +41,10 @@ const clamp = (x: number) => Math.min(1, Math.max(0, x));
 const easeOut = (x: number) => 1 - (1 - x) ** 3;
 const easeOutBack = (x: number) => 1 + 2.2 * (x - 1) ** 3 + 1.2 * (x - 1) ** 2;
 
-// How much the background swells: 1 right on a beat, fading in a fifth of a second.
-function beatEnvelope(beats: number[], t: number): number {
-  let lo = 0;
-  let hi = beats.length - 1;
-  let last = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (beats[mid] <= t) {
-      last = mid;
-      lo = mid + 1;
-    } else hi = mid - 1;
-  }
-  return last < 0 ? 0 : Math.exp(-(t - beats[last]) * 5);
-}
-
 let field: HTMLCanvasElement | null = null;
 
 // Colour fields drawn on a tiny canvas and stretched, which blurs them for free.
-function drawOrganic(ctx: CanvasRenderingContext2D, w: number, h: number, t: number, piece: LyricPiece, beats: number[]) {
+function drawOrganic(ctx: CanvasRenderingContext2D, w: number, h: number, t: number, piece: LyricPiece, beats: LyricPulse) {
   const { palette, mood, pulse } = piece.style;
   const sw = 64;
   const sh = Math.max(16, Math.round((64 * h) / w));
@@ -71,7 +58,8 @@ function drawOrganic(ctx: CanvasRenderingContext2D, w: number, h: number, t: num
   f.fillStyle = palette[0];
   f.fillRect(0, 0, sw, sh);
   const speed = mood === "lively" ? 0.45 : 0.14;
-  const swell = pulse ? beatEnvelope(beats, t) * (mood === "lively" ? 0.22 : 0.12) : 0;
+  // Downbeats breathe, kicks barely (shared/lyricPulse.ts).
+  const swell = pulse ? pulseAt(beats, t) * (mood === "lively" ? 0.22 : 0.12) : 0;
   const colors = [palette[1], palette[2], palette[1], palette[2], palette[0]];
   colors.forEach((color, i) => {
     const phase = i * 1.7;
@@ -107,28 +95,37 @@ function drawBackdrop(ctx: CanvasRenderingContext2D, w: number, h: number, bg: N
   ctx.fillRect(0, 0, w, h);
 }
 
-type Placed = { text: string; x: number; width: number; size: number; start: number; end: number; key: boolean };
+type Placed = { text: string; x: number; width: number; size: number; start: number; end: number; key: boolean; act: WordAct; sx: number };
 
+// Rows break on each word's widest stretch (`peak`), so a held word growing never moves a word to another row; the
+// words sit at their width at t (`sx`), so the row stays centred and nothing overlaps.
 function wrap(
   ctx: CanvasRenderingContext2D,
-  words: { text: string; gap: boolean; size: number; start: number; end: number; key: boolean }[],
+  words: { text: string; gap: boolean; size: number; start: number; end: number; key: boolean; act?: WordAct; sx?: number }[],
   font: (size: number) => string,
   maxWidth: number,
 ): { words: Placed[]; width: number; size: number }[] {
   const rows: { words: Placed[]; width: number; size: number }[] = [];
   let row: { words: Placed[]; width: number; size: number } = { words: [], width: 0, size: 0 };
+  let widest = 0;
   let pendingGap = 0;
   for (const w of words) {
     ctx.font = font(w.size);
-    const width = ctx.measureText(w.text).width;
-    if (row.words.length && row.width + pendingGap + width > maxWidth) {
+    const plain = ctx.measureText(w.text).width;
+    const act = w.act ?? STILL;
+    const sx = w.sx ?? 1;
+    const width = plain * sx;
+    if (row.words.length && widest + pendingGap + plain * act.peak > maxWidth) {
       rows.push(row);
       row = { words: [], width: 0, size: 0 };
+      widest = 0;
       pendingGap = 0;
     }
-    const x = row.width + (row.words.length ? pendingGap : 0);
-    row.words.push({ text: w.text, x, width, size: w.size, start: w.start, end: w.end, key: w.key });
+    const gap = row.words.length ? pendingGap : 0;
+    const x = row.width + gap;
+    row.words.push({ text: w.text, x, width, size: w.size, start: w.start, end: w.end, key: w.key, act, sx });
     row.width = x + width;
+    widest += gap + plain * act.peak;
     row.size = Math.max(row.size, w.size);
     pendingGap = w.gap ? ctx.measureText(" ").width : 0;
   }
@@ -137,7 +134,7 @@ function wrap(
 }
 
 // How a graphic moves across its own window. Pure function of t.
-function elementPose(motion: LyricElement["motion"], t: number, start: number, end: number, beats: number[]): { alpha: number; scale: number; dy: number } {
+function elementPose(motion: LyricElement["motion"], t: number, start: number, end: number, beats: LyricPulse): { alpha: number; scale: number; dy: number } {
   const dur = Math.max(0.4, end - start);
   const u = clamp((t - start) / dur);
   const edge = Math.min(clamp(u / 0.18), clamp((1 - u) / 0.18));
@@ -146,9 +143,10 @@ function elementPose(motion: LyricElement["motion"], t: number, start: number, e
     return { alpha: edge, scale: 0.62 + 0.38 * p, dy: (1 - p) * 0.35 };
   }
   if (motion === "pulse") return { alpha: edge, scale: 1 + 0.07 * Math.sin(t * 6.2), dy: 0 };
-  // Same beat list the background swells on. The hit is a pop, not a fade-in, and the words stay on their own times.
+  // Same pulse the background swells on: a full pop on a downbeat, a small one on a kick. The hit is a pop, not a
+  // fade-in, and the words stay on their own times.
   if (motion === "beat") {
-    const hit = beatEnvelope(beats, t);
+    const hit = pulseAt(beats, t);
     return { alpha: Math.max(edge, hit > 0.15 ? 1 : edge), scale: 1 + 0.42 * hit, dy: -0.22 * hit };
   }
   if (motion === "leave") {
@@ -235,7 +233,7 @@ function drawOneElement(
   piece: LyricPiece,
   element: LyricElement,
   glyph: ElementGlyph | undefined,
-  beats: number[],
+  beats: LyricPulse,
 ) {
   const win = elementWindow(element, piece.lines);
   if (!win || t < win.start || t >= win.end) return;
@@ -291,7 +289,7 @@ function drawElements(
   t: number,
   piece: LyricPiece,
   glyphs: Record<number, ElementGlyph>,
-  beats: number[],
+  beats: LyricPulse,
 ) {
   for (const element of piece.elements ?? []) {
     const win = elementWindow(element, piece.lines);
@@ -335,6 +333,8 @@ function paintLyricLine(
   line: LyricLine,
   font: (size: number) => string,
   look: LineLook,
+  // What each word of the line acts (shared/lyricAct.ts); empty when the switch is off.
+  acts: WordAct[] = [],
 ) {
   if (look.alpha <= 0.01) return;
   const style = piece.style;
@@ -342,7 +342,10 @@ function paintLyricLine(
   const base = unit * 0.075 * (style.size / 100);
   const rows = wrap(
     ctx,
-    line.words.map((word) => ({ ...word, size: style.keywords && word.key ? base * 1.4 : base })),
+    line.words.map((word, i) => {
+      const act = acts[i] ?? STILL;
+      return { ...word, size: style.keywords && word.key ? base * 1.4 : base, act, sx: stretchAt(act, word, t) };
+    }),
     font,
     w * 0.84,
   );
@@ -384,19 +387,25 @@ function paintLyricLine(
     for (const word of row.words) {
       ctx.font = font(word.size);
       ctx.shadowBlur = word.size * 0.25;
-      const x = left + word.x;
+      const shake = shakeAt(word.act, word, t, style.mood === "calm");
+      // Drawn in the word's own frame: its left edge at 0, stretched only sideways (sx), shaken by a few pixels.
+      ctx.save();
+      ctx.translate(left + word.x + shake.dx * word.size, baseline + shake.dy * word.size);
+      if (word.sx !== 1) ctx.scale(word.sx, 1);
+      const plain = word.width / word.sx;
       const lit = style.karaoke ? clamp((t - word.start) / Math.max(word.end - word.start, 0.05)) : style.keywords && word.key ? 1 : 0;
       ctx.fillStyle = style.textColor;
-      if (lit < 1) ctx.fillText(word.text, x, baseline);
+      if (lit < 1) ctx.fillText(word.text, 0, 0);
       if (lit > 0) {
         ctx.save();
         ctx.beginPath();
-        ctx.rect(x - word.size * 0.1, baseline - word.size * 1.2, (word.width + word.size * 0.2) * lit, word.size * 1.6);
+        ctx.rect(-word.size * 0.1, -word.size * 1.2, (plain + word.size * 0.2) * lit, word.size * 1.6);
         ctx.clip();
         ctx.fillStyle = style.highlightColor;
-        ctx.fillText(word.text, x, baseline);
+        ctx.fillText(word.text, 0, 0);
         ctx.restore();
       }
+      ctx.restore();
     }
     y += rowHeights[r];
   });
@@ -415,6 +424,17 @@ function paintLyricLine(
   ctx.restore();
 }
 
+// Each word's act depends on the whole song (its loudness line), so it is worked out once per set of lines and kept
+// beside them. A memo of a pure result: the same lines always give the same acts, whatever frame asks first.
+const actMemo = new WeakMap<LyricLine[], Map<string, WordAct[][]>>();
+function actsOf(piece: LyricPiece): WordAct[][] {
+  let bySync = actMemo.get(piece.lines);
+  if (!bySync) actMemo.set(piece.lines, (bySync = new Map()));
+  let acts = bySync.get(piece.synced);
+  if (!acts) bySync.set(piece.synced, (acts = pieceActs(piece.lines, piece.synced)));
+  return acts;
+}
+
 export function drawLyricFrame(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -422,7 +442,8 @@ export function drawLyricFrame(
   t: number,
   piece: LyricPiece,
   bg: Backdrop,
-  beats: number[],
+  // What the background, layers and "beat" graphics pulse on (lyricPulse: the Reloj's kicks, else the master).
+  beats: LyricPulse = NO_PULSE,
   layers: MotionAsset[] = [],
   glyphs: Record<number, ElementGlyph> = {},
   // Downbeats from the Reloj. Empty means a plate cuts on its first word.
@@ -436,7 +457,7 @@ export function drawLyricFrame(
   if (style.background === "layers" && layers.length) {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, w, h);
-    drawLayers(ctx, w, h, t, layers, beats, 1003);
+    drawLayers(ctx, w, h, t, layers, layerHits(beats), 1003);
     ctx.fillStyle = "rgba(0,0,0,0.28)";
     ctx.fillRect(0, 0, w, h);
   } else if (style.background === "media" && bg) drawBackdrop(ctx, w, h, bg, piece.fullFrame);
@@ -460,10 +481,10 @@ export function drawLyricFrame(
   const line = piece.lines[index];
   if (style.entrance === "rise" && line && index > 0) {
     const u = clamp((t - line.start) / ENTER);
-    if (u > 0 && u < 1) paintLyricLine(ctx, w, h, t, piece, piece.lines[index - 1], font, { alpha: 1 - u, dy: -u * unit * 0.2, dx: 0, clip: 1, scale: 1 });
+    if (u > 0 && u < 1) paintLyricLine(ctx, w, h, t, piece, piece.lines[index - 1], font, { alpha: 1 - u, dy: -u * unit * 0.2, dx: 0, clip: 1, scale: 1 }, piece.act ? actsOf(piece)[index - 1] : []);
   }
   const look = line ? lyricLook(style.entrance, t, line, unit) : null;
-  if (line && look) paintLyricLine(ctx, w, h, t, piece, line, font, look);
+  if (line && look) paintLyricLine(ctx, w, h, t, piece, line, font, look, piece.act ? actsOf(piece)[index] : []);
 
   // The song's credit, and the AI notice when the own background was made with AI.
   const notes = [
@@ -534,6 +555,8 @@ export async function renderLyricVideo(
   piece: LyricPiece,
   onProgress: (fraction: number) => void,
   cuts: number[] = [],
+  // The Reloj's kick grid, when it has one; else the pulse follows the master's peaks.
+  grid: { usable: boolean; kicks: number[]; downbeats: number[] } | null = null,
 ): Promise<RenderResult> {
   if (typeof VideoEncoder === "undefined") {
     throw new Error("Este navegador no puede generar video. Usá una versión reciente de Chrome, Edge o Safari.");
@@ -548,7 +571,7 @@ export async function renderLyricVideo(
   const from = Math.min(Math.max(0, piece.from), full.duration - 1);
   const to = piece.to > from ? Math.min(piece.to, full.duration) : full.duration;
   const sound = cutSong(full, from, to);
-  const beats = songBeats(full);
+  const beats = lyricPulse(grid?.usable && grid.kicks.length ? [] : songBeats(full), grid);
   await loadLyricFonts(piece);
   onProgress(0.03);
 

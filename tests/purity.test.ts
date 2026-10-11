@@ -6,12 +6,17 @@ import { test } from "node:test";
 
 const DRAWING = [
   "src/lib/motion.ts",
+  "shared/world.ts",
   "src/lib/puppet.ts",
   "src/lib/actor.ts",
   "src/lib/lyricRender.ts",
   "src/lib/plateDraw.ts",
+  "shared/lyricPulse.ts",
+  "shared/lyricAct.ts",
   "src/lib/sketch.ts",
   "shared/syncDraw.ts",
+  "shared/subtitles.ts",
+  "src/lib/motionStoryboard.ts",
 ];
 const FORBIDDEN = /\bMath\.random\b|\bDate\.now\b|\bnew Date\(|\bperformance\.now\b|\bsetTimeout\b|\bsetInterval\b|\brequestAnimationFrame\b/;
 

@@ -36,6 +36,7 @@ export function pieceShot(piece: Piece): Shot {
     setups: [],
     kind: "single",
     screen: "",
+    screenAt: "",
     visualPrompt: piece.visualPrompt,
     middlePrompt: "",
     endPrompt: "",
