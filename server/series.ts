@@ -2,7 +2,7 @@
 // chosen series' file with every request. The app edits them in the "Editar serie" form (PUT/POST/DELETE
 // /api/series); editing a file by hand works too and is picked up on the next restart.
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import type { LyricStyle } from "../shared/lyrics.ts";
 import type { SeriesInfo } from "../shared/schema.ts";
 import { extraRefName, memberRefCount, refFileName, seriesRefNames } from "../shared/castRefs.ts";
@@ -22,6 +22,20 @@ const DIR = new URL("./series/", import.meta.url);
 // Approved images of each series' fixed cast: biblioteca/<series>/<cast id>.<ext>. Not in git: they are the brand's.
 export const LIBRARY_DIR = resolve(process.env.LIBRARY_DIR || "biblioteca");
 const ID = /^[a-z0-9-]{1,40}$/;
+
+// A file of the series library by its saved name, only when it stays inside that series' folder: names come from
+// saved bibles, so one that climbs out ("../../.env") is never read or deleted.
+export function libraryPath(id: string, name: string): string | null {
+  if (!ID.test(id) || !name) return null;
+  const dir = resolve(LIBRARY_DIR, id);
+  const path = resolve(dir, name);
+  return path.startsWith(dir + sep) && !path.slice(dir.length + 1).includes(sep) ? path : null;
+}
+
+function removeLibraryFile(id: string, name: string) {
+  const path = libraryPath(id, name);
+  if (path) rmSync(path, { force: true });
+}
 
 type Series = SeriesInfo & { text: string };
 
@@ -154,7 +168,7 @@ export function setCastImage(id: string, castId: string, data: Buffer, type: str
   const dir = join(LIBRARY_DIR, id);
   mkdirSync(dir, { recursive: true });
   const file = `${castId}.${ext}`;
-  if (member.image && member.image !== file) rmSync(join(dir, member.image), { force: true });
+  if (member.image && member.image !== file) removeLibraryFile(id, member.image);
   writeFileSync(join(dir, file), data);
   member.image = file;
   saveSeries(id, fields);
@@ -190,7 +204,7 @@ export function removeCastRef(id: string, castId: string, ref: string): CastMemb
   const member = fields.cast.find((m) => m.id === castId);
   const extra = member?.refs.find((r) => r.ref === ref);
   if (!member || !extra) throw new SeriesError("Esa referencia no existe.");
-  if (extra.image) rmSync(join(LIBRARY_DIR, id, extra.image), { force: true });
+  if (extra.image) removeLibraryFile(id, extra.image);
   member.refs = member.refs.filter((r) => r.ref !== ref);
   saveSeries(id, fields);
   return member;
@@ -225,7 +239,7 @@ export function setPuppetLayer(
   const file = puppetFile(castId, index, ext);
   const old = layers[index]?.file;
   writeFileSync(join(dir, file), data);
-  if (old) rmSync(join(dir, old), { force: true });
+  if (old) removeLibraryFile(id, old);
   layers[index] = { file, role, pivot: null, name: name.slice(0, 80), place: null };
   member.puppet = { layers };
   saveSeries(id, fields);
@@ -246,7 +260,7 @@ export function replacePuppetLayers(
   if (!parts.length || parts.length > PUPPET_MAX_LAYERS) throw new SeriesError(`El títere lleva entre 1 y ${PUPPET_MAX_LAYERS} partes.`);
   const dir = join(LIBRARY_DIR, id);
   mkdirSync(dir, { recursive: true });
-  for (const old of member.puppet.layers) rmSync(join(dir, old.file), { force: true });
+  for (const old of member.puppet.layers) removeLibraryFile(id, old.file);
   const layers = parts.map((part, index) => {
     if (part.data.length < 8 || part.data[0] !== 0x89) throw new SeriesError("La capa no es un PNG.");
     const file = puppetFile(castId, index, "png");
@@ -287,7 +301,7 @@ export function setRigFile(id: string, castId: string, data: Buffer): CastMember
   mkdirSync(dir, { recursive: true });
   const file = `${castId.slice(0, 24)}-rig-${Date.now().toString(36)}.glb`;
   writeFileSync(join(dir, file), data);
-  if (member.rig?.file && member.rig.file !== file) rmSync(join(dir, member.rig.file), { force: true });
+  if (member.rig?.file && member.rig.file !== file) removeLibraryFile(id, member.rig.file);
   member.rig = { file, clips: member.rig?.clips ?? { idle: "", walk: "", turnL: "", turnR: "", point: "" } };
   saveSeries(id, fields);
   return member;
@@ -297,7 +311,7 @@ export function removePuppetLayer(id: string, castId: string, index: number): Ca
   const fields = getSeriesFields(id);
   const member = fields.cast.find((m) => m.id === castId);
   if (!member || !member.puppet.layers[index]) throw new SeriesError("Esa parte no existe.");
-  rmSync(join(LIBRARY_DIR, id, member.puppet.layers[index].file), { force: true });
+  removeLibraryFile(id, member.puppet.layers[index].file);
   member.puppet = { layers: member.puppet.layers.filter((_, i) => i !== index) };
   saveSeries(id, fields);
   return member;
@@ -311,7 +325,7 @@ export function setLogo(id: string, data: Buffer, type: string): string {
   const dir = join(LIBRARY_DIR, id);
   mkdirSync(dir, { recursive: true });
   const file = `logo.${ext}`;
-  if (fields.brand.logo && fields.brand.logo !== file) rmSync(join(dir, fields.brand.logo), { force: true });
+  if (fields.brand.logo && fields.brand.logo !== file) removeLibraryFile(id, fields.brand.logo);
   writeFileSync(join(dir, file), data);
   saveSeries(id, { ...fields, brand: { ...fields.brand, logo: file } });
   return file;
@@ -331,7 +345,8 @@ export function createSeries(fields: SeriesFields): string {
   const base = seriesId(fields.name);
   let id = base;
   for (let n = 2; getSeries(id); n++) id = `${base}-${n}`;
-  write(id, fields);
+  // A new series has no files of its own yet: images, puppet parts, rigs and extra references are uploaded after.
+  write(id, { ...fields, brand: { ...fields.brand, logo: "" }, cast: fields.cast.map((m) => ({ ...m, image: "", puppet: { layers: [] }, rig: { ...m.rig, file: "" }, refs: [] })) });
   return id;
 }
 

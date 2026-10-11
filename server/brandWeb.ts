@@ -3,8 +3,10 @@
 // applied: the app shows it and the person picks. What the page claims goes back as [VERIFY] until the person confirms
 // it into "Lo que existe hoy".
 // Only public web addresses: never this computer, the local network or a cloud metadata address, also after a redirect.
+import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { Agent } from "undici";
 import type { WebPictureKind, WebPictureSource } from "../shared/webCast.ts";
 
 export class BrandWebError extends Error {}
@@ -78,6 +80,33 @@ export async function checkUrl(raw: string): Promise<URL> {
   return url;
 }
 
+type LookupCallback = (error: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void;
+
+// The lookup the connection itself uses. checkUrl's own lookup is only a friendly early answer: a name can answer a
+// public address there and a private one a moment later (DNS rebinding), so the socket resolves once more here and
+// connects only to an address that passed the same check.
+export function publicLookup(
+  hostname: string,
+  options: { family?: number; all?: boolean; hints?: number },
+  callback: LookupCallback,
+  resolve: typeof dnsLookup = dnsLookup,
+) {
+  resolve(hostname, { family: options.family ?? 0, hints: options.hints, all: true }, (error, addresses) => {
+    if (error) return callback(error, options.all ? [] : "");
+    const list = addresses as LookupAddress[];
+    if (!list.length || list.some((a) => privateAddress(a.address))) {
+      const blocked: NodeJS.ErrnoException = new BrandWebError(`${hostname} apunta a esta compu o a la red local.`);
+      blocked.code = "EPRIVATE";
+      return callback(blocked, options.all ? [] : "");
+    }
+    if (options.all) return callback(null, list);
+    callback(null, list[0].address, list[0].family);
+  });
+}
+
+// Every connection of the brand reader goes through publicLookup, also after a redirect.
+const publicOnly = new Agent({ connect: { lookup: publicLookup as never } });
+
 // A GET that follows up to 3 redirects, checking every hop, and stops reading past `limit` bytes.
 async function get(raw: string, limit: number, accept: string): Promise<{ url: URL; type: string; body: Buffer; truncated: boolean }> {
   let url = await checkUrl(raw);
@@ -86,9 +115,10 @@ async function get(raw: string, limit: number, accept: string): Promise<{ url: U
     try {
       response = await fetch(url, {
         redirect: "manual",
+        dispatcher: publicOnly,
         signal: AbortSignal.timeout(TIMEOUT),
         headers: { accept, "user-agent": "PlaybookStudio/1.0 (brand kit reader)" },
-      });
+      } as RequestInit);
     } catch (error) {
       throw new BrandWebError(`No pude abrir ${url.host}: ${(error as Error).message}`);
     }

@@ -4,6 +4,7 @@
 // file only: names, quotes and politics never reach server/playbook.md. Moves that repeat in 3+ logged episodes are
 // shown as a proposal to fold into §2.5 (repeatedMoves); nothing is folded by the app.
 import { z } from "zod";
+import { fenceAfter, openFence, unixLines } from "./fence.ts";
 import { MOVE_LABEL, pickMove } from "./moves.ts";
 
 export const EPISODES_SECTION = "2.6";
@@ -43,7 +44,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 const cell = (s: string) => s.replace(/\s*\n\s*/g, " ").replace(/\|/g, "\\|").trim();
 const ENTRY_HEAD = /^#{1,6}\s*EP-(\d+)\s*(?:[—–-]+\s*)?(.*)$/;
 const MOVES_LINE = /^\s*(?:[-*]\s*)?\*\*Moves:?\*\*\s*(?:\(§2\.5\)\s*)?:?\s*(.*)$/i;
-const BIG_HEADING = /^#{1,3}\s/;
+const BIG_HEADING = /^ {0,3}#{1,3}(\s|$)/;
 
 // "2:09–4:47" → "2:38" (empty when it cannot read both ends).
 export function spanDuration(time: string): string {
@@ -105,11 +106,12 @@ type Region = { lines: string[]; start: number; end: number };
 function region(md: string, number: string): Region | null {
   const lines = md.split("\n");
   const head = new RegExp(`^#{2,3} ${number.replace(".", "\\.")}[.\\s]`);
-  let fence = false;
+  let fence: string | null = null;
   let start = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (/^\s*```/.test(lines[i])) fence = !fence;
-    if (fence) continue;
+    const was = fence;
+    fence = fenceAfter(fence, lines[i]);
+    if (was !== null || fence !== null) continue;
     if (start < 0) {
       if (head.test(lines[i])) start = i;
     } else if (BIG_HEADING.test(lines[i])) return { lines, start, end: i };
@@ -148,15 +150,16 @@ export function episodeEntries(md: string): EpisodeEntry[] {
   if (!r) return [];
   const out: EpisodeEntry[] = [];
   let current: { n: number; title: string; body: string[] } | null = null;
-  let fence = false;
+  let fence: string | null = null;
   const close = () => {
     if (!current) return;
     const body = current.body.join("\n").replace(/\n-{3,}\s*$/, "").trim();
     out.push({ n: current.n, title: current.title, body, moves: entryMoves(body) });
   };
   for (const line of r.lines.slice(r.start + 1, r.end)) {
-    if (/^\s*```/.test(line)) fence = !fence;
-    const m = fence ? null : /^####\s*EP-(\d+)\s*(?:[—–-]+\s*)?(.*)$/.exec(line);
+    const was = fence;
+    fence = fenceAfter(fence, line);
+    const m = was !== null || fence !== null ? null : /^####\s*EP-(\d+)\s*(?:[—–-]+\s*)?(.*)$/.exec(line);
     if (m) {
       close();
       current = { n: Number(m[1]), title: m[2].replace(/\s*`?\[EP\]`?\s*$/, "").trim(), body: [] };
@@ -174,7 +177,7 @@ export class EpisodeError extends Error {}
 // whatever the draft said), no heading of level 1–3 inside it (that would split §2.6 for the playbook check), no
 // second EP heading, and the [EP] tag on its title.
 export function prepareEntry(text: string, n: number): string {
-  const lines = text.replace(/\r\n/g, "\n").trim().split("\n");
+  const lines = unixLines(text).trim().split("\n");
   if (!lines[0]?.trim()) throw new EpisodeError("La ficha está vacía: pegá un resumen y pasalo a la plantilla, o escribila a mano.");
   if (text.length > ENTRY_MAX) throw new EpisodeError(`La ficha es muy larga (más de ${ENTRY_MAX} caracteres). Acortala.`);
   // The first line is the title when it is a heading; otherwise the whole text is the body.
@@ -183,12 +186,13 @@ export function prepareEntry(text: string, n: number): string {
   const title = (titled ? (head ? head[2] : lines[0].replace(/^#+\s*/, "")) : "").replace(/\s*`?\[EP\]`?\s*$/, "").trim() || "Untitled episode";
   const body = (titled ? lines.slice(1) : lines).map((line) => {
     if (/^\s*#{1,6}\s*EP-\d+/.test(line)) return line.replace(/^\s*#+\s*/, "**").replace(/$/, "**");
-    if (BIG_HEADING.test(line)) return line.replace(/^#{1,3}\s/, "#### ");
+    if (BIG_HEADING.test(line)) return line.replace(/^ {0,3}#{1,3}(\s|$)/, "#### ");
     return line;
   });
   if (!body.some((l) => l.trim())) throw new EpisodeError("La ficha tiene solo el título: falta la tabla de temas y lo demás.");
   // An unclosed code fence would swallow the rest of the playbook.
-  if (body.filter((l) => /^\s*```/.test(l)).length % 2) throw new EpisodeError("La ficha abre un bloque de código (```) y no lo cierra.");
+  const open = openFence(body);
+  if (open) throw new EpisodeError(`La ficha abre un bloque de código (${open}) y no lo cierra.`);
   return [`#### EP-${pad(n)} — ${title} \`[EP]\``, ...body].join("\n").trimEnd();
 }
 

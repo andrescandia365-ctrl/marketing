@@ -316,13 +316,17 @@ export function guessRole(name: string): PuppetRole {
   return "extra";
 }
 
+// A file in the series library (biblioteca/<series>/): a plain name, never a path ("" until there is one). The server
+// deletes these files by name, so a name that could climb out of the folder never gets in.
+export const LibraryFileSchema = z.string().max(120).regex(/^([a-z0-9][a-z0-9.-]{0,119})?$/, "Nombre de archivo no válido.");
+
 // An extra reference image of a cast member (shared/castRefs.ts): a part cut from its sheet (the face) or a loose view
 // made on its own, named as its own reference in the tool (@MartaCara). image is its file in the series library.
 export const CastRefSchema = z.object({
   ref: z.string().regex(/^[A-Za-z0-9_]{1,30}$/, "El nombre de referencia va sin espacios ni acentos."),
   // What it shows, in Spanish ("cara", "perfil").
   label: z.string().trim().max(60),
-  image: z.string().max(120),
+  image: LibraryFileSchema,
 });
 export type CastRef = z.infer<typeof CastRefSchema>;
 
@@ -340,7 +344,7 @@ export const CastMemberSchema = z.object({
   // When to use it, in Spanish.
   note: z.string().trim().max(600),
   // File name in the series library ("" until an image is uploaded).
-  image: z.string().max(120),
+  image: LibraryFileSchema,
   // The reference sheet's prompt, when the member was built with "+ con hoja".
   sheet: z.string().max(6000).default(""),
   // Characters only: the puppet for motion graphics (empty: none).

@@ -4,6 +4,7 @@
 // up to date, plus the summary's fingerprint. When either file changes, the check says what changed until someone
 // updates the other and records the new state (`npm run playbook -- --write`).
 import { createHash } from "node:crypto";
+import { fenceAfter } from "../shared/fence.ts";
 
 export type Section = { title: string; body: string };
 
@@ -13,8 +14,11 @@ const HEADING = /^(#{2,3}) (.+)$/;
 export function sections(md: string): Section[] {
   const out: Section[] = [];
   let current: Section | null = null;
+  let fence: string | null = null;
   for (const line of md.split("\n")) {
-    const m = HEADING.exec(line);
+    const was = fence;
+    fence = fenceAfter(fence, line);
+    const m = was === null && fence === null ? HEADING.exec(line) : null;
     if (m) {
       current = { title: m[2].trim(), body: "" };
       out.push(current);
