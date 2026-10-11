@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { DEMO_BOARD } from "../server/demo.ts";
 import { migrateBoard, normalizeShot, type Board, type Shot, type ShotWireSchema } from "../shared/schema.ts";
 import { boardProblems } from "../shared/checks.ts";
-import { generatesImage, screenMoveLine, settleScreenShot, shotFrames, withScreenMove } from "../shared/transformScreen.ts";
+import { editsFrom, generatesImage, screenMoveLine, settleEditFrom, settleScreenShot, shotFrames, withScreenMove } from "../shared/transformScreen.ts";
 import type { z } from "zod";
 
 const transform = (): Shot => structuredClone(DEMO_BOARD.shots.find((s) => s.kind === "transform")!);
@@ -105,4 +105,21 @@ test("a Good transform that ends on a real screen counts as the product in use",
   assert.equal(without, true);
   board.shots = board.shots.map((s) => (s.kind === "transform" ? { ...s, screenAt: "end", screen: "stock" } : s));
   assert.equal(boardProblems(board, kinds).some((p) => p.id === "producto-en-uso"), false);
+});
+
+test("editFrom never points at a real screenshot: a transform starting on a screen or a screen shot clears it", () => {
+  const single = (): Shot => ({ ...structuredClone(DEMO_BOARD.shots.find((s) => s.kind === "single")!), editFrom: 0, editPrompt: "" });
+  const fromScreen = { ...transform(), screenAt: "start" as const, screen: "stock", editFrom: 0, editPrompt: "" };
+  const screen = { ...single(), kind: "screen" as const, screen: "stock" };
+  const later = { ...single(), editFrom: 1, editPrompt: "Add a cup; keep everything else." };
+  assert.equal(editsFrom([fromScreen, later], 1), false);
+  assert.equal(editsFrom([screen, later], 1), false);
+  assert.equal(editsFrom([single(), later], 1), true);
+  assert.equal(editsFrom([later], 3), false);
+  const [, settled] = settleEditFrom([fromScreen, later]);
+  assert.equal(settled.editFrom, 0);
+  assert.equal(settled.editPrompt, "");
+  const [, kept] = settleEditFrom([single(), later]);
+  assert.equal(kept.editFrom, 1);
+  assert.equal(kept.editPrompt, later.editPrompt);
 });

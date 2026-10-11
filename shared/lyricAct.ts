@@ -78,6 +78,14 @@ export function withLevels(lines: LyricLine[], levels: (number | null)[]): Lyric
   }));
 }
 
+// The lines with levels measured on `spans`, or null when the words' spans changed since (an edit made while the
+// voice was being measured): the levels would land on other words, and writing them back would undo the edit.
+export function levelsFor(lines: LyricLine[], spans: { start: number; end: number }[], levels: (number | null)[]): LyricLine[] | null {
+  const now = wordSpans(lines);
+  const same = now.length === spans.length && now.every((w, i) => w.start === spans[i].start && w.end === spans[i].end);
+  return same ? withLevels(lines, levels) : null;
+}
+
 // How many words carry a level: the studio says whether the voice was measured.
 export function measuredWords(lines: LyricLine[]): number {
   return lines.reduce((n, l) => n + l.words.filter((w) => typeof w.level === "number").length, 0);

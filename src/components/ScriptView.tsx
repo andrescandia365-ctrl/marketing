@@ -6,7 +6,7 @@ import { SHOT_LENGTHS, type Board, type Brief, type ImageReview, type SegmentEdi
 import type { CastMember } from "../../shared/series.ts";
 import { shotReferences } from "../../shared/castRefs.ts";
 import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
-import { generatesImage, transformScreen, withScreenMove } from "../../shared/transformScreen.ts";
+import { editsFrom, generatesImage, transformScreen, withScreenMove } from "../../shared/transformScreen.ts";
 import { copyText } from "../lib/files.ts";
 import { formatElapsed, type LogEntry } from "../lib/markdown.ts";
 import { SpeakButton, VoiceRow, type AudioFile, type VoiceRowProps } from "./Audio.tsx";
@@ -394,6 +394,7 @@ function ShotCard(props: CardProps) {
   const screen = shot.kind === "screen" ? library[shot.screen] : undefined;
   // A transform can start or end on a real screen from the cast: that frame is the screenshot, never generated.
   const realEnd = transformScreen(shot);
+  const editFrom = editsFrom(board.shots, shot.editFrom) ? shot.editFrom : 0;
   const realScreen = realEnd ? library[realEnd.screen] : undefined;
   const screens = Object.values(library).filter((m) => m.kind === "screen");
   // A screen shot (or a transform that starts on a real screen) shows the real screenshot from the series unless
@@ -570,8 +571,8 @@ function ShotCard(props: CardProps) {
           )}
           {!media.clip && !image && setup && shot.kind === "single" && (
             <p className="text-xs text-muted">
-              {shot.editFrom > 0
-                ? `Partí de la imagen de la toma ${shot.editFrom} y editala; después animala en ${toolName}.`
+              {editFrom > 0
+                ? `Partí de la imagen de la toma ${editFrom} y editala; después animala en ${toolName}.`
                 : `Primero la imagen (${setup.name}); después animala en ${toolName}.`}
             </p>
           )}
@@ -684,9 +685,9 @@ function ShotCard(props: CardProps) {
               onChange={(v) => set("visualPrompt", v)}
             />
           )}
-          {shot.editFrom > 0 && shot.kind !== "screen" && realEnd?.at !== "start" && (
+          {editFrom > 0 && shot.kind !== "screen" && realEnd?.at !== "start" && (
             <PromptBox
-              label={`Editar la imagen de la toma ${shot.editFrom}`}
+              label={`Editar la imagen de la toma ${editFrom}`}
               hint="mismo personaje, solo cambia esto"
               value={shot.editPrompt}
               copy={shot.editPrompt}

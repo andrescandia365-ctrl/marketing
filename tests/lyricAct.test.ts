@@ -8,6 +8,7 @@ import {
   STILL,
   STRETCH_MAX,
   actNote,
+  levelsFor,
   loudCut,
   measuredWords,
   monoOf,
@@ -161,4 +162,15 @@ test("the studio's note says what the piece has", () => {
   assert.match(actNote(plain, "auto"), /medí la fuerza/);
   const loud = [lineOf(Array.from({ length: 10 }, (_, i) => word(i, i + 0.5, { level: -20 })))];
   assert.match(actNote(loud, "auto"), /gritos la sacuden/);
+});
+
+test("levels measured on old word times are not written over lines edited while measuring", () => {
+  const word = (text: string, start: number, end: number) => ({ text, start, end });
+  const lines = [{ text: "hola mundo", start: 0, end: 2, words: [word("hola", 0, 1), word("mundo", 1, 2)] }] as unknown as Parameters<typeof wordSpans>[0];
+  const spans = wordSpans(lines);
+  const same = levelsFor(lines, spans, [0.5, 0.2]);
+  assert.deepEqual(same?.[0].words.map((w) => w.level), [0.5, 0.2]);
+  const moved = structuredClone(lines);
+  moved[0].words[0].start = 0.3;
+  assert.equal(levelsFor(moved, spans, [0.5, 0.2]), null);
 });

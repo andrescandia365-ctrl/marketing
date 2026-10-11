@@ -30,6 +30,19 @@ export function generatesImage(shot: FrameShot): boolean {
   return shotFrames(shot).start.from === "prompt";
 }
 
+// Whether a shot may say "edit the image of shot editFrom": only when that earlier shot exists and its picture is
+// an AI image. A screen shot or a transform that starts on a real screen has a real screenshot there, which is
+// never edited by AI.
+export function editsFrom(shots: FrameShot[], editFrom: number): boolean {
+  const target = editFrom > 0 ? shots[editFrom - 1] : undefined;
+  return !!target && generatesImage(target);
+}
+
+// The shots with every editFrom that leads to a missing shot or a real screenshot cleared (with its editPrompt).
+export function settleEditFrom<T extends FrameShot & Pick<Shot, "editFrom" | "editPrompt">>(shots: T[]): T[] {
+  return shots.map((s) => (s.editFrom > 0 && !editsFrom(shots, s.editFrom) ? { ...s, editFrom: 0, editPrompt: "" } : s));
+}
+
 // The real screen at one end of a transform, if any.
 export function transformScreen(shot: FrameShot): { at: Exclude<ScreenAt, "">; screen: string } | null {
   if (shot.kind !== "transform" || !shot.screen.trim() || !shot.screenAt) return null;

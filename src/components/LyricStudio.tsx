@@ -28,7 +28,7 @@ import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { api, projectFileUrl, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
 import { blobToDataUrl } from "../lib/files.ts";
 import { lyricPulse } from "../../shared/lyricPulse.ts";
-import { monoOf, withLevels, wordLevels, wordSpans } from "../../shared/lyricAct.ts";
+import { levelsFor, monoOf, wordLevels, wordSpans } from "../../shared/lyricAct.ts";
 import { decodeSong, songBeats } from "../lib/lyricRender.ts";
 import { rasterSvg } from "../lib/svgSanitize.ts";
 import { ClockPanel } from "./ClockPanel.tsx";
@@ -110,6 +110,9 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
   const [nudge, setNudge] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(null);
   const urls = useRef<string[]>([]);
+  // The piece as last rendered: a measurement that took a while checks it before writing its levels back.
+  const current = useRef(piece);
+  current.current = piece;
 
   const set = (patch: Partial<LyricPiece>) => setPiece((p) => ({ ...p, ...patch }));
   const setStyle = (patch: Partial<LyricStyle>) => setPiece((p) => ({ ...p, style: { ...p.style, ...patch } }));
@@ -341,11 +344,25 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
   // an uploaded vocal stem is read here. The master is never measured.
   async function measureWithDemucs() {
     if (!song || !piece.lines.length) return;
-    const result = await work("levels", () => api.lyricLevels(song.blob, song.name, wordSpans(piece.lines)));
+    const spans = wordSpans(piece.lines);
+    const result = await work("levels", () => api.lyricLevels(song.blob, song.name, spans));
     if (!result) return;
-    const lines = withLevels(piece.lines, result.levels);
-    set({ lines });
+    if (!keepLevels(spans, result.levels)) return;
     setNote(`Medí la fuerza del canto en la voz que separó Demucs: ${result.levels.filter((x) => x !== null).length} palabras.`);
+  }
+
+  // Writes measured levels onto the current lines, never over them: when the words' times changed while measuring,
+  // nothing is written and the note asks to measure again.
+  function keepLevels(spans: { start: number; end: number }[], levels: (number | null)[]): boolean {
+    if (!levelsFor(current.current.lines, spans, levels)) {
+      setNote("Cambiaste los tiempos de la letra mientras medía la voz: no guardé la medición. Medila de nuevo.");
+      return false;
+    }
+    setPiece((p) => {
+      const lines = levelsFor(p.lines, spans, levels);
+      return lines ? { ...p, lines } : p;
+    });
+    return true;
   }
 
   async function measureStem(file: File) {
@@ -353,8 +370,9 @@ export function LyricStudio({ projectId, brief, series, initial, autoSync, demuc
     await work("levels", async () => {
       const stem = await decodeSong(file);
       const channels = Array.from({ length: stem.numberOfChannels }, (_, c) => stem.getChannelData(c));
-      const levels = wordLevels({ samples: monoOf(channels), sampleRate: stem.sampleRate }, wordSpans(piece.lines));
-      set({ lines: withLevels(piece.lines, levels) });
+      const spans = wordSpans(piece.lines);
+      const levels = wordLevels({ samples: monoOf(channels), sampleRate: stem.sampleRate }, spans);
+      if (!keepLevels(spans, levels)) return;
       const off = buffer && Math.abs(buffer.duration - stem.duration) > 1;
       setNote(
         `Medí la fuerza del canto en el stem de voz: ${levels.filter((x) => x !== null).length} palabras.` +

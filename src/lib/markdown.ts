@@ -4,7 +4,7 @@ import { MOVE_LABEL } from "../../shared/moves.ts";
 import type { Board, Brief, Story } from "../../shared/schema.ts";
 import { appSketchFile, buildCopyPrompt, sketchPrompt } from "../../shared/prompt.ts";
 import { BEAT_INFO, ROLE_LABEL, formatTime, timeShots, totalSeconds } from "../../shared/template.ts";
-import { shotFrames, type FrameSource } from "../../shared/transformScreen.ts";
+import { editsFrom, shotFrames, type FrameSource } from "../../shared/transformScreen.ts";
 
 export type LogEntry = { at: number; shot?: number; text: string; outcome?: string };
 
@@ -128,7 +128,7 @@ export function pieceToMarkdown(
         `- **En ${toolName}:** ${s.toolSettings}`,
         s.kind === "screen" ? `- **Pantalla real:** ${s.screen}` : "",
         s.kind !== "screen" ? `- **${s.kind === "transform" ? "Imagen inicial" : "Prompt de imagen"}:** ${frameText(shotFrames(s).start, brief.format)}` : "",
-        s.editFrom && shotFrames(s).start.from === "prompt" ? `- **Editar la imagen de la toma ${s.editFrom}:** ${s.editPrompt}` : "",
+        s.editFrom && shotFrames(s).start.from === "prompt" && editsFrom(board.shots, s.editFrom) ? `- **Editar la imagen de la toma ${s.editFrom}:** ${s.editPrompt}` : "",
         s.kind === "transform" && s.middlePrompt ? `- **Imagen intermedia:** ${buildCopyPrompt(s.middlePrompt, brief.format)}` : "",
         s.kind === "transform" ? `- **Imagen final:** ${frameText(shotFrames(s).end!, brief.format)}` : "",
         sketches ? sketchLine(s.index, sketches) : "",

@@ -60,7 +60,7 @@ import { meter } from "./usage.ts";
 import { claudeUsage } from "../shared/usage.ts";
 import { offerOf } from "./ads.ts";
 import { offerBlock } from "../shared/ads.ts";
-import { settleScreenShot } from "../shared/transformScreen.ts";
+import { settleEditFrom, settleScreenShot } from "../shared/transformScreen.ts";
 
 const ENGINE = readFileSync(new URL("./engine.md", import.meta.url), "utf8");
 const PLAYBOOK = readFileSync(new URL("./playbook.md", import.meta.url), "utf8");
@@ -203,7 +203,7 @@ function allowedScreens(brief: Brief): Record<string, string> {
 
 function settleScreens(brief: Brief, board: Board): Board {
   const screens = allowedScreens(brief);
-  return { ...board, shots: board.shots.map((s) => settleScreenShot(s, screens)) };
+  return { ...board, shots: settleEditFrom(board.shots.map((s) => settleScreenShot(s, screens))) };
 }
 
 export function describeBrief(brief: Brief): string {
@@ -465,7 +465,7 @@ const BOARD_RULES = `Shot rules:
 - onScreenText is the headline at the top of the frame: up to 6 words that make sense without the voice (a fact, a time, a number, a name). Leave it empty rather than write a joke that needs the spoken line. The spoken line is added on its own as the subtitle.
 - setups: every character, place and product that appears in more than one shot gets a setup with a short identity line; reuse the story's character identity lines word for word. A setup that matches a member of the series' fixed cast takes its id as castId and its identity line word for word; the person already has its approved image. Each shot lists in setups every setup in the frame, main one first, and every prompt repeats the identity line of everything it shows, word for word.
 - kind: "single" for most shots. "transform" where one clip should carry a change on screen, usually the turn from the Bad to the Good: visualPrompt is the initial frame, endPrompt the final frame and middlePrompt an optional middle frame (each one frozen moment), and videoPrompt describes the change between them; give it 10 or 15 s. "screen" only to show the product's real interface with one of the real screens the brief allows: put its id in screen and leave the image prompts empty; the videoPrompt can be empty too. When the brief allows real screens, a Good transform may end on one: screenAt "end", its id in screen, endPrompt empty; visualPrompt is the AI scene with the phone or computer (its screen still facing away or out of focus) and videoPrompt is the camera moving into that screen until the real screenshot fills the frame. The screenshot is never described or drawn in any prompt. screenAt "start" is the reverse (the clip leaves the real screenshot into the scene; endPrompt is the scene). Otherwise screenAt is empty.
-- editFrom: when a shot shows the same setup in the same place as an earlier shot, set editFrom to that shot's number and write editPrompt: only what changes in that image, keeping everything else. The person edits the earlier image instead of drawing a new one, so the character stays the same. Still write the full visualPrompt as a fallback.
+- editFrom: when a shot shows the same setup in the same place as an earlier shot, set editFrom to that shot's number and write editPrompt: only what changes in that image, keeping everything else. The person edits the earlier image instead of drawing a new one, so the character stays the same. Still write the full visualPrompt as a fallback. Never point editFrom at a screen shot or at a transform that starts on a real screen: that picture is a real screenshot, never edited by AI.
 - Put the style line inside each visualPrompt so it stands alone. No text, signs, logos, brand names or real people's likeness in any image. A phone or computer screen faces away from the camera or is out of focus; the tool cannot draw the real interface. How the Bad looks on screen follows the story's character line.
 - The spoken lines and captions are added on top later, so video prompts never ask anyone to speak or sing, and ask for no music (continuous takes are the exception: their dialogue is spoken in the clip).
 - Continuous takes, only when the brief asks for them: each shot is ONE continuous handheld take of exactly 15 s, holding the consecutive lines of one scene (one topic or part of it), kind "single". speaker is the first one who speaks and voiceover all its lines in order. timeline lists every beat from 0 to 15 s: who speaks, the exact line, its emotion, and what the bodies and the camera do, including real camera mistakes (a pan that arrives late and clips a face, autofocus hunting, auto-exposure rolling between inside and outside, a laugh that shakes the frame). visualPrompt is the hero still, frame 0 of the take: exact camera, exact flaws, exact light, everyone in place. videoPrompt is the director's prompt: first a reference map (the initial frame = the hero still; each character = its cast @ref; the place = its cast @ref, environment only; "these images are law"), then "one continuous handheld take, no cuts", then the timed spine with emotion and camera mistakes, then the hard rules: skin never smooth (visible pores, freckles, peach fuzz); grain the whole time; no stabilization, no grade, no music, no text, no digital zoom, no punch-in, no slow motion; brightness changes only from auto-exposure, the light never changes; each line spoken once, exactly as written, in Rioplatense Spanish, with the emotion given; raw phone-mic audio (room tone, handling noise, no denoising). One-line shots have an empty timeline.
@@ -557,7 +557,8 @@ Rewrite this one shot to answer the note, so it follows the shot before and lead
 ${BOARD_RULES}`,
     ShotWireSchema,
   );
-  const next = settleScreenShot(normalizeShot(wire), allowedScreens(brief));
+  const settled = settleScreenShot(normalizeShot(wire), allowedScreens(brief));
+  const next = settleEditFrom(board.shots.map((s, i) => (i === index ? settled : s)))[index];
   return { ...next, topic: shot.topic, beat: shot.beat, speaker: shot.speaker };
 }
 
