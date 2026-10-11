@@ -538,6 +538,15 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
       el elenco; una captura entra como pantalla real solo si confirmás que la app hoy se ve así.
   14. **Archivos partidos** (idea 51): el guardado en `useProject`, Producción en su componente, y las vistas previas
       de los estudios separadas de sus paneles. Hace lo mismo que antes y la primera pantalla pesa lo mismo.
+- **Revisión del código (11 Oct 2026):** se confirmaron y arreglaron 8 errores:
+  - Seguridad: borrar una referencia del elenco podía borrar un archivo fuera de la biblioteca; traer la marca desde
+    su web se podía engañar con un DNS que cambia entre el chequeo y la descarga; una ficha de episodio con ~~~ podía
+    romper PLAYBOOK.md.
+  - "Medir la voz" pisaba los tiempos que corregías mientras Demucs trabajaba.
+  - Una toma podía pedir "editar la imagen" de una captura real.
+  - Al sumar una foto de la web: si fallaba la subida quedaba un integrante sin imagen y reintentar lo duplicaba, y
+    todas las tarjetas mostraban el reloj.
+  - El corresponsal inventado podía repetir el @ de alguien del elenco.
 
 ### 64. Explicativos: lo que quedaba (10 Oct 2026) — **Construido (10 Oct 2026, "GO, Explicativos")**
 - **De dónde sale:** lo que quedó "para otro go" en las ideas 62 y 63, la parte de expresiones de la 33-A y el rótulo
