@@ -246,6 +246,8 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   cambiado.
 
 #### 54. Publicidad: lo que sigue — **Construido (7 Oct 2026), menos las métricas por API**
+- **Decidido (11 Oct 2026):** las métricas por API no hacen falta. Alcanza con subir el informe que exporta la
+  plataforma ("Cargar reporte CSV" en Fuentes, que ya existe).
 - Voz por pieza: `media.voice` ya existe en el esquema pero la tarjeta no la sube ni la genera. Sumar "Voz
   generada" con `/api/voice` y la voz del presentador del perfil.
 - "Probar un anuncio": antes de la tanda, elegir un hook, un meat y un CTA y ver el anuncio armado en la app.
@@ -483,6 +485,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - **Decidido (4 Oct 2026):** se elige por toma.
 
 ### 39. Narrador hecho en ElevenLabs (4 Oct 2026) — **A y B construidos (4 Oct 2026); C queda**
+- **Decidido (11 Oct 2026):** C (ElevenLabs desde la app) no hace falta. La narración hecha afuera entra como hoy, con "Importar narración".
 - **Idea (tuya):** hacer la voz del narrador en ElevenLabs y traerla a la app.
 - **Ya existe:** "Grabada o subida" por toma o escena: hoy podés subir cada parte por separado.
 - **Lo que falta:**
@@ -1082,6 +1085,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - Marcar [TESTED] lo que viste vos y [NOT SURE] lo demás.
 
 ## Contenido y datos que faltan (no es código)
+- **Decidido (11 Oct 2026):** el material de IMAN (funciones al día y capturas) llega cuando IMAN esté terminado. Mientras tanto, se puede empezar por Máshogar.
 - **IMAN:** la lista actualizada de funciones ("Lo que existe hoy"). Se edita en la app: Brief → Editar serie.
 - **Máshogar:** ✓ nombre con acento y frase "porque el hogar es un sentimiento" (4 Oct 2026, ya en la serie).
 - **IMAN:** las capturas de pantalla reales (las pasás después).
