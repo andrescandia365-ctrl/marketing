@@ -37,6 +37,7 @@ import { api, type FinalJob, type MediaFileRecord, type MediaRecord } from "../l
 import { encodeFrames } from "../lib/encode.ts";
 import { ensureFont, fontBytes } from "../lib/fonts.ts";
 import { CodeDeck, codeIssues, testCode } from "../lib/codeSandbox.ts";
+import { MASCOT_ASSET, type MascotCode } from "../../shared/mascot.ts";
 import { samplesSig } from "../../shared/codeScene.ts";
 import { codePrompt } from "../../shared/codePrompt.ts";
 import type { CodeTools } from "./CodeScenePanel.tsx";
@@ -167,8 +168,29 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [finalJob, setFinalJob] = useState<FinalJob | null>(null);
   const brand = series.brand;
   // "Personaje de los explicativos": the character a scene gets when it becomes a character scene (none: as before).
-  const host = explainerHost(series)?.id ?? null;
-  const castCharacters = useMemo(() => series.cast.filter((m) => m.kind === "character").map((m) => m.id), [series.cast]);
+  // "Mascota en código": with no drawable host character, the series' code mascot hosts the character scenes.
+  const hasMascot = Boolean(series.mascot);
+  const host = explainerHost(series)?.id ?? (hasMascot ? MASCOT_ASSET : null);
+  const castCharacters = useMemo(() => [...series.cast.filter((m) => m.kind === "character").map((m) => m.id), ...(hasMascot ? [MASCOT_ASSET] : [])], [series.cast, hasMascot]);
+  // Its code, loaded from the series library (null until it comes, or when the series has none).
+  const [mascotCode, setMascotCode] = useState<MascotCode | null>(null);
+  useEffect(() => {
+    let live = true;
+    if (!series.mascot) {
+      setMascotCode(null);
+      return;
+    }
+    api
+      .mascot(series.id)
+      .then(({ mascot }) => live && setMascotCode(mascot ? { source: mascot.source, name: mascot.name, description: mascot.description } : null))
+      .catch(() => live && setMascotCode(null));
+    return () => {
+      live = false;
+    };
+  }, [series.id, series.mascot?.sig]);
+  // The code scenes are tested with the mascot their sandbox will carry (none until its code is here).
+  const mascotTag = series.mascot?.sig || undefined;
+  const mascotReady = !series.mascot || Boolean(mascotCode);
   const script = piece.script;
   const scriptRef = useRef(script);
   scriptRef.current = script;
@@ -296,6 +318,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   // "Escena de código": the preview's sandboxes (every render forks its own, strict).
   const codeDeck = useMemo(() => new CodeDeck({ fonts: fontBytes, format: piece.format }), [piece.format]);
   useEffect(() => () => codeDeck.dispose(), [codeDeck]);
+  useEffect(() => codeDeck.setMascot(mascotCode), [codeDeck, mascotCode]);
   const usesAi = usesAiImages(scenes, series);
   // "Desenfoque en los cortes": the preview, the contact sheet, the poster and every render read it from the world.
   const cutBlur = cutBlurOn(piece);
@@ -331,7 +354,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   // Scenes the writer or the reviewer flagged as beyond "Lo que existe hoy" with no CONCEPTO / SIMULACIÓN label.
   const openConcepts = conceptIssues(scenes, piece.conceptsOk ?? []);
   // "Escena de código": a code scene with no code, a failed test, or a text out of the safe zone stops the render.
-  const codeSig = (s: MotionScene) => samplesSig(s, piece.format, script?.tone);
+  const codeSig = (s: MotionScene) => samplesSig(s, piece.format, script?.tone, mascotTag);
   const openCode = codeIssues(timeScenes(scenes), piece.format, Boolean(world.disclosure), codeSig);
   const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0 || openConcepts.length > 0 || openCode.length > 0;
   // The thumbnail: frame 0 of every render.
@@ -871,6 +894,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       after: around(timed[s.index + 1]),
       current: s.code?.source,
       note: wish,
+      ...(series.mascot && { mascot: { name: series.mascot.name, description: series.mascot.description } }),
     });
   }
 
@@ -879,9 +903,9 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     const s = timeScenes(scenes).find((x) => x.id === sceneId);
     if (!s) return { problems: [{ message: "Esa escena ya no está.", fatal: true }], saved: false, texts: 0, slowest: 0 };
     const trial = { ...s, code: { source, assets: picked } };
-    const sig = samplesSig(trial, codeFormat, script?.tone);
+    const sig = samplesSig(trial, codeFormat, script?.tone, mascotTag);
     await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
-    const result = await testCode(source, trial, codeFormat, world, script?.tone, fontBytes, sig);
+    const result = await testCode(source, trial, codeFormat, world, script?.tone, fontBytes, sig, undefined, mascotCode);
     const fatal = result.problems.find((p) => p.fatal);
     const saved = !fatal && Boolean(result.samples);
     if (saved) {
@@ -913,7 +937,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const triedCode = useRef(new Set<string>());
   const staleKey = openCode.filter((i) => i.stale).map((i) => i.sceneId).join(",");
   useEffect(() => {
-    if (!staleKey) return;
+    if (!staleKey || !mascotReady) return;
     const timer = setTimeout(() => {
       for (const id of staleKey.split(",")) {
         const s = scenes.find((x) => x.id === id);
@@ -929,7 +953,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     return () => clearTimeout(timer);
     // The stale scenes decide it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staleKey, scenes]);
+  }, [staleKey, scenes, mascotReady]);
 
   const vertical = piece.format === "vertical";
   return (

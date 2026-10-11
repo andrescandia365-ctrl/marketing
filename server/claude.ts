@@ -50,6 +50,7 @@ import {
 import { LyricPlatesSchema, type LyricPlatesDraft } from "../shared/plates.ts";
 import { LENGTHS } from "../shared/template.ts";
 import { CAST, PRACTICES, WORKS_TODAY, explainerHost, seriesCorrespondent } from "../shared/series.ts";
+import { MASCOT_ASSET } from "../shared/mascot.ts";
 import { segmentRules } from "../shared/segment.ts";
 import { pickWorld, worldLean } from "../shared/world.ts";
 import { momentsForWriter } from "../shared/calendar.ts";
@@ -794,12 +795,19 @@ The views: each panel as a separate standalone prompt with the full description.
 // What the explainer writer can show (the series' cast) and its host, shared by a new script and a director's note.
 function explainerCast(brief: Brief) {
   const series = getSeries(brief.series);
-  const host = series ? explainerHost(series) : null;
+  // "Mascota en código": with no drawable host character, the series' code mascot hosts every character scene.
+  const cardHost = series ? explainerHost(series) : null;
+  const mascot = series?.mascot ?? null;
+  const host: ExplainerHost | null = cardHost ?? (mascot ? { id: MASCOT_ASSET, name: mascot.name, note: mascot.description } : null);
+  const mascotLine = mascot
+    ? `- ${MASCOT_ASSET} (character, the series' mascot drawn in code by the app, always available${host?.id === MASCOT_ASSET ? ", the series' explainer character" : ""}): ${mascot.name}. ${mascot.description}`
+    : "";
   const cast = (series?.cast ?? [])
     .filter((m) => !(m.kind === "screen" && m.pending))
     .map((m) => `- ${m.id} (${m.kind}${m.kind === "screen" && m.device ? `, ${m.device === "phone" ? "phone" : "computer"}` : ""}${m.image || m.video?.poster ? ", has image" : ", no image yet"}${m.kind === "screen" && m.video ? `, ${recordingNote(m.video.seconds)}` : ""}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}${m.id === host?.id ? ", the series' explainer character" : ""}): ${m.name}. ${m.identity}`)
+    .concat(mascotLine ? [mascotLine] : [])
     .join("\n");
-  const characters = (series?.cast ?? []).filter((m) => m.kind === "character").map((m) => m.id);
+  const characters = [...(series?.cast ?? []).filter((m) => m.kind === "character").map((m) => m.id), ...(mascot ? [MASCOT_ASSET] : [])];
   // "Videos de la app funcionando": each real screen's recording length, so a clip stays inside it.
   const recordings = new Map((series?.cast ?? []).flatMap((m) => (m.kind === "screen" && m.video ? [[m.id, m.video.seconds] as const] : [])));
   return { series, host, cast, characters, recordings: (id: string) => recordings.get(id) };
@@ -813,7 +821,8 @@ ${/screen recording/.test(cast) ? "A real screen that has a screen recording can
 }
 
 // The studio's rules for an explainer script (a new one or one revised by a note).
-function explainerRules(brief: Brief, host: ReturnType<typeof explainerHost>): string {
+type ExplainerHost = { id: string; name: string; note?: string };
+function explainerRules(brief: Brief, host: ExplainerHost | null): string {
   return `The studio's rules:
 - The first scene is a hook that names the problem within 2 seconds, as the question the viewer already asks themselves, in their words.
 - Something new appears on screen every 2 to 4 seconds: a scene change, a label, a step, a zoom. Never a still stretch longer than 4 seconds.
@@ -884,6 +893,21 @@ export async function writeSceneCode(prompt: string): Promise<z.infer<typeof Sce
   if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
   const system = "You write one canvas animation for a motion-graphics explainer: plain JavaScript that defines draw(ctx, t, info) and follows the contract and the house rules in the request exactly. Every frame is a pure function of t.";
   return askWith(who, [system], prompt, SceneCodeSchema);
+}
+
+// "Mascota en código" with a key: the series editor's prompt for Opus (shared/mascot.ts mascotPrompt), answered as the
+// name, the description and the code. The editor tests it in its sandbox before saving, as with a pasted reply.
+const MascotCodeSchema = z.object({
+  name: z.string().describe("The mascot's name (short, invented)."),
+  description: z.string().describe("1 to 3 sentences in Spanish: what it is, how it looks, its character."),
+  code: z.string().describe("The JavaScript that defines drawMascot(ctx, t, pose), exactly as the contract in the prompt asks. No markdown fences."),
+});
+export async function writeMascotCode(prompt: string): Promise<z.infer<typeof MascotCodeSchema>> {
+  const who = currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  const system =
+    "You design one original brand mascot and write it as plain JavaScript that defines drawMascot(ctx, t, pose), following the contract in the request exactly. Never a known character, never in the style of a named studio, artist or show. Every call is a pure function of t and pose.";
+  return askWith(who, [system], prompt, MascotCodeSchema);
 }
 
 // "Imagen fija" with a key: the studio's prompt for Opus (shared/still.ts), answered in its strict paste format.

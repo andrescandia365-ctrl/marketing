@@ -3,6 +3,7 @@
 // words and timing, the brand, the pictures, the motion vocabulary mapped to emotions, and the house rules with this
 // scene's own reading times). With an AI key the same prompt goes to the writer ("Que la IA escriba la animación").
 import { CODE_CONTRACT, CODE_EXAMPLE, CODE_FRAME_MS } from "./codeScene.ts";
+import { mascotForScenePrompt } from "./mascot.ts";
 import { READ_LETTERS_PER_SECOND, readingNeed, type MotionTone } from "./motion.ts";
 
 // The moves the motion-design repos studied in idea 62 use, in canvas terms.
@@ -59,6 +60,8 @@ export type CodePromptInput = {
   current?: string;
   // The person's own note for this animation.
   note?: string;
+  // "Mascota en código": the series' mascot, which the scene's sandbox carries (info.mascot).
+  mascot?: { name: string; description: string };
 };
 
 const r = (n: number) => Math.round(n);
@@ -111,6 +114,7 @@ export function codePrompt(o: CodePromptInput): string {
     `- display font "${o.brand.displayFont}", UI font "${o.brand.uiFont}"`,
     ...(o.brand.motion ? [`- how the brand moves: ${o.brand.motion}`] : []),
     "",
+    ...(o.mascot ? [...mascotForScenePrompt(o.mascot), ""] : []),
     "PICTURES ATTACHED TO THIS SCENE (real screens and products: draw them as they are, never redraw or invent their content)",
     assets,
     "",

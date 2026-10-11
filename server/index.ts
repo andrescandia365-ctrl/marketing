@@ -20,6 +20,7 @@ import {
 import {
   WriterError,
   writeSceneCode,
+  writeMascotCode,
   writeStillText,
   backgroundPrompts,
   currentWriter,
@@ -136,6 +137,9 @@ import {
   addScreen,
   confirmScreens,
   libraryVideo,
+  readMascot,
+  removeMascot,
+  setMascot,
   removeScreenVideo,
   screenVideoTemp,
   setScreenVideo,
@@ -147,6 +151,7 @@ import { Readable } from "node:stream";
 import { listTools, referenceLimit } from "./tools.ts";
 import { AdsError } from "./ads.ts";
 import { checkErrorText } from "../shared/errors.ts";
+import { CODE_MAX_CHARS } from "../shared/codeScene.ts";
 import { MAX_ZIP_TOTAL, exportProjectZip, importProjectZip } from "./projectZip.ts";
 import { adsRoutes } from "./adsRoutes.ts";
 import { usageScope, usageView } from "./usage.ts";
@@ -464,6 +469,27 @@ app.delete("/api/series/:id/cast/:castId/video", (c) => {
   return c.json({ member, series: listSeries() });
 });
 
+// "Mascota en código": the series' mascot as code (shared/mascot.ts), kept in its library; the browser tests it in its
+// sandbox before saving. GET answers { mascot: null } when the series has none.
+app.get("/api/series/:id/mascot", (c) => {
+  const got = readMascot(c.req.param("id"));
+  return c.json({ mascot: got ? { ...got.meta, source: got.source } : null });
+});
+
+app.put("/api/series/:id/mascot", async (c) => {
+  const parsed = z
+    .object({ source: z.string().min(1, "Falta el código.").max(CODE_MAX_CHARS + 1000), name: z.string().trim().min(1, "Falta el nombre de la mascota.").max(60), description: z.string().trim().max(600).default("") })
+    .safeParse(await c.req.json());
+  if (!parsed.success) return c.json({ error: checkErrorText(parsed.error, "Faltan datos de la mascota") }, 400);
+  const mascot = setMascot(c.req.param("id"), parsed.data);
+  return c.json({ mascot, series: listSeries() });
+});
+
+app.delete("/api/series/:id/mascot", (c) => {
+  removeMascot(c.req.param("id"));
+  return c.json({ series: listSeries() });
+});
+
 app.get("/api/series/:id/files/:name", (c) => {
   // A recording plays and seeks by byte ranges (the preview and the render page jump to exact frames).
   const video = libraryVideo(c.req.param("id"), c.req.param("name"));
@@ -643,6 +669,13 @@ app.post("/api/motion/code", async (c) => {
   const { prompt } = z.object({ prompt: z.string().trim().min(200, "Falta el prompt de la escena.").max(60000) }).parse(await c.req.json());
   if (demo()) return c.json({ demo: true as const });
   return c.json({ ...(await writeSceneCode(prompt)), demo: false as const });
+});
+
+// "Mascota en código" with a key: the editor's prompt for Opus goes to the writer. Sample mode writes nothing.
+app.post("/api/mascot/code", async (c) => {
+  const { prompt } = z.object({ prompt: z.string().trim().min(200, "Falta el prompt de la mascota.").max(120000) }).parse(await c.req.json());
+  if (demo()) return c.json({ demo: true as const });
+  return c.json({ ...(await writeMascotCode(prompt)), demo: false as const });
 });
 
 // An explainer's own track (the file as uploaded): Demucs separates its drums on this computer and the kicks are

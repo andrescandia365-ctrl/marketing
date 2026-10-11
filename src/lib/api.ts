@@ -1,3 +1,4 @@
+import type { MascotMeta } from "../../shared/mascot.ts";
 import type {
   Board,
   BrandFromWeb,
@@ -440,6 +441,13 @@ export const api = {
     call<{ script: MotionScript } & Demo>("/api/motion", { brief, target, layers }),
   // "Nota del director": sample mode (no AI key) changes nothing.
   // "Que la IA escriba la animación": the same prompt the person copies for Opus, sent to the writer.
+  // "Mascota en código": the series' mascot (null: none), saving it after the sandbox test, removing it, and the
+  // writer's answer to the editor's prompt when there is a key.
+  mascot: (seriesId: string) => call<{ mascot: (MascotMeta & { source: string }) | null }>(`/api/series/${enc(seriesId)}/mascot`),
+  saveMascot: (seriesId: string, mascot: { source: string; name: string; description: string }) =>
+    call<{ mascot: MascotMeta; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/mascot`, mascot, "PUT"),
+  deleteMascot: (seriesId: string) => call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/mascot`, undefined, "DELETE"),
+  mascotCode: (prompt: string) => call<{ demo: true } | { demo: false; code: string; name: string; description: string }>("/api/mascot/code", { prompt }),
   sceneCode: (prompt: string) => call<{ demo: true } | { demo: false; code: string; note: string }>("/api/motion/code", { prompt }),
   motionRevise: (brief: Brief, script: MotionScript, note: string, layers: number) =>
     call<({ demo: true } | (NoteMerge & { demo: false }))>("/api/motion/revise", { brief, script, note, layers }),

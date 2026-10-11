@@ -65,7 +65,12 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
         throw new Error(
           `No cargó la fuente ${missing.map((f) => `«${f}»`).join(" ni ")} de la marca, así que el render se frena para no salir con otra letra. Revisá la conexión a internet, o elegí otra fuente en Editar serie.`,
         );
-      const [images, media] = await Promise.all([loadSeriesImages(series), loadPieceMedia(projectId, piece, project.media, project.music)]);
+      const [images, media, saved] = await Promise.all([
+        loadSeriesImages(series),
+        loadPieceMedia(projectId, piece, project.media, project.music),
+        series.mascot ? api.mascot(series.id).then((r) => r.mascot) : Promise.resolve(null),
+      ]);
+      const mascot = saved ? { source: saved.source, name: saved.name, description: saved.description } : null;
       const script = piece.script!;
       const beats = motionBeats(script, piece.music, piece.kickGrid);
       const scenes = arrangeScenes(script, beats, piece.snap !== false, piece.music, piece.kickGrid);
@@ -87,7 +92,8 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
         subtitles,
         videos: deck,
         // "Escena de código": each code scene in its own sandbox; one that fails stops the render.
-        code: new CodeDeck({ fonts: fontBytes, format, strict: true }),
+        // "Mascota en código": the series' mascot goes into every code scene's sandbox and draws the character scenes it hosts.
+        code: new CodeDeck({ fonts: fontBytes, format, strict: true, mascot }),
       });
       const failing = await (world.code as CodeDeck).check(snapped, world, { w, h });
       if (failing.length) throw new Error(failing.map((f) => `Escena ${f.index + 1} (código): ${f.problem}`).join(" "));

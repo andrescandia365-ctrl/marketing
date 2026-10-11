@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, useEffect, useRef, useState } from "react";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import {
   CAST_KIND_LABEL,
@@ -18,7 +18,7 @@ import { inDays, momentLine, upcomingMoments } from "../../shared/calendar.ts";
 import { addWebCast, webCastMember } from "../../shared/webCast.ts";
 import { SheetBuilder } from "./SheetBuilder.tsx";
 import { api } from "../lib/api.ts";
-import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
+import { Button, Field, Lazy, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
 import { CastCard } from "./CastCard.tsx";
 // CastCard shows CastRefs; importing it here as well keeps the bundler from adding a module-namespace helper to the
 // first-screen bundle for the production step's lazy CastRefs (rolldown, checked with npm run build).
@@ -26,6 +26,9 @@ import "./CastRefs.tsx";
 import { BrandSection, LookSection } from "./SeriesBrandLook.tsx";
 import { ReferenceAds } from "./ReferenceAds.tsx";
 import { ScreenBatch } from "./ScreenBatch.tsx";
+
+// "Mascota en código" brings the code sandbox: it downloads when a saved series is opened in the editor.
+const MascotPanel = lazy(() => import("./MascotPanel.tsx").then((m) => ({ default: m.MascotPanel })));
 
 type Props = {
   // null: a new series.
@@ -77,7 +80,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
 
   const music = fields.type === "music";
   const set = <K extends keyof SeriesFields>(key: K, value: SeriesFields[K]) => setFields({ ...fields, [key]: value });
-  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "moments" | "type" | "textStyle" | "lyricStyle" | "look" | "brand" | "cast" | "references">, rows = 4) => (
+  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "moments" | "type" | "textStyle" | "lyricStyle" | "look" | "brand" | "cast" | "references" | "mascot">, rows = 4) => (
     <textarea className={inputClass} rows={rows} value={fields[key]} onChange={(e) => set(key, e.target.value)} />
   );
 
@@ -537,6 +540,30 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
           hint="Fichas de estructura de anuncios ajenos. La IA las lee para armar piezas: toma el orden y la forma, nunca el anuncio."
         >
           <ReferenceAds seriesId={id} references={fields.references ?? []} onChange={(next) => set("references", next)} />
+        </Field>
+      )}
+
+      {!music && (
+        <Field
+          label="Mascota en código (opcional)"
+          group
+          hint="Un personaje original de la marca que Opus escribe en código: lo usan las escenas de código y, si no hay otro presentador, los explicativos."
+        >
+          {id ? (
+            <Lazy>
+              <MascotPanel
+                seriesId={id}
+                fields={fields}
+                aiReady={aiReady}
+                onChanged={(series, mascot) => {
+                  setFields((f) => (f ? { ...f, mascot } : f));
+                  onLogoSaved?.(series);
+                }}
+              />
+            </Lazy>
+          ) : (
+            <p className="text-xs text-muted">Guardá la serie primero; después armás su mascota acá.</p>
+          )}
         </Field>
       )}
 

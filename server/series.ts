@@ -7,6 +7,7 @@ import { join, resolve, sep } from "node:path";
 import type { LyricStyle } from "../shared/lyrics.ts";
 import type { SeriesInfo } from "../shared/schema.ts";
 import { extraRefName, memberRefCount, refFileName, seriesRefNames } from "../shared/castRefs.ts";
+import { MASCOT_FILE, MascotMetaSchema, mascotSig, validateMascotSource, type MascotMeta } from "../shared/mascot.ts";
 import { SCREEN_MAX_BYTES, reorderSubset, screenMember, screenTypeOf, type ScreenDevice } from "../shared/screenBatch.ts";
 import {
   CAST_MAX,
@@ -68,6 +69,7 @@ function toSeries(id: string, text: string): Series {
     moments: f.moments,
     explainerCharacter: f.explainerCharacter,
     correspondent: f.correspondent,
+    mascot: f.mascot,
     text,
   };
 }
@@ -148,7 +150,9 @@ export function saveSeriesFromApp(id: string, fields: SeriesFields) {
   const host = fields.cast.some((m) => m.id === fields.explainerCharacter && m.kind === "character") ? fields.explainerCharacter : "";
   // The same for a correspondent who left the cast.
   const correspondent = fields.cast.some((m) => m.id === fields.correspondent && m.kind === "character") ? fields.correspondent : "";
-  saveSeries(id, { ...fields, explainerCharacter: host, correspondent, cast: fields.cast.map((m) => ({ ...withoutVideo(m), puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m), refs: keepRefs(old.find((o) => o.id === m.id)), ...keepVideo(old.find((o) => o.id === m.id), m) })) });
+  // "Mascota en código" is the server's (saved and removed on its own route): what the app sends never changes it.
+  const mascot = getSeriesFields(id).mascot;
+  saveSeries(id, { ...fields, mascot, explainerCharacter: host, correspondent, cast: fields.cast.map((m) => ({ ...withoutVideo(m), puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m), refs: keepRefs(old.find((o) => o.id === m.id)), ...keepVideo(old.find((o) => o.id === m.id), m) })) });
 }
 
 // Adds a cast member to the series, or replaces the one with the same id (keeping its image if none is given).
@@ -489,12 +493,50 @@ export function readLibraryFile(id: string, name: string): { data: Buffer; type:
   }
 }
 
+// ── "Mascota en código" ────────────────────────────────────────────────────────────────────────────────────────
+// The code lives in the series library (biblioteca/<series>/mascota.js); the bible keeps its name, description and
+// fingerprint on one header line. The browser tests it in its sandbox before saving; the server checks it again
+// statically (never runs it) and keeps it as text.
+export function setMascot(id: string, input: { source: string; name: string; description: string }): MascotMeta {
+  const fields = getSeriesFields(id);
+  const source = input.source.replace(/\r\n?/g, "\n").trim();
+  const fatal = validateMascotSource(source).find((p) => p.fatal);
+  if (fatal) throw new SeriesError(fatal.message);
+  const meta = MascotMetaSchema.parse({ file: MASCOT_FILE, name: input.name, description: input.description, sig: mascotSig(source) });
+  const path = libraryPath(id, MASCOT_FILE);
+  if (!path) throw new SeriesError("Nombre de archivo no válido.");
+  mkdirSync(join(LIBRARY_DIR, id), { recursive: true });
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, `${source}\n`, "utf8");
+  renameSync(tmp, path);
+  saveSeries(id, { ...fields, mascot: meta });
+  return meta;
+}
+
+// The series' mascot with its code; null when it has none (or its file is gone).
+export function readMascot(id: string): { meta: MascotMeta; source: string } | null {
+  const meta = getSeriesFields(id).mascot;
+  const path = meta ? libraryPath(id, MASCOT_FILE) : null;
+  if (!meta || !path) return null;
+  try {
+    return { meta, source: readFileSync(path, "utf8") };
+  } catch {
+    return null;
+  }
+}
+
+export function removeMascot(id: string) {
+  const fields = getSeriesFields(id);
+  removeLibraryFile(id, MASCOT_FILE);
+  saveSeries(id, { ...fields, mascot: null });
+}
+
 export function createSeries(fields: SeriesFields): string {
   const base = seriesId(fields.name);
   let id = base;
   for (let n = 2; getSeries(id); n++) id = `${base}-${n}`;
   // A new series has no files of its own yet: images, puppet parts, rigs and extra references are uploaded after.
-  write(id, { ...fields, brand: { ...fields.brand, logo: "" }, cast: fields.cast.map((m) => ({ ...withoutVideo(m), image: "", puppet: { layers: [] }, rig: { ...m.rig, file: "" }, refs: [] })) });
+  write(id, { ...fields, mascot: null, brand: { ...fields.brand, logo: "" }, cast: fields.cast.map((m) => ({ ...withoutVideo(m), image: "", puppet: { layers: [] }, rig: { ...m.rig, file: "" }, refs: [] })) });
   return id;
 }
 

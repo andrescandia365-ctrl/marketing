@@ -32,6 +32,7 @@ test("the parts behind a click still download on demand", () => {
     ["src/components/ads/AdsStudio.tsx", ["./StaticsPanel.tsx"]],
     ["src/components/MotionStoryboardPanel.tsx", ["./MotionStoryboard.tsx"]],
     ["src/components/SetupsPanel.tsx", ["./SheetBuilder.tsx", "./CastRefs.tsx"]],
+    ["src/components/SeriesEditor.tsx", ["./MascotPanel.tsx"]],
   ];
   for (const [file, modules] of cases) {
     const text = read(file);

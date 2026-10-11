@@ -48,7 +48,9 @@ export const CODE_CONTRACT = `CONTRACT (the app runs your code exactly like this
      assets,                   // { name: ImageBitmap } the pictures attached to this scene (draw with ctx.drawImage)
      safe: { x, y, w, h },     // the box where text may go (on 9:16 the phone apps cover the rest)
      floor,                    // y in pixels: keep text above it (the app's subtitle and notice sit below)
-     random(seed)              // seeded generator, see 4
+     random(seed),             // seeded generator, see 4
+     mascot                    // the series' mascot { name, description, unit, draw(ctx, t, pose) }, or null if it has
+                               // none: to show the character call info.mascot.draw (also drawMascot), never redraw it
    }
 8. Fonts: ctx.font = \`700 120px "\${info.brand.displayFont}"\` (weights 400, 500, 600 and 700 of both brand fonts are
    loaded). Colours only from info.brand.
@@ -96,7 +98,7 @@ export type CodeProblem = { message: string; line?: number; fatal: boolean };
 // its fences; a reply with no fences is taken as it is. Windows line ends become plain ones.
 export function stripFences(text: string): string {
   const clean = text.replace(/\r\n?/g, "\n").replace(/^﻿/, "");
-  const blocks = [...clean.matchAll(/(^|\n)[ \t]*(`{3,}|~{3,})[ \t]*([\w+-]*)[^\n]*\n([\s\S]*?)\n[ \t]*\2[ \t]*(?=\n|$)/g)].map((m) => ({ lang: m[3].toLowerCase(), body: m[4] }));
+  const blocks = fencedBlocks(clean);
   if (!blocks.length) {
     // An opened fence never closed (the reply was cut): everything after it.
     const open = clean.match(/(^|\n)[ \t]*(`{3,}|~{3,})[^\n]*\n([\s\S]*)$/);
@@ -107,6 +109,11 @@ export function stripFences(text: string): string {
   const withDraw = pool.filter((b) => definesDraw(b.body));
   const pick = (withDraw.length ? withDraw : pool).reduce((a, b) => (b.body.length > a.body.length ? b : a));
   return pick.body.trim();
+}
+
+// The fenced blocks of a reply: their language, their body and the whole block as it was written.
+export function fencedBlocks(text: string): { lang: string; body: string; raw: string }[] {
+  return [...text.matchAll(/(^|\n)[ \t]*(`{3,}|~{3,})[ \t]*([\w+-]*)[^\n]*\n([\s\S]*?)\n[ \t]*\2[ \t]*(?=\n|$)/g)].map((m) => ({ lang: m[3].toLowerCase(), body: m[4], raw: m[0] }));
 }
 
 const definesDraw = (code: string) => /\bfunction\s+draw\s*\(|\b(?:const|let|var)\s+draw\s*=/.test(stripComments(code));
@@ -167,8 +174,20 @@ const BANNED: { re: RegExp; message: string }[] = [
   { re: /\b(window\s*\.\s*)?(parent|top|opener)\s*\.\s*(postMessage|location|document)\b/, message: "intenta salir de su caja (parent, top): no está permitido" },
 ];
 
-// The static check before running: not empty, not too long, defines draw, nothing banned (with the line).
-export function validateSource(source: string): CodeProblem[] {
+// Each banned use, once, with the first line it is on (comments and the words inside strings do not count).
+export function bannedProblems(code: string): CodeProblem[] {
+  const lines = stripComments(code).split("\n");
+  const out: CodeProblem[] = [];
+  for (const { re, message } of BANNED) {
+    const at = lines.findIndex((l) => re.test(stringsOut(l)));
+    if (at >= 0) out.push({ message: `Línea ${at + 1}: ${message}.`, line: at + 1, fatal: true });
+  }
+  return out;
+}
+
+// The static check before running: not empty, not too long, defines draw, nothing banned (with the line). With the
+// series' mascot (`mascot`), a scene that defines its own drawMascot is redrawing the character: it must call it.
+export function validateSource(source: string, opts: { mascot?: boolean } = {}): CodeProblem[] {
   const code = source.trim();
   if (!code) return [{ message: "No hay código: pegá la respuesta de Opus.", fatal: true }];
   if (code.length > CODE_MAX_CHARS) return [{ message: `El código es muy largo (${code.length} caracteres, hasta ${CODE_MAX_CHARS}): pedile a Opus una versión más corta.`, fatal: true }];
@@ -177,10 +196,10 @@ export function validateSource(source: string): CodeProblem[] {
   if (/<\/?(html|body|script|canvas)\b/i.test(bare) && !definesDraw(code))
     problems.push({ message: "Parece una página HTML, no el código de la escena: pedile a Opus solo la función draw(ctx, t, info) en JavaScript.", fatal: true });
   if (!definesDraw(code)) problems.push({ message: "No encuentro la función draw(ctx, t, info): el código tiene que definirla (function draw(ctx, t, info) { … }).", fatal: true });
-  const lines = bare.split("\n");
-  for (const { re, message } of BANNED) {
-    const at = lines.findIndex((l) => re.test(stringsOut(l)));
-    if (at >= 0) problems.push({ message: `Línea ${at + 1}: ${message}.`, line: at + 1, fatal: true });
+  problems.push(...bannedProblems(code));
+  if (opts.mascot) {
+    const at = bare.split("\n").findIndex((l) => /\bfunction\s+drawMascot\s*\(|\b(?:const|let|var)\s+drawMascot\s*=/.test(l));
+    if (at >= 0) problems.push({ message: `Línea ${at + 1}: vuelve a dibujar la mascota (define drawMascot): la serie ya la tiene, usá info.mascot.draw(ctx, t, pose).`, line: at + 1, fatal: true });
   }
   return problems;
 }
@@ -227,8 +246,10 @@ export function codeSig(parts: unknown): string {
 }
 
 // What the sampled texts depend on: the code, its pictures, the format, the scene's length and its words.
-export function samplesSig(scene: { seconds: number; voice: string; emotion: string; code?: SceneCode }, format: "vertical" | "horizontal", tone?: string): string {
-  return codeSig([scene.code?.source ?? "", scene.code?.assets ?? [], format, Math.round(scene.seconds * 100) / 100, scene.voice.trim(), scene.emotion.trim(), tone ?? "warm"]);
+// With the series' mascot (its mascotSig), a new mascot tests every code scene again.
+export function samplesSig(scene: { seconds: number; voice: string; emotion: string; code?: SceneCode }, format: "vertical" | "horizontal", tone?: string, mascot?: string): string {
+  const parts: unknown[] = [scene.code?.source ?? "", scene.code?.assets ?? [], format, Math.round(scene.seconds * 100) / 100, scene.voice.trim(), scene.emotion.trim(), tone ?? "warm"];
+  return codeSig(mascot ? [...parts, mascot] : parts);
 }
 
 // One stretch where a text holds still: from (seconds), how long.
@@ -341,14 +362,20 @@ export type CodeInfoWire = {
   emotion: string;
   safe: { x: number; y: number; w: number; h: number };
   floor: number;
+  // "Mascota en código" (shared/mascot.ts): what the scene's code is told about the series' mascot; null: none.
+  mascot?: { name: string; description: string } | null;
 };
+// What the sandbox measured of a mascot pose (MascotStats in shared/mascot.ts).
+export type PoseStats = { box: { x: number; y: number; w: number; h: number } | null; ink: number; share: number; hash: string };
 export type HostMessage =
   | { token: string; type: "init"; info: CodeInfoWire; fonts: FontBytes[]; assets: { name: string; bitmap: unknown }[] }
-  | { token: string; type: "frame"; id: number; t: number };
+  | { token: string; type: "frame"; id: number; t: number }
+  // The mascot alone at a pose, on a transparent canvas of w x h; `measure` asks for its PoseStats too.
+  | { token: string; type: "pose"; id: number; t: number; pose: unknown; w: number; h: number; measure: boolean };
 export type SandboxMessage =
-  | { token: string; type: "ready"; hasDraw: boolean; error?: { message: string; line?: number } }
+  | { token: string; type: "ready"; hasDraw: boolean; hasMascot: boolean; error?: { message: string; line?: number } }
   | { token: string; type: "inited"; fontErrors: string[] }
-  | { token: string; type: "frame"; id: number; bitmap?: unknown; texts: unknown; ms: number; error?: { message: string; line?: number } };
+  | { token: string; type: "frame"; id: number; bitmap?: unknown; texts: unknown; ms: number; stats?: PoseStats; error?: { message: string; line?: number } };
 
 // A message from the sandbox, checked: the right token and a known shape; null otherwise.
 export function readSandboxMessage(data: unknown, token: string): SandboxMessage | null {
@@ -360,11 +387,22 @@ export function readSandboxMessage(data: unknown, token: string): SandboxMessage
     const o = e as Record<string, unknown>;
     return { message: String(o.message ?? "Error").slice(0, 500), ...(typeof o.line === "number" && Number.isFinite(o.line) && { line: o.line }) };
   };
-  if (m.type === "ready") return { token, type: "ready", hasDraw: m.hasDraw === true, ...(m.error ? { error: error(m.error) } : {}) };
+  if (m.type === "ready") return { token, type: "ready", hasDraw: m.hasDraw === true, hasMascot: m.hasMascot === true, ...(m.error ? { error: error(m.error) } : {}) };
   if (m.type === "inited") return { token, type: "inited", fontErrors: Array.isArray(m.fontErrors) ? m.fontErrors.map(String) : [] };
   if (m.type === "frame" && typeof m.id === "number")
-    return { token, type: "frame", id: m.id, bitmap: m.bitmap, texts: m.texts, ms: typeof m.ms === "number" ? m.ms : 0, ...(m.error ? { error: error(m.error) } : {}) };
+    return { token, type: "frame", id: m.id, bitmap: m.bitmap, texts: m.texts, ms: typeof m.ms === "number" ? m.ms : 0, ...(statsOf(m.stats) && { stats: statsOf(m.stats)! }), ...(m.error ? { error: error(m.error) } : {}) };
   return null;
+}
+
+// Pose stats as the sandbox sent them, checked (null when absent or malformed).
+function statsOf(v: unknown): PoseStats | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : NaN);
+  if (Number.isNaN(n(o.ink)) || Number.isNaN(n(o.share)) || typeof o.hash !== "string") return null;
+  const b = o.box && typeof o.box === "object" ? (o.box as Record<string, unknown>) : null;
+  const box = b && [b.x, b.y, b.w, b.h].every((x) => !Number.isNaN(n(x))) ? { x: n(b.x), y: n(b.y), w: n(b.w), h: n(b.h) } : null;
+  return { box, ink: n(o.ink), share: n(o.share), hash: o.hash.slice(0, 40) };
 }
 
 // A runtime error as the person reads it: the message and the line of their code.

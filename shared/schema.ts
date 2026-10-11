@@ -5,6 +5,7 @@ import type { LyricStyle } from "./lyrics.ts";
 import type { Brand, CastMember, SeriesLook, SeriesType, TextStyle } from "./series.ts";
 import type { WebCastPick } from "./webCast.ts";
 import type { KeepOut } from "./stillLayout.ts";
+import type { MascotMeta } from "./mascot.ts";
 import { MOVES_FOR_WRITER, pickMove, pickMoves, type Move } from "./moves.ts";
 
 export const BEATS = ["negative", "touching", "good"] as const;
@@ -512,6 +513,8 @@ export type SeriesInfo = {
   explainerCharacter?: string;
   // "Corresponsal": the cast id of the series' correspondent ("" or missing: none).
   correspondent?: string;
+  // "Mascota en código": its name and description (the code is fetched on its own); null or missing: none.
+  mascot?: MascotMeta | null;
 };
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };
 

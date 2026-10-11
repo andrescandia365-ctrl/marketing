@@ -2,7 +2,8 @@
 // the brand and preloaded images only. No timers, no state carried between frames; noise is seeded (mulberry32),
 // never Math.random. The studio's banned defaults are not here: no centred title on a gradient, no
 // everything-fades-in, no corner labels or frame borders, no glow, no particle bursts.
-import { actingFor, drawPuppet, mouthBlockStart, puppetPose, type Acting, type PuppetAsset } from "./puppet.ts";
+import { actingFor, drawPuppet, expressionFor, mouthBlockStart, puppetPose, type Acting, type PuppetAsset } from "./puppet.ts";
+import { MASCOT_ASSET, MASCOT_FRAME, MASCOT_UNIT, scenePose, type MascotPose } from "../../shared/mascot.ts";
 import type { ActorAsset } from "./actor.ts";
 import {
   STAT_COUNT,
@@ -61,6 +62,10 @@ export type CodeFrames = {
   ready?(script: MotionScript, t: number, world: MotionWorld, size?: { w: number; h: number }): Promise<void>;
   // The live preview: asks frame t without waiting (CodeDeck.follow).
   follow?(script: MotionScript, t: number, world: MotionWorld, size?: { w: number; h: number }): void;
+  // "Mascota en código": the series' mascot painted at `pose` at piece time t on MASCOT_FRAME's canvas (else the
+  // latest one), and why there is none (no mascot, or its code failed).
+  mascot?(t: number, pose: MascotPose): CanvasImageSource | null;
+  mascotProblem?(): string | null;
 };
 export type MotionWorld = {
   brand: Brand;
@@ -115,6 +120,19 @@ function talkLevel(world: MotionWorld, s: TimedScene, t: number, lt: number): nu
   if (lt < at || lt > at + length) return 0;
   const syllables = Math.max(0, Math.sin((lt - at) * Math.PI * 2 * 4.4 + noise(world.seed + 11, lt * 1.7) * 2));
   return syllables * (0.6 + 0.4 * noise(world.seed + 13, lt * 3));
+}
+
+// "Mascota en código": the pose of the series' code mascot hosting character scene s at piece time t (scene time lt).
+// Its mouth follows the voice like a puppet's, its face the line's emotion (expressionFor), its gesture comes in on
+// the gesture's beat, and it looks at what it presents. A pure function of its inputs: the deck asks the same pose.
+export function mascotPoseAt(world: MotionWorld, s: TimedScene, t: number, lt: number, vertical: boolean, tone?: string): MascotPose {
+  const hasProp = Boolean(s.assetB);
+  const toward = hasProp && !vertical ? -1 : 1;
+  const sinceGesture = lt - (elementTimes(s).gesture ?? 0);
+  // What it presents sits beside it, a little above its head (in MASCOT_FRAME's pixels).
+  const lookAt = hasProp ? { x: MASCOT_FRAME.x + toward * MASCOT_FRAME.scale * MASCOT_UNIT * 0.9, y: MASCOT_FRAME.y - MASCOT_FRAME.scale * MASCOT_UNIT * 0.85 } : null;
+  const face = expressionFor(s.emotion ?? "");
+  return scenePose({ gesture: s.gesture ?? "present", sinceGesture, talk: talkLevel(world, s, t, lt), expression: face, toward, lookAt, dry: tone === "dry" });
 }
 
 // ── Seeded noise ────────────────────────────────────────────────────────────────
@@ -255,6 +273,8 @@ type Frame = {
   pieceWorld?: WorldPlace;
   // A measuring pass (wordBoxes): nothing is painted, so the costly drawers (a rigged character) are skipped.
   dry?: boolean;
+  // The piece's tone (the code mascot's gesture eases in faster when dry).
+  tone?: string;
 };
 
 const display = (f: Frame, size: number, weight = 700) => `${weight} ${size}px "${f.world.brand.displayFont}", "Inter", system-ui, sans-serif`;
@@ -1159,6 +1179,24 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         });
       }
       put("media", cx, bottom, () => {
+        if (s.asset === MASCOT_ASSET) {
+          // "Mascota en código": the series' mascot, painted in its sandbox at this pose, comes up into place.
+          const pose = mascotPoseAt(world, s, f.t, lt, vertical, f.tone);
+          const img = world.code?.mascot?.(f.t, pose) ?? null;
+          const k = height / (MASCOT_FRAME.scale * MASCOT_UNIT);
+          const e = clamp01(outCubic(span(lt, at("media"), 0.5)));
+          if (!img) {
+            const why = world.code?.mascotProblem?.() ?? "Preparando la mascota…";
+            placeholder(f, cx - height * 0.3, bottom - height, height * 0.6, height, why.length > 48 ? "Falta la mascota en código" : why);
+          } else {
+            ctx.save();
+            ctx.globalAlpha *= clamp01(e * 2);
+            ctx.translate(0, (1 - e) * height * 0.25);
+            ctx.drawImage(img, cx - MASCOT_FRAME.x * k, bottom - MASCOT_FRAME.y * k, MASCOT_FRAME.w * k, MASCOT_FRAME.h * k);
+            ctx.restore();
+          }
+          return { x: cx - height * 0.3, y: bottom - height, w: height * 0.6, h: height };
+        }
         if (actor && !f.dry) {
           return actor.draw(ctx, cx, bottom, height, Math.max(0, lt - at("media")), s.seconds, s.move ?? "walk", talkLevel(world, s, f.t, lt));
         }
@@ -1939,6 +1977,7 @@ export function drawMotionFrame(
     land: landFor(script.tone, world.brand.motion),
     acting: actingFor(script.tone, world.brand.motion),
     pieceWorld: script.world,
+    tone: script.tone,
   };
   if (!scenes.length) {
     backdrop(f);
