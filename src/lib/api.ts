@@ -26,6 +26,7 @@ import type { KindAverage, UsageEntry } from "../../shared/usage.ts";
 import type { Brand, CastMember, PuppetLayer, SeriesFields, SeriesType, TextStyle } from "../../shared/series.ts";
 import type { RoomCard } from "../../shared/room.ts";
 import type { Reference } from "../../shared/reference.ts";
+import type { ScreenDevice } from "../../shared/screenBatch.ts";
 import type { AdCombo, AdsState, Batch, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 
 // Demucs on this computer (Modelos → Demucs).
@@ -204,6 +205,17 @@ export const api = {
     ),
   removeCastRef: (seriesId: string, castId: string, ref: string) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/refs/${enc(ref)}`, undefined, "DELETE"),
+  // "Subir muchas pantallas": one screenshot → one pending real screen (member and image saved together).
+  addScreen: (seriesId: string, image: Blob, file: string, name: string, device?: ScreenDevice) =>
+    upload<{ member: CastMember; series: SeriesInfo[] }>(
+      `/api/series/${enc(seriesId)}/screens?file=${enc(file)}&name=${enc(name)}${device ? `&device=${device}` : ""}`,
+      image,
+      image.type || "application/octet-stream",
+    ),
+  confirmScreens: (seriesId: string, screens: { id: string; name: string; ref: string; identity: string; device?: ScreenDevice }[], removed: string[]) =>
+    call<{ cast: CastMember[]; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/screens/confirm`, { screens, removed }),
+  nameScreen: (series: string | null, picture: string, file: string) =>
+    call<{ screen: { name: string; shows: string; device?: ScreenDevice } | null; note: string; demo: boolean }>("/api/screens/name", { series, picture, file }),
   uploadCastImage: (seriesId: string, castId: string, image: Blob) =>
     upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/image`, image, image.type),
 

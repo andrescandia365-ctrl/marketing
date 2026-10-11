@@ -30,7 +30,7 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
     segment === "correspondent"
       ? `${SEGMENT_HINT.correspondent} ${reporter ? `Sale ${reporter.name}, el corresponsal de la serie.` : "La serie no tiene corresponsal: la IA inventa uno (adulto, nadie conocido) y después te ofrece sumarlo al elenco."}`
       : SEGMENT_HINT[segment];
-  const screens = current?.type === "software" ? current.cast.filter((m) => m.kind === "screen") : [];
+  const screens = current?.type === "software" ? current.cast.filter((m) => m.kind === "screen" && !m.pending) : [];
 
   const seriesField = (
     <div className="md:col-span-2">

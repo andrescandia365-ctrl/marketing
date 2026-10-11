@@ -738,6 +738,7 @@ export function App() {
             }}
             onClose={() => setEditingSeries(undefined)}
             maxRefs={toolsRefCap(status?.tools ?? [])}
+            aiReady={Boolean(status?.writer)}
           />
           </Lazy>
         )}

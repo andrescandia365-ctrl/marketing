@@ -54,6 +54,7 @@ import { pickWorld, worldLean } from "../shared/world.ts";
 import { momentsForWriter } from "../shared/calendar.ts";
 import { getSeries } from "./series.ts";
 import { REFERENCE_ANGLES, ReferenceWireSchema, type ReferenceWire } from "../shared/reference.ts";
+import { screensForWriter } from "../shared/screenBatch.ts";
 import { askKimi, listChatModels, type ChatTarget, type ListedModel } from "./kimi.ts";
 import { baseUrlOf, claudeEffort, keyOf, labelOf, visionChoice, writerChoice, EFFORTS, type Effort, type ProviderId } from "./settings.ts";
 import { getTool } from "./tools.ts";
@@ -177,6 +178,14 @@ function contextBlocks(brief: Brief, withTool: boolean): string[] {
     `The series for this piece (its bible is written in Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real. Its "${PRACTICES}" list, if any, is how people work today without the brand: pains are built only on it and the brief's notes. Its "${CAST}", if any, is the series' fixed cast: characters, places and products with an approved image (reuse them: same id as castId, identity word for word) and real screens of the product (kind "screen": real screenshots, shown only in screen shots). A member's "refs" are extra reference images of that same member (its face cut from the sheet, a loose view), each its own @ref in the image tool; "views" are its sheet's loose views as prompts.\n\n${series.text}`,
   ];
   // The series' calendar moments, nearest first with how far each one is (after the cache: it changes every day).
+  // The confirmed real screens by name and function, so the writer picks the right one per scene (a batch screen
+  // still pending review is not in it: it is not confirmed as the app today).
+  const screens = screensForWriter(series.cast);
+  if (screens) {
+    blocks.push(
+      `The series' real screens (kind "screen", confirmed real screenshots of the app as it is today), by id, @ref, device, name and what each shows. Pick the screen whose function matches what the scene shows; never one whose function does not fit. A cast member with "pending": true is not confirmed yet: never use it.\n${screens}`,
+    );
+  }
   const moments = momentsForWriter(series.moments, new Date());
   if (moments) blocks.push(moments);
   // The offer profile from Publicidad, when the series has one: the same audience, promise and proofs as the ads.
@@ -192,8 +201,8 @@ function contextBlocks(brief: Brief, withTool: boolean): string[] {
 }
 
 function screensFor(brief: Brief): string {
-  const screens = (getSeries(brief.series)?.cast ?? []).filter((m) => m.kind === "screen" && brief.screens.includes(m.id));
-  return screens.length ? screens.map((m) => `${m.id} (${m.name}: ${m.identity})`).join("; ") : "none; never use kind screen";
+  const screens = (getSeries(brief.series)?.cast ?? []).filter((m) => m.kind === "screen" && !m.pending && brief.screens.includes(m.id));
+  return screens.length ? screens.map((m) => `${m.id} (${m.name}${m.device ? `, ${m.device === "phone" ? "phone" : "computer"}` : ""}: ${m.identity})`).join("; ") : "none; never use kind screen";
 }
 
 // The series' real screens by id, with their names, for a transform that ends on one. Any of them is a real
@@ -786,7 +795,8 @@ function explainerCast(brief: Brief) {
   const series = getSeries(brief.series);
   const host = series ? explainerHost(series) : null;
   const cast = (series?.cast ?? [])
-    .map((m) => `- ${m.id} (${m.kind}${m.image ? ", has image" : ", no image yet"}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}${m.id === host?.id ? ", the series' explainer character" : ""}): ${m.name}. ${m.identity}`)
+    .filter((m) => !(m.kind === "screen" && m.pending))
+    .map((m) => `- ${m.id} (${m.kind}${m.kind === "screen" && m.device ? `, ${m.device === "phone" ? "phone" : "computer"}` : ""}${m.image ? ", has image" : ", no image yet"}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}${m.id === host?.id ? ", the series' explainer character" : ""}): ${m.name}. ${m.identity}`)
     .join("\n");
   const characters = (series?.cast ?? []).filter((m) => m.kind === "character").map((m) => m.id);
   return { series, host, cast, characters };
@@ -933,6 +943,26 @@ Write every field in Spanish (Rioplatense, plain words), one short line each, ex
 - avoid: what in this ad we must not take: its own lines, product and photos, and anything that clashes with the playbook (invented proof, press or reviews; manufactured urgency or scarcity; fear, shame or guilt sold as the product; a named competitor; a real person's likeness).`,
     ReferenceWireSchema,
     [{ label: "The reference ad:", jpeg: picture }],
+  );
+}
+
+// "Que la IA las nombre" (Pantallas en lote): the vision model names one real screenshot by its function and says what
+// it shows. The picture goes only to the model that looks at pictures, for this request.
+export const ScreenNameSchema = z.object({ name: z.string(), shows: z.string(), device: z.string() });
+export function nameScreen(seriesId: string | null, picture: string, fileName: string): Promise<z.infer<typeof ScreenNameSchema>> {
+  const who = currentVision() ?? currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  const series = seriesId ? getSeries(seriesId) : null;
+  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false) : [])];
+  return askWith(
+    who,
+    system,
+    `The picture above is a real screenshot of the app (file "${fileName}"). It will be used as it is in videos, and the writers pick which screen to show in each scene by its name and what it shows. In Spanish (Rioplatense, plain words):
+- name: 2 to 4 words naming the screen's function (e.g. "Stock buscar", "Pedido al proveedor"), reusing the words of the series' "${WORKS_TODAY}" list when one fits.
+- shows: one line, only what is visible in the screenshot (which screen it is and what can be done there). Never a feature, number or result that is not visible.
+- device: "celular" or "pc", by the screenshot.`,
+    ScreenNameSchema,
+    [{ label: "The screenshot:", jpeg: picture }],
   );
 }
 

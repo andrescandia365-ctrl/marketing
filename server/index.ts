@@ -44,7 +44,9 @@ import {
   writeStory,
   hookVariants,
   teardownAd,
+  nameScreen,
 } from "./claude.ts";
+import { readDevice, SCREEN_DEVICES } from "../shared/screenBatch.ts";
 import { normalizeReference } from "../shared/reference.ts";
 import { KimiError } from "./kimi.ts";
 import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
@@ -127,6 +129,8 @@ import {
   addCastRef,
   removeCastRef,
   getSeries,
+  addScreen,
+  confirmScreens,
 } from "./series.ts";
 import { listTools, referenceLimit } from "./tools.ts";
 import { AdsError } from "./ads.ts";
@@ -273,6 +277,39 @@ app.put("/api/series/:id/cast/:castId/image", async (c) => {
   if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
   const file = setCastImage(c.req.param("id"), c.req.param("castId"), data, c.req.header("content-type") ?? "");
   return c.json({ file, series: listSeries() });
+});
+
+// "Subir muchas pantallas": one screenshot of the batch per request (the browser sends them one after the other), saved
+// as a pending real screen with its image.
+app.put("/api/series/:id/screens", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  const q = z
+    .object({ file: z.string().trim().min(1, "Falta el nombre del archivo.").max(200), name: z.string().max(60).default(""), device: z.enum(SCREEN_DEVICES).optional() })
+    .parse({ file: c.req.query("file"), name: c.req.query("name") ?? "", device: c.req.query("device") || undefined });
+  const member = addScreen(c.req.param("id"), data, { fileName: q.file, name: q.name, device: q.device });
+  return c.json({ member, series: listSeries() });
+});
+
+// "Confirmar" in "Revisá las pantallas": names, what each shows, device, order, and the ones taken out.
+app.post("/api/series/:id/screens/confirm", async (c) => {
+  const body = z
+    .object({
+      screens: z
+        .array(
+          z.object({
+            id: z.string().regex(/^[a-z0-9-]{1,40}$/),
+            name: z.string().trim().min(1, "Falta el nombre de una pantalla.").max(60),
+            ref: z.string().regex(/^[A-Za-z0-9_]{1,30}$/, "La @referencia va sin espacios ni acentos."),
+            identity: z.string().trim().max(600),
+            device: z.enum(SCREEN_DEVICES).optional(),
+          }),
+        )
+        .max(200),
+      removed: z.array(z.string().regex(/^[a-z0-9-]{1,40}$/)).max(200).default([]),
+    })
+    .parse(await c.req.json());
+  const cast = confirmScreens(c.req.param("id"), body.screens, body.removed);
+  return c.json({ cast, series: listSeries() });
 });
 
 // Extra reference images of a cast member: a crop of its sheet (the face) or a loose view, each its own @ reference.
@@ -623,6 +660,27 @@ app.post("/api/reference/teardown", async (c) => {
   }
   const raw = await teardownAd(series && getSeries(series) ? series : null, picture, note);
   return c.json({ reference: normalizeReference(raw, new Date().toISOString().slice(0, 10), note), note: "", demo: false as const });
+});
+
+// "Que la IA las nombre": the vision model names one real screenshot (name, what it shows, device). One per request.
+app.post("/api/screens/name", async (c) => {
+  const { series, picture, file } = z
+    .object({
+      series: z.string().regex(/^[a-z0-9-]{1,40}$/).nullable().default(null),
+      picture: Jpeg.min(100, "Falta la captura."),
+      file: z.string().max(200).default(""),
+    })
+    .parse(await c.req.json());
+  if (demo()) {
+    return c.json({
+      screen: null,
+      note: "Para que la IA nombre las pantallas hace falta una clave en Modelos. Sin clave: «Copiar prompt para nombrarlas en claude.ai» y pegá la respuesta acá.",
+      demo: true as const,
+    });
+  }
+  const raw = await nameScreen(series && getSeries(series) ? series : null, picture, file);
+  const device = readDevice(raw.device);
+  return c.json({ screen: { name: raw.name.trim().slice(0, 60), shows: raw.shows.trim().slice(0, 600), ...(device && { device }) }, note: "", demo: false as const });
 });
 
 // ── Modelos: keys and models, set from the app. Only from this computer: the request must come from the loopback

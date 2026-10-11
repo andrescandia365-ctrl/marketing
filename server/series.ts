@@ -6,7 +6,9 @@ import { join, resolve, sep } from "node:path";
 import type { LyricStyle } from "../shared/lyrics.ts";
 import type { SeriesInfo } from "../shared/schema.ts";
 import { extraRefName, memberRefCount, refFileName, seriesRefNames } from "../shared/castRefs.ts";
+import { SCREEN_MAX_BYTES, reorderSubset, screenMember, screenTypeOf, type ScreenDevice } from "../shared/screenBatch.ts";
 import {
+  CAST_MAX,
   PUPPET_MAX_LAYERS,
   markdownToSeries,
   seriesId,
@@ -173,6 +175,54 @@ export function setCastImage(id: string, castId: string, data: Buffer, type: str
   member.image = file;
   saveSeries(id, fields);
   return file;
+}
+
+// "Subir muchas pantallas": one screenshot of a batch becomes a pending real screen, its member and its image saved
+// together (a picture that fails its checks leaves nothing behind). The name, id and @ref are made unique against the
+// cast as the server has it; the type is read from the bytes.
+export function addScreen(id: string, data: Buffer, input: { fileName: string; name?: string; device?: ScreenDevice }): CastMember {
+  const fields = getSeriesFields(id);
+  if (!data.length) throw new SeriesError("El archivo está vacío.");
+  if (data.length > SCREEN_MAX_BYTES) throw new SeriesError(`${input.fileName}: pesa más de ${SCREEN_MAX_BYTES / 1024 / 1024} MB.`);
+  const type = screenTypeOf(data);
+  if (!type) throw new SeriesError(`${input.fileName}: no es una imagen PNG, JPG o WebP.`);
+  if (fields.cast.length >= CAST_MAX) throw new SeriesError(`El elenco ya tiene ${CAST_MAX} integrantes: sacá alguno antes de sumar otro.`);
+  const member = screenMember(input, fields.cast);
+  const dir = join(LIBRARY_DIR, id);
+  mkdirSync(dir, { recursive: true });
+  const file = `${member.id}.${IMAGE_EXT[type]}`;
+  writeFileSync(join(dir, file), data);
+  const saved = { ...member, image: file };
+  fields.cast = [...fields.cast, saved];
+  saveSeries(id, fields);
+  return saved;
+}
+
+// "Confirmar" in "Revisá las pantallas": the reviewed screens take their names, @refs, what they show and their
+// device, stop being pending and keep the order the person left; the ones taken out of the grid leave the cast
+// (and their image the library).
+export function confirmScreens(
+  id: string,
+  screens: { id: string; name: string; ref: string; identity: string; device?: ScreenDevice }[],
+  removed: string[],
+): CastMember[] {
+  const fields = getSeriesFields(id);
+  const gone = new Set(removed);
+  for (const m of fields.cast) if (gone.has(m.id) && m.kind === "screen" && m.image) removeLibraryFile(id, m.image);
+  const byId = new Map(screens.map((s) => [s.id, s]));
+  const cast = fields.cast
+    .filter((m) => !(gone.has(m.id) && m.kind === "screen"))
+    .map((m) => {
+      const s = byId.get(m.id);
+      if (!s || m.kind !== "screen") return m;
+      const { pending: _pending, ...rest } = m;
+      return { ...rest, name: s.name, ref: s.ref, identity: s.identity, ...(s.device ? { device: s.device } : {}) };
+    });
+  const refs = cast.flatMap((m) => [m.ref, ...m.refs.map((r) => r.ref)].map((r) => r.toLowerCase()));
+  if (new Set(refs).size !== refs.length) throw new SeriesError("Dos integrantes del elenco quedaron con la misma @referencia: cambiá una.");
+  fields.cast = reorderSubset(cast, screens.map((s) => s.id));
+  saveSeries(id, fields);
+  return fields.cast;
 }
 
 // An extra reference image of a cast member (a crop of its sheet, or a loose view), saved next to its approved image

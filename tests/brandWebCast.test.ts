@@ -18,7 +18,7 @@ import {
   type FetchedPicture,
   type PictureCandidate,
 } from "../server/brandWeb.ts";
-import { CastMemberSchema } from "../shared/series.ts";
+import { CAST_MAX, CastMemberSchema } from "../shared/series.ts";
 import { addWebCast, webCastMember, webPictureKinds } from "../shared/webCast.ts";
 
 const base = new URL("https://tienda.example.com/productos/taza");
@@ -239,8 +239,9 @@ test("a picked picture becomes a cast member labelled as from the website; a scr
 
   const unnamed = webCastMember({ kind: "product", name: "  ", url: "nota" }, [], { confirmed: false, date: "" });
   assert.equal(unnamed.name, "Producto 1");
-  const full = Array.from({ length: 60 }, (_, i) => ({ id: `x-${i}`, ref: `X${i}` }));
-  assert.throws(() => webCastMember({ kind: "product", name: "Otro", url: "https://a.example/" }, full, { confirmed: false, date: "" }), /60/);
+  // The cast cap (raised to hold a software series' real screens in bulk).
+  const full = Array.from({ length: CAST_MAX }, (_, i) => ({ id: `x-${i}`, ref: `X${i}` }));
+  assert.throws(() => webCastMember({ kind: "product", name: "Otro", url: "https://a.example/" }, full, { confirmed: false, date: "" }), new RegExp(String(CAST_MAX)));
 });
 
 test("addWebCast: a failed upload adds nothing to the form and a retry reuses the same member", async () => {

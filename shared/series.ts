@@ -335,6 +335,9 @@ export type CastRef = z.infer<typeof CastRefSchema>;
 export const SheetViewSchema = z.object({ title: z.string().trim().max(120), prompt: z.string().trim().max(3000) });
 export type SheetView = z.infer<typeof SheetViewSchema>;
 
+// The most members a series' cast holds (a software series can bring ~50 real screens besides its characters).
+export const CAST_MAX = 150;
+
 export const CastMemberSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{1,40}$/, "Id no válido."),
   name: z.string().trim().min(1, "Falta el nombre.").max(60),
@@ -356,6 +359,10 @@ export const CastMemberSchema = z.object({
   refs: z.array(CastRefSchema).max(40).default([]),
   // The sheet's loose views, kept with the member (older series have none).
   views: z.array(SheetViewSchema).max(20).default([]),
+  // Real screens only: the device it was taken on (shared/screenBatch.ts; none on older screens).
+  device: z.enum(["phone", "pc"]).optional(),
+  // Real screens only: uploaded in a batch and not reviewed yet ("Revisá las pantallas"). The writers never get it.
+  pending: z.boolean().optional(),
 });
 export type CastMember = z.infer<typeof CastMemberSchema>;
 
@@ -399,7 +406,7 @@ export const SeriesFieldsSchema = z.object({
   lyricStyle: LyricStyleSchema,
   look: SeriesLookSchema,
   brand: BrandSchema,
-  cast: z.array(CastMemberSchema).max(60),
+  cast: z.array(CastMemberSchema).max(CAST_MAX),
   // "Personaje de los explicativos": the cast id of the character who hosts every explainer ("": none, the writer
   // and the studio pick as before).
   explainerCharacter: z.string().max(40).default(""),

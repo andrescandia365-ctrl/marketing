@@ -25,6 +25,7 @@ import { CastCard } from "./CastCard.tsx";
 import "./CastRefs.tsx";
 import { BrandSection, LookSection } from "./SeriesBrandLook.tsx";
 import { ReferenceAds } from "./ReferenceAds.tsx";
+import { ScreenBatch } from "./ScreenBatch.tsx";
 
 type Props = {
   // null: a new series.
@@ -36,9 +37,11 @@ type Props = {
   onClose: () => void;
   // The tools' cap on reference images (server/tools/*.md), for a member's extra references; null: none named.
   maxRefs?: number | null;
+  // A model key is set (not sample mode): offers the AI's own helpers, such as naming screenshots.
+  aiReady?: boolean;
 };
 
-export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, maxRefs = null }: Props) {
+export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, maxRefs = null, aiReady = false }: Props) {
   const [fields, setFields] = useState<SeriesFields | null>(id ? null : EMPTY_SERIES);
   // "Lo que existe hoy" is edited as text, one item per line.
   const [works, setWorks] = useState("");
@@ -50,6 +53,8 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
   // Web pictures whose member reached the server but whose image upload failed, by pick (see addWebCast).
   const webPending = useRef(new Map<string, CastMember>());
   const [busy, setBusy] = useState<null | "save" | "delete">(null);
+  // With many real screens, the confirmed ones fold away.
+  const [showScreens, setShowScreens] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -441,33 +446,61 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
         </>
       )}
 
-      {fields.type === "software" && (
+      {!music && (
         <Field
           label="Pantallas reales de la app"
           group
-          hint="Capturas reales (celular y PC), una por función. La IA no puede dibujar la interfaz: las tomas que muestran la app usan estas capturas tal cual."
+          hint={
+            fields.type === "software"
+              ? "Capturas reales (celular y PC), una por función. La IA no puede dibujar la interfaz: las tomas que muestran la app usan estas capturas tal cual, y la IA elige cuál por su nombre y lo que muestra."
+              : "Opcional en e-commerce: capturas reales de la tienda o la app, si las piezas las muestran. Van tal cual."
+          }
         >
           <div className="space-y-2">
-            <ul className="space-y-2">
-              {fields.cast
-                .filter((m) => m.kind === "screen")
-                .map((m) => (
-                  <CastCard
-                    key={m.id}
-                    member={m}
-                    seriesId={id}
-                    version={version}
-                    onChange={(next) => set("cast", fields.cast.map((x) => (x.id === m.id ? next : x)))}
-                    onRemove={() => set("cast", fields.cast.filter((x) => x.id !== m.id))}
-                    onImage={(file) => memberImage(m, file)}
-                    onPuppetFiles={(files) => memberPuppetFiles(m, files)}
-                    onPuppetReplace={(layers) => memberPuppetReplace(m, layers)}
-                    onPuppetRemove={(index) => memberPuppetRemove(m, index)}
-                    onPuppetArranged={(next) => memberPuppetArranged(next)}
-                    onRigFile={(file) => memberRigFile(m, file)}
-                  />
-                ))}
-            </ul>
+            <ScreenBatch
+              seriesId={id}
+              seriesName={fields.name}
+              cast={fields.cast}
+              works={works}
+              version={version}
+              aiReady={aiReady}
+              onCast={(update) => setFields((f) => (f ? { ...f, cast: update(f.cast) } : f))}
+              onWorks={(lines) => setWorks((w) => [w.replace(/\s+$/, ""), ...lines].filter(Boolean).join("\n"))}
+              onSeries={(series) => onLogoSaved?.(series)}
+            />
+            {(() => {
+              const confirmed = fields.cast.filter((m) => m.kind === "screen" && !m.pending);
+              const folded = confirmed.length > 6 && !showScreens;
+              return (
+                <>
+                  {confirmed.length > 6 && (
+                    <Button variant="ghost" className="px-2 py-0.5 text-xs" onClick={() => setShowScreens((v) => !v)}>
+                      {folded ? `Ver las ${confirmed.length} pantallas confirmadas` : "Ocultar las pantallas confirmadas"}
+                    </Button>
+                  )}
+                  {!folded && (
+                    <ul className="space-y-2">
+                      {confirmed.map((m) => (
+                        <CastCard
+                          key={m.id}
+                          member={m}
+                          seriesId={id}
+                          version={version}
+                          onChange={(next) => set("cast", fields.cast.map((x) => (x.id === m.id ? next : x)))}
+                          onRemove={() => set("cast", fields.cast.filter((x) => x.id !== m.id))}
+                          onImage={(file) => memberImage(m, file)}
+                          onPuppetFiles={(files) => memberPuppetFiles(m, files)}
+                          onPuppetReplace={(layers) => memberPuppetReplace(m, layers)}
+                          onPuppetRemove={(index) => memberPuppetRemove(m, index)}
+                          onPuppetArranged={(next) => memberPuppetArranged(next)}
+                          onRigFile={(file) => memberRigFile(m, file)}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </>
+              );
+            })()}
             <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => addMember("screen")}>
               + Pantalla real
             </Button>
