@@ -27,7 +27,7 @@ import type { Brand, CastMember, PuppetLayer, SeriesFields, SeriesType, TextStyl
 import type { RoomCard } from "../../shared/room.ts";
 import type { Reference } from "../../shared/reference.ts";
 import type { ScreenDevice } from "../../shared/screenBatch.ts";
-import type { AdCombo, AdsState, Batch, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
+import type { AdCombo, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 
 // Demucs on this computer (Modelos → Demucs).
 export type DemucsStatus = { ready: boolean; command: string; model: string; songs: number; envBin: boolean };
@@ -145,6 +145,16 @@ export const ads = {
     upload<{ file: string }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/ads/${enc(adId)}`, video, video.type),
   batchCsv: (series: string, batch: string) => call<{ file: string; csv: string }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/csv`, {}),
   removeBatch: (series: string, batch: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/batches/${enc(batch)}`, undefined, "DELETE"),
+  // "Versión estática" of the hooks.
+  patchStatic: (series: string, hookId: string, patch: Partial<Omit<HookStatic, "picture" | "exports">>) =>
+    call<{ state: AdsState }>(`/api/ads/${enc(series)}/statics/${enc(hookId)}`, patch, "PATCH"),
+  uploadStaticPicture: (series: string, hookId: string, file: Blob, w: number, h: number) =>
+    upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/statics/${enc(hookId)}/picture?w=${w}&h=${h}`, file, file.type),
+  removeStaticPicture: (series: string, hookId: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/statics/${enc(hookId)}/picture`, undefined, "DELETE"),
+  saveStaticExport: (series: string, hookId: string, file: string, png: Blob) =>
+    upload<{ file: string }>(`/api/ads/${enc(series)}/statics/${enc(hookId)}/exports/${enc(file)}`, png, "image/png"),
+  finishStaticExports: (series: string, hookId: string, files: string[]) =>
+    call<{ state: AdsState; csv: string }>(`/api/ads/${enc(series)}/statics/${enc(hookId)}/exports`, { files }),
 };
 
 export const api = {

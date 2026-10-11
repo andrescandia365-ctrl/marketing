@@ -29,6 +29,7 @@ test("the parts behind a click still download on demand", () => {
     ],
     ["src/components/ProductionView.tsx", ["./VideoPanel.tsx"]],
     ["src/components/AdsSection.tsx", ["./ads/AdsStudio.tsx"]],
+    ["src/components/ads/AdsStudio.tsx", ["./StaticsPanel.tsx"]],
     ["src/components/MotionStoryboardPanel.tsx", ["./MotionStoryboard.tsx"]],
     ["src/components/SetupsPanel.tsx", ["./SheetBuilder.tsx", "./CastRefs.tsx"]],
   ];

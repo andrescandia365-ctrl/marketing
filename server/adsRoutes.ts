@@ -13,7 +13,6 @@ import {
   clipFromWire,
   copyKey,
   ctasFromWire,
-  exportCsv,
   flagsFromWire,
   hooksFromWire,
   levelsOf,
@@ -25,6 +24,7 @@ import {
   toLevel,
   toLevels,
   BUDGETS,
+  HookStaticSchema,
   adsThisWeek,
   type AdSeconds,
   type AdsState,
@@ -32,6 +32,7 @@ import {
   type Level,
   type Piece,
 } from "../shared/ads.ts";
+import { campaignCsv, defaultStatic, staticBelongs, staticsCsv } from "../shared/adsStatic.ts";
 import { currentWriter } from "./claude.ts";
 import {
   ADS_DIR,
@@ -45,6 +46,10 @@ import {
   saveClipFile,
   savePieceMedia,
   savePieceRender,
+  pruneStaticExports,
+  saveStaticExport,
+  saveStaticPicture,
+  saveStaticsCsv,
   transcribeClip,
   transcriptText,
   transcriptionAvailable,
@@ -71,6 +76,9 @@ const Seconds = z.number().refine((n): n is AdSeconds => (AD_SECONDS as readonly
 const Levels = z.array(z.number().int().min(1).max(5)).max(5).default([]);
 const Lang = z.enum(["es", "en"]).default("es");
 const PieceId = z.string().regex(/^[HMC]\d{1,4}$/);
+const HookId = z.string().regex(/^H\d{1,4}$/);
+// What the batch view changes in a hook's static version (the picture and the exports have their own routes).
+const StaticPatch = HookStaticSchema.omit({ picture: true, exports: true }).partial();
 
 function series(c: { req: { param: (k: string) => string | undefined } }): string {
   const id = Series.parse(c.req.param("series"));
@@ -327,6 +335,10 @@ export function adsRoutes(app: Hono) {
       for (const f of [m?.image, m?.clip?.file, m?.voice?.file, s.renders[pieceId]]) if (f) await removePieceMedia(id, f).catch(() => undefined);
       delete s.media[pieceId];
       delete s.renders[pieceId];
+      const st = s.statics[pieceId];
+      if (st?.picture) await removePieceMedia(id, st.picture.file).catch(() => undefined);
+      if (pieceId.startsWith("H")) await pruneStaticExports(id, pieceId, []);
+      delete s.statics[pieceId];
     });
     return c.json({ state });
   });
@@ -485,7 +497,7 @@ export function adsRoutes(app: Hono) {
     const state = await loadAds(id);
     const b = state.batches.find((x) => x.id === batchId);
     if (!b) throw new AdsError("Esa tanda no existe.");
-    const csv = exportCsv(b, state.hooks, state.meats, state.ctas);
+    const csv = campaignCsv(b, state.hooks, state.meats, state.ctas, state.statics);
     const file = await saveBatchCsv(id, batchId, csv);
     return c.json({ file, csv });
   });
@@ -498,6 +510,83 @@ export function adsRoutes(app: Hono) {
       s.batches = s.batches.filter((b) => b.id !== batchId);
     });
     return c.json({ state });
+  });
+
+  // ── "Versión estática" of the hooks (shared/adsStatic.ts) ──────────────────────
+  const hookOf = (s: AdsState, hookId: string) => {
+    const h = s.hooks.find((x) => x.id === hookId);
+    if (!h) throw new AdsError("Ese hook no existe.");
+    return h;
+  };
+
+  app.patch("/api/ads/:series/statics/:hookId", async (c) => {
+    const id = series(c);
+    const hookId = HookId.parse(c.req.param("hookId"));
+    const raw = (await c.req.json()) as Record<string, unknown>;
+    // Zod fills the schema's defaults in; only the fields the request names change.
+    const patch = Object.fromEntries(Object.entries(StaticPatch.parse(raw)).filter(([k]) => raw && typeof raw === "object" && k in raw));
+    const { state } = await updateAds(id, (s) => {
+      const h = hookOf(s, hookId);
+      s.statics[hookId] = { ...(s.statics[hookId] ?? defaultStatic(h)), ...patch };
+    });
+    return c.json({ state });
+  });
+
+  // The picture made in Grok (raw body), with its size in pixels.
+  app.put("/api/ads/:series/statics/:hookId/picture", async (c) => {
+    const id = series(c);
+    const hookId = HookId.parse(c.req.param("hookId"));
+    const w = z.coerce.number().int().min(1).max(20000).parse(c.req.query("w"));
+    const h = z.coerce.number().int().min(1).max(20000).parse(c.req.query("h"));
+    const data = Buffer.from(await c.req.arrayBuffer());
+    if (!data.length) throw new AdsError("El archivo está vacío.");
+    hookOf(await loadAds(id), hookId);
+    const file = await saveStaticPicture(id, hookId, data, c.req.header("content-type") ?? "");
+    const { state } = await updateAds(id, (s) => {
+      const hook = hookOf(s, hookId);
+      s.statics[hookId] = { ...(s.statics[hookId] ?? defaultStatic(hook)), picture: { file, w, h } };
+    });
+    return c.json({ state, file });
+  });
+
+  app.delete("/api/ads/:series/statics/:hookId/picture", async (c) => {
+    const id = series(c);
+    const hookId = HookId.parse(c.req.param("hookId"));
+    const { state } = await updateAds(id, async (s) => {
+      const st = s.statics[hookId];
+      if (st?.picture) await removePieceMedia(id, st.picture.file).catch(() => undefined);
+      if (st) st.picture = null;
+    });
+    return c.json({ state });
+  });
+
+  // One exported PNG (raw body), named <hookId>[-vN]-<format>.png.
+  app.put("/api/ads/:series/statics/:hookId/exports/:file", async (c) => {
+    const id = series(c);
+    const hookId = HookId.parse(c.req.param("hookId"));
+    const file = z.string().max(80).parse(c.req.param("file"));
+    if (!staticBelongs(file, hookId)) throw new AdsError("Ese nombre de archivo no es de este hook.");
+    const data = Buffer.from(await c.req.arrayBuffer());
+    if (!data.length) throw new AdsError("El archivo está vacío.");
+    hookOf(await loadAds(id), hookId);
+    const saved = await saveStaticExport(id, hookId, file, data, c.req.header("content-type") ?? "");
+    return c.json({ file: saved });
+  });
+
+  // After an export: the hook's files are exactly these (older extra ones go) and estaticos.csv is written again.
+  app.post("/api/ads/:series/statics/:hookId/exports", async (c) => {
+    const id = series(c);
+    const hookId = HookId.parse(c.req.param("hookId"));
+    const { files } = z.object({ files: z.array(z.string().max(80)).max(500) }).parse(await c.req.json());
+    if (files.some((f) => !staticBelongs(f, hookId))) throw new AdsError("Hay un archivo que no es de este hook.");
+    await pruneStaticExports(id, hookId, files);
+    const { state } = await updateAds(id, (s) => {
+      const h = hookOf(s, hookId);
+      s.statics[hookId] = { ...(s.statics[hookId] ?? defaultStatic(h)), exports: files };
+    });
+    const csv = staticsCsv(state.hooks, state.ctas, state.statics);
+    const file = await saveStaticsCsv(id, csv);
+    return c.json({ state, csv: file });
   });
 
   app.get("/api/ads/:series/files/*", async (c) => {

@@ -1,7 +1,7 @@
 // Publicidad (Método 50-5-3): paid ads next to Playbook's organic content. Tabs: the offer profile, the sources of
-// winning hooks, the hooks, the meats, the CTAs and the combiner. Reuses the app's writer, its image generators, its
+// winning hooks, the hooks, the meats, the CTAs, the combiner and the hooks' static versions. Reuses the app's writer, its image generators, its
 // 6/10/15 s clip prompts and its video renderer (render.ts, by pieces with a cache).
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AD_SECONDS,
   BUDGETS,
@@ -28,7 +28,7 @@ import { ads as adsApi, adsFileUrl, api } from "../../lib/api.ts";
 import { concatPieces, renderAdWhole, renderPiece, type PieceLook } from "../../lib/adsRender.ts";
 import { blobToDataUrl, readImageFile } from "../../lib/files.ts";
 import { audioDuration } from "../Audio.tsx";
-import { Button, Notice, Segmented, Spinner } from "../ui.tsx";
+import { Button, Lazy, Notice, Segmented, Spinner } from "../ui.tsx";
 import { BatchWizard, type Wizard } from "./BatchWizard.tsx";
 import { CombinePanel, type RenderProgress } from "./CombinePanel.tsx";
 import { HooksPanel } from "./HooksPanel.tsx";
@@ -37,7 +37,10 @@ import { PiecesPanel } from "./PiecesPanel.tsx";
 import { PieceCard, type PieceMediaState } from "./pieces.tsx";
 import { SourcesPanel } from "./SourcesPanel.tsx";
 
-type Tab = "offer" | "sources" | "hooks" | "meats" | "ctas" | "combine";
+// "Estáticos de la tanda" downloads only when opened (it brings the still renderer).
+const StaticsPanel = lazy(() => import("./StaticsPanel.tsx").then((m) => ({ default: m.StaticsPanel })));
+
+type Tab = "offer" | "sources" | "hooks" | "meats" | "ctas" | "combine" | "statics";
 const TABS: { id: Tab; label: string }[] = [
   { id: "offer", label: "Oferta" },
   { id: "sources", label: "Fuentes" },
@@ -45,6 +48,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "meats", label: "2 · Meats" },
   { id: "ctas", label: "3 · CTAs" },
   { id: "combine", label: "4 · Combinar" },
+  { id: "statics", label: "Estáticos" },
 ];
 
 type Props = {
@@ -762,6 +766,11 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           }}
           onBatchCsv={async (id) => (await adsApi.batchCsv(series.id, id)).csv}
         />
+      )}
+      {tab === "statics" && (
+        <Lazy>
+          <StaticsPanel key={series.id} series={series} state={state} tools={tools} flags={flags} folder={folder} onState={setState} />
+        </Lazy>
       )}
     </div>
   );

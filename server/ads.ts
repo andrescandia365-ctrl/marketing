@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { AdsStateSchema, OfferSchema, RENDER_VERSION, emptyAds, offerFilled, type AdsState, type Offer } from "../shared/ads.ts";
+import { staticBelongs } from "../shared/adsStatic.ts";
 import { checkErrorText } from "../shared/errors.ts";
 
 export const ADS_DIR = resolve(process.env.ADS_DIR || "publicidad");
@@ -185,11 +186,45 @@ export async function removeBatchFolder(series: string, batch: string) {
   await rm(join(folder(series), "anuncios", batch), { recursive: true, force: true });
 }
 
-// Files live in known subfolders only: clips/x, media/x, piezas/x, anuncios/<batch>/x.
+// A hook's static version (shared/adsStatic.ts): its picture (estaticos/<hookId>-imagen.<ext>, one per hook), its
+// exports (estaticos/<hookId>[-vN]-<format>.png) and estaticos/estaticos.csv.
+export async function saveStaticPicture(series: string, hookId: string, data: Buffer, type: string): Promise<string> {
+  if (!/^H\d{1,4}$/.test(hookId)) throw new AdsError("Ese hook no existe.");
+  const name = `${hookId}-imagen.${ext(type, IMAGE, "una imagen")}`;
+  const dir = join(folder(series), "estaticos");
+  await mkdir(dir, { recursive: true });
+  for (const old of await readdir(dir).catch(() => [])) {
+    if (old.startsWith(`${hookId}-imagen.`) && old !== name) await rm(join(dir, old), { force: true });
+  }
+  await writeFile(join(dir, name), data);
+  return `estaticos/${name}`;
+}
+
+export async function saveStaticExport(series: string, hookId: string, file: string, data: Buffer, type: string): Promise<string> {
+  if (!staticBelongs(file, hookId)) throw new AdsError("Ese nombre de archivo no es de este hook.");
+  if (type.split(";")[0].trim() !== "image/png") throw new AdsError("Las versiones estáticas se guardan en PNG.");
+  await put(join(folder(series), "estaticos"), file, data);
+  return `estaticos/${file}`;
+}
+
+// Removes this hook's exports that are not in keep (an export with fewer variants or formats than the last one).
+export async function pruneStaticExports(series: string, hookId: string, keep: string[]) {
+  const dir = join(folder(series), "estaticos");
+  for (const name of await readdir(dir).catch(() => [])) {
+    if (staticBelongs(name, hookId) && !keep.includes(name)) await rm(join(dir, name), { force: true });
+  }
+}
+
+export async function saveStaticsCsv(series: string, csv: string): Promise<string> {
+  await put(join(folder(series), "estaticos"), "estaticos.csv", Buffer.from(`\ufeff${csv}`, "utf8"));
+  return "estaticos/estaticos.csv";
+}
+
+// Files live in known subfolders only: clips/x, media/x, piezas/x, estaticos/x, anuncios/<batch>/x.
 function resolveFile(series: string, file: string): { path: string; type: string } {
   const parts = file.split("/");
   const ok =
-    (parts.length === 2 && ["clips", "media", "piezas"].includes(parts[0]) && FILE.test(parts[1])) ||
+    (parts.length === 2 && ["clips", "media", "piezas", "estaticos"].includes(parts[0]) && FILE.test(parts[1])) ||
     (parts.length === 3 && parts[0] === "anuncios" && BATCH.test(parts[1]) && FILE.test(parts[2]));
   if (!ok) throw new AdsError("Ese archivo no existe.");
   const e = parts[parts.length - 1].split(".").pop()?.toLowerCase() ?? "";
