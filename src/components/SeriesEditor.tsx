@@ -24,6 +24,7 @@ import { CastCard } from "./CastCard.tsx";
 // first-screen bundle for the production step's lazy CastRefs (rolldown, checked with npm run build).
 import "./CastRefs.tsx";
 import { BrandSection, LookSection } from "./SeriesBrandLook.tsx";
+import { ReferenceAds } from "./ReferenceAds.tsx";
 
 type Props = {
   // null: a new series.
@@ -71,7 +72,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
 
   const music = fields.type === "music";
   const set = <K extends keyof SeriesFields>(key: K, value: SeriesFields[K]) => setFields({ ...fields, [key]: value });
-  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "moments" | "type" | "textStyle" | "lyricStyle" | "look" | "brand" | "cast">, rows = 4) => (
+  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "moments" | "type" | "textStyle" | "lyricStyle" | "look" | "brand" | "cast" | "references">, rows = 4) => (
     <textarea className={inputClass} rows={rows} value={fields[key]} onChange={(e) => set(key, e.target.value)} />
   );
 
@@ -489,6 +490,16 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
             </Field>
           </div>
         </>
+      )}
+
+      {!music && (
+        <Field
+          label="Referencias: analizar un anuncio que funciona (opcional)"
+          group
+          hint="Fichas de estructura de anuncios ajenos. La IA las lee para armar piezas: toma el orden y la forma, nunca el anuncio."
+        >
+          <ReferenceAds seriesId={id} references={fields.references ?? []} onChange={(next) => set("references", next)} />
+        </Field>
       )}
 
       <Field label="Reglas de la serie (opcional)" hint="Lo que nunca se dice o se muestra, el tono, los límites.">

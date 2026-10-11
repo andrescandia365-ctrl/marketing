@@ -43,7 +43,9 @@ import {
   writeBoard,
   writeStory,
   hookVariants,
+  teardownAd,
 } from "./claude.ts";
+import { normalizeReference } from "../shared/reference.ts";
 import { KimiError } from "./kimi.ts";
 import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
 import { BrandWebError, bringPictures, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.ts";
@@ -124,6 +126,7 @@ import {
   addCorrespondent,
   addCastRef,
   removeCastRef,
+  getSeries,
 } from "./series.ts";
 import { listTools, referenceLimit } from "./tools.ts";
 import { AdsError } from "./ads.ts";
@@ -599,6 +602,27 @@ app.post("/api/review", async (c) => {
     });
   }
   return c.json({ ...(await reviewPicture(brief, shot, setups, picture, refs)), demo: false });
+});
+
+// "Analizar un anuncio que funciona": the vision model tears a reference ad down into its structure. The picture is
+// used for this request only (never saved, never sent to an image generator); the answer is the written teardown.
+app.post("/api/reference/teardown", async (c) => {
+  const { series, picture, note } = z
+    .object({
+      series: z.string().regex(/^[a-z0-9-]{1,40}$/).nullable().default(null),
+      picture: Jpeg.min(100, "Falta la imagen del anuncio."),
+      note: z.string().max(400).default(""),
+    })
+    .parse(await c.req.json());
+  if (demo()) {
+    return c.json({
+      reference: null,
+      note: "Para desarmar un anuncio hace falta una IA que mire imágenes: cargá una clave en Modelos (Claude, o un modelo de visión). Sin clave, la app no inventa un análisis.",
+      demo: true as const,
+    });
+  }
+  const raw = await teardownAd(series && getSeries(series) ? series : null, picture, note);
+  return c.json({ reference: normalizeReference(raw, new Date().toISOString().slice(0, 10), note), note: "", demo: false as const });
 });
 
 // ── Modelos: keys and models, set from the app. Only from this computer: the request must come from the loopback

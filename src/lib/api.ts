@@ -25,6 +25,7 @@ import type { SyncDoc } from "../../shared/clock.ts";
 import type { KindAverage, UsageEntry } from "../../shared/usage.ts";
 import type { Brand, CastMember, PuppetLayer, SeriesFields, SeriesType, TextStyle } from "../../shared/series.ts";
 import type { RoomCard } from "../../shared/room.ts";
+import type { Reference } from "../../shared/reference.ts";
 import type { AdCombo, AdsState, Batch, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 
 // Demucs on this computer (Modelos → Demucs).
@@ -182,6 +183,9 @@ export const api = {
     ),
   replacePuppet: (seriesId: string, castId: string, layers: { role: string; name: string; png: string }[]) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PUT"),
+  // "Analizar un anuncio que funciona": the picture goes for this request only; the answer is the written teardown.
+  teardownAd: (series: string | null, picture: string, note: string) =>
+    call<{ reference: Reference | null; note: string; demo: boolean }>("/api/reference/teardown", { series, picture, note }),
   brandFromWeb: (url: string, series: string | null, type?: SeriesType) =>
     call<BrandFromWeb>("/api/brand/from-web", { url, series: series ?? undefined, type, own: true }),
   arrangePuppet: (seriesId: string, castId: string, layers: Pick<PuppetLayer, "file" | "role" | "pivot" | "place">[]) =>

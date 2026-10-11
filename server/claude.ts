@@ -53,6 +53,7 @@ import { segmentRules } from "../shared/segment.ts";
 import { pickWorld, worldLean } from "../shared/world.ts";
 import { momentsForWriter } from "../shared/calendar.ts";
 import { getSeries } from "./series.ts";
+import { REFERENCE_ANGLES, ReferenceWireSchema, type ReferenceWire } from "../shared/reference.ts";
 import { askKimi, listChatModels, type ChatTarget, type ListedModel } from "./kimi.ts";
 import { baseUrlOf, claudeEffort, keyOf, labelOf, visionChoice, writerChoice, EFFORTS, type Effort, type ProviderId } from "./settings.ts";
 import { getTool } from "./tools.ts";
@@ -907,6 +908,31 @@ ${facts.text || "(no text found)"}
 
 Propose the brand kit for the series' motion graphics: a background, a text colour and ONE accent, taken from the page's colours (the most used light or dark one for the background; the brand's signature colour as the accent, never a grey); two Google Fonts families; the logo candidate that is really the logo. Then list what the page says the product does, as short plain claims: they will be marked [VERIFY] until the person confirms each one, so never add anything the page does not say.`,
     BrandSuggestionSchema,
+  );
+}
+
+// "Analizar un anuncio que funciona" (PLAYBOOK §3.2): the vision model tears a reference ad down into its structure.
+// The picture goes only to the model that looks at pictures, for this request; the series keeps the written teardown.
+export function teardownAd(seriesId: string | null, picture: string, note: string): Promise<ReferenceWire> {
+  const who = currentVision() ?? currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  const series = seriesId ? getSeries(seriesId) : null;
+  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false) : [])];
+  return askWith(
+    who,
+    system,
+    `The picture above is a reference ad the person likes (a competitor's or anyone's). Tear it down for its STRUCTURE, following the playbook's §3.2 ("Borrow the structure, never the ad"). Its logo, product, photos, characters and lines will never be reused; only this written teardown is kept.
+${note.trim() ? `\nThe person's note about it: ${note.trim()}\n` : ""}
+Write every field in Spanish (Rioplatense, plain words), one short line each, except the copy fields, which quote the ad's own words exactly as printed (in their language).
+- title: a short name for this reference, by what it does (e.g. "Antes y después de un placard"), never the brand's name.
+- first, next, last: the visual hierarchy, what the eye sees first, then next, then last. layout: how it is arranged (the focal point, the secondary elements).
+- palette: the main colours as estimated hex codes (#rrggbb), most visible first, at most 6. type: the type style (serif, sans, handwritten, condensed; weight). imageStyle: one of ugc, studio, lifestyle, product, illustration, minimal. contrast, whitespace, framing: how it uses contrast, empty space, framing and overlays.
+- hook, promise, cta: the visible copy split into the hook, the core promise and the call to action ("" for a part it lacks). otherLines: any other visible line.
+- angle: one of ${REFERENCE_ANGLES.filter((a) => a !== "other").join(", ")} (pain = pain relief, fear = fear or urgency, status = status or identity, ease = ease, curiosity, authority), or other. angleWhy: why, in one line.
+- borrow: up to 5 things worth borrowing, STRUCTURE ONLY (the reading order, where the hook sits, the kind of promise, the composition idea), each said so it fits ${series ? "this series and its products, built on its pains" : "any brand"}: never its words, picture, product, logo or people.
+- avoid: what in this ad we must not take: its own lines, product and photos, and anything that clashes with the playbook (invented proof, press or reviews; manufactured urgency or scarcity; fear, shame or guilt sold as the product; a named competitor; a real person's likeness).`,
+    ReferenceWireSchema,
+    [{ label: "The reference ad:", jpeg: picture }],
   );
 }
 

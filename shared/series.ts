@@ -2,6 +2,7 @@
 // The writer reads the Markdown; the app edits the fields. Sections with an unknown heading are kept in `other`.
 import { z } from "zod";
 import { DEFAULT_LYRIC_STYLE, LyricStyleSchema } from "./lyrics.ts";
+import { MAX_REFERENCES, REFERENCES, REFERENCES_HEADING, ReferenceSchema, markdownToReferences, referencesToMarkdown } from "./reference.ts";
 
 // How the type looks on the finished video. Kept with the series so every piece of a brand looks the same.
 export const TextStyleSchema = z.object({
@@ -405,6 +406,8 @@ export const SeriesFieldsSchema = z.object({
   // "Corresponsal": the cast id of the character who reports "on location" in stories with a correspondent and
   // visits the people in a field visit ("": none; the writer invents one and the app offers to add it).
   correspondent: z.string().max(40).default(""),
+  // "Referencias": ads that work, torn down into their structure (shared/reference.ts). Text only, never the picture.
+  references: z.array(ReferenceSchema).max(MAX_REFERENCES).default([]),
 });
 export type SeriesFields = z.infer<typeof SeriesFieldsSchema>;
 
@@ -430,6 +433,7 @@ export const EMPTY_SERIES: SeriesFields = {
   cast: [],
   explainerCharacter: "",
   correspondent: "",
+  references: [],
 };
 
 // The heading each field is written under. The writer is told that the WORKS_TODAY list is the only thing
@@ -509,6 +513,7 @@ export function seriesToMarkdown(f: SeriesFields): string {
       "```",
     );
   }
+  if (f.references?.length) parts.push("", `## ${REFERENCES_HEADING}`, referencesToMarkdown(f.references));
   if (f.other.trim()) parts.push("", `## Otras notas\n${f.other.trim()}`);
   return `${parts.join("\n")}\n`;
 }
@@ -581,6 +586,8 @@ export function markdownToSeries(text: string, fallbackName: string): SeriesFiel
       } catch {
         // A hand-edited block that is not JSON leaves the cast empty rather than breaking the series.
       }
+    } else if (heading.toLowerCase().startsWith(REFERENCES.toLowerCase())) {
+      fields.references = markdownToReferences(body);
     } else if (heading.toLowerCase().startsWith("otras notas")) {
       if (body) other.push(body);
     } else if (!match) {
