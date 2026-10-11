@@ -214,7 +214,7 @@ export function layerAssets(layers: HTMLImageElement[]): Record<string, MotionAs
 
 // Some picture on screen was made by an AI: an uploaded layer or a cast member that is not a real screenshot.
 export function usesAiImages(scenes: MotionScene[], series: SeriesInfo): boolean {
-  return scenes.some((s) => [s.asset, s.assetB].some((a) => a.startsWith("layer:") || series.cast.find((m) => m.id === a && m.kind !== "screen")));
+  return scenes.some((s) => [s.asset, s.assetB, ...(s.template === "code" ? (s.code?.assets ?? []) : [])].some((a) => a.startsWith("layer:") || series.cast.find((m) => m.id === a && m.kind !== "screen")));
 }
 
 export function makeWorld(
@@ -223,7 +223,7 @@ export function makeWorld(
   logo: MotionAsset | null,
   beats: number[],
   notice: boolean,
-  extra: Pick<MotionWorld, "puppets" | "speech" | "actors" | "cutBlur" | "subtitles" | "videos"> = {},
+  extra: Pick<MotionWorld, "puppets" | "speech" | "actors" | "cutBlur" | "subtitles" | "videos" | "code"> = {},
 ): MotionWorld {
   return { brand, assets, logo, beats, seed: MOTION_SEED, disclosure: notice ? AI_NOTICE : "", ...extra };
 }
@@ -390,7 +390,7 @@ export function posterJpeg(w: number, h: number, t: number, script: MotionScript
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
-  return withOwnVideos(world, (own) => drawReady(own, script, t, () => drawMotionFrame(canvas.getContext("2d")!, w, h, t, script, own))).then(
+  return withOwnVideos(world, (own) => drawReady(own, script, t, () => drawMotionFrame(canvas.getContext("2d")!, w, h, t, script, own), { w, h })).then(
     () => new Promise((done) => canvas.toBlob(done, "image/jpeg", 0.92)),
   );
 }

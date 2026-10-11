@@ -834,6 +834,7 @@ export function App() {
             ffmpeg={status?.render?.ffmpeg ?? false}
             demucs={status?.render?.demucs ?? false}
             autoSync={status?.lyrics.autoSync ?? false}
+            aiReady={Boolean(status?.writer)}
             onSaveStatus={setSaveStatus}
           />
           </Lazy>

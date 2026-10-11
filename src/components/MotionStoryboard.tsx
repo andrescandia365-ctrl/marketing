@@ -6,7 +6,7 @@ import type { MotionPiece, MotionScene, MotionScript } from "../../shared/motion
 import { download, slug } from "../lib/markdown.ts";
 import type { MotionWorld } from "../lib/motion.ts";
 import { PANEL_SIZE, drawPanelFrame, soundsLine, storyboardMarkdown, storyboardName, storyboardPanels, storyboardPng, type StoryboardPanel } from "../lib/motionStoryboard.ts";
-import { VideoDeck, latestOnly, withOwnVideos } from "../lib/screenVideo.ts";
+import { VideoDeck, drawReady, latestOnly, withOwnVideos } from "../lib/screenVideo.ts";
 import { Button, Notice, Spinner } from "./ui.tsx";
 
 type Props = {
@@ -36,7 +36,7 @@ function PanelFrame({ panel, script, world, format, queue }: { panel: Storyboard
 }
 
 type SerialQueue = (job: () => Promise<unknown>) => Promise<void>;
-const readyFor = (world: MotionWorld, script: MotionScript, t: number) => (world.videos instanceof VideoDeck && !world.videos.empty ? world.videos.ready(script, t) : Promise.resolve());
+const readyFor = (world: MotionWorld, script: MotionScript, t: number) => drawReady(world, script, t, () => undefined);
 
 export function MotionStoryboard({ script, scenes, world: shared, format, music, effects, voice, onSeek }: Props) {
   const played = useMemo(() => ({ ...script, scenes }), [script, scenes]);

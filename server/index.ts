@@ -19,6 +19,7 @@ import {
 } from "../shared/schema.ts";
 import {
   WriterError,
+  writeSceneCode,
   backgroundPrompts,
   currentWriter,
   lyricElements,
@@ -611,6 +612,14 @@ app.post("/api/motion/revise", async (c) => {
   if (demo()) return c.json({ demo: true as const });
   const merge = await reviseMotion(brief, script as unknown as MotionScript, note, layers);
   return c.json({ ...merge, demo: false as const });
+});
+
+// "Escena de código" with a key: the prompt the studio builds for Opus (shared/codePrompt.ts) goes to the writer, which
+// answers the code. Sample mode writes nothing and says so (the person pastes Opus's code by hand).
+app.post("/api/motion/code", async (c) => {
+  const { prompt } = z.object({ prompt: z.string().trim().min(200, "Falta el prompt de la escena.").max(60000) }).parse(await c.req.json());
+  if (demo()) return c.json({ demo: true as const });
+  return c.json({ ...(await writeSceneCode(prompt)), demo: false as const });
 });
 
 // An explainer's own track (the file as uploaded): Demucs separates its drums on this computer and the kicks are

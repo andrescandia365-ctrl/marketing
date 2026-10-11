@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { cutBlurOn, cutPush, newMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
 import type { Brief } from "../shared/schema.ts";
 import { api } from "./lib/api.ts";
-import { ensureFont, fontLoaded } from "./lib/fonts.ts";
+import { ensureFont, fontBytes, fontLoaded } from "./lib/fonts.ts";
+import { CodeDeck } from "./lib/codeSandbox.ts";
 import { drawMotionFrame, scriptDuration } from "./lib/motion.ts";
 import { toWav } from "./lib/motionAudio.ts";
 import { arrangeScenes, layerAssets, loadPieceMedia, loadSeriesImages, makeWorld, motionBeats, motionSound, pieceSubtitles, speechLevels, usesAiImages } from "./lib/motionProject.ts";
@@ -85,10 +86,14 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
         cutBlur: cutBlurOn(piece),
         subtitles,
         videos: deck,
+        // "Escena de código": each code scene in its own sandbox; one that fails stops the render.
+        code: new CodeDeck({ fonts: fontBytes, format, strict: true }),
       });
+      const failing = await (world.code as CodeDeck).check(snapped, world, { w, h });
+      if (failing.length) throw new Error(failing.map((f) => `Escena ${f.index + 1} (código): ${f.problem}`).join(" "));
       const ctx = canvasRef.current!.getContext("2d")!;
       // render.mjs awaits each seek, so the frame it captures is the one drawn after every recording got there.
-      const seek = (t: number) => drawReady(world, snapped, t, () => drawMotionFrame(ctx, w, h, t, snapped, world));
+      const seek = (t: number) => drawReady(world, snapped, t, () => drawMotionFrame(ctx, w, h, t, snapped, world), { w, h });
       await seek(0);
       window.seek = seek;
       window.motionRender = {

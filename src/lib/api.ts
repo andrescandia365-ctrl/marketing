@@ -417,6 +417,8 @@ export const api = {
   motion: (brief: Brief, target: number | null, layers: number) =>
     call<{ script: MotionScript } & Demo>("/api/motion", { brief, target, layers }),
   // "Nota del director": sample mode (no AI key) changes nothing.
+  // "Que la IA escriba la animación": the same prompt the person copies for Opus, sent to the writer.
+  sceneCode: (prompt: string) => call<{ demo: true } | { demo: false; code: string; note: string }>("/api/motion/code", { prompt }),
   motionRevise: (brief: Brief, script: MotionScript, note: string, layers: number) =>
     call<({ demo: true } | (NoteMerge & { demo: false }))>("/api/motion/revise", { brief, script, note, layers }),
   sheet: (series: string, template: SheetTemplate, details: Record<string, string>, age: number) =>

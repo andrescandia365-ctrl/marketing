@@ -35,6 +35,7 @@ import type { ActorAsset } from "../lib/actor.ts";
 import { Recorder, type AudioFile } from "./Audio.tsx";
 import type { Selection } from "./MotionTimeline.tsx";
 import { SceneRecording } from "./SceneRecording.tsx";
+import { CodeScenePanel, type CodeTools } from "./CodeScenePanel.tsx";
 import { Button, inputClass } from "./ui.tsx";
 
 const smallInput = inputClass.replace("w-full", "");
@@ -62,9 +63,11 @@ type Props = {
   keepVoice: (sceneId: string, blob: Blob, name: string) => Promise<void>;
   voiceAvailable: boolean;
   busy: string | null;
+  // "Escena de código": the prompt for Opus, the test-and-save, and the writer when there is a key.
+  codeTools: CodeTools;
 };
 
-export function MotionSceneList({ script, scenes, selected, setSelected, seek, voices, piece, actors, puppets, series, layers, host, castCharacters, remember, setScript, updateScene, moveScene, fitVoice, generateVoice, keepVoice, voiceAvailable, busy }: Props) {
+export function MotionSceneList({ script, scenes, selected, setSelected, seek, voices, piece, actors, puppets, series, layers, host, castCharacters, remember, setScript, updateScene, moveScene, fitVoice, generateVoice, keepVoice, voiceAvailable, busy, codeTools }: Props) {
   const assetOptions = [
     ...series.cast
       .filter((m) => m.kind !== "character" || m.image || m.puppet?.layers.length || m.rig?.file)
@@ -224,6 +227,18 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <input className={`${inputClass} py-1.5`} value={raw.title} placeholder={TITLE_HINT[raw.template] ?? "Título (hasta 6 palabras)"} aria-label="Título" onChange={(e) => updateScene(s.id, { title: e.target.value })} />
                   <input className={`${inputClass} py-1.5`} value={raw.text} placeholder="Texto de apoyo" aria-label="Texto" onChange={(e) => updateScene(s.id, { text: e.target.value })} />
+                  {raw.template === "code" ? (
+                    <CodeScenePanel
+                      sceneId={s.id}
+                      code={raw.code}
+                      options={assetOptions.filter((o) => {
+                        const m = series.cast.find((c) => c.id === o.value);
+                        return !m || Boolean(m.image);
+                      })}
+                      tools={codeTools}
+                    />
+                  ) : (
+                  <>
                   <textarea
                     className={`${inputClass} py-1.5 text-xs`}
                     rows={2}
@@ -353,6 +368,8 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
                       </div>
                     )}
                   </div>
+                  </>
+                  )}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <input

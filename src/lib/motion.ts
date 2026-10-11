@@ -51,6 +51,17 @@ export type MotionAsset = {
 // second frame t shows before the frame is drawn. frame() is null while it is not there (still loading, or failed).
 export type VideoFrames = { frame(sceneId: string): CanvasImageSource | null; failed(asset: string): boolean };
 export const VIDEO_FAILED_NOTE = "No se pudo leer el video: va la imagen fija";
+// "Escena de código" (src/lib/codeSandbox.ts): the frames the pasted animation painted in its sandbox, already asked
+// for scene time lt before an exact capture draws (drawReady); the preview shows the latest one. frame() is null
+// while there is none yet; problem() says why, when it failed.
+export type CodeFrames = {
+  frame(sceneId: string, lt: number, w: number, h: number): CanvasImageSource | null;
+  problem(sceneId: string): string | null;
+  // Asks every code frame frame t draws and resolves when they are in hand (CodeDeck.ready).
+  ready?(script: MotionScript, t: number, world: MotionWorld, size?: { w: number; h: number }): Promise<void>;
+  // The live preview: asks frame t without waiting (CodeDeck.follow).
+  follow?(script: MotionScript, t: number, world: MotionWorld, size?: { w: number; h: number }): void;
+};
 export type MotionWorld = {
   brand: Brand;
   // By cast id, or "layer:N".
@@ -72,6 +83,8 @@ export type MotionWorld = {
   subtitles?: SubtitleCue[];
   // The screens' recordings, sought for frame t by the caller before it draws (VideoFrames). Absent: the stills.
   videos?: VideoFrames;
+  // The code scenes' frames (CodeFrames). Absent: a code scene shows what is missing.
+  code?: CodeFrames;
 };
 
 // The picture a scene draws for one of its elements: its cast image, or, when the scene plays its screen's recording
@@ -1042,6 +1055,19 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
   const text = (x: number, y: number, size: number, max: number, p: number) => put("text", x, y, () => slideText(f, s.text, x, y, size, max, p));
 
   switch (s.template) {
+    case "code": {
+      // The pasted animation paints the whole frame in its sandbox; the subtitle and the notice go on top as always.
+      const img = world.code?.frame(s.id, lt, w, h) ?? null;
+      put("media", w / 2, h / 2, () => {
+        if (img) ctx.drawImage(img, 0, 0, w, h);
+        else {
+          const why = world.code?.problem(s.id) ?? (s.code?.source.trim() ? (s.code.error ? `La animación falló: ${s.code.error}` : "Preparando la animación…") : "Escena de código: pegá el código de la animación");
+          placeholder(f, m, h * 0.3, w - m * 2, h * 0.3, why.length > 64 ? `${why.slice(0, 62)}…` : why);
+        }
+        return { x: 0, y: 0, w, h };
+      });
+      break;
+    }
     case "hook": {
       const ty = vertical ? h * 0.36 : h * 0.4;
       const hTitle = title(m, ty, unit * (vertical ? 0.13 : 0.11), w - m * 2, (r) => {
@@ -1843,6 +1869,7 @@ export function anchorOf(scene: TimedScene, w: number, h: number): { x: number; 
     product: vertical ? [0.5, 0.47] : [0.5, 0.55],
     stat: vertical ? [0.4, 0.45] : [0.4, 0.48],
     logo: vertical ? [0.5, 0.42] : [0.5, 0.36],
+    code: [0.5, 0.5],
   };
   const [fx, fy] = P[scene.template];
   const key = scene.template === "stat" || scene.template === "flow" ? "title" : scene.template === "contradiction" ? "item1" : "media";

@@ -6,8 +6,9 @@ import { z } from "zod";
 import type { QualityState } from "./motionQuality.ts";
 import { pickWorld, type SceneWorld, type WorldPlace } from "./world.ts";
 import { pickClip, type ScreenClip } from "./screenVideo.ts";
+import { codeHolds, codeReveals, codeTexts, type SceneCode } from "./codeScene.ts";
 
-export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "contradiction", "notify", "flow", "slots", "product", "stat", "logo"] as const;
+export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "contradiction", "notify", "flow", "slots", "product", "stat", "logo", "code"] as const;
 export type MotionTemplate = (typeof MOTION_TEMPLATES)[number];
 export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   hook: "Gancho: palabras que entran",
@@ -25,6 +26,7 @@ export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   product: "Producto con precio u oferta",
   stat: "Número grande",
   logo: "Cierre con logo",
+  code: "Escena de código (animación de Opus)",
 };
 
 // What a character does in its scene.
@@ -103,7 +105,7 @@ const SceneWire = z.object({
   template: z
     .string()
     .describe(
-      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), type (the product in use: a field where the title is typed letter by letter with key sounds, a button is tapped, then the text appears as the result), character (a cast character marked as a 3D puppet talks the voice line with its mouth moving and makes a gesture; it can point at or present a real screen or the product given in assetB), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), contradiction (the Contradiction move: what the system, the label or the habit says, then what really happens, and the first gets struck through; no image needed), notify (notifications arrive one by one as cards, each with a short title and body: the messages, alerts or reminders the person gets), flow (one source fans out to several places: the lines draw in one by one, each ending in its label; the title is the source), slots (the open loop on screen: a row of empty boxes named in the first slots scene; each later slots scene fills the next box, and the ones filled before stay filled), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene).",
+      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), type (the product in use: a field where the title is typed letter by letter with key sounds, a button is tapped, then the text appears as the result), character (a cast character marked as a 3D puppet talks the voice line with its mouth moving and makes a gesture; it can point at or present a real screen or the product given in assetB), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), contradiction (the Contradiction move: what the system, the label or the habit says, then what really happens, and the first gets struck through; no image needed), notify (notifications arrive one by one as cards, each with a short title and body: the messages, alerts or reminders the person gets), flow (one source fans out to several places: the lines draw in one by one, each ending in its label; the title is the source), slots (the open loop on screen: a row of empty boxes named in the first slots scene; each later slots scene fills the next box, and the ones filled before stay filled), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene), code (an animation the person pasted as code: never choose it for a new scene; keep a code scene's template, title, text and voice as they are unless asked).",
     ),
   seconds: z.number().describe("2 to 8 seconds; long enough for the voice line at about 2.5 words per second."),
   title: z.string().describe("Up to 6 words, readable on a phone. For stat: starts with the number (e.g. '3 minutos'). For flow: the source, up to 3 words."),
@@ -204,6 +206,9 @@ export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture"
   // "Videos de la app funcionando": the stretch of its real screen's recording the scene plays (shared/screenVideo.ts).
   // None: the still screenshot (every older scene). The writer's word for it is the wire's `clip` ("2-7 x1.5").
   recording?: ScreenClip;
+  // "Escena de código" (template "code"): the animation's JavaScript, the pictures it gets and its sampled texts
+  // (shared/codeScene.ts). Other templates have none.
+  code?: SceneCode;
   // "Un mundo ilustrado": this scene's own place, or "none" (plain) when the piece has one. Older scenes have none:
   // the piece's (shared/world.ts, worldOf).
   world?: SceneWorld;
@@ -352,7 +357,7 @@ export function pickCamera(value: string | undefined): MotionCamera | undefined 
 
 // Scenes that hold when the camera is the writer's: mostly words to read (nothing moves while it is read, beyond the
 // slow moves the camera has always made when the person picks one), and zoom, which makes its own move.
-const HOLD_SCENES: readonly MotionTemplate[] = ["zoom", "type", "steps", "contradiction", "notify", "flow", "slots", "stat", "logo"];
+const HOLD_SCENES: readonly MotionTemplate[] = ["code", "zoom", "type", "steps", "contradiction", "notify", "flow", "slots", "stat", "logo"];
 // Where the writer's camera pushes in when it gives none: the product and the real screen.
 const PUSH_IN: readonly MotionTemplate[] = ["product", "screen"];
 // Another move when the same one would come three scenes in a row, in order of preference.
@@ -754,6 +759,7 @@ const MEDIA_LABEL: Record<MotionTemplate, string> = {
   product: "Producto",
   stat: "Imagen",
   logo: "Logo",
+  code: "Animación",
 };
 
 // Every element of a scene with the second it enters (the template's timing, or the person's), only the ones that
@@ -874,6 +880,10 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
       if (text) add("text", "Texto", "text", title ? counted : 0.8);
       break;
     }
+    case "code":
+      // The animation is one element: what it draws and when comes from its sampled texts (codeHolds).
+      add("media", media, "media", 0);
+      break;
     case "logo":
       add("media", media, "media", 0);
       if (text) add("text", "Texto", "text", 0.6);
@@ -1036,6 +1046,12 @@ export type ReadingIssue = { sceneId: string; index: number; key: string; label:
 export function readingIssues(scenes: MotionScene[], push: number): ReadingIssue[] {
   const issues: ReadingIssue[] = [];
   for (const s of timeScenes(scenes)) {
+    if (s.template === "code") {
+      issues.push(...codeReadingIssues(s, pushOf(s, push)));
+      if (s.voice.trim() && s.seconds + 0.05 < readingNeed(s.voice.trim()))
+        issues.push({ sceneId: s.id, index: s.index, key: "voice", label: "Subtítulo", text: s.voice.trim(), needs: readingNeed(s.voice.trim()), has: s.seconds });
+      continue;
+    }
     for (const el of sceneElements(s)) {
       const text = shownText(s, el.key).trim();
       if (!text) continue;
@@ -1048,6 +1064,18 @@ export function readingIssues(scenes: MotionScene[], push: number): ReadingIssue
 }
 
 export const readingKey = (i: ReadingIssue) => `lee:${i.sceneId}:${i.key}`;
+
+// "Escena de código": each text the animation drew (its sampled texts) needs one still stretch as long as its reading
+// time, once the scene has come in. The key names the text, so a dismissal follows it. Not sampled yet: nothing here
+// (the studio samples it, and codeBlocks says when it has not).
+export function codeReadingIssues(s: TimedScene, push: number): ReadingIssue[] {
+  const samples = s.code?.samples;
+  if (!samples) return [];
+  return codeHolds(samples, s.seconds, push).flatMap((h) => {
+    const needs = readingNeed(h.text);
+    return h.hold + 0.05 < needs ? [{ sceneId: s.id, index: s.index, key: `code:${h.text.slice(0, 60)}`, label: "Texto de la animación", text: h.text, needs, has: h.hold }] : [];
+  });
+}
 
 // The video's thumbnail is frame 0: the person's choice, the AI's, or the first scene's settled moment (the hook, all
 // its words in). Never in the middle of a cut.
@@ -1132,6 +1160,7 @@ export function voiceFitSeconds(raw: MotionScene[], arranged: MotionScene[], sce
 export function revealTimes(scene: MotionScene, push = 0): number[] {
   // A picture carried in ("Continuidad", carryIn) arrives with the cut, whenever its own entrance would be.
   const carried = (scene as Partial<TimedScene>).carryIn ? carriedAsset(scene)?.key : undefined;
+  if (scene.template === "code" && scene.code?.samples) return [...new Set([0, ...codeReveals(scene.code.samples).map((t) => (t < push ? 0 : t))])].sort((a, b) => a - b);
   const times = sceneElements(scene)
     .filter((e) => e.lane !== "voice")
     .map((e) => (e.at < push || e.key === carried ? 0 : e.at));
@@ -1299,6 +1328,7 @@ function sceneTexts(s: MotionScene): { key: string; label: string; text: string 
     ...(keys.has("title") || s.template === "logo" ? [{ key: "title", label: s.template === "stat" ? "Número" : "Título", text: s.title }] : []),
     ...(keys.has("text") ? [{ key: "text", label: "Texto", text: s.text }] : []),
     ...(LIST_MAX[s.template] !== undefined ? itemsOf(s) : s.items.slice(0, DRAWN_ITEMS[s.template] ?? 0)).map((text, i) => ({ key: `item${i}`, label: `Rótulo ${i + 1}`, text })),
+    ...(s.template === "code" ? codeTexts(s.code?.samples).map((text, i) => ({ key: `code${i}`, label: "Texto de la animación", text })) : []),
     { key: "voice", label: "Voz y subtítulo", text: s.voice },
   ].filter((x) => x.text.trim());
 }

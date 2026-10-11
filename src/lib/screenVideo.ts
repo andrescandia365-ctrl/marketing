@@ -225,10 +225,12 @@ export function videoSources(assets: Record<string, MotionAsset>): Record<string
   );
 }
 
-// Waits for frame t's recordings in this world (if it plays any), then draws: the order every exact capture uses.
-export async function drawReady(world: MotionWorld, script: MotionScript, t: number, draw: () => void): Promise<void> {
+// Waits for frame t's recordings and code scene frames in this world (if it has any), then draws: the order every
+// exact capture uses. `size`: the frame's size, so a code scene is asked in the right format (default: the deck's).
+export async function drawReady(world: MotionWorld, script: MotionScript, t: number, draw: () => void, size?: { w: number; h: number }): Promise<void> {
   const deck = world.videos;
-  if (deck instanceof VideoDeck && !deck.empty) await deck.ready(script, t);
+  const code = world.code;
+  await Promise.all([deck instanceof VideoDeck && !deck.empty ? deck.ready(script, t) : undefined, code?.ready ? code.ready(script, t, world, size) : undefined]);
   draw();
 }
 

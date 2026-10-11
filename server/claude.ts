@@ -873,6 +873,19 @@ ${explainerRules(brief, host)}`,
 
 // "Nota del director" for an explainer: the writer returns the whole script with only what the note asks changed,
 // each scene naming the current scene it comes from; mergeNote keeps the rest as it was (ids, hand tweaks, voices).
+// "Escena de código" with a key: the studio's prompt for Opus (shared/codePrompt.ts) as it is, answered as code. The
+// contract is in the prompt; the studio strips fences and tests the code in its sandbox before saving it.
+const SceneCodeSchema = z.object({
+  code: z.string().describe("The JavaScript that defines draw(ctx, t, info), exactly as the contract in the prompt asks. No markdown fences."),
+  note: z.string().describe("One line in Spanish: the idea of the animation."),
+});
+export async function writeSceneCode(prompt: string): Promise<z.infer<typeof SceneCodeSchema>> {
+  const who = currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  const system = "You write one canvas animation for a motion-graphics explainer: plain JavaScript that defines draw(ctx, t, info) and follows the contract and the house rules in the request exactly. Every frame is a pure function of t.";
+  return askWith(who, [system], prompt, SceneCodeSchema);
+}
+
 export async function reviseMotion(brief: Brief, current: MotionScript, note: string, layers: number): Promise<NoteMerge> {
   const { series, host, cast, characters, recordings } = explainerCast(brief);
   const wire = await ask(

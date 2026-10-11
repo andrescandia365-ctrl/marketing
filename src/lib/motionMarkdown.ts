@@ -26,7 +26,7 @@ ${s.caption ? `**Texto para publicar:** ${s.caption}
 ${timeScenes(scenes)
   .map(
     (x) =>
-      `## ${x.index + 1}. ${MOTION_TEMPLATE_LABEL[x.template]} · ${x.start.toFixed(1)}–${x.end.toFixed(1)} s${labelled(x) ? ` · **${DISCLOSURE_TAG[x.disclosure as "concept" | "simulation"]}**` : ""}\n\n${beyondNow(x) ? `- **No está en «Lo que existe hoy»:** ${x.beyond!.what}\n` : ""}- **Título:** ${x.title}\n${x.text ? `- **Texto:** ${x.text}\n` : ""}${x.items.length ? `- **Elementos:** ${x.items.join(" · ")}\n` : ""}${x.asset ? `- **Imagen:** ${x.asset}${x.assetB ? ` → ${x.assetB}` : ""}\n` : ""}${x.world ? `- **Lugar:** ${x.world === "none" ? "ninguno" : WORLD_PLACE_LABEL[x.world]}\n` : ""}${x.voice ? `- **Voz** (${x.emotion}): “${x.voice}”\n` : ""}`,
+      `## ${x.index + 1}. ${MOTION_TEMPLATE_LABEL[x.template]} · ${x.start.toFixed(1)}–${x.end.toFixed(1)} s${labelled(x) ? ` · **${DISCLOSURE_TAG[x.disclosure as "concept" | "simulation"]}**` : ""}\n\n${beyondNow(x) ? `- **No está en «Lo que existe hoy»:** ${x.beyond!.what}\n` : ""}- **Título:** ${x.title}\n${x.text ? `- **Texto:** ${x.text}\n` : ""}${x.items.length ? `- **Elementos:** ${x.items.join(" · ")}\n` : ""}${x.asset ? `- **Imagen:** ${x.asset}${x.assetB ? ` → ${x.assetB}` : ""}\n` : ""}${x.world ? `- **Lugar:** ${x.world === "none" ? "ninguno" : WORLD_PLACE_LABEL[x.world]}\n` : ""}${x.voice ? `- **Voz** (${x.emotion}): “${x.voice}”\n` : ""}${x.template === "code" && x.code?.source.trim() ? `- **Animación (código)**${x.code.assets.length ? `, con ${x.code.assets.join(", ")}` : ""}:\n\n\`\`\`js\n${x.code.source.trim()}\n\`\`\`\n` : ""}`,
   )
   .join("\n")}
 `;

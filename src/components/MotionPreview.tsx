@@ -119,6 +119,8 @@ export function useMotionPreview(o: PreviewOptions) {
         const found = new Map<string, Box>();
         // A screen's recording follows the mix's clock while it plays, and is sought to frame t when stopped.
         if (world.videos instanceof VideoDeck) world.videos.follow(snapped, t, Boolean(mix?.playing));
+        // A code scene's sandbox paints frame t when it is free; the preview shows the latest frame it has.
+        world.code?.follow?.(snapped, t, world, { w: canvas.width, h: canvas.height });
         drawMotionFrame(ctx, canvas.width, canvas.height, t, snapped, world, (sceneId, key, box) => found.set(`${sceneId}:${key}`, box));
         boxes.current = found;
         const sel = selectedRef.current;

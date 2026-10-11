@@ -16,6 +16,7 @@ import {
   pushWindows,
   quietGaps,
   readingIssues,
+  readingNeed,
   sceneElements,
   settledAt,
   timeScenes,
@@ -26,6 +27,7 @@ import { CONTRAST_ACCENT, CONTRAST_TEXT, STEP_DOWN_CONTRAST, brandContrast, cont
 import { WORLD_PLACE_LABEL, worldOf, worldPalette } from "../../shared/world.ts";
 import { OVERLAP, SAFE_BAND_LABEL, overlapShare, safeBands, type SafeBand } from "../../shared/safeZone.ts";
 import { drawReady, withOwnVideos } from "./screenVideo.ts";
+import { codeHolds } from "../../shared/codeScene.ts";
 import { disclosureBox, drawMotionFrame, sceneAt, scriptDuration, subtitleBox, type Box, type MotionWorld } from "./motion.ts";
 
 export type SheetFormat = "vertical" | "horizontal";
@@ -103,7 +105,7 @@ async function drawSheet(
   const overlaps: Overlap[] = [];
   for (const [n, t] of times.entries()) {
     const seen = new Map<string, Box>();
-    await drawReady(world, script, t, () => drawMotionFrame(fctx, cw, ch, t, script, world, (sceneId, key, box) => seen.set(`${sceneId}:${key}`, box)));
+    await drawReady(world, script, t, () => drawMotionFrame(fctx, cw, ch, t, script, world, (sceneId, key, box) => seen.set(`${sceneId}:${key}`, box)), { w: cw, h: ch });
     for (const [id, box] of seen) {
       if (box.x < -1 || box.y < -1 || box.x + box.w > cw + 1 || box.y + box.h > ch + 1) {
         const [sceneId, key] = id.split(":");
@@ -218,6 +220,7 @@ export function measureFacts(
         ? `Subtitles: word by word, on purpose. The line (or its chunk of at most two lines) stays still while the word being said is in the full text colour with a short accent bar under it and the other words are dimmer; word times ${subtitles.heard ? `heard in the voice for ${subtitles.heard} of ${subtitles.voiced} scenes, the rest estimated` : "estimated from each voice's length"}. Dim words are not a fault.`
         : "Subtitles: each scene's whole line, all through its scene.",
     );
+  lines.push(...codeFacts(timed, push));
   const gaps = quietGaps(script.scenes, push);
   lines.push(`Still stretches over 4 s: ${gaps.length ? gaps.map((g) => `${g.from.toFixed(1)}–${g.to.toFixed(1)} s`).join(", ") : "none"}.`);
   const first = timed[0];
@@ -315,4 +318,17 @@ export function measureFacts(
   );
   lines.push("Loudness: the app normalizes the mix to -14 LUFS with peaks under -1.5 dBFS.");
   return lines.join("\n");
+}
+
+// "Escena de código": what each pasted animation drew, measured on its sampled texts (shared/codeScene.ts): every
+// text with its longest still stretch against its reading time. The animation's own frames are on the sheet.
+export function codeFacts(timed: TimedScene[], push: number): string[] {
+  return timed.flatMap((s) => {
+    if (s.template !== "code") return [];
+    const samples = s.code?.samples;
+    if (!samples) return [`Scene ${s.index + 1} is a code animation (the person's own code) not tested yet.`];
+    const holds = codeHolds(samples, s.seconds, pushOf(s, push));
+    const list = holds.map((h) => `"${h.text}" still ${h.hold.toFixed(1)} s from ${h.from.toFixed(1)} s (needs ${readingNeed(h.text).toFixed(1)} s)`);
+    return [`Scene ${s.index + 1} is a code animation written by the person's model and drawn whole by it (its look is its own; judge it like any scene). Texts it draws: ${list.length ? list.join("; ") : "none"}.`];
+  });
 }

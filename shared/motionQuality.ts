@@ -150,8 +150,10 @@ export function describeScenes(scenes: MotionScene[]): string {
       const flagged = beyondNow(s);
       const flag = flagged ? `, flagged by the ${flagged.by === "ia" ? "writer" : "reviewer"} as not on the working-today list ("${flagged.what}")` : "";
       // "Videos de la app funcionando": the real screen plays its recording (the sheet shows the frame at each moment).
+      // "Escena de código": the person's own animation code paints the whole scene.
+      const code = s.template === "code" ? ", a code animation the person pasted (it paints the whole frame itself; its title, text and items are not drawn by the app, so never propose fixes to them, only describe what looks wrong)" : "";
       const played = s.recording && videoAssetOf(s) ? `, its real screen plays the app's screen recording (stretch ${clipText(s.recording)} s of the recording, muted)` : "";
-      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}${entry}${reveal}${camera}${label}${flag}${played}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
+      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}${entry}${reveal}${camera}${label}${flag}${played}${code}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
     })
     .join("\n");
 }
