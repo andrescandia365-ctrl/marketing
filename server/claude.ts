@@ -886,6 +886,17 @@ export async function writeSceneCode(prompt: string): Promise<z.infer<typeof Sce
   return askWith(who, [system], prompt, SceneCodeSchema);
 }
 
+// "Imagen fija" with a key: the studio's prompt for Opus (shared/still.ts), answered in its strict paste format.
+const StillTextSchema = z.object({
+  text: z.string().describe("The whole answer exactly in the block format the request describes (## Concepto N / ## Texto N, one 'campo: valor' line per field). Nothing before or after the blocks."),
+});
+export async function writeStillText(prompt: string): Promise<z.infer<typeof StillTextSchema>> {
+  const who = currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  const system = "You write still-image ad concepts and the words set on top of them, following the brand's rules and the strict answer format in the request exactly.";
+  return askWith(who, [system], prompt, StillTextSchema);
+}
+
 export async function reviseMotion(brief: Brief, current: MotionScript, note: string, layers: number): Promise<NoteMerge> {
   const { series, host, cast, characters, recordings } = explainerCast(brief);
   const wire = await ask(

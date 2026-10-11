@@ -46,6 +46,7 @@ Tags: **[DOCS]** in xAI's docs · **[NOT SURE]** not confirmed, don't rely on it
 - [NOT SURE] Weak spots and workarounds: hands on small objects (keep hands small in frame, or shoot over the shoulder); face drift once motion starts (start from a still you like, one slow head move); fast motion and crowds (one person, slow action, empty street); two actions in one short clip (split the shot or extend).
 - [DOCS] Overloaded prompts, conflicting camera moves and requests for readable text are common soft failures.
 - [DOCS] Images and videos from the Grok site and apps carry a Grok watermark. xAI's rules forbid removing or hiding it, so the app keeps the full frame visible.
+- [NOT SURE] Watermark keep-out: bottom-right, 22% of the width, 7% of the height. "Imagen fija" never puts its words there and never crops it; the corner is a guess, so the person checks it on each picture (the studio lets them move it).
 
 ## Example (from Grok)
 

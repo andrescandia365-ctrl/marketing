@@ -20,6 +20,7 @@ import {
 import {
   WriterError,
   writeSceneCode,
+  writeStillText,
   backgroundPrompts,
   currentWriter,
   lyricElements,
@@ -101,6 +102,8 @@ import {
   removeMusic,
   saveMedia,
   saveAppSketch,
+  saveStillExport,
+  pruneStillExports,
   pruneAppSketches,
   saveMusic,
   saveState,
@@ -540,6 +543,26 @@ app.put("/api/projects/:id/media/:index/:kind", async (c) => {
 app.delete("/api/projects/:id/media/:index/:kind", async (c) => {
   await removeMedia(c.req.param("id"), Number(c.req.param("index")), Kind.parse(c.req.param("kind")));
   return c.json({ ok: true });
+});
+
+// "Imagen fija": the exports the browser drew (fija-NN-<format>.png|jpg) go into the project folder; a new export
+// first removes the last one's files that it does not write again.
+app.put("/api/projects/:id/still/:name", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  return c.json({ file: await saveStillExport(c.req.param("id"), c.req.param("name"), data) });
+});
+
+app.post("/api/projects/:id/still/prune", async (c) => {
+  const { keep } = z.object({ keep: z.array(z.string().max(40)).max(200) }).parse(await c.req.json());
+  return c.json({ removed: await pruneStillExports(c.req.param("id"), keep) });
+});
+
+// "Imagen fija" with a key: the studio's prompt for Opus as it is; the reply comes back in the strict paste format
+// and the studio reads it with the same parser as a pasted one. Without a key: demo (the studio shows the sample).
+app.post("/api/still/ask", async (c) => {
+  const { prompt } = z.object({ prompt: z.string().trim().min(200, "Falta el prompt.").max(60000) }).parse(await c.req.json());
+  if (demo()) return c.json({ demo: true as const });
+  return c.json({ ...(await writeStillText(prompt)), demo: false as const });
 });
 
 // The app's pencil sketch of a shot, drawn by the browser, for pieza.md (boceto-app-NN.png).

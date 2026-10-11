@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { LyricStyle } from "./lyrics.ts";
 import type { Brand, CastMember, SeriesLook, SeriesType, TextStyle } from "./series.ts";
 import type { WebCastPick } from "./webCast.ts";
+import type { KeepOut } from "./stillLayout.ts";
 import { MOVES_FOR_WRITER, pickMove, pickMoves, type Move } from "./moves.ts";
 
 export const BEATS = ["negative", "touching", "good"] as const;
@@ -29,7 +30,8 @@ export const BriefSchema = z.object({
   // lines: one line per shot (6/10/15 s). continuous: 15 s handheld takes, each a scene with timed beats.
   takes: z.enum(["lines", "continuous"]).default("lines"),
   // story: Good vs Bad with a storyboard. explainer: a motion-graphics video that explains (software or one product).
-  piece: z.enum(["story", "explainer"]).default("story"),
+  // still: "Imagen fija", one picture where the pain and the relief meet, with the words set on top by the app.
+  piece: z.enum(["story", "explainer", "still"]).default("story"),
   // with: a narrator may speak (a story character with the narrator role, the explainer's voice lines). without: the
   // characters' own words, the action and the text on screen carry the piece.
   narrator: z.enum(["with", "without"]).default("with"),
@@ -490,7 +492,8 @@ export function migrateBoard(board: Board): Board {
 
 // ── Server status ───────────────────────────────────────────────────────────────
 // maxRefs: how many reference images the tool takes at once, from its profile (null: the profile names no cap).
-export type ToolInfo = { id: string; name: string; checked: string; maxRefs?: number | null };
+// watermark: where the tool's mark sits on its pictures ("Watermark keep-out:" in its profile), null when it names none.
+export type ToolInfo = { id: string; name: string; checked: string; maxRefs?: number | null; watermark?: KeepOut | null };
 // productPerEpisode: every episode features a different product (Máshogar), so the brief must name it.
 export type SeriesInfo = {
   id: string;

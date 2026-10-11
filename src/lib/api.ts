@@ -257,6 +257,11 @@ export const api = {
   saveAppSketch: (id: string, index: number, png: Blob) => upload<{ file: string }>(`/api/projects/${enc(id)}/sketches/${index}`, png, "image/png"),
   pruneAppSketches: (id: string, keep: number) => call<{ removed: string[] }>(`/api/projects/${enc(id)}/sketches?keep=${keep}`, undefined, "DELETE"),
   clearMedia: (id: string) => call<{ ok: true }>(`/api/projects/${enc(id)}/media`, undefined, "DELETE"),
+  // "Imagen fija": one export into the project folder, and removing the last export's files not written again.
+  saveStillExport: (id: string, name: string, image: Blob) => upload<{ file: string }>(`/api/projects/${enc(id)}/still/${enc(name)}`, image, image.type),
+  pruneStillExports: (id: string, keep: string[]) => call<{ removed: string[] }>(`/api/projects/${enc(id)}/still/prune`, { keep }),
+  // With a key, the studio's prompt for Opus goes to the writer; the reply is in the same paste format.
+  stillAsk: (prompt: string) => call<{ demo: true } | { demo: false; text: string }>("/api/still/ask", { prompt }),
   uploadMusic: (id: string, file: Blob, meta: { name: string; duration: number }) =>
     upload<{ music: MediaFileRecord }>(
       `/api/projects/${enc(id)}/music?name=${enc(meta.name)}&duration=${meta.duration}`,

@@ -23,6 +23,8 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
     .slice(0, 3);
   const productMode = current?.productPerEpisode ?? false;
   const explainer = brief.piece === "explainer";
+  // "Imagen fija": one picture; no length, takes, segment or narrator.
+  const still = brief.piece === "still";
   // The correspondent format names who goes "on location": the series' own, or one the AI invents.
   const segment = brief.segment ?? "desk";
   const reporter = current ? seriesCorrespondent(current) : null;
@@ -73,7 +75,7 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
         <Field
           label="Pieza"
           group
-          hint="Historia: el Bueno contra el Malo, con storyboard. Explicativo: motion graphics que explican la app o el producto, con la marca de la serie."
+          hint="Historia: el Bueno contra el Malo, con storyboard. Explicativo: motion graphics que explican la app o el producto, con la marca de la serie. Imagen fija: una sola imagen con el dolor y el alivio, el texto lo pone la app."
         >
           <Segmented
             value={brief.piece}
@@ -81,12 +83,13 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
             options={[
               { value: "story", label: "Historia" },
               { value: "explainer", label: "Explicativo (motion graphics)" },
+              { value: "still", label: "Imagen fija" },
             ]}
           />
         </Field>
       </div>
 
-      {!explainer && (
+      {!explainer && !still && (
         <div className="md:col-span-2">
           <Field label="Largo" group>
             <Segmented
@@ -190,6 +193,7 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
             ]}
           />
         </Field>
+        {!still && (
         <Field
           label="Narrador"
           group
@@ -208,7 +212,8 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
             ]}
           />
         </Field>
-        {!explainer && (
+        )}
+        {!explainer && !still && (
           <Field
             label="Tomas"
             group
@@ -224,7 +229,7 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
             />
           </Field>
         )}
-        {!explainer && (
+        {!explainer && !still && (
           <Field label="Formato del segmento" group hint={segmentHint}>
             <Segmented
               value={brief.segment ?? "desk"}
@@ -233,6 +238,7 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
             />
           </Field>
         )}
+        {!still && (
         <Field label="Formato" group>
           <Segmented
             value={brief.format}
@@ -243,6 +249,7 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
             ]}
           />
         </Field>
+        )}
         {!explainer && (
           <Field label="Herramienta de imagen y video" hint="Los prompts se escriben en su formato.">
             <select className={inputClass} value={brief.tool} onChange={(e) => set("tool", e.target.value)}>

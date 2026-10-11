@@ -21,6 +21,7 @@ test("the parts behind a click still download on demand", () => {
         "./components/BoardView.tsx",
         "./components/MotionStudio.tsx",
         "./components/LyricStudio.tsx",
+        "./components/StillStudio.tsx",
         "./components/SeriesEditor.tsx",
         "./components/EpisodesPanel.tsx",
         "./components/ModelsPanel.tsx",

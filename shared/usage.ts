@@ -187,6 +187,7 @@ const KINDS: [RegExp, string][] = [
   [/^\/api\/lyrics\/backgrounds$/, "Fondos de la letra"],
   [/^\/api\/brand\/from-web$/, "Marca desde la web"],
   [/^\/api\/reference\/teardown$/, "Analizar un anuncio"],
+  [/^\/api\/still\/ask$/, "Imagen fija"],
   [/^\/api\/screens\/name$/, "Nombrar pantallas"],
   [/^\/api\/settings\/test$/, "Prueba de conexión"],
   [/^\/api\/ads\/[^/]+\/hooks(\/.*)?$/, "Publicidad: hooks"],
