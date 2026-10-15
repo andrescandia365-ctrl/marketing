@@ -36,7 +36,7 @@ import type { SiteFacts } from "./brandWeb.ts";
 import { MOTION_TEMPLATES, MotionNoteSchema, MotionScriptSchema, READ_LETTERS_PER_SECOND, hostScenes, normalizeMotion, pickCamera, readingNeed, type MotionScript } from "../shared/motion.ts";
 import { mergeNote, noteView, type NoteMerge } from "../shared/motionNote.ts";
 import { recordingNote, settleClips } from "../shared/screenVideo.ts";
-import { MotionReviewSchema, normalizeReview, type MotionReview } from "../shared/motionQuality.ts";
+import { MotionReviewSchema, NO_SHEET_REPLY, normalizeReview, sheetFileName, type MotionReview, type MotionReviewWire } from "../shared/motionQuality.ts";
 import {
   BackgroundPromptsSchema,
   LyricElementsSchema,
@@ -259,16 +259,19 @@ async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z
 // One writer request as data: what the writer reads (system blocks, request), the shape of its answer, and what the
 // app does with that answer. It runs against the connected writer (runTask) or, with no key, goes to claude.ai by copy
 // and paste (taskPrompt, taskFromPaste): the same text, the same schema, the same post-processing.
-export type WriterTask<W, R> = { system: string[]; prompt: string; schema: z.ZodType<W>; finish: (wire: W) => R };
+// pictures: what goes along with the request to the model that looks at pictures (the contact sheet). By copy and
+// paste they go as files the person attaches in claude.ai, which the prompt asks for in its own words.
+export type WriterTask<W, R> = { system: string[]; prompt: string; schema: z.ZodType<W>; finish: (wire: W) => R; pictures?: Picture[] };
 
 function task<W, R>(brief: Brief, withTool: boolean, prompt: string, schema: z.ZodType<W>, finish: (wire: W) => R): WriterTask<W, R> {
   return { system: [SYSTEM, ...contextBlocks(brief, withTool)], prompt, schema, finish };
 }
 
 export async function runTask<W, R>(t: WriterTask<W, R>): Promise<R> {
-  const who = currentWriter();
+  const pictures = t.pictures ?? [];
+  const who = (pictures.length ? currentVision() : currentWriter()) ?? currentWriter();
   if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
-  return t.finish(await askWith(who, t.system, t.prompt, t.schema));
+  return t.finish(await askWith(who, t.system, t.prompt, t.schema, pictures));
 }
 
 // The exact text for claude.ai, with its size.
@@ -282,7 +285,13 @@ export class PasteError extends Error {}
 export function taskFromPaste<W, R>(t: WriterTask<W, R>, reply: string): R {
   const read = readReply(reply, t.schema);
   if (!read.ok) throw new PasteError(replyErrorText(read) ?? NO_JSON);
-  return t.finish(read.value);
+  // What the app would refuse from the writer (a script with no scenes) is the pasted reply's problem here.
+  try {
+    return t.finish(read.value);
+  } catch (e) {
+    if (e instanceof WriterError) throw new PasteError(e.message);
+    throw e;
+  }
 }
 
 // The system blocks: the first (engine and playbook) is cached; the series and tool blocks come after it.
@@ -898,9 +907,9 @@ ${brief.narrator === "without" ? "- No narrator: leave every scene's voice and e
 
 // A motion-graphics explainer (software: how the app does something; e-commerce: the episode's product). Follows the
 // studio's rules: hook in 2 s, something new every 2 to 4 s, no stock defaults, one accent, the brand's fonts.
-export async function motionScript(brief: Brief, target: number | null, layers: number): Promise<MotionScript> {
+export function motionTask(brief: Brief, target: number | null, layers: number): WriterTask<z.infer<typeof MotionScriptSchema>, MotionScript> {
   const { series, host, cast, characters, recordings } = explainerCast(brief);
-  const wire = await ask(
+  return task(
     brief,
     false,
     `Brief:
@@ -912,14 +921,17 @@ ${castBlock(cast, layers)}
 
 ${explainerRules(brief, host)}`,
     MotionScriptSchema,
+    (wire) => {
+      const wireWorld = wire.world;
+      const motion = normalizeMotion(wire, brief.tone);
+      // The series' explainer character hosts every character scene, whatever id the writer put there. A writer that
+      // gave no place at all (not even none) gets the one the series leans to.
+      const world = motion.world ?? (pickWorld(wireWorld) === "none" ? undefined : worldLean(series?.type));
+      return { ...motion, ...(world && { world }), scenes: settleClips(hostScenes(motion.scenes, host?.id, characters, false), recordings), tone: brief.tone };
+    },
   );
-  const wireWorld = wire.world;
-  const motion = normalizeMotion(wire, brief.tone);
-  // The series' explainer character hosts every character scene, whatever id the writer put there. A writer that gave
-  // no place at all (not even none) gets the one the series leans to.
-  const world = motion.world ?? (pickWorld(wireWorld) === "none" ? undefined : worldLean(series?.type));
-  return { ...motion, ...(world && { world }), scenes: settleClips(hostScenes(motion.scenes, host?.id, characters, false), recordings), tone: brief.tone };
 }
+export const motionScript = (brief: Brief, target: number | null, layers: number): Promise<MotionScript> => runTask(motionTask(brief, target, layers));
 
 // "Nota del director" for an explainer: the writer returns the whole script with only what the note asks changed,
 // each scene naming the current scene it comes from; mergeNote keeps the rest as it was (ids, hand tweaks, voices).
@@ -962,9 +974,9 @@ export async function writeStillText(prompt: string): Promise<z.infer<typeof Sti
   return askWith(who, [system], prompt, StillTextSchema);
 }
 
-export async function reviseMotion(brief: Brief, current: MotionScript, note: string, layers: number): Promise<NoteMerge> {
+export function reviseMotionTask(brief: Brief, current: MotionScript, note: string, layers: number): WriterTask<z.infer<typeof MotionNoteSchema>, NoteMerge> {
   const { series, host, cast, characters, recordings } = explainerCast(brief);
-  const wire = await ask(
+  return task(
     brief,
     false,
     `Brief:
@@ -981,14 +993,18 @@ ${castBlock(cast, layers)}
 
 ${explainerRules(brief, host)}`,
     MotionNoteSchema,
+    (wire) => {
+      if (!wire.scenes.length) throw new WriterError("La IA devolvió el guion sin escenas. Probá de nuevo o escribí la nota de otra forma.");
+      const links = wire.scenes.map((s) => ({ from: s.from, camera: pickCamera(s.camera) }));
+      const revised = normalizeMotion({ ...wire, scenes: wire.scenes.map(({ from: _from, ...s }) => s) }, current.tone ?? brief.tone, { revising: true });
+      // keepOthers as in the studio: a character the person chose for a scene stays.
+      const hosted = { ...revised, scenes: settleClips(hostScenes(revised.scenes, host?.id, characters, true), recordings), tone: current.tone ?? brief.tone };
+      return mergeNote(current, hosted, links);
+    },
   );
-  if (!wire.scenes.length) throw new WriterError("La IA devolvió el guion sin escenas. Probá de nuevo o escribí la nota de otra forma.");
-  const links = wire.scenes.map((s) => ({ from: s.from, camera: pickCamera(s.camera) }));
-  const revised = normalizeMotion({ ...wire, scenes: wire.scenes.map(({ from: _from, ...s }) => s) }, current.tone ?? brief.tone, { revising: true });
-  // keepOthers as in the studio: a character the person chose for a scene stays.
-  const hosted = { ...revised, scenes: settleClips(hostScenes(revised.scenes, host?.id, characters, true), recordings), tone: current.tone ?? brief.tone };
-  return mergeNote(current, hosted, links);
 }
+export const reviseMotion = (brief: Brief, current: MotionScript, note: string, layers: number): Promise<NoteMerge> =>
+  runTask(reviseMotionTask(brief, current, note, layers));
 
 // "Traer la marca desde su web": the writer reads what the page uses and says, and proposes the brand kit.
 export function brandFromSite(facts: SiteFacts, seriesId: string): Promise<BrandSuggestion> {
@@ -1068,20 +1084,29 @@ const TONE_PACE: Record<Brief["tone"], string> = {
 
 // The quality loop: the reviewer looks at the contact sheet(s) and the app's measurements, scores six things from 1
 // to 10 and turns the three worst problems into edits of the script.
-export async function reviewMotion(
+// By copy and paste (attached: true) the contact sheets are image files the person attaches in claude.ai: the request
+// opens by asking for them, by file name, and says what to answer when they did not arrive.
+export function reviewMotionTask(
   brief: Brief,
   scenes: string,
   facts: string,
-  sheets: { format: "vertical" | "horizontal"; jpeg: string }[],
+  sheets: { format: "vertical" | "horizontal"; jpeg?: string }[],
   round: number,
   earlier: string,
-): Promise<MotionReview> {
+  attached = false,
+): WriterTask<MotionReviewWire, MotionReview> {
   const series = getSeries(brief.series);
-  return normalizeReview(
-    await ask(
+  const many = sheets.length > 1;
+  const files = sheets.map((s) => sheetFileName(s.format)).join(" and ");
+  const where = attached
+    ? `ATTACH THIS IMAGE: this request needs ${many ? "the contact sheet images" : "the contact sheet image"} the app downloaded (${files}). ${many ? "They are" : "It is"} attached to this message. If you cannot see ${many ? "them" : "it"}, do not guess and do not answer in JSON: reply only "${NO_SHEET_REPLY}".
+
+`
+    : "";
+  const t = task(
       brief,
       false,
-      `You are the motion studio's strict reviewer. ${sheets.length > 1 ? "The contact sheets above show" : "The contact sheet above shows"} one frame per beat of a motion-graphics explainer, taken 0.3 s after the beat so what entered has settled (the second and scene under each frame), at phone-thumbnail size. This is review round ${round}.
+      `${where}You are the motion studio's strict reviewer. ${attached ? (many ? `The attached contact sheets (${files}) show` : `The attached contact sheet (${files}) shows`) : many ? "The contact sheets above show" : "The contact sheet above shows"} one frame per beat of a motion-graphics explainer, taken 0.3 s after the beat so what entered has settled (the second and scene under each frame), at phone-thumbnail size. This is review round ${round}.
 
 The script as it plays:
 ${scenes}
@@ -1106,7 +1131,16 @@ Then the hard rule on what is real: only the series' "${WORKS_TODAY}" list may b
 
 Also pick the thumbnail (poster): the second of the strongest settled frame, never a "corte" frame.`,
       MotionReviewSchema,
-      sheets.map((s) => ({ label: `Contact sheet, ${s.format === "vertical" ? "9:16" : "16:9"}:`, jpeg: s.jpeg })),
-    ),
+      normalizeReview,
   );
+  const pictures = attached ? [] : sheets.flatMap((s) => (s.jpeg ? [{ label: `Contact sheet, ${s.format === "vertical" ? "9:16" : "16:9"}:`, jpeg: s.jpeg }] : []));
+  return { ...t, pictures };
 }
+export const reviewMotion = (
+  brief: Brief,
+  scenes: string,
+  facts: string,
+  sheets: { format: "vertical" | "horizontal"; jpeg: string }[],
+  round: number,
+  earlier: string,
+): Promise<MotionReview> => runTask(reviewMotionTask(brief, scenes, facts, sheets, round, earlier));

@@ -3,7 +3,7 @@
 // is 8 or more, up to a set number of rounds.
 import { clipText, videoAssetOf } from "./screenVideo.ts";
 import { z } from "zod";
-import { DISCLOSURE_TAG, MOTION_TEMPLATES, MOTION_TEMPLATE_LABEL, beyondNow, conceptIssues, labelled, planCameras, sceneElements, timeScenes, tweakScene, type MotionScene, type MotionScript, type Spot } from "./motion.ts";
+import { DISCLOSURE_TAG, MOTION_TEMPLATES, MOTION_TEMPLATE_LABEL, beyondNow, conceptIssues, flagBeyond, hostScenes, labelled, planCameras, sceneElements, timeScenes, tweakScene, type MotionScene, type MotionScript, type Spot } from "./motion.ts";
 
 export const CRITERIA = ["hook", "readability", "motion", "variety", "brand", "sync"] as const;
 export type Criterion = (typeof CRITERIA)[number];
@@ -86,6 +86,45 @@ export function normalizeReview(wire: MotionReviewWire): MotionReview {
 }
 
 export const passes = (scores: Scores) => CRITERIA.every((c) => scores[c].score >= PASS);
+
+// "Sin clave": the contact sheet goes to claude.ai as a file the person attaches, named so the prompt can ask for it.
+export const sheetFileName = (format: "vertical" | "horizontal") => `hoja-de-cuadros-${format === "vertical" ? "9x16" : "16x9"}.jpg`;
+// What the copied prompt asks claude.ai to answer when the image did not arrive (the app recognises it).
+export const NO_SHEET_REPLY = "Falta la hoja de cuadros";
+export const NO_SHEET_TEXT =
+  "claude.ai dice que no le llegó la hoja de cuadros. Descargala, adjuntala en el mismo mensaje que el prompt y mandalo de nuevo.";
+export const saysNoSheet = (reply: string) => reply.toLowerCase().includes(NO_SHEET_REPLY.toLowerCase()) && !reply.includes('"scores"');
+
+// One review round taken into the script, the same with the writer in the loop or with a reply pasted from
+// claude.ai: the scenes it flagged beyond "Lo que existe hoy" are marked, and when it did not pass and there is a
+// round left its fixes are applied (a scene the fixes turned into a character scene gets the series' host).
+export type ReviewStep = { script: MotionScript; flagged: boolean; applied: string[]; pending: string[]; passed: boolean };
+export function takeReview(
+  working: MotionScript,
+  review: MotionReview,
+  round: number,
+  formats: ("vertical" | "horizontal")[],
+  host: string | null,
+  characters: readonly string[],
+): ReviewStep {
+  const passed = passes(review.scores);
+  let script = flagBeyond(working, review.beyond ?? []);
+  const flagged = script !== working;
+  let applied: string[] = [];
+  if (!passed && round < MAX_ROUNDS) {
+    const fixed = applyFixes(script, review.fixes, formats);
+    applied = fixed.applied;
+    if (applied.length) script = { ...fixed.script, scenes: hostScenes(fixed.script.scenes, host, [...characters], true) };
+  }
+  const pending = !passed && !applied.length ? review.fixes.map((f) => `Escena ${Math.round(f.scene)}: ${f.problem}`) : [];
+  return { script, flagged, applied, pending, passed };
+}
+
+// The rounds already taken on this very piece (the review matches it as it is now), so a pasted round continues them.
+export function nextRound(quality: QualityState | null, keyNow: string): { round: number; earlier: string[] } {
+  if (!quality || quality.key !== keyNow || quality.passed || quality.rounds.length >= MAX_ROUNDS) return { round: 1, earlier: [] };
+  return { round: quality.rounds.length + 1, earlier: quality.rounds.flatMap((r) => r.applied) };
+}
 
 // Why a reviewed script still may not render: a scene flagged beyond "Lo que existe hoy" (by the writer or by this very
 // review) with no CONCEPTO / SIMULACIÓN label and not confirmed. "" when nothing stops it.

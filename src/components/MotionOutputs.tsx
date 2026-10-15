@@ -1,5 +1,6 @@
 // The explainer studio's way out: the quality review, the in-browser renders, the subtitles and the final render
 // (render.mjs through the server), with what each one produced.
+import type { ReactNode } from "react";
 import type { MotionPiece, MotionScene, MotionScript } from "../../shared/motion.ts";
 import type { QualityState } from "../../shared/motionQuality.ts";
 import { projectFileUrl, type FinalJob } from "../lib/api.ts";
@@ -21,6 +22,8 @@ type Props = {
   busy: string | null;
   setBusy: (busy: "review" | "final" | null) => void;
   runQuality: (formats: SheetFormat[]) => Promise<unknown>;
+  // "Sin clave": the review round by hand with claude.ai (null: a writer is connected).
+  reviewHandoff: ReactNode;
   render: (formats: ("vertical" | "horizontal")[]) => Promise<void>;
   finalRender: (formats: SheetFormat[]) => Promise<void>;
   blocked: boolean;
@@ -38,7 +41,7 @@ type Props = {
   vertical: boolean;
 };
 
-export function MotionOutputs({ piece, set, script, quality, keyNow, reviewing, sheets, busy, setBusy, runQuality, render, finalRender, blocked, subtitles, srtName, voiced, heardCount, heardNote, ffmpeg, projectId, projectsDir, finalJob, progress, results, vertical }: Props) {
+export function MotionOutputs({ piece, set, script, quality, keyNow, reviewing, sheets, busy, setBusy, runQuality, reviewHandoff, render, finalRender, blocked, subtitles, srtName, voiced, heardCount, heardNote, ffmpeg, projectId, projectsDir, finalJob, progress, results, vertical }: Props) {
   return (
     <>
       <QualityPanel
@@ -54,6 +57,7 @@ export function MotionOutputs({ piece, set, script, quality, keyNow, reviewing, 
         }}
         onAccept={() => quality && set({ quality: { ...quality, accepted: true } })}
       />
+      {reviewHandoff}
       <div className="flex gap-2">
         <Button className="flex-1" onClick={() => render([piece.format])} disabled={busy !== null || Boolean(reviewing) || blocked}>
           {busy === "render" ? (

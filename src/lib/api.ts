@@ -108,6 +108,20 @@ export const asks = {
     writerAsk<{ board: Board } & Demo>("/api/board/revise", { brief, story, board, note, shotNotes }),
   rewriteShot: (brief: Brief, story: Story, board: Board, index: number, note: string) =>
     writerAsk<{ shot: Shot } & Demo>("/api/shot/rewrite", { brief, story, board, index, note }),
+  // Explainers: the script, the director's note (sample mode: { demo: true }, nothing changes) and one review round.
+  // By copy and paste the review's contact sheets are attached in claude.ai, so only their formats go.
+  motion: (brief: Brief, target: number | null, layers: number) =>
+    writerAsk<{ script: MotionScript } & Demo>("/api/motion", { brief, target, layers }),
+  motionRevise: (brief: Brief, script: MotionScript, note: string, layers: number) =>
+    writerAsk<{ demo: true } | (NoteMerge & { demo: false; pasted?: boolean })>("/api/motion/revise", { brief, script, note, layers }),
+  motionReview: (
+    brief: Brief,
+    scenes: string,
+    facts: string,
+    sheets: { format: "vertical" | "horizontal"; jpeg?: string }[],
+    round: number,
+    earlier: string,
+  ) => writerAsk<{ review: MotionReview } & Demo>("/api/motion/review", { brief, scenes, facts, sheets, round, earlier }),
 };
 // Runs the request: on the writer (or the sample), or with `reply` as the answer pasted from claude.ai.
 export const sendAsk = <T>(ask: WriterAsk<T>, reply?: string) =>
@@ -329,10 +343,11 @@ export const api = {
     brief: Brief,
     scenes: string,
     facts: string,
-    sheets: { format: "vertical" | "horizontal"; jpeg: string }[],
+    sheets: { format: "vertical" | "horizontal"; jpeg?: string }[],
     round: number,
     earlier: string,
-  ) => call<{ review: MotionReview } & Demo>("/api/motion/review", { brief, scenes, facts, sheets, round, earlier }),
+    reply?: string,
+  ) => sendAsk(asks.motionReview(brief, scenes, facts, sheets, round, earlier), reply),
   startFinal: (id: string, formats: ("vertical" | "horizontal")[], origin: string) =>
     call<{ job: FinalJob }>(`/api/projects/${enc(id)}/final`, { formats, origin }),
   finalJob: (job: string) => call<{ job: FinalJob }>(`/api/final/${enc(job)}`),
@@ -462,8 +477,7 @@ export const api = {
       mood: style.mood,
       format,
     }),
-  motion: (brief: Brief, target: number | null, layers: number) =>
-    call<{ script: MotionScript } & Demo>("/api/motion", { brief, target, layers }),
+  motion: (brief: Brief, target: number | null, layers: number, reply?: string) => sendAsk(asks.motion(brief, target, layers), reply),
   // "Nota del director": sample mode (no AI key) changes nothing.
   // "Que la IA escriba la animación": the same prompt the person copies for Opus, sent to the writer.
   // "Mascota en código": the series' mascot (null: none), saving it after the sandbox test, removing it, and the
@@ -474,8 +488,8 @@ export const api = {
   deleteMascot: (seriesId: string) => call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/mascot`, undefined, "DELETE"),
   mascotCode: (prompt: string) => call<{ demo: true } | { demo: false; code: string; name: string; description: string }>("/api/mascot/code", { prompt }),
   sceneCode: (prompt: string) => call<{ demo: true } | { demo: false; code: string; note: string }>("/api/motion/code", { prompt }),
-  motionRevise: (brief: Brief, script: MotionScript, note: string, layers: number) =>
-    call<({ demo: true } | (NoteMerge & { demo: false }))>("/api/motion/revise", { brief, script, note, layers }),
+  motionRevise: (brief: Brief, script: MotionScript, note: string, layers: number, reply?: string) =>
+    sendAsk(asks.motionRevise(brief, script, note, layers), reply),
   sheet: (series: string, template: SheetTemplate, details: Record<string, string>, age: number) =>
     call<Sheet & Demo>("/api/sheet", { series, template, details, age }),
   productShot: (brief: Brief) => call<ProductShot & Demo>("/api/product-shot", { brief }),

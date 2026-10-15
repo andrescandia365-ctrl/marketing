@@ -5,7 +5,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   conceptIssues,
-  flagBeyond,
   cutBlurOn,
   cutPush,
   elementTimes,
@@ -27,13 +26,22 @@ import {
   voiceFitSeconds,
   voiceOverrun,
   SCENE_SECONDS,
-  hostScenes,
 } from "../../shared/motion.ts";
 import { explainerHost } from "../../shared/series.ts";
 import { generatedVoice, noteSummary } from "../../shared/motionNote.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
-import { applyFixes, conceptsBlockRender, describeScenes, MAX_ROUNDS, passes, qualityKey, type QualityRound, type QualityState } from "../../shared/motionQuality.ts";
-import { api, type FinalJob, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
+import {
+  conceptsBlockRender,
+  describeScenes,
+  MAX_ROUNDS,
+  nextRound,
+  qualityKey,
+  takeReview,
+  type MotionReview,
+  type QualityRound,
+  type QualityState,
+} from "../../shared/motionQuality.ts";
+import { api, askPrompt, asks, type FinalJob, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
 import { encodeFrames } from "../lib/encode.ts";
 import { ensureFont, fontBytes } from "../lib/fonts.ts";
 import { CodeDeck, codeIssues, testCode } from "../lib/codeSandbox.ts";
@@ -51,7 +59,7 @@ import { drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } f
 import { VideoDeck, drawReady, unreadableVideos, videoSources, withOwnVideos } from "../lib/screenVideo.ts";
 import { videoAssetOf } from "../../shared/screenVideo.ts";
 import { TARGET_LUFS } from "../lib/motionAudio.ts";
-import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
+import { contactSheet, measureFacts, sheetJpeg, type ManualRound, type SheetFormat } from "../lib/motionQuality.ts";
 import {
   LAYER_BASE,
   POSTER_BASE,
@@ -85,6 +93,7 @@ import { Notice } from "./ui.tsx";
 import { MotionChecks } from "./MotionChecks.tsx";
 import { MotionSettings } from "./MotionSettings.tsx";
 import { MotionOutputs } from "./MotionOutputs.tsx";
+import { ReviewHandoff } from "./ReviewHandoff.tsx";
 import { ExplainerToAds } from "./ExplainerToAds.tsx";
 import { MotionSceneList } from "./MotionSceneList.tsx";
 import { MotionScriptBar } from "./MotionScriptBar.tsx";
@@ -115,7 +124,10 @@ type Props = {
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 
+
 export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, demucs, autoSync, aiReady = false, onSaveStatus }: Props) {
+  // "Sin clave": no writer connected, so the writer buttons show a sample and offer copy and paste with claude.ai.
+  const noKey = !aiReady;
   const [piece, setPiece] = useState<MotionPiece>(() =>
     initial
       ? { ...newMotionPiece(brief.format), ...initial.piece }
@@ -451,12 +463,14 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  async function work<T>(kind: NonNullable<typeof busy>, fn: () => Promise<T>): Promise<T | null> {
+  // `rethrow`: a reply pasted from claude.ai shows its error under its own box, not at the top.
+  async function work<T>(kind: NonNullable<typeof busy>, fn: () => Promise<T>, rethrow = false): Promise<T | null> {
     setError("");
     setBusy(kind);
     try {
       return await fn();
     } catch (e) {
+      if (rethrow) throw e;
       setError(message(e));
       return null;
     } finally {
@@ -464,24 +478,33 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     }
   }
 
-  async function writeScript() {
-    const result = await work("write", () => api.motion(brief, piece.durationMode === "manual" ? piece.target : null, layers.length));
+  const target = piece.durationMode === "manual" ? piece.target : null;
+  async function writeScript(reply?: string) {
+    const result = await work("write", () => api.motion(brief, target, layers.length, reply), reply !== undefined);
     if (!result) return;
     remember(`write-${Date.now()}`);
     setSelected(null);
     set({ script: result.script, dismissed: [] });
-    setNote([result.script.durationNote, result.script.note].filter(Boolean).join(" "));
+    setNote(
+      [result.demo && noKey ? "Guion de muestra. Para el tuyo, usá «Con claude.ai»." : "", result.script.durationNote, result.script.note, result.pasted ? "(Respuesta pegada de claude.ai.)" : ""]
+        .filter(Boolean)
+        .join(" "),
+    );
   }
 
   // "Nota del director": the writer changes only what the note asks (mergeNote keeps the rest: ids, hand tweaks,
   // voices). A generated voice whose line changed is taken off (kept for undo); the person's own voice stays.
-  async function applyNote() {
+  async function applyNote(reply?: string) {
     const text = directorNote.trim();
     if (!script || !text) return;
-    const result = await work("note", () => api.motionRevise(brief, script, text, layers.length));
+    const result = await work("note", () => api.motionRevise(brief, script, text, layers.length, reply), reply !== undefined);
     if (!result) return;
     if (result.demo) {
-      setNote("Modo de muestra: sin una clave de IA la nota no puede cambiar nada del guion. Cargá una clave en «Modelos» y volvé a aplicarla.");
+      setNote(
+        noKey
+          ? "Modo de muestra: sin clave la nota no cambia nada acá. Usá «Con claude.ai» al lado: copiá el prompt, pegalo en claude.ai y pegá la respuesta."
+          : "Modo de muestra: sin una clave de IA la nota no puede cambiar nada del guion. Cargá una clave en «Modelos» y volvé a aplicarla.",
+      );
       return;
     }
     const dropped = result.voiceChanged.filter((id) => voices[id] && generatedVoice(id, voices[id].name));
@@ -501,7 +524,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       script: { ...result.script, scenes: planCameras(result.script.scenes, result.script.tone) },
       voiceSlots: Object.fromEntries(Object.entries(p.voiceSlots).filter(([id]) => !dropped.includes(id))),
     }));
-    setNote([noteSummary(result, { dropped, recorded }), result.script.note].filter(Boolean).join(" "));
+    setNote([noteSummary(result, { dropped, recorded }), result.script.note, result.pasted ? "(Respuesta pegada de claude.ai.)" : ""].filter(Boolean).join(" "));
     setDirectorNote("");
   }
 
@@ -625,6 +648,88 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const reviewed = (formats: SheetFormat[]) => Boolean(quality && quality.key === keyNow && formats.every((f) => quality.formats.includes(f)));
   const reviewOk = (formats: SheetFormat[]) => reviewed(formats) && Boolean(quality!.passed || quality!.accepted);
 
+  const voiceLengths = () => Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.duration]));
+  function musicFact(of: MotionScript): string {
+    return piece.music === "synth"
+      ? `synthesized, ${of.music.mood}, ${of.music.bpm} bpm`
+      : piece.music === "track" && track
+        ? piece.kickGrid
+          ? `the person's own track, its beat grid measured on its drums stem (${piece.kickGrid.kicks.length} kicks, ${Math.round(piece.kickGrid.bpm)} bpm)`
+          : "the person's own track, with no beat grid (no drums stem yet, so the cuts are not on the beat)"
+        : "none";
+  }
+
+  // What one round looks at: the contact sheet(s) of the script as it plays now and what the app measured.
+  async function roundSheets(working: MotionScript, formats: SheetFormat[]) {
+    await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
+    const roundBeats = motionBeats(working, piece.music, piece.kickGrid);
+    const roundScenes = arrangeScenes(working, roundBeats, snap, piece.music, piece.kickGrid);
+    const played = { ...working, scenes: roundScenes };
+    const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), {
+      puppets,
+      actors,
+      speech,
+      cutBlur,
+      subtitles: pieceSubtitles(roundScenes, piece, voices),
+      videos: deck,
+      code: codeDeck,
+    });
+    const made = [];
+    for (const format of formats) made.push({ format, ...(await contactSheet(played, roundWorld, format)) });
+    const blobs = await Promise.all(made.map((m) => new Promise<Blob | null>((done) => m.canvas.toBlob(done, "image/jpeg", 0.85))));
+    setSheets(made.map((m, k) => ({ format: m.format, url: blobs[k] ? objectUrl(blobs[k]!) : "" })));
+    const facts = measureFacts(
+      played,
+      roundBeats,
+      musicFact(working),
+      voiceLengths(),
+      made.flatMap((m) => m.outside),
+      made.flatMap((m) => m.zoned),
+      made.flatMap((m) => m.overlaps),
+      roundWorld.brand,
+      roundWorld.cutBlur === true,
+      { wordByWord: wordByWordOn(piece), heard: heardCount, voiced: voiced.length },
+    );
+    return { scenesText: describeScenes(roundScenes), facts, made, blobs };
+  }
+
+  // One review taken into the piece (the writer's, or one pasted from claude.ai): flags, the AI's thumbnail, fixes.
+  function takeRound(working: MotionScript, review: MotionReview, round: number, formats: SheetFormat[], demo: boolean) {
+    const step = takeReview(working, review, round, formats, host, castCharacters);
+    // The AI picks the thumbnail unless the person already did.
+    let poster: MotionPiece["poster"] | undefined;
+    if (review.poster !== null && piece.poster?.by !== "vos") {
+      poster = { t: review.poster, by: "ia" };
+      const chosen = poster;
+      setPiece((p) => (p.poster?.by === "vos" ? p : { ...p, poster: chosen }));
+    }
+    if (step.script !== working) {
+      if (step.applied.length) remember(`quality-${Date.now()}`);
+      const next = step.script;
+      setPiece((p) => ({ ...p, script: next }));
+    }
+    const record: QualityRound = { round, scores: review.scores, summary: review.summary, applied: step.applied, pending: step.pending, demo };
+    return { step, poster, record };
+  }
+
+  const stateFor = (working: MotionScript, formats: SheetFormat[], passed: boolean, rounds: QualityRound[]): QualityState => {
+    const finalBeats = motionBeats(working, piece.music, piece.kickGrid);
+    return {
+      key: qualityKey(arrangeScenes(working, finalBeats, snap, piece.music, piece.kickGrid), working, qualityExtra),
+      formats,
+      passed,
+      accepted: false,
+      rounds,
+    };
+  };
+
+  async function keepSheets(sheets: { format: SheetFormat; blob: Blob | null }[]) {
+    if (!projectId) return;
+    for (const { format, blob } of sheets) {
+      if (blob) await api.uploadMedia(projectId, SHEET_BASE + (format === "vertical" ? 0 : 1), "image", blob).catch(() => undefined);
+    }
+  }
+
   // Runs the rounds; returns the script as it ended (with the fixes) and the result, or null on an error.
   async function runQuality(formats: SheetFormat[]): Promise<{ script: MotionScript; quality: QualityState; poster?: MotionPiece["poster"] } | null> {
     if (!script) return null;
@@ -635,111 +740,89 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     const earlier: string[] = [];
     let lastSheets: { format: SheetFormat; blob: Blob | null }[] = [];
     let poster: MotionPiece["poster"] | undefined;
-    const voiceLengths = Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.duration]));
-    const music =
-      piece.music === "synth"
-        ? `synthesized, ${script.music.mood}, ${script.music.bpm} bpm`
-        : piece.music === "track" && track
-          ? piece.kickGrid
-            ? `the person's own track, its beat grid measured on its drums stem (${piece.kickGrid.kicks.length} kicks, ${Math.round(piece.kickGrid.bpm)} bpm)`
-            : "the person's own track, with no beat grid (no drums stem yet, so the cuts are not on the beat)"
-          : "none";
     try {
-      await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
       for (let round = 1; round <= MAX_ROUNDS; round++) {
         setReviewing(`Ronda ${round} de ${MAX_ROUNDS}: armando la hoja de contactos…`);
-        const roundBeats = motionBeats(working, piece.music, piece.kickGrid);
-        const roundScenes = arrangeScenes(working, roundBeats, snap, piece.music, piece.kickGrid);
-        const played = { ...working, scenes: roundScenes };
-        const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), {
-          puppets,
-          actors,
-          speech,
-          cutBlur,
-          subtitles: pieceSubtitles(roundScenes, piece, voices),
-          videos: deck,
-          code: codeDeck,
-        });
-        const made = [];
-        for (const format of formats) made.push({ format, ...(await contactSheet(played, roundWorld, format)) });
-        const blobs = await Promise.all(made.map((m) => new Promise<Blob | null>((done) => m.canvas.toBlob(done, "image/jpeg", 0.85))));
-        setSheets(made.map((m, k) => ({ format: m.format, url: blobs[k] ? objectUrl(blobs[k]!) : "" })));
+        const { scenesText, facts, made, blobs } = await roundSheets(working, formats);
         lastSheets = made.map((m, k) => ({ format: m.format, blob: blobs[k] }));
-        const facts = measureFacts(
-          played,
-          roundBeats,
-          music,
-          voiceLengths,
-          made.flatMap((m) => m.outside),
-          made.flatMap((m) => m.zoned),
-          made.flatMap((m) => m.overlaps),
-          roundWorld.brand,
-          roundWorld.cutBlur === true,
-          { wordByWord: wordByWordOn(piece), heard: heardCount, voiced: voiced.length },
-        );
         setReviewing(`Ronda ${round} de ${MAX_ROUNDS}: la IA mira los cuadros…`);
         const { review, demo } = await api.motionReview(
           brief,
-          describeScenes(roundScenes),
+          scenesText,
           facts,
           made.map((m) => ({ format: m.format, jpeg: sheetJpeg(m.canvas) })),
           round,
           earlier.join("\n"),
         );
-        passed = passes(review.scores);
-        // What the reviewer saw beyond "Lo que existe hoy" stays on its scene until the person labels, changes or
-        // confirms it (the render waits for that).
-        const flagged = flagBeyond(working, review.beyond ?? []);
-        if (flagged !== working) {
-          working = flagged;
-          setPiece((p) => ({ ...p, script: flagged }));
-        }
-        // The AI picks the thumbnail unless the person already did.
-        if (review.poster !== null && piece.poster?.by !== "vos") {
-          poster = { t: review.poster, by: "ia" };
-          const chosen = poster;
-          setPiece((p) => (p.poster?.by === "vos" ? p : { ...p, poster: chosen }));
-        }
-        let applied: string[] = [];
-        if (!passed && round < MAX_ROUNDS) {
-          const fixed = applyFixes(working, review.fixes, formats);
-          applied = fixed.applied;
-          if (applied.length) {
-            remember(`quality-${Date.now()}`);
-            // A scene the reviewer turned into a character scene gets the series' character.
-            working = { ...fixed.script, scenes: hostScenes(fixed.script.scenes, host, castCharacters, true) };
-            const next = working;
-            setPiece((p) => ({ ...p, script: next }));
-          }
-        }
-        const pending = !passed && !applied.length ? review.fixes.map((f) => `Escena ${Math.round(f.scene)}: ${f.problem}`) : [];
-        rounds.push({ round, scores: review.scores, summary: review.summary, applied, pending, demo });
-        earlier.push(...applied);
+        const taken = takeRound(working, review, round, formats, demo);
+        working = taken.step.script;
+        passed = taken.step.passed;
+        if (taken.poster) poster = taken.poster;
+        rounds.push(taken.record);
+        earlier.push(...taken.step.applied);
         // Nothing left to change: another round would see the same thing.
-        if (passed || !applied.length) break;
+        if (passed || !taken.step.applied.length) break;
       }
       // The last contact sheets stay in the project's folder.
-      if (projectId) {
-        for (const { format, blob } of lastSheets) {
-          if (blob) await api.uploadMedia(projectId, SHEET_BASE + (format === "vertical" ? 0 : 1), "image", blob).catch(() => undefined);
-        }
-      }
+      await keepSheets(lastSheets);
     } catch (e) {
       setError(message(e));
       setReviewing("");
       return null;
     }
-    const finalBeats = motionBeats(working, piece.music, piece.kickGrid);
-    const state: QualityState = {
-      key: qualityKey(arrangeScenes(working, finalBeats, snap, piece.music, piece.kickGrid), working, qualityExtra),
-      formats,
-      passed,
-      accepted: false,
-      rounds,
-    };
+    const state = stateFor(working, formats, passed, rounds);
     setPiece((p) => ({ ...p, quality: state }));
     setReviewing("");
     return { script: working, quality: state, poster };
+  }
+
+  // ── "Sin clave": one round by hand with claude.ai ─────────────────────────────────────────────────────────
+  // The person builds the sheet, downloads it, attaches it in claude.ai with the copied prompt and pastes the reply:
+  // the same parser and the same takeReview as the writer's rounds, continuing the rounds already taken on this piece.
+  const [manual, setManual] = useState<ManualRound | null>(null);
+  async function prepareManual(formats: SheetFormat[]) {
+    if (!script) return;
+    setError("");
+    setReviewing("Armando la hoja de cuadros…");
+    try {
+      const { round, earlier } = nextRound(quality, keyNow);
+      const { scenesText, facts, made, blobs } = await roundSheets(script, formats);
+      setManual({
+        key: keyNow,
+        script,
+        round,
+        earlier,
+        formats,
+        scenesText,
+        facts,
+        sheets: made.map((m, k) => ({ format: m.format, blob: blobs[k] })),
+      });
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setReviewing("");
+    }
+  }
+  const manualAsk = (m: ManualRound) =>
+    asks.motionReview(brief, m.scenesText, m.facts, m.formats.map((format) => ({ format })), m.round, m.earlier.join("\n"));
+  async function applyManual(reply: string) {
+    const m = manual;
+    if (!m) return;
+    if (m.key !== keyNow) throw new Error("Cambiaste el explicativo después de armar la hoja. Armala de nuevo y copiá el prompt otra vez.");
+    const { review } = await api.motionReview(brief, m.scenesText, m.facts, m.formats.map((format) => ({ format })), m.round, m.earlier.join("\n"), reply);
+    const taken = takeRound(m.script, review, m.round, m.formats, false);
+    const earlierRounds = m.round > 1 && quality ? quality.rounds.slice(0, m.round - 1) : [];
+    const state = stateFor(taken.step.script, m.formats, taken.step.passed, [...earlierRounds, taken.record]);
+    setPiece((p) => ({ ...p, quality: state }));
+    await keepSheets(m.sheets);
+    setManual(null);
+    setNote(
+      taken.step.passed
+        ? "Revisión de claude.ai: todo en 8 o más."
+        : taken.step.applied.length
+          ? `Revisión de claude.ai: apliqué ${taken.step.applied.length} ${taken.step.applied.length === 1 ? "arreglo" : "arreglos"}. Armá la hoja de nuevo para la ronda ${m.round + 1}.`
+          : "Revisión de claude.ai: quedaron notas por debajo de 8 (mirá «Queda» en Control de calidad).",
+    );
   }
 
   // Before any full render: the loop, unless this exact piece already passed it (or the person chose to go ahead).
@@ -965,11 +1048,22 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         piece={piece}
         set={set}
         busy={busy}
-        writeScript={writeScript}
+        writeScript={() => writeScript()}
+        handoffs={
+          noKey
+            ? {
+                write: { prompt: () => askPrompt(asks.motion(brief, target, layers.length)), paste: (reply) => writeScript(reply) },
+                note: {
+                  prompt: () => (script ? askPrompt(asks.motionRevise(brief, script, directorNote.trim(), layers.length)) : Promise.reject(new Error("Todavía no hay guion."))),
+                  paste: (reply) => applyNote(reply),
+                },
+              }
+            : null
+        }
         fitToTarget={fitToTarget}
         directorNote={directorNote}
         setDirectorNote={setDirectorNote}
-        applyNote={applyNote}
+        applyNote={() => applyNote()}
       />
 
       {error && <Notice tone="error">{error}</Notice>}
@@ -1083,6 +1177,19 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               busy={busy}
               setBusy={setBusy}
               runQuality={runQuality}
+              reviewHandoff={
+                noKey ? (
+                  <ReviewHandoff
+                    manual={manual}
+                    stale={Boolean(manual && manual.key !== keyNow)}
+                    format={piece.format}
+                    preparing={reviewing !== ""}
+                    disabled={busy !== null || Boolean(reviewing)}
+                    onPrepare={(formats) => void prepareManual(formats)}
+                    via={manual ? { prompt: () => askPrompt(manualAsk(manual)), paste: applyManual } : null}
+                  />
+                ) : null
+              }
               render={render}
               finalRender={finalRender}
               blocked={blocked}
