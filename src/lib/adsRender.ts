@@ -15,6 +15,7 @@ import {
   Output,
 } from "mediabunny";
 import type { Piece } from "../../shared/ads.ts";
+import { speakerDisclosure } from "../../shared/adsSpeaker.ts";
 import type { Board, Brief, Shot } from "../../shared/schema.ts";
 import type { TextStyle } from "../../shared/series.ts";
 import { renderVideo, type RenderResult, type ShotMedia } from "./render.ts";
@@ -51,10 +52,28 @@ export function pieceShot(piece: Piece): Shot {
 
 export const pieceBoard = (pieces: Piece[]): Board => ({ style: "", setups: [], shots: pieces.map(pieceShot), issues: [] });
 
-function options(look: PieceLook, count: number) {
+// A piece's media, plus how loud its clip plays (0: muted, for a character clip whose lips did not match).
+export type PieceMedia = ShotMedia & { clipGain?: number };
+
+// "Que lo diga un personaje": a piece said by a cast character with its clip in says so in the corner (the character,
+// and its voice when the clip speaks, are AI-made); otherwise the look's notice. In a whole-ad render (one notice for
+// all), any such piece sets it.
+export function pieceDisclosure(pieces: Piece[], media: PieceMedia[], fallback: string): string {
+  const said = pieces.map((p, i) => (p.speaker && media[i]?.clip ? p.speaker.sound : null)).filter((s) => s !== null);
+  if (!said.length) return fallback;
+  return speakerDisclosure(said.includes("clip") ? "clip" : "voice");
+}
+
+function options(look: PieceLook, pieces: Piece[], media: PieceMedia[]) {
+  const count = pieces.length;
+  const clipGain: Record<number, number> = {};
+  media.forEach((m, i) => {
+    if (typeof m?.clipGain === "number") clipGain[i] = m.clipGain;
+  });
   return {
     format: look.format,
-    disclosure: look.disclosure,
+    disclosure: pieceDisclosure(pieces, media, look.disclosure),
+    clipGain,
     fullFrame: look.fullFrame,
     keepSound: true,
     speakers: {},
@@ -70,13 +89,14 @@ function options(look: PieceLook, count: number) {
   };
 }
 
-export function renderPiece(piece: Piece, media: ShotMedia, look: PieceLook, onProgress: (f: number) => void): Promise<RenderResult> {
-  return renderVideo(pieceBoard([piece]), { 0: media }, options(look, 1), onProgress);
+export function renderPiece(piece: Piece, media: PieceMedia, look: PieceLook, onProgress: (f: number) => void): Promise<RenderResult> {
+  return renderVideo(pieceBoard([piece]), { 0: media }, options(look, [piece], [media]), onProgress);
 }
 
 // The fallback: the whole ad in one render from the pieces' own media.
-export function renderAdWhole(pieces: Piece[], media: Record<string, ShotMedia>, look: PieceLook, onProgress: (f: number) => void): Promise<RenderResult> {
-  return renderVideo(pieceBoard(pieces), Object.fromEntries(pieces.map((p, i) => [i, media[p.id] ?? {}])), options(look, pieces.length), onProgress);
+export function renderAdWhole(pieces: Piece[], media: Record<string, PieceMedia>, look: PieceLook, onProgress: (f: number) => void): Promise<RenderResult> {
+  const list = pieces.map((p) => media[p.id] ?? {});
+  return renderVideo(pieceBoard(pieces), Object.fromEntries(list.map((m, i) => [i, m])), options(look, pieces, list), onProgress);
 }
 
 const bytes = (a: AllowSharedBufferSource) =>

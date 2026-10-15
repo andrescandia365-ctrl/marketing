@@ -36,7 +36,9 @@ const BEAT_COLORS = {
   good: ["#0b231d", "#0f6e56"],
 } as const;
 
-export type ShotMedia = { image?: string; clip?: Blob; voice?: Blob; sfx?: Blob };
+// clipFrom: where the shot starts playing its clip (seconds; Publicidad's in point). finished: the clip is a finished
+// video (an explainer) with its own words, subtitles and notice, so nothing is drawn on top of it.
+export type ShotMedia = { image?: string; clip?: Blob; voice?: Blob; sfx?: Blob; clipFrom?: number; finished?: boolean };
 
 export type Speaker = { name: string; role: Role };
 
@@ -330,7 +332,7 @@ export async function renderPreview(
 type OpenClip = { input: Input; frames: AsyncGenerator<WrappedCanvas | null, void, unknown> };
 
 // Frames of a clip at exactly the times its shot needs; a clip shorter than its shot holds its last frame.
-async function openClip(blob: Blob, shot: TimedShot, w: number, h: number, fullFrame: boolean): Promise<OpenClip> {
+async function openClip(blob: Blob, shot: TimedShot, w: number, h: number, fullFrame: boolean, from = 0): Promise<OpenClip> {
   const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
   const track = await input.getPrimaryVideoTrack();
   if (!track) throw new Error(`El clip de la toma ${shot.index + 1} no tiene video.`);
@@ -341,7 +343,7 @@ async function openClip(blob: Blob, shot: TimedShot, w: number, h: number, fullF
   const sink = new CanvasSink(track, { width: w, height: h, fit: fullFrame ? "contain" : "cover" });
   const times: number[] = [];
   const frames = Math.round((shot.end - shot.start) * FPS);
-  for (let f = 0; f < frames; f++) times.push(Math.min(f / FPS, Math.max(duration - 1 / FPS, 0)));
+  for (let f = 0; f < frames; f++) times.push(Math.min(from + f / FPS, Math.max(duration - 1 / FPS, 0)));
   return { input, frames: sink.canvasesAtTimestamps(times) };
 }
 
@@ -353,13 +355,13 @@ async function decodeAudio(ctx: BaseAudioContext, blob: Blob): Promise<AudioBuff
   }
 }
 
-// Plays a decoded sound at `when`, cut at `until`, through a gain node.
-function place(ctx: OfflineAudioContext, buffer: AudioBuffer, when: number, until: number, gain: AudioNode) {
-  if (until <= when) return;
+// Plays a decoded sound at `when`, cut at `until`, through a gain node; `skip` seconds of its start are left out.
+function place(ctx: OfflineAudioContext, buffer: AudioBuffer, when: number, until: number, gain: AudioNode, skip = 0) {
+  if (until <= when || skip >= buffer.duration) return;
   const node = ctx.createBufferSource();
   node.buffer = buffer;
   node.connect(gain);
-  node.start(when, 0, Math.min(buffer.duration, until - when));
+  node.start(when, skip, Math.min(buffer.duration - skip, until - when));
 }
 
 // The beats of the music: peaks of rising loudness (onsets), at least a quarter second apart.
@@ -446,10 +448,13 @@ async function mixSound(
       gain.gain.linearRampToValueAtTime(level, shot.start + 0.08);
       gain.gain.setValueAtTime(level, Math.max(shot.end - 0.08, shot.start + 0.08));
       gain.gain.linearRampToValueAtTime(0, shot.end);
-      for await (const { buffer, timestamp } of new AudioBufferSink(track).buffers(0, shot.end - shot.start)) {
-        const when = shot.start + timestamp;
+      const from = Math.max(0, m.clipFrom ?? 0);
+      for await (const { buffer, timestamp } of new AudioBufferSink(track).buffers(from, from + shot.end - shot.start)) {
+        // A buffer that starts before the in point plays from it.
+        const skip = Math.max(0, from - timestamp);
+        const when = shot.start + timestamp + skip - from;
         if (when >= shot.end) break;
-        place(ctx, buffer, when, shot.end, gain);
+        place(ctx, buffer, when, shot.end, gain, skip);
         any = true;
       }
     } finally {
@@ -566,7 +571,7 @@ export async function renderVideo(
       if (clip) {
         let reader = open.get(i);
         if (!reader) {
-          reader = await openClip(clip, shot, w, h, options.fullFrame);
+          reader = await openClip(clip, shot, w, h, options.fullFrame, Math.max(0, media[shot.index]?.clipFrom ?? 0));
           open.set(i, reader);
         }
         const next = await reader.frames.next();
@@ -586,7 +591,7 @@ export async function renderVideo(
       }
       ctx.drawImage(layer.canvas, 0, 0);
       ctx.globalAlpha = 1;
-      drawOverlay(ctx, shot, options.speakers, t, options);
+      if (!media[shot.index]?.finished) drawOverlay(ctx, shot, options.speakers, t, options);
 
       await video.add(t, 1 / FPS);
       if (f % 15 === 0) onProgress(0.05 + 0.95 * (f / frames));

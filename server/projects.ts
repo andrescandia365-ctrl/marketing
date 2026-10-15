@@ -5,6 +5,7 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import { join, resolve } from "node:path";
 import { APP_SKETCH, SKETCH_BASE, appSketchFile } from "../shared/prompt.ts";
 import { storyCard, type RoomCard } from "../shared/room.ts";
+import { STILL_EXPORT } from "../shared/stillLayout.ts";
 
 export const PROJECTS_DIR = resolve(process.env.PROJECTS_DIR || "proyectos");
 
@@ -142,6 +143,28 @@ export async function createProject(series: string): Promise<ProjectFile> {
   return project;
 }
 
+type SavedState = {
+  story?: { problem?: string; title?: string };
+  lyrics?: { title?: string; artist?: string };
+  motion?: { script?: { problem?: string } | null };
+  still?: { picked?: string | null; concepts?: { id?: string; problem?: string; title?: string }[] };
+};
+
+// The name a project shows in «Proyectos»: a story's problem or title, a lyric video's song, an explainer's problem,
+// an «Imagen fija»'s concept (the picked one, else the first) or its kind.
+export function projectTitle(state: SavedState): string {
+  const concepts = state.still?.concepts ?? [];
+  const concept = concepts.find((c) => c.id === state.still?.picked) ?? concepts[0];
+  return (
+    state.story?.problem ||
+    state.story?.title ||
+    (state.lyrics?.title && `♪ ${state.lyrics.title}${state.lyrics.artist ? ` · ${state.lyrics.artist}` : ""}`) ||
+    (state.motion && `▶ ${state.motion.script?.problem || "Explicativo"}`) ||
+    (state.still && `▣ ${concept?.problem?.trim() || concept?.title?.trim() || "Imagen fija"}`) ||
+    "Sin título todavía"
+  );
+}
+
 export async function listProjects(): Promise<ProjectSummary[]> {
   let names: string[];
   try {
@@ -154,10 +177,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
     if (!ID.test(name)) continue;
     try {
       const p = await read(name);
-      const state = p.state as {
-        story?: { problem?: string; title?: string };
-        lyrics?: { title?: string; artist?: string };
-        motion?: { script?: { problem?: string } | null };
+      const state = p.state as SavedState & {
         menu?: unknown;
         pieceBrief?: { series?: string };
         step?: string;
@@ -165,12 +185,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       };
       out.push({
         id: p.id,
-        title:
-          state.story?.problem ||
-          state.story?.title ||
-          (state.lyrics?.title && `♪ ${state.lyrics.title}${state.lyrics.artist ? ` · ${state.lyrics.artist}` : ""}`) ||
-          (state.motion && `▶ ${state.motion.script?.problem || "Explicativo"}`) ||
-          "Sin título todavía",
+        title: projectTitle(state),
         series: state.pieceBrief?.series ?? "",
         step: state.step ?? "brief",
         updatedAt: p.updatedAt,
@@ -232,6 +247,8 @@ const SHEETS: Record<number, string> = {
   301: "hoja-de-contactos-16x9",
   302: "portada-9x16",
   303: "portada-16x9",
+  // "Imagen fija": the picture made with the image tool (STILL_PICTURE in shared/still.ts).
+  500: "fija-imagen",
 };
 // Storyboard sketches made with an image tool (the drawn storyboard's "Boceto con IA") live in image slots 400 + shot.
 const slot = (index: number, kind: MediaKind) =>
@@ -284,6 +301,33 @@ export function pruneAppSketches(id: string, count: number) {
     await read(id);
     const names = await readdir(folder(id));
     const gone = names.filter((name) => Number(APP_SKETCH.exec(name)?.[1] ?? 0) > count);
+    await Promise.all(gone.map((name) => rm(join(folder(id), name), { force: true })));
+    return gone;
+  });
+}
+
+// "Imagen fija": one export (fija-NN-9x16.png…), written as the browser drew it. Only PNG or JPEG, by its bytes.
+const JPEG = Buffer.from([0xff, 0xd8, 0xff]);
+export const MAX_STILL_EXPORT = 40 * 1024 * 1024;
+export async function saveStillExport(id: string, name: string, data: Buffer) {
+  const m = STILL_EXPORT.exec(name);
+  if (!m) throw new ProjectError("Ese nombre de imagen no vale.");
+  const magic = m[3] === "png" ? PNG : JPEG;
+  if (data.length < magic.length || !data.subarray(0, magic.length).equals(magic)) throw new ProjectError(`Esa imagen no es un ${m[3].toUpperCase()}.`);
+  if (data.length > MAX_STILL_EXPORT) throw new ProjectError("La imagen es demasiado grande.");
+  return locked(id, async () => {
+    await read(id);
+    await writeFile(join(folder(id), name), data);
+    return name;
+  });
+}
+
+// Removes the exports that are not in `keep` (a new export replaces the last one's files).
+export function pruneStillExports(id: string, keep: string[]) {
+  return locked(id, async () => {
+    await read(id);
+    const names = await readdir(folder(id));
+    const gone = names.filter((name) => STILL_EXPORT.test(name) && !keep.includes(name));
     await Promise.all(gone.map((name) => rm(join(folder(id), name), { force: true })));
     return gone;
   });
@@ -373,6 +417,12 @@ export async function readProjectFile(id: string, name: string): Promise<{ data:
   } catch {
     throw new ProjectError("Ese archivo no existe.");
   }
+}
+
+// The names of the files in a project folder (Publicidad lists an explainer's renders from them).
+export async function listProjectFiles(id: string): Promise<string[]> {
+  await read(id);
+  return (await readdir(folder(id))).filter((name) => FILE.test(name) && name !== "project.json");
 }
 
 export function deleteProject(id: string) {

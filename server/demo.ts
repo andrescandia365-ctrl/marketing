@@ -336,7 +336,7 @@ export const DEMO_BOARD: Board = {
 export function demoMotion(brief: Brief, target: number | null): MotionScript {
   const series = getSeries(brief.series);
   const cast = series?.cast ?? [];
-  const screen = cast.find((m) => m.kind === "screen")?.id ?? "";
+  const screen = cast.find((m) => m.kind === "screen" && !m.pending)?.id ?? "";
   const product = cast.find((m) => m.kind === "product")?.id ?? "";
   const shop = series?.type === "ecommerce";
   const scenes = shop

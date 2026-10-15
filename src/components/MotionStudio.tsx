@@ -35,11 +35,21 @@ import type { Brief, SeriesInfo } from "../../shared/schema.ts";
 import { applyFixes, conceptsBlockRender, describeScenes, MAX_ROUNDS, passes, qualityKey, type QualityRound, type QualityState } from "../../shared/motionQuality.ts";
 import { api, type FinalJob, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
 import { encodeFrames } from "../lib/encode.ts";
-import { ensureFont } from "../lib/fonts.ts";
+import { ensureFont, fontBytes } from "../lib/fonts.ts";
+import { CodeDeck, codeIssues, testCode } from "../lib/codeSandbox.ts";
+import { MASCOT_ASSET, type MascotCode } from "../../shared/mascot.ts";
+import { samplesSig } from "../../shared/codeScene.ts";
+import { codePrompt } from "../../shared/codePrompt.ts";
+import type { CodeTools } from "./CodeScenePanel.tsx";
+import { MOTION_TEMPLATE_LABEL } from "../../shared/motion.ts";
+import { safeRect } from "../../shared/safeZone.ts";
+import { floorOf } from "../lib/motion.ts";
 import { slug } from "../lib/markdown.ts";
 import type { PuppetAsset } from "../lib/puppet.ts";
 import type { ActorAsset } from "../lib/actor.ts";
 import { drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
+import { VideoDeck, drawReady, unreadableVideos, videoSources, withOwnVideos } from "../lib/screenVideo.ts";
+import { videoAssetOf } from "../../shared/screenVideo.ts";
 import { TARGET_LUFS } from "../lib/motionAudio.ts";
 import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
 import {
@@ -75,6 +85,7 @@ import { Notice } from "./ui.tsx";
 import { MotionChecks } from "./MotionChecks.tsx";
 import { MotionSettings } from "./MotionSettings.tsx";
 import { MotionOutputs } from "./MotionOutputs.tsx";
+import { ExplainerToAds } from "./ExplainerToAds.tsx";
 import { MotionSceneList } from "./MotionSceneList.tsx";
 import { MotionScriptBar } from "./MotionScriptBar.tsx";
 import { MotionToggles } from "./MotionToggles.tsx";
@@ -96,13 +107,15 @@ type Props = {
   demucs: boolean;
   // OpenAI's transcription is set up: a whole narration is cut by its words, not only its pauses.
   autoSync: boolean;
+  // A writer (an AI key) is set up: "Que la IA escriba la animación" for code scenes. Without one, copy and paste.
+  aiReady?: boolean;
   onSaveStatus: (status: "saving" | "saved" | "error") => void;
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 
-export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, demucs, autoSync, onSaveStatus }: Props) {
+export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, demucs, autoSync, aiReady = false, onSaveStatus }: Props) {
   const [piece, setPiece] = useState<MotionPiece>(() =>
     initial
       ? { ...newMotionPiece(brief.format), ...initial.piece }
@@ -155,8 +168,29 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const [finalJob, setFinalJob] = useState<FinalJob | null>(null);
   const brand = series.brand;
   // "Personaje de los explicativos": the character a scene gets when it becomes a character scene (none: as before).
-  const host = explainerHost(series)?.id ?? null;
-  const castCharacters = useMemo(() => series.cast.filter((m) => m.kind === "character").map((m) => m.id), [series.cast]);
+  // "Mascota en código": with no drawable host character, the series' code mascot hosts the character scenes.
+  const hasMascot = Boolean(series.mascot);
+  const host = explainerHost(series)?.id ?? (hasMascot ? MASCOT_ASSET : null);
+  const castCharacters = useMemo(() => [...series.cast.filter((m) => m.kind === "character").map((m) => m.id), ...(hasMascot ? [MASCOT_ASSET] : [])], [series.cast, hasMascot]);
+  // Its code, loaded from the series library (null until it comes, or when the series has none).
+  const [mascotCode, setMascotCode] = useState<MascotCode | null>(null);
+  useEffect(() => {
+    let live = true;
+    if (!series.mascot) {
+      setMascotCode(null);
+      return;
+    }
+    api
+      .mascot(series.id)
+      .then(({ mascot }) => live && setMascotCode(mascot ? { source: mascot.source, name: mascot.name, description: mascot.description } : null))
+      .catch(() => live && setMascotCode(null));
+    return () => {
+      live = false;
+    };
+  }, [series.id, series.mascot?.sig]);
+  // The code scenes are tested with the mascot their sandbox will carry (none until its code is here).
+  const mascotTag = series.mascot?.sig || undefined;
+  const mascotReady = !series.mascot || Boolean(mascotCode);
   const script = piece.script;
   const scriptRef = useRef(script);
   scriptRef.current = script;
@@ -277,14 +311,22 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const total = scenes.reduce((n, s) => n + s.seconds, 0);
 
   const assets: Record<string, MotionAsset> = useMemo(() => ({ ...castImages, ...layerAssets(layers) }), [castImages, layers]);
+  // "Videos de la app funcionando": one player per scene for the screens' recordings (the preview's; every capture
+  // forks its own).
+  const deck = useMemo(() => new VideoDeck(videoSources(castImages)), [castImages]);
+  useEffect(() => () => deck.dispose(), [deck]);
+  // "Escena de código": the preview's sandboxes (every render forks its own, strict).
+  const codeDeck = useMemo(() => new CodeDeck({ fonts: fontBytes, format: piece.format }), [piece.format]);
+  useEffect(() => () => codeDeck.dispose(), [codeDeck]);
+  useEffect(() => codeDeck.setMascot(mascotCode), [codeDeck, mascotCode]);
   const usesAi = usesAiImages(scenes, series);
   // "Desenfoque en los cortes": the preview, the contact sheet, the poster and every render read it from the world.
   const cutBlur = cutBlurOn(piece);
   // The subtitles (word by word unless turned off): the preview, the contact sheet, the renders and the .srt read them.
   const subtitles = useMemo(() => pieceSubtitles(scenes, piece, voices), [scenes, piece.voice, piece.wordByWord, piece.wordTimes, voices]);
   const world: MotionWorld = useMemo(
-    () => makeWorld(brand, assets, logo, beats, piece.disclosure && usesAi, { puppets, actors, speech, cutBlur, subtitles }),
-    [brand, assets, logo, beats, piece.disclosure, usesAi, puppets, actors, speech, cutBlur, subtitles],
+    () => makeWorld(brand, assets, logo, beats, piece.disclosure && usesAi, { puppets, actors, speech, cutBlur, subtitles, videos: deck, code: codeDeck }),
+    [brand, assets, logo, beats, piece.disclosure, usesAi, puppets, actors, speech, cutBlur, subtitles, deck, codeDeck],
   );
 
   // Word times for the subtitles, heard in each scene's voice (or estimated).
@@ -311,14 +353,29 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     seriesFacts === null ? [] : figureIssues(scenes, figureSources).filter((i) => i.verify || !(piece.figuresOk ?? []).includes(figureKey(i)));
   // Scenes the writer or the reviewer flagged as beyond "Lo que existe hoy" with no CONCEPTO / SIMULACIÓN label.
   const openConcepts = conceptIssues(scenes, piece.conceptsOk ?? []);
-  const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0 || openConcepts.length > 0;
+  // "Escena de código": a code scene with no code, a failed test, or a text out of the safe zone stops the render.
+  const codeSig = (s: MotionScene) => samplesSig(s, piece.format, script?.tone, mascotTag);
+  const openCode = codeIssues(timeScenes(scenes), piece.format, Boolean(world.disclosure), codeSig);
+  const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0 || openConcepts.length > 0 || openCode.length > 0;
   // The thumbnail: frame 0 of every render.
   const posterT = posterTime(scenes, piece.poster, push);
   const posterRef = useRef<HTMLCanvasElement>(null);
+  // What the poster canvas last showed, so a recording is sought again only when something it shows changed.
+  const posterDrawn = useRef<{ c: HTMLCanvasElement; t: number; scenes: MotionScene[]; world: MotionWorld } | null>(null);
   useEffect(() => {
     const c = posterRef.current;
     const ctx = c?.getContext("2d");
-    if (c && ctx && snapped) drawMotionFrame(ctx, c.width, c.height, posterT, snapped, world);
+    if (!c || !ctx || !snapped) return;
+    const deck = world.videos instanceof VideoDeck ? world.videos : null;
+    if (!deck || !deck.plan(snapped, posterT).length) {
+      drawMotionFrame(ctx, c.width, c.height, posterT, snapped, world);
+      return;
+    }
+    const last = posterDrawn.current;
+    if (last && last.c === c && last.t === posterT && last.scenes === scenes && last.world === world) return;
+    posterDrawn.current = { c, t: posterT, scenes, world };
+    // A recording on screen is sought to the poster's frame first (its own players).
+    void withOwnVideos(world, (own) => drawReady(own, snapped, posterT, () => drawMotionFrame(ctx, c.width, c.height, posterT, snapped, own)));
   });
 
   const savedState = (p: MotionPiece) => ({ version: 1, kind: "motion", step: "motion", pieceBrief: brief, motion: p });
@@ -600,8 +657,11 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           speech,
           cutBlur,
           subtitles: pieceSubtitles(roundScenes, piece, voices),
+          videos: deck,
+          code: codeDeck,
         });
-        const made = formats.map((format) => ({ format, ...contactSheet(played, roundWorld, format) }));
+        const made = [];
+        for (const format of formats) made.push({ format, ...(await contactSheet(played, roundWorld, format)) });
         const blobs = await Promise.all(made.map((m) => new Promise<Blob | null>((done) => m.canvas.toBlob(done, "image/jpeg", 0.85))));
         setSheets(made.map((m, k) => ({ format: m.format, url: blobs[k] ? objectUrl(blobs[k]!) : "" })));
         lastSheets = made.map((m, k) => ({ format: m.format, blob: blobs[k] }));
@@ -714,7 +774,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       played: { ...next, scenes: sc },
       beats: b,
       subtitles: subs,
-      world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series), { puppets, actors, speech, cutBlur, subtitles: subs }),
+      world: makeWorld(brand, assets, logo, b, piece.disclosure && usesAiImages(sc, series), { puppets, actors, speech, cutBlur, subtitles: subs, videos: deck, code: codeDeck }),
     };
   }
 
@@ -755,14 +815,34 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       const sound = await makeSound(played, playedBeats);
       for (const [n, format] of formats.entries()) {
         const [w, h] = format === "vertical" ? [1080, 1920] : [1920, 1080];
+        // A recording that cannot be read stops the render (never a still in its place in a finished video).
+        const own = playedWorld.videos instanceof VideoDeck ? playedWorld.videos.fork() : null;
+        const used = new Set(played.scenes.flatMap((sc) => (sc.recording ? [videoAssetOf(sc)?.id ?? ""] : [])));
+        const broken = own && used.size ? await own.check(used) : [];
+        if (broken.length) {
+          own?.dispose();
+          throw new Error(unreadableVideos(broken, series));
+        }
+        // The code scenes in sandboxes of their own; one that fails stops the render (never a placeholder in a video).
+        const ownCode = codeDeck.fork(true);
+        const failing = await ownCode.check(played, playedWorld, { w, h });
+        if (failing.length) {
+          ownCode.dispose();
+          own?.dispose();
+          throw new Error(failing.map((f) => `Escena ${f.index + 1} (código): ${f.problem}`).join(" "));
+        }
         const out = await encodeFrames({
           width: w,
           height: h,
           duration: scriptDuration(played),
           audio: sound,
-          // Frame 0 is the thumbnail (platforms show the first frame); every other frame is the piece as it plays.
-          draw: (ctx, t) => drawMotionFrame(ctx, w, h, t === 0 ? cover : t, played, playedWorld),
+          // Frame 0 is the thumbnail (platforms show the first frame); every other frame is the piece as it plays. A
+          // recording on screen is sought to the frame's second before it is drawn.
+          draw: (ctx, t) => drawReady({ ...playedWorld, videos: own ?? undefined, code: ownCode }, played, t === 0 ? cover : t, () => drawMotionFrame(ctx, w, h, t === 0 ? cover : t, played, { ...playedWorld, videos: own ?? undefined, code: ownCode }), { w, h }),
           onProgress: (f) => setProgress((n + f) / formats.length),
+        }).finally(() => {
+          own?.dispose();
+          ownCode.dispose();
         });
         let saved = "";
         if (projectId) {
@@ -782,6 +862,98 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       setBusy(null);
     }
   }
+
+  // ── "Escena de código" ───────────────────────────────────────────────────────────────────────────────────────
+  const codeFormat = piece.format;
+  function scenePrompt(sceneId: string, picked: string[], wish: string): string {
+    const timed = timeScenes(scenes);
+    const s = timed.find((x) => x.id === sceneId);
+    if (!s || !script) return "";
+    const [w, h] = codeFormat === "vertical" ? [1080, 1920] : [1920, 1080];
+    const around = (x: (typeof timed)[number] | undefined) =>
+      x ? `${MOTION_TEMPLATE_LABEL[x.template]}${x.title.trim() ? `, "${x.title.trim()}"` : ""}${x.voice.trim() ? ` (voice: "${x.voice.trim()}")` : ""}` : undefined;
+    return codePrompt({
+      piece: { title: script.title, problem: script.problem, tone: script.tone },
+      scene: { index: s.index, count: timed.length, seconds: s.seconds, title: s.title, text: s.text, voice: s.voice, emotion: s.emotion, disclosure: s.disclosure },
+      format: codeFormat,
+      width: w,
+      height: h,
+      fps: 30,
+      brand: { bg: brand.bg, text: brand.text, accent: brand.accent, displayFont: brand.displayFont, uiFont: brand.uiFont, ...(brand.motion && { motion: brand.motion }) },
+      assets: picked.flatMap((id) => {
+        const a = assets[id];
+        if (!a) return [];
+        const m = series.cast.find((c) => c.id === id);
+        const kind = m ? (m.kind === "screen" ? "real screen of the app (a screenshot)" : m.kind === "product" ? "the real product (a photo or cut-out)" : m.kind) : "uploaded layer";
+        return [{ name: id, kind, what: (m?.identity ?? "").slice(0, 160), width: a.video?.width ?? a.width, height: a.video?.height ?? a.height }];
+      }),
+      words: (subtitles ?? []).filter((c) => c.sceneId === s.id).flatMap((c) => c.words).map((x) => ({ text: x.text, start: x.start - s.start, end: x.end - s.start })),
+      safe: safeRect(w, h),
+      floor: floorOf(s, w, h, Boolean(world.disclosure)),
+      before: around(timed[s.index - 1]),
+      after: around(timed[s.index + 1]),
+      current: s.code?.source,
+      note: wish,
+      ...(series.mascot && { mascot: { name: series.mascot.name, description: series.mascot.description } }),
+    });
+  }
+
+  // Tests code in a fresh sandbox at the scene as it plays (its arranged length) and saves it with the scene.
+  async function testAndSave(sceneId: string, source: string, picked: string[], quiet = false) {
+    const s = timeScenes(scenes).find((x) => x.id === sceneId);
+    if (!s) return { problems: [{ message: "Esa escena ya no está.", fatal: true }], saved: false, texts: 0, slowest: 0 };
+    const trial = { ...s, code: { source, assets: picked } };
+    const sig = samplesSig(trial, codeFormat, script?.tone, mascotTag);
+    await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
+    const result = await testCode(source, trial, codeFormat, world, script?.tone, fontBytes, sig, undefined, mascotCode);
+    const fatal = result.problems.find((p) => p.fatal);
+    const saved = !fatal && Boolean(result.samples);
+    if (saved) {
+      if (!quiet) remember(`code-${sceneId}-${Date.now()}`);
+      editScenes((list) => list.map((x) => (x.id === sceneId ? { ...x, code: { source, assets: picked, samples: result.samples! } } : x)));
+    } else if (quiet && fatal) {
+      // A saved code that stopped working (its scene got longer, the format changed): it stays, marked as failing.
+      editScenes((list) => list.map((x) => (x.id === sceneId && x.code ? { ...x, code: { ...x.code, error: fatal.message.slice(0, 300), errorSig: sig } } : x)));
+    }
+    const texts = new Set((result.samples?.frames ?? []).flat().map((t) => t.text.trim())).size;
+    return { problems: result.problems, saved, texts, slowest: result.slowest };
+  }
+
+  const codeTools: CodeTools = {
+    prompt: scenePrompt,
+    testAndSave: (id, source, picked) => testAndSave(id, source, picked),
+    ai: aiReady
+      ? async (prompt) => {
+          const reply = await api.sceneCode(prompt);
+          if (reply.demo) throw new Error("Modo de muestra: sin una clave de IA no se escribe código. Copiá el prompt y pedíselo a Opus en claude.ai.");
+          return reply.code;
+        }
+      : null,
+  };
+
+  // A saved code scene whose samples no longer match how it plays (its length, words or the format changed) is tested
+  // again by itself, one at a time.
+  const retesting = useRef(new Set<string>());
+  const triedCode = useRef(new Set<string>());
+  const staleKey = openCode.filter((i) => i.stale).map((i) => i.sceneId).join(",");
+  useEffect(() => {
+    if (!staleKey || !mascotReady) return;
+    const timer = setTimeout(() => {
+      for (const id of staleKey.split(",")) {
+        const s = scenes.find((x) => x.id === id);
+        if (!s?.code?.source || retesting.current.has(id)) continue;
+        // Each scene is tested once per way it plays (never back and forth when its length settles on the beats).
+        const tried = `${id}:${codeSig(s)}`;
+        if (triedCode.current.has(tried)) continue;
+        triedCode.current.add(tried);
+        retesting.current.add(id);
+        void testAndSave(id, s.code.source, s.code.assets, true).finally(() => retesting.current.delete(id));
+      }
+    }, 700);
+    return () => clearTimeout(timer);
+    // The stale scenes decide it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleKey, scenes, mascotReady]);
 
   const vertical = piece.format === "vertical";
   return (
@@ -874,6 +1046,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               posterT={posterT}
               timeRef={timeRef}
               vertical={vertical}
+              openCode={openCode}
             />
           </div>
 
@@ -926,6 +1099,13 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               results={results}
               vertical={vertical}
             />
+            <ExplainerToAds
+              series={series.id}
+              projectId={projectId}
+              format={piece.format}
+              spans={timeScenes(scenes).map((x) => ({ start: x.start, end: x.end, voice: x.voice }))}
+              version={`${finalJob?.done ? finalJob.id : ""}-${results.length}`}
+            />
           </div>
         </div>
       )}
@@ -968,6 +1148,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           keepVoice={keepVoice}
           voiceAvailable={voiceAvailable}
           busy={busy}
+          codeTools={codeTools}
         />
       )}
     </section>

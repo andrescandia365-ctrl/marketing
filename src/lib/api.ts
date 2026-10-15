@@ -1,3 +1,4 @@
+import type { MascotMeta } from "../../shared/mascot.ts";
 import type {
   Board,
   BrandFromWeb,
@@ -25,7 +26,10 @@ import type { SyncDoc } from "../../shared/clock.ts";
 import type { KindAverage, UsageEntry } from "../../shared/usage.ts";
 import type { Brand, CastMember, PuppetLayer, SeriesFields, SeriesType, TextStyle } from "../../shared/series.ts";
 import type { RoomCard } from "../../shared/room.ts";
-import type { AdCombo, AdsState, Batch, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
+import type { Reference } from "../../shared/reference.ts";
+import type { ScreenDevice } from "../../shared/screenBatch.ts";
+import type { ClipFit, ExplainerKind, ExplainerVideo } from "../../shared/adsFromExplainer.ts";
+import type { AdCombo, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceSpeaker, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 
 // Demucs on this computer (Modelos → Demucs).
 export type DemucsStatus = { ready: boolean; command: string; model: string; songs: number; envBin: boolean };
@@ -94,6 +98,7 @@ type PiecePatch = Partial<Pick<Hook, "status" | "text" | "onScreenText" | "visua
   level?: number;
   levels?: number[];
   format?: MeatFormat;
+  speaker?: PieceSpeaker | null;
 };
 
 // Publicidad (Método 50-5-3).
@@ -135,6 +140,12 @@ export const ads = {
     ),
   removePieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice") =>
     call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/media/${kind}`, undefined, "DELETE"),
+  explainerVideos: (series: string, project: string) =>
+    call<{ videos: ExplainerVideo[]; title: string }>(`/api/ads/${enc(series)}/explainers/${enc(project)}`),
+  fromExplainer: (
+    series: string,
+    body: { project: string; file: string; duration: number; start: number; pieceId?: string; create?: { kind: ExplainerKind; seconds: number; text: string } },
+  ) => call<{ state: AdsState; pieceId: string; fit: ClipFit }>(`/api/ads/${enc(series)}/pieces/from-explainer`, body),
   dropRender: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, undefined, "DELETE"),
   uploadRender: (series: string, id: string, video: Blob) => upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, video, video.type),
   createBatch: (series: string, body: { seconds: number; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[] }) =>
@@ -143,6 +154,16 @@ export const ads = {
     upload<{ file: string }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/ads/${enc(adId)}`, video, video.type),
   batchCsv: (series: string, batch: string) => call<{ file: string; csv: string }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/csv`, {}),
   removeBatch: (series: string, batch: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/batches/${enc(batch)}`, undefined, "DELETE"),
+  // "Versión estática" of the hooks.
+  patchStatic: (series: string, hookId: string, patch: Partial<Omit<HookStatic, "picture" | "exports">>) =>
+    call<{ state: AdsState }>(`/api/ads/${enc(series)}/statics/${enc(hookId)}`, patch, "PATCH"),
+  uploadStaticPicture: (series: string, hookId: string, file: Blob, w: number, h: number) =>
+    upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/statics/${enc(hookId)}/picture?w=${w}&h=${h}`, file, file.type),
+  removeStaticPicture: (series: string, hookId: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/statics/${enc(hookId)}/picture`, undefined, "DELETE"),
+  saveStaticExport: (series: string, hookId: string, file: string, png: Blob) =>
+    upload<{ file: string }>(`/api/ads/${enc(series)}/statics/${enc(hookId)}/exports/${enc(file)}`, png, "image/png"),
+  finishStaticExports: (series: string, hookId: string, files: string[]) =>
+    call<{ state: AdsState; csv: string }>(`/api/ads/${enc(series)}/statics/${enc(hookId)}/exports`, { files }),
 };
 
 export const api = {
@@ -182,6 +203,9 @@ export const api = {
     ),
   replacePuppet: (seriesId: string, castId: string, layers: { role: string; name: string; png: string }[]) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet`, { layers }, "PUT"),
+  // "Analizar un anuncio que funciona": the picture goes for this request only; the answer is the written teardown.
+  teardownAd: (series: string | null, picture: string, note: string) =>
+    call<{ reference: Reference | null; note: string; demo: boolean }>("/api/reference/teardown", { series, picture, note }),
   brandFromWeb: (url: string, series: string | null, type?: SeriesType) =>
     call<BrandFromWeb>("/api/brand/from-web", { url, series: series ?? undefined, type, own: true }),
   arrangePuppet: (seriesId: string, castId: string, layers: Pick<PuppetLayer, "file" | "role" | "pivot" | "place">[]) =>
@@ -190,6 +214,18 @@ export const api = {
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/puppet/${index}`, undefined, "DELETE"),
   uploadRig: (seriesId: string, castId: string, file: Blob) =>
     upload<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/rig`, file, "model/gltf-binary"),
+  // "Videos de la app funcionando": a real screen's recording (raw body, up to 200 MB), with what the browser measured,
+  // then its poster frame; or remove it.
+  uploadScreenVideo: (seriesId: string, castId: string, file: Blob, info: { seconds: number; width: number; height: number; name: string }) =>
+    upload<{ member: CastMember; series: SeriesInfo[] }>(
+      `/api/series/${enc(seriesId)}/cast/${enc(castId)}/video?seconds=${info.seconds}&width=${info.width}&height=${info.height}&name=${enc(info.name)}`,
+      file,
+      file.type || "application/octet-stream",
+    ),
+  uploadScreenVideoPoster: (seriesId: string, castId: string, image: Blob) =>
+    upload<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/video/poster`, image, image.type || "image/jpeg"),
+  removeScreenVideo: (seriesId: string, castId: string) =>
+    call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/video`, undefined, "DELETE"),
   // An extra reference image (a crop of the sheet, or a loose view): its own @ reference, named by the server.
   addCastRef: (seriesId: string, castId: string, image: Blob, label: string) =>
     upload<{ member: CastMember; series: SeriesInfo[] }>(
@@ -200,6 +236,17 @@ export const api = {
     ),
   removeCastRef: (seriesId: string, castId: string, ref: string) =>
     call<{ member: CastMember; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/refs/${enc(ref)}`, undefined, "DELETE"),
+  // "Subir muchas pantallas": one screenshot → one pending real screen (member and image saved together).
+  addScreen: (seriesId: string, image: Blob, file: string, name: string, device?: ScreenDevice) =>
+    upload<{ member: CastMember; series: SeriesInfo[] }>(
+      `/api/series/${enc(seriesId)}/screens?file=${enc(file)}&name=${enc(name)}${device ? `&device=${device}` : ""}`,
+      image,
+      image.type || "application/octet-stream",
+    ),
+  confirmScreens: (seriesId: string, screens: { id: string; name: string; ref: string; identity: string; device?: ScreenDevice }[], removed: string[]) =>
+    call<{ cast: CastMember[]; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/screens/confirm`, { screens, removed }),
+  nameScreen: (series: string | null, picture: string, file: string) =>
+    call<{ screen: { name: string; shows: string; device?: ScreenDevice } | null; note: string; demo: boolean }>("/api/screens/name", { series, picture, file }),
   uploadCastImage: (seriesId: string, castId: string, image: Blob) =>
     upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/image`, image, image.type),
 
@@ -229,6 +276,11 @@ export const api = {
   saveAppSketch: (id: string, index: number, png: Blob) => upload<{ file: string }>(`/api/projects/${enc(id)}/sketches/${index}`, png, "image/png"),
   pruneAppSketches: (id: string, keep: number) => call<{ removed: string[] }>(`/api/projects/${enc(id)}/sketches?keep=${keep}`, undefined, "DELETE"),
   clearMedia: (id: string) => call<{ ok: true }>(`/api/projects/${enc(id)}/media`, undefined, "DELETE"),
+  // "Imagen fija": one export into the project folder, and removing the last export's files not written again.
+  saveStillExport: (id: string, name: string, image: Blob) => upload<{ file: string }>(`/api/projects/${enc(id)}/still/${enc(name)}`, image, image.type),
+  pruneStillExports: (id: string, keep: string[]) => call<{ removed: string[] }>(`/api/projects/${enc(id)}/still/prune`, { keep }),
+  // With a key, the studio's prompt for Opus goes to the writer; the reply is in the same paste format.
+  stillAsk: (prompt: string) => call<{ demo: true } | { demo: false; text: string }>("/api/still/ask", { prompt }),
   uploadMusic: (id: string, file: Blob, meta: { name: string; duration: number }) =>
     upload<{ music: MediaFileRecord }>(
       `/api/projects/${enc(id)}/music?name=${enc(meta.name)}&duration=${meta.duration}`,
@@ -389,6 +441,15 @@ export const api = {
   motion: (brief: Brief, target: number | null, layers: number) =>
     call<{ script: MotionScript } & Demo>("/api/motion", { brief, target, layers }),
   // "Nota del director": sample mode (no AI key) changes nothing.
+  // "Que la IA escriba la animación": the same prompt the person copies for Opus, sent to the writer.
+  // "Mascota en código": the series' mascot (null: none), saving it after the sandbox test, removing it, and the
+  // writer's answer to the editor's prompt when there is a key.
+  mascot: (seriesId: string) => call<{ mascot: (MascotMeta & { source: string }) | null }>(`/api/series/${enc(seriesId)}/mascot`),
+  saveMascot: (seriesId: string, mascot: { source: string; name: string; description: string }) =>
+    call<{ mascot: MascotMeta; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/mascot`, mascot, "PUT"),
+  deleteMascot: (seriesId: string) => call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/mascot`, undefined, "DELETE"),
+  mascotCode: (prompt: string) => call<{ demo: true } | { demo: false; code: string; name: string; description: string }>("/api/mascot/code", { prompt }),
+  sceneCode: (prompt: string) => call<{ demo: true } | { demo: false; code: string; note: string }>("/api/motion/code", { prompt }),
   motionRevise: (brief: Brief, script: MotionScript, note: string, layers: number) =>
     call<({ demo: true } | (NoteMerge & { demo: false }))>("/api/motion/revise", { brief, script, note, layers }),
   sheet: (series: string, template: SheetTemplate, details: Record<string, string>, age: number) =>

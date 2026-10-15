@@ -13,6 +13,7 @@ import {
   type MotionScene,
 } from "../../shared/motion.ts";
 import type { Selection } from "./MotionTimeline.tsx";
+import type { CodeIssue } from "../lib/codeSandbox.ts";
 import { Button } from "./ui.tsx";
 
 type Props = {
@@ -31,11 +32,35 @@ type Props = {
   posterT: number;
   timeRef: React.RefObject<number>;
   vertical: boolean;
+  // "Escena de código": scenes with no code, a failed test or text out of the safe zone (they block the render).
+  openCode?: CodeIssue[];
 };
 
-export function MotionChecks({ scenes, piece, set, seek, setSelected, updateScene, openReading, openFigures, openConcepts, openGaps, gapKey, posterRef, posterT, timeRef, vertical }: Props) {
+export function MotionChecks({ scenes, piece, set, seek, setSelected, updateScene, openReading, openFigures, openConcepts, openGaps, gapKey, posterRef, posterT, timeRef, vertical, openCode = [] }: Props) {
   return (
     <>
+      {openCode.length > 0 && (
+        <div className={`rounded-xl border p-3 text-sm ${openCode.every((c) => c.stale) ? "border-line bg-white" : "border-neg/40 bg-neg-soft"}`}>
+          <p className={`font-semibold ${openCode.every((c) => c.stale) ? "text-muted" : "text-neg"}`}>Escenas de código: no se puede generar hasta que estén listas.</p>
+          <ul className="mt-1 space-y-1">
+            {openCode.map((c, k) => (
+              <li key={`${c.sceneId}-${k}`}>
+                <button
+                  type="button"
+                  className="text-left hover:underline"
+                  onClick={() => {
+                    const at = timeScenes(scenes).find((x) => x.id === c.sceneId);
+                    if (at) seek(at.start + 0.5);
+                    setSelected({ sceneId: c.sceneId, key: null });
+                  }}
+                >
+                  {c.text}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className={`rounded-xl border p-3 text-sm ${openReading.length ? "border-neg/40 bg-neg-soft" : "border-good/30 bg-good-soft"}`}>
         {openReading.length ? (
           <>
@@ -49,7 +74,7 @@ export function MotionChecks({ scenes, piece, set, seek, setSelected, updateScen
                     onClick={() => {
                       const at = timeScenes(scenes).find((x) => x.id === r.sceneId);
                       if (at) seek(at.end - 0.1);
-                      setSelected({ sceneId: r.sceneId, key: r.key === "voice" ? null : r.key });
+                      setSelected({ sceneId: r.sceneId, key: r.key === "voice" || r.key.startsWith("code:") ? null : r.key });
                     }}
                   >
                     Escena {r.index + 1} · {r.label} (“{r.text.length > 40 ? `${r.text.slice(0, 40)}…` : r.text}”): queda quieto {r.has.toFixed(1)} s y necesita {r.needs.toFixed(1)} s. Hacelo entrar antes, acortalo o alargá la escena.

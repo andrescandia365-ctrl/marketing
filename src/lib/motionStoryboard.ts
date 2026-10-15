@@ -3,6 +3,7 @@
 // (drawn by drawMotionFrame at one moment once everything in it has arrived), its time range, template, what is said,
 // what sounds (soundHits, and whether the bed dips: roomWindows), how it comes in, its camera and its CONCEPTO /
 // SIMULACIÓN label. The panel data and the Markdown are pure; only the PNG sheet touches a canvas.
+import { clipText, videoAssetOf } from "../../shared/screenVideo.ts";
 import {
   DISCLOSURE_TAG,
   MOTION_CAMERA_LABEL,
@@ -59,6 +60,8 @@ export type StoryboardPanel = {
   entry: PanelEntry;
   camera: { kind: MotionCamera; label: string; byAi: boolean };
   disclosure: string | null;
+  // "Videos de la app funcionando": the stretch of its real screen's recording the scene plays (none: the still).
+  recording?: string;
 };
 
 export type StoryboardOptions = {
@@ -132,6 +135,7 @@ export function storyboardPanels(script: MotionScript, opts: StoryboardOptions):
       entry,
       camera: { kind: camera, label: MOTION_CAMERA_LABEL[camera], byAi: s.cameraBy === "ai" },
       disclosure: labelled(s) ? DISCLOSURE_TAG[s.disclosure as "concept" | "simulation"] : null,
+      ...(s.recording && videoAssetOf(s) && { recording: `Video de la app ${videoAssetOf(s)!.id}, tramo ${clipText(s.recording)} s, sin sonido` }),
     };
   });
 }
@@ -146,7 +150,7 @@ export function soundsLine(p: StoryboardPanel): string {
 
 // The panel as short lines, for the PNG sheet (the studio's panels show the same fields).
 export function panelLines(p: StoryboardPanel): string[] {
-  const lines = [`Entra: ${p.entry.label}`, `Cámara: ${p.camera.label}`];
+  const lines = [`Entra: ${p.entry.label}`, `Cámara: ${p.camera.label}`, ...(p.recording ? [p.recording] : [])];
   if (p.voice) lines.push(`${p.voiceHeard ? "Se dice" : "Subtítulo (sin voz)"}: “${p.voice}”`);
   const sound = soundsLine(p);
   lines.push(`Suena: ${sound || "solo la música"}`);
@@ -180,6 +184,7 @@ ${meta.format === "vertical" ? "9:16" : "16:9"} · ${secs(total)} · ${panels.le
         `- **Cuadro:** el ${p.number} de la hoja, a los ${secs(p.frameAt)}`,
         `- **Entra:** ${p.entry.label}`,
         `- **Cámara:** ${p.camera.label}${p.camera.byAi ? " (la eligió la IA)" : ""}`,
+        ...(p.recording ? [`- **Pantalla:** ${p.recording}`] : []),
         ...(p.onScreen.length ? [`- **En pantalla:**\n${p.onScreen.map((x) => `  - ${x.label}: “${x.text}”`).join("\n")}`] : []),
         p.voice ? `- **${p.voiceHeard ? "Se dice" : "Subtítulo (la pieza no tiene voz)"}:** “${p.voice}”` : "- **Se dice:** nada",
         `- **Suena:** ${soundsLine(p) || "solo la música"}`,
@@ -217,8 +222,17 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, width: number): strin
   return out;
 }
 
+// What a capture waits for before it draws frame t (a screen's recording sought to that frame); none: nothing to wait.
+export type PrepareFrame = (t: number) => Promise<void>;
+
 // Every panel on one sheet: the frame, then its number, time range, template, label and the panel's lines.
-export function storyboardSheet(script: MotionScript, world: MotionWorld, panels: StoryboardPanel[], format: MotionPiece["format"]): HTMLCanvasElement {
+export async function storyboardSheet(
+  script: MotionScript,
+  world: MotionWorld,
+  panels: StoryboardPanel[],
+  format: MotionPiece["format"],
+  prepare?: PrepareFrame,
+): Promise<HTMLCanvasElement> {
   const [cw, ch] = PANEL_SIZE[format];
   const cols = format === "vertical" ? Math.min(5, Math.max(1, panels.length)) : Math.min(3, Math.max(1, panels.length));
   const gap = 20;
@@ -249,9 +263,10 @@ export function storyboardSheet(script: MotionScript, world: MotionWorld, panels
   frame.height = ch;
   const fctx = frame.getContext("2d")!;
   let y = pad + headH;
-  rows.forEach((row, r) => {
-    row.forEach((p, c) => {
+  for (const [r, row] of rows.entries()) {
+    for (const [c, p] of row.entries()) {
       const x = pad + c * (cw + gap);
+      await prepare?.(p.frameAt);
       drawPanelFrame(fctx, cw, ch, p, script, world);
       ctx.drawImage(frame, x, y);
       ctx.strokeStyle = "#d9dbe1";
@@ -278,13 +293,19 @@ export function storyboardSheet(script: MotionScript, world: MotionWorld, panels
         ctx.fillText(line, x, ty, cw);
         ty += lineH;
       }
-    });
+    }
     y += ch + rowText[r] + gap;
-  });
+  }
   return canvas;
 }
 
-export function storyboardPng(script: MotionScript, world: MotionWorld, panels: StoryboardPanel[], format: MotionPiece["format"]): Promise<Blob | null> {
-  const canvas = storyboardSheet(script, world, panels, format);
+export async function storyboardPng(
+  script: MotionScript,
+  world: MotionWorld,
+  panels: StoryboardPanel[],
+  format: MotionPiece["format"],
+  prepare?: PrepareFrame,
+): Promise<Blob | null> {
+  const canvas = await storyboardSheet(script, world, panels, format, prepare);
   return new Promise((done) => canvas.toBlob(done, "image/png"));
 }

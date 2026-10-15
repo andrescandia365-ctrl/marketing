@@ -7,6 +7,7 @@ const STEP_LABEL: Record<string, string> = {
   brief: "Brief",
   lyrics: "Video de letra",
   motion: "Explicativo",
+  still: "Imagen fija",
   menu: "Menú",
   story: "Historia",
   board: "Storyboard",

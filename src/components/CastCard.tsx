@@ -17,7 +17,8 @@ import { PuppetArranger } from "./PuppetArranger.tsx";
 import { PuppetPreview } from "./PuppetPreview.tsx";
 import { CastRefs } from "./CastRefs.tsx";
 import { CopyButton } from "./ScriptView.tsx";
-import { libraryFileUrl } from "../lib/api.ts";
+import { api, libraryFileUrl } from "../lib/api.ts";
+import { ScreenVideoBox } from "./ScreenVideoBox.tsx";
 // three.js (in actor.ts) loads only when a character has a rig to preview.
 const loadActor: typeof import("../lib/actor.ts").loadActor = (...args) => import("../lib/actor.ts").then((m) => m.loadActor(...args));
 import { canvasPng, findFullFigures, revokeFigures, splitFigure, type FigureFile } from "../lib/segmentAssemble.ts";
@@ -150,6 +151,7 @@ export function CastCard({
   maxRefs,
   onRefs,
   onBeforeRef,
+  onVideo,
 }: {
   member: CastMember;
   seriesId: string | null;
@@ -166,6 +168,8 @@ export function CastCard({
   maxRefs?: number | null;
   onRefs?: (member: CastMember, series: SeriesInfo[]) => void;
   onBeforeRef?: () => Promise<void>;
+  // Real screens: the recording of the app working, saved at once like the extra references.
+  onVideo?: (member: CastMember, series: SeriesInfo[]) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -364,6 +368,9 @@ export function CastCard({
           aria-label="Cuándo usarlo"
           onChange={(e) => set("note", e.target.value)}
         />
+        {screen && seriesId && onVideo && (
+          <ScreenVideoBox seriesId={seriesId} member={member} beforeUpload={async () => void (await api.upsertCast(seriesId, member))} onSaved={onVideo} />
+        )}
         {member.kind === "character" && (
           <>
           <details className="text-xs" open={member.puppet.layers.length > 0 || undefined}>

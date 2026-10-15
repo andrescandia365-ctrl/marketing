@@ -34,7 +34,10 @@ import type { PuppetAsset } from "../lib/puppet.ts";
 import type { ActorAsset } from "../lib/actor.ts";
 import { Recorder, type AudioFile } from "./Audio.tsx";
 import type { Selection } from "./MotionTimeline.tsx";
+import { SceneRecording } from "./SceneRecording.tsx";
+import { CodeScenePanel, type CodeTools } from "./CodeScenePanel.tsx";
 import { Button, inputClass } from "./ui.tsx";
+import { MASCOT_ASSET } from "../../shared/mascot.ts";
 
 const smallInput = inputClass.replace("w-full", "");
 
@@ -61,18 +64,24 @@ type Props = {
   keepVoice: (sceneId: string, blob: Blob, name: string) => Promise<void>;
   voiceAvailable: boolean;
   busy: string | null;
+  // "Escena de código": the prompt for Opus, the test-and-save, and the writer when there is a key.
+  codeTools: CodeTools;
 };
 
-export function MotionSceneList({ script, scenes, selected, setSelected, seek, voices, piece, actors, puppets, series, layers, host, castCharacters, remember, setScript, updateScene, moveScene, fitVoice, generateVoice, keepVoice, voiceAvailable, busy }: Props) {
+export function MotionSceneList({ script, scenes, selected, setSelected, seek, voices, piece, actors, puppets, series, layers, host, castCharacters, remember, setScript, updateScene, moveScene, fitVoice, generateVoice, keepVoice, voiceAvailable, busy, codeTools }: Props) {
   const assetOptions = [
     ...series.cast
       .filter((m) => m.kind !== "character" || m.image || m.puppet?.layers.length || m.rig?.file)
       .map((m) => ({
         value: m.id,
-        label: `${m.name} (${m.kind === "screen" ? "pantalla" : m.kind === "product" ? "producto" : m.kind === "place" ? "lugar" : m.rig?.file ? "personaje · camina" : m.puppet?.layers.length ? "personaje · títere 3D" : "personaje"})${m.image || m.puppet?.layers.length || m.rig?.file ? "" : " · sin imagen"}`,
+        label: `${m.name} (${m.kind === "screen" ? (m.video ? "pantalla · con video" : "pantalla") : m.kind === "product" ? "producto" : m.kind === "place" ? "lugar" : m.rig?.file ? "personaje · camina" : m.puppet?.layers.length ? "personaje · títere 3D" : "personaje"})${m.image || m.puppet?.layers.length || m.rig?.file ? "" : " · sin imagen"}`,
       })),
     ...layers.map((_, k) => ({ value: `layer:${k}`, label: `Capa ${k + 1} (Grok)` })),
+    // "Mascota en código": the series' mascot, drawn by its code (character scenes only).
+    ...(series.mascot ? [{ value: MASCOT_ASSET, label: `${series.mascot.name} (mascota en código)` }] : []),
   ];
+  // Everything but the mascot: what a scene shows, never who presents it.
+  const pictureOptions = assetOptions.filter((o) => o.value !== MASCOT_ASSET);
   return (
     <>
       <div className="space-y-2">
@@ -223,6 +232,18 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <input className={`${inputClass} py-1.5`} value={raw.title} placeholder={TITLE_HINT[raw.template] ?? "Título (hasta 6 palabras)"} aria-label="Título" onChange={(e) => updateScene(s.id, { title: e.target.value })} />
                   <input className={`${inputClass} py-1.5`} value={raw.text} placeholder="Texto de apoyo" aria-label="Texto" onChange={(e) => updateScene(s.id, { text: e.target.value })} />
+                  {raw.template === "code" ? (
+                    <CodeScenePanel
+                      sceneId={s.id}
+                      code={raw.code}
+                      options={pictureOptions.filter((o) => {
+                        const m = series.cast.find((c) => c.id === o.value);
+                        return !m || Boolean(m.image);
+                      })}
+                      tools={codeTools}
+                    />
+                  ) : (
+                  <>
                   <textarea
                     className={`${inputClass} py-1.5 text-xs`}
                     rows={2}
@@ -235,7 +256,7 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
                   <div className="space-y-1.5">
                     <select className={`${inputClass} py-1 text-xs`} value={raw.asset} aria-label="Imagen" onChange={(e) => updateScene(s.id, { asset: e.target.value })}>
                       <option value="">Sin imagen</option>
-                      {assetOptions.map((o) => (
+                      {(raw.template === "character" ? assetOptions : pictureOptions).map((o) => (
                         <option key={o.value} value={o.value}>
                           {o.label}
                         </option>
@@ -244,7 +265,7 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
                     {raw.template === "beforeAfter" && (
                       <select className={`${inputClass} py-1 text-xs`} value={raw.assetB} aria-label="Imagen de después" onChange={(e) => updateScene(s.id, { assetB: e.target.value })}>
                         <option value="">Después: sin imagen</option>
-                        {assetOptions.map((o) => (
+                        {pictureOptions.map((o) => (
                           <option key={o.value} value={o.value}>
                             Después: {o.label}
                           </option>
@@ -255,7 +276,7 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
                       <>
                         <select className={`${inputClass} py-1 text-xs`} value={raw.assetB} aria-label="Lo que muestra" onChange={(e) => updateScene(s.id, { assetB: e.target.value })}>
                           <option value="">No muestra nada (el personaje solo)</option>
-                          {assetOptions
+                          {pictureOptions
                             .filter((o) => o.value !== raw.asset)
                             .map((o) => (
                               <option key={o.value} value={o.value}>
@@ -332,6 +353,7 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
                         )}
                       </div>
                     )}
+                    <SceneRecording scene={raw} cast={series.cast} update={(patch) => updateScene(s.id, patch)} />
                     {raw.template === "zoom" && (
                       <div className="grid grid-cols-3 gap-1 text-[11px] text-muted">
                         {(["focusX", "focusY", "zoom"] as const).map((k) => (
@@ -351,6 +373,8 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
                       </div>
                     )}
                   </div>
+                  </>
+                  )}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <input

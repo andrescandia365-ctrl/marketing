@@ -35,6 +35,7 @@ import { EMPTY_BRIEF } from "../shared/example.ts";
 import type { SiteFacts } from "./brandWeb.ts";
 import { MOTION_TEMPLATES, MotionNoteSchema, MotionScriptSchema, READ_LETTERS_PER_SECOND, hostScenes, normalizeMotion, pickCamera, readingNeed, type MotionScript } from "../shared/motion.ts";
 import { mergeNote, noteView, type NoteMerge } from "../shared/motionNote.ts";
+import { recordingNote, settleClips } from "../shared/screenVideo.ts";
 import { MotionReviewSchema, normalizeReview, type MotionReview } from "../shared/motionQuality.ts";
 import {
   BackgroundPromptsSchema,
@@ -49,10 +50,13 @@ import {
 import { LyricPlatesSchema, type LyricPlatesDraft } from "../shared/plates.ts";
 import { LENGTHS } from "../shared/template.ts";
 import { CAST, PRACTICES, WORKS_TODAY, explainerHost, seriesCorrespondent } from "../shared/series.ts";
+import { MASCOT_ASSET } from "../shared/mascot.ts";
 import { segmentRules } from "../shared/segment.ts";
 import { pickWorld, worldLean } from "../shared/world.ts";
 import { momentsForWriter } from "../shared/calendar.ts";
 import { getSeries } from "./series.ts";
+import { REFERENCE_ANGLES, ReferenceWireSchema, type ReferenceWire } from "../shared/reference.ts";
+import { screensBlock } from "../shared/screenBatch.ts";
 import { askKimi, listChatModels, type ChatTarget, type ListedModel } from "./kimi.ts";
 import { baseUrlOf, claudeEffort, keyOf, labelOf, visionChoice, writerChoice, EFFORTS, type Effort, type ProviderId } from "./settings.ts";
 import { getTool } from "./tools.ts";
@@ -169,13 +173,17 @@ function claudeError(error: unknown): Error {
 
 // The series bible and the tool profile come after the cached system block, so switching either never
 // re-bills the engine and playbook.
-function contextBlocks(brief: Brief, withTool: boolean): string[] {
+function contextBlocks(brief: Brief, withTool: boolean, opts: { allScreens?: boolean } = {}): string[] {
   const series = getSeries(brief.series);
   if (!series) throw new WriterError(`No existe la serie "${brief.series}".`);
   const blocks = [
     `The series for this piece (its bible is written in Spanish). Its "${WORKS_TODAY}" list is the only thing that may be shown as real. Its "${PRACTICES}" list, if any, is how people work today without the brand: pains are built only on it and the brief's notes. Its "${CAST}", if any, is the series' fixed cast: characters, places and products with an approved image (reuse them: same id as castId, identity word for word) and real screens of the product (kind "screen": real screenshots, shown only in screen shots). A member's "refs" are extra reference images of that same member (its face cut from the sheet, a loose view), each its own @ref in the image tool; "views" are its sheet's loose views as prompts.\n\n${series.text}`,
   ];
   // The series' calendar moments, nearest first with how far each one is (after the cache: it changes every day).
+  // The confirmed real screens by name and function, so the writer picks the right one per scene (a batch screen
+  // still pending review is not in it: it is not confirmed as the app today). A story reads only the brief's picks.
+  const screens = screensBlock(series.cast, brief, opts.allScreens);
+  if (screens) blocks.push(screens);
   const moments = momentsForWriter(series.moments, new Date());
   if (moments) blocks.push(moments);
   // The offer profile from Publicidad, when the series has one: the same audience, promise and proofs as the ads.
@@ -191,8 +199,8 @@ function contextBlocks(brief: Brief, withTool: boolean): string[] {
 }
 
 function screensFor(brief: Brief): string {
-  const screens = (getSeries(brief.series)?.cast ?? []).filter((m) => m.kind === "screen" && brief.screens.includes(m.id));
-  return screens.length ? screens.map((m) => `${m.id} (${m.name}: ${m.identity})`).join("; ") : "none; never use kind screen";
+  const screens = (getSeries(brief.series)?.cast ?? []).filter((m) => m.kind === "screen" && !m.pending && brief.screens.includes(m.id));
+  return screens.length ? screens.map((m) => `${m.id} (${m.name}${m.device ? `, ${m.device === "phone" ? "phone" : "computer"}` : ""}: ${m.identity})`).join("; ") : "none; never use kind screen";
 }
 
 // The series' real screens by id, with their names, for a transform that ends on one. Any of them is a real
@@ -783,22 +791,34 @@ The views: each panel as a separate standalone prompt with the full description.
 // What the explainer writer can show (the series' cast) and its host, shared by a new script and a director's note.
 function explainerCast(brief: Brief) {
   const series = getSeries(brief.series);
-  const host = series ? explainerHost(series) : null;
+  // "Mascota en código": with no drawable host character, the series' code mascot hosts every character scene.
+  const cardHost = series ? explainerHost(series) : null;
+  const mascot = series?.mascot ?? null;
+  const host: ExplainerHost | null = cardHost ?? (mascot ? { id: MASCOT_ASSET, name: mascot.name, note: mascot.description } : null);
+  const mascotLine = mascot
+    ? `- ${MASCOT_ASSET} (character, the series' mascot drawn in code by the app, always available${host?.id === MASCOT_ASSET ? ", the series' explainer character" : ""}): ${mascot.name}. ${mascot.description}`
+    : "";
   const cast = (series?.cast ?? [])
-    .map((m) => `- ${m.id} (${m.kind}${m.image ? ", has image" : ", no image yet"}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}${m.id === host?.id ? ", the series' explainer character" : ""}): ${m.name}. ${m.identity}`)
+    .filter((m) => !(m.kind === "screen" && m.pending))
+    .map((m) => `- ${m.id} (${m.kind}${m.kind === "screen" && m.device ? `, ${m.device === "phone" ? "phone" : "computer"}` : ""}${m.image || m.video?.poster ? ", has image" : ", no image yet"}${m.kind === "screen" && m.video ? `, ${recordingNote(m.video.seconds)}` : ""}${m.kind === "character" && m.puppet?.layers.length ? ", 3D puppet" : ""}${m.id === host?.id ? ", the series' explainer character" : ""}): ${m.name}. ${m.identity}`)
+    .concat(mascotLine ? [mascotLine] : [])
     .join("\n");
-  const characters = (series?.cast ?? []).filter((m) => m.kind === "character").map((m) => m.id);
-  return { series, host, cast, characters };
+  const characters = [...(series?.cast ?? []).filter((m) => m.kind === "character").map((m) => m.id), ...(mascot ? [MASCOT_ASSET] : [])];
+  // "Videos de la app funcionando": each real screen's recording length, so a clip stays inside it.
+  const recordings = new Map((series?.cast ?? []).flatMap((m) => (m.kind === "screen" && m.video ? [[m.id, m.video.seconds] as const] : [])));
+  return { series, host, cast, characters, recordings: (id: string) => recordings.get(id) };
 }
 
 function castBlock(cast: string, layers: number): string {
   return `What you can show (the series' fixed cast; use ids exactly; only members with an image will render, others show a placeholder):
 ${cast || "- (nothing yet: use hook, steps, stat and logo, and say in note what is missing)"}
-${layers ? `Uploaded layers: ${Array.from({ length: layers }, (_, i) => `layer:${i}`).join(", ")}.` : ""}`;
+${layers ? `Uploaded layers: ${Array.from({ length: layers }, (_, i) => `layer:${i}`).join(", ")}.` : ""}
+${/screen recording/.test(cast) ? "A real screen that has a screen recording can play it instead of its still screenshot, the product working for real (entry, key action, result): in hook, screen, zoom or callouts (its asset) or what a character presents (assetB), set clip to the stretch of the recording, as from-to seconds of the recording (e.g. '3-8'), with ' x1.5' to speed up a slow stretch or ' en bucle' to loop it. It starts when the screen comes in and plays muted. Make the scene about as long as the stretch takes at that speed plus its entrance; otherwise it holds the last frame. Play the stretch that shows what the voice says; leave clip empty for the still. Only screens marked with a recording can play one." : ""}`;
 }
 
 // The studio's rules for an explainer script (a new one or one revised by a note).
-function explainerRules(brief: Brief, host: ReturnType<typeof explainerHost>): string {
+type ExplainerHost = { id: string; name: string; note?: string };
+function explainerRules(brief: Brief, host: ExplainerHost | null): string {
   return `The studio's rules:
 - The first scene is a hook that names the problem within 2 seconds, as the question the viewer already asks themselves, in their words.
 - Something new appears on screen every 2 to 4 seconds: a scene change, a label, a step, a zoom. Never a still stretch longer than 4 seconds.
@@ -834,7 +854,7 @@ ${brief.narrator === "without" ? "- No narrator: leave every scene's voice and e
 // A motion-graphics explainer (software: how the app does something; e-commerce: the episode's product). Follows the
 // studio's rules: hook in 2 s, something new every 2 to 4 s, no stock defaults, one accent, the brand's fonts.
 export async function motionScript(brief: Brief, target: number | null, layers: number): Promise<MotionScript> {
-  const { series, host, cast, characters } = explainerCast(brief);
+  const { series, host, cast, characters, recordings } = explainerCast(brief);
   const wire = await ask(
     brief,
     false,
@@ -853,13 +873,52 @@ ${explainerRules(brief, host)}`,
   // The series' explainer character hosts every character scene, whatever id the writer put there. A writer that gave
   // no place at all (not even none) gets the one the series leans to.
   const world = motion.world ?? (pickWorld(wireWorld) === "none" ? undefined : worldLean(series?.type));
-  return { ...motion, ...(world && { world }), scenes: hostScenes(motion.scenes, host?.id, characters, false), tone: brief.tone };
+  return { ...motion, ...(world && { world }), scenes: settleClips(hostScenes(motion.scenes, host?.id, characters, false), recordings), tone: brief.tone };
 }
 
 // "Nota del director" for an explainer: the writer returns the whole script with only what the note asks changed,
 // each scene naming the current scene it comes from; mergeNote keeps the rest as it was (ids, hand tweaks, voices).
+// "Escena de código" with a key: the studio's prompt for Opus (shared/codePrompt.ts) as it is, answered as code. The
+// contract is in the prompt; the studio strips fences and tests the code in its sandbox before saving it.
+const SceneCodeSchema = z.object({
+  code: z.string().describe("The JavaScript that defines draw(ctx, t, info), exactly as the contract in the prompt asks. No markdown fences."),
+  note: z.string().describe("One line in Spanish: the idea of the animation."),
+});
+export async function writeSceneCode(prompt: string): Promise<z.infer<typeof SceneCodeSchema>> {
+  const who = currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  const system = "You write one canvas animation for a motion-graphics explainer: plain JavaScript that defines draw(ctx, t, info) and follows the contract and the house rules in the request exactly. Every frame is a pure function of t.";
+  return askWith(who, [system], prompt, SceneCodeSchema);
+}
+
+// "Mascota en código" with a key: the series editor's prompt for Opus (shared/mascot.ts mascotPrompt), answered as the
+// name, the description and the code. The editor tests it in its sandbox before saving, as with a pasted reply.
+const MascotCodeSchema = z.object({
+  name: z.string().describe("The mascot's name (short, invented)."),
+  description: z.string().describe("1 to 3 sentences in Spanish: what it is, how it looks, its character."),
+  code: z.string().describe("The JavaScript that defines drawMascot(ctx, t, pose), exactly as the contract in the prompt asks. No markdown fences."),
+});
+export async function writeMascotCode(prompt: string): Promise<z.infer<typeof MascotCodeSchema>> {
+  const who = currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  const system =
+    "You design one original brand mascot and write it as plain JavaScript that defines drawMascot(ctx, t, pose), following the contract in the request exactly. Never a known character, never in the style of a named studio, artist or show. Every call is a pure function of t and pose.";
+  return askWith(who, [system], prompt, MascotCodeSchema);
+}
+
+// "Imagen fija" with a key: the studio's prompt for Opus (shared/still.ts), answered in its strict paste format.
+const StillTextSchema = z.object({
+  text: z.string().describe("The whole answer exactly in the block format the request describes (## Concepto N / ## Texto N, one 'campo: valor' line per field). Nothing before or after the blocks."),
+});
+export async function writeStillText(prompt: string): Promise<z.infer<typeof StillTextSchema>> {
+  const who = currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  const system = "You write still-image ad concepts and the words set on top of them, following the brand's rules and the strict answer format in the request exactly.";
+  return askWith(who, [system], prompt, StillTextSchema);
+}
+
 export async function reviseMotion(brief: Brief, current: MotionScript, note: string, layers: number): Promise<NoteMerge> {
-  const { series, host, cast, characters } = explainerCast(brief);
+  const { series, host, cast, characters, recordings } = explainerCast(brief);
   const wire = await ask(
     brief,
     false,
@@ -882,7 +941,7 @@ ${explainerRules(brief, host)}`,
   const links = wire.scenes.map((s) => ({ from: s.from, camera: pickCamera(s.camera) }));
   const revised = normalizeMotion({ ...wire, scenes: wire.scenes.map(({ from: _from, ...s }) => s) }, current.tone ?? brief.tone, { revising: true });
   // keepOthers as in the studio: a character the person chose for a scene stays.
-  const hosted = { ...revised, scenes: hostScenes(revised.scenes, host?.id, characters, true), tone: current.tone ?? brief.tone };
+  const hosted = { ...revised, scenes: settleClips(hostScenes(revised.scenes, host?.id, characters, true), recordings), tone: current.tone ?? brief.tone };
   return mergeNote(current, hosted, links);
 }
 
@@ -907,6 +966,51 @@ ${facts.text || "(no text found)"}
 
 Propose the brand kit for the series' motion graphics: a background, a text colour and ONE accent, taken from the page's colours (the most used light or dark one for the background; the brand's signature colour as the accent, never a grey); two Google Fonts families; the logo candidate that is really the logo. Then list what the page says the product does, as short plain claims: they will be marked [VERIFY] until the person confirms each one, so never add anything the page does not say.`,
     BrandSuggestionSchema,
+  );
+}
+
+// "Analizar un anuncio que funciona" (PLAYBOOK §3.2): the vision model tears a reference ad down into its structure.
+// The picture goes only to the model that looks at pictures, for this request; the series keeps the written teardown.
+export function teardownAd(seriesId: string | null, picture: string, note: string): Promise<ReferenceWire> {
+  const who = currentVision() ?? currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  const series = seriesId ? getSeries(seriesId) : null;
+  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false, { allScreens: true }) : [])];
+  return askWith(
+    who,
+    system,
+    `The picture above is a reference ad the person likes (a competitor's or anyone's). Tear it down for its STRUCTURE, following the playbook's §3.2 ("Borrow the structure, never the ad"). Its logo, product, photos, characters and lines will never be reused; only this written teardown is kept.
+${note.trim() ? `\nThe person's note about it: ${note.trim()}\n` : ""}
+Write every field in Spanish (Rioplatense, plain words), one short line each, except the copy fields, which quote the ad's own words exactly as printed (in their language).
+- title: a short name for this reference, by what it does (e.g. "Antes y después de un placard"), never the brand's name.
+- first, next, last: the visual hierarchy, what the eye sees first, then next, then last. layout: how it is arranged (the focal point, the secondary elements).
+- palette: the main colours as estimated hex codes (#rrggbb), most visible first, at most 6. type: the type style (serif, sans, handwritten, condensed; weight). imageStyle: one of ugc, studio, lifestyle, product, illustration, minimal. contrast, whitespace, framing: how it uses contrast, empty space, framing and overlays.
+- hook, promise, cta: the visible copy split into the hook, the core promise and the call to action ("" for a part it lacks). otherLines: any other visible line.
+- angle: one of ${REFERENCE_ANGLES.filter((a) => a !== "other").join(", ")} (pain = pain relief, fear = fear or urgency, status = status or identity, ease = ease, curiosity, authority), or other. angleWhy: why, in one line.
+- borrow: up to 5 things worth borrowing, STRUCTURE ONLY (the reading order, where the hook sits, the kind of promise, the composition idea), each said so it fits ${series ? "this series and its products, built on its pains" : "any brand"}: never its words, picture, product, logo or people.
+- avoid: what in this ad we must not take: its own lines, product and photos, and anything that clashes with the playbook (invented proof, press or reviews; manufactured urgency or scarcity; fear, shame or guilt sold as the product; a named competitor; a real person's likeness).`,
+    ReferenceWireSchema,
+    [{ label: "The reference ad:", jpeg: picture }],
+  );
+}
+
+// "Que la IA las nombre" (Pantallas en lote): the vision model names one real screenshot by its function and says what
+// it shows. The picture goes only to the model that looks at pictures, for this request.
+export const ScreenNameSchema = z.object({ name: z.string(), shows: z.string(), device: z.string() });
+export function nameScreen(seriesId: string | null, picture: string, fileName: string): Promise<z.infer<typeof ScreenNameSchema>> {
+  const who = currentVision() ?? currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  const series = seriesId ? getSeries(seriesId) : null;
+  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false, { allScreens: true }) : [])];
+  return askWith(
+    who,
+    system,
+    `The picture above is a real screenshot of the app (file "${fileName}"). It will be used as it is in videos, and the writers pick which screen to show in each scene by its name and what it shows. In Spanish (Rioplatense, plain words):
+- name: 2 to 4 words naming the screen's function (e.g. "Stock buscar", "Pedido al proveedor"), reusing the words of the series' "${WORKS_TODAY}" list when one fits.
+- shows: one line, only what is visible in the screenshot (which screen it is and what can be done there). Never a feature, number or result that is not visible.
+- device: "celular" or "pc", by the screenshot.`,
+    ScreenNameSchema,
+    [{ label: "The screenshot:", jpeg: picture }],
   );
 }
 

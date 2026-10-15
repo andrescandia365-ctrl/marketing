@@ -11,6 +11,7 @@ import type { ActorAsset } from "./actor.ts";
 import { subtitleCues, wordByWordOn, type SubtitleCue } from "../../shared/subtitles.ts";
 import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "./motion.ts";
 import { buildSound, type HitKind, type SoundPlan } from "./motionAudio.ts";
+import { drawReady, withOwnVideos } from "./screenVideo.ts";
 
 export const VOICE_BASE = 100;
 
@@ -53,9 +54,18 @@ export async function loadSeriesImages(
     series.cast.filter((m) => m.image).map(async (m) => [m, await loadImage(libraryFileUrl(series.id, m.image))] as const),
   );
   const logoImg = series.brand.logo ? await loadImage(libraryFileUrl(series.id, series.brand.logo)) : null;
-  const cast = Object.fromEntries(
+  const cast: Record<string, MotionAsset> = Object.fromEntries(
     list.filter(([, img]) => img).map(([m, img]) => [m.id, { ...asAsset(img!, m.id), screen: m.kind === "screen" }]),
   );
+  // "Videos de la app funcionando": a real screen's recording, with its poster as the still that stands in for it
+  // (and as the screen's picture when it has no screenshot).
+  for (const m of series.cast.filter((x) => x.kind === "screen" && x.video?.file)) {
+    const v = m.video!;
+    const poster = v.poster ? await loadImage(libraryFileUrl(series.id, v.poster)) : null;
+    const still = cast[m.id] ?? (poster ? { ...asAsset(poster, m.id), screen: true } : null);
+    if (!still) continue;
+    cast[m.id] = { ...still, video: { url: libraryFileUrl(series.id, v.file), seconds: v.seconds, width: v.width, height: v.height, ...(poster && { poster }) } };
+  }
   const puppets: Record<string, PuppetAsset> = {};
   for (const m of series.cast.filter((x) => x.kind === "character")) {
     const layers = m.puppet?.layers ?? [];
@@ -204,7 +214,7 @@ export function layerAssets(layers: HTMLImageElement[]): Record<string, MotionAs
 
 // Some picture on screen was made by an AI: an uploaded layer or a cast member that is not a real screenshot.
 export function usesAiImages(scenes: MotionScene[], series: SeriesInfo): boolean {
-  return scenes.some((s) => [s.asset, s.assetB].some((a) => a.startsWith("layer:") || series.cast.find((m) => m.id === a && m.kind !== "screen")));
+  return scenes.some((s) => [s.asset, s.assetB, ...(s.template === "code" ? (s.code?.assets ?? []) : [])].some((a) => a.startsWith("layer:") || series.cast.find((m) => m.id === a && m.kind !== "screen")));
 }
 
 export function makeWorld(
@@ -213,7 +223,7 @@ export function makeWorld(
   logo: MotionAsset | null,
   beats: number[],
   notice: boolean,
-  extra: Pick<MotionWorld, "puppets" | "speech" | "actors" | "cutBlur" | "subtitles"> = {},
+  extra: Pick<MotionWorld, "puppets" | "speech" | "actors" | "cutBlur" | "subtitles" | "videos" | "code"> = {},
 ): MotionWorld {
   return { brand, assets, logo, beats, seed: MOTION_SEED, disclosure: notice ? AI_NOTICE : "", ...extra };
 }
@@ -375,10 +385,12 @@ export async function motionSound(
 }
 
 // The thumbnail as a JPEG, full size: the frame at `t`.
+// A recording on screen is sought to that frame first (its own players, so the preview's are not moved).
 export function posterJpeg(w: number, h: number, t: number, script: MotionScript, world: MotionWorld): Promise<Blob | null> {
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
-  drawMotionFrame(canvas.getContext("2d")!, w, h, t, script, world);
-  return new Promise((done) => canvas.toBlob(done, "image/jpeg", 0.92));
+  return withOwnVideos(world, (own) => drawReady(own, script, t, () => drawMotionFrame(canvas.getContext("2d")!, w, h, t, script, own), { w, h })).then(
+    () => new Promise((done) => canvas.toBlob(done, "image/jpeg", 0.92)),
+  );
 }

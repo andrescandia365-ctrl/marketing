@@ -15,9 +15,11 @@ type Props = {
   onGenerate: (count: number) => Promise<void>;
   onStatus: (ids: string[], status: PieceStatus) => Promise<void>;
   renderCard: (hook: Hook) => ReactNode;
+  // "Que lo digan los personajes": the approved hooks' character prompts in one go.
+  extra?: ReactNode;
 };
 
-export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, onStatus, renderCard }: Props) {
+export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, onStatus, renderCard, extra }: Props) {
   const [count, setCount] = useState(50);
   const [quick, setQuick] = useState(false);
   const [filter, setFilter] = useState<"all" | PieceStatus>("all");
@@ -166,6 +168,7 @@ export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels,
           ))}
         </div>
       )}
+      {extra}
       <div className="space-y-2">{shown.map((h) => renderCard(h))}</div>
       {hooks.length === 0 && <p className="text-sm text-muted">Todavía no hay hooks. Elegí los niveles y generá la primera tanda, o traé ganadores desde Fuentes.</p>}
     </section>

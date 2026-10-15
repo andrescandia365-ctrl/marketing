@@ -2,6 +2,8 @@
 // The writer reads the Markdown; the app edits the fields. Sections with an unknown heading are kept in `other`.
 import { z } from "zod";
 import { DEFAULT_LYRIC_STYLE, LyricStyleSchema } from "./lyrics.ts";
+import { MascotMetaSchema, mascotLine, readMascotLine } from "./mascot.ts";
+import { MAX_REFERENCES, REFERENCES, REFERENCES_HEADING, ReferenceSchema, markdownToReferences, referencesToMarkdown } from "./reference.ts";
 
 // How the type looks on the finished video. Kept with the series so every piece of a brand looks the same.
 export const TextStyleSchema = z.object({
@@ -334,6 +336,23 @@ export type CastRef = z.infer<typeof CastRefSchema>;
 export const SheetViewSchema = z.object({ title: z.string().trim().max(120), prompt: z.string().trim().max(3000) });
 export type SheetView = z.infer<typeof SheetViewSchema>;
 
+// "Videos de la app funcionando": a real screen can also carry a screen recording of the app (shared/screenVideo.ts),
+// kept in the series library like its image, with a poster frame (the still shown while it loads or when it cannot be
+// read) and what the browser measured when it was uploaded: its length in seconds and its size in pixels.
+export const ScreenVideoSchema = z.object({
+  file: LibraryFileSchema,
+  poster: LibraryFileSchema.default(""),
+  seconds: z.number().min(0.1).max(3600),
+  width: z.number().int().min(1).max(10000),
+  height: z.number().int().min(1).max(10000),
+  // The name of the file the person uploaded, so the card can say which recording it is.
+  name: z.string().max(120).default(""),
+});
+export type ScreenVideo = z.infer<typeof ScreenVideoSchema>;
+
+// The most members a series' cast holds (a software series can bring ~50 real screens besides its characters).
+export const CAST_MAX = 150;
+
 export const CastMemberSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{1,40}$/, "Id no válido."),
   name: z.string().trim().min(1, "Falta el nombre.").max(60),
@@ -355,6 +374,12 @@ export const CastMemberSchema = z.object({
   refs: z.array(CastRefSchema).max(40).default([]),
   // The sheet's loose views, kept with the member (older series have none).
   views: z.array(SheetViewSchema).max(20).default([]),
+  // Real screens only: the device it was taken on (shared/screenBatch.ts; none on older screens).
+  device: z.enum(["phone", "pc"]).optional(),
+  // Real screens only: a screen recording of the app working (the server owns it, like the puppet's files).
+  video: ScreenVideoSchema.optional(),
+  // Real screens only: uploaded in a batch and not reviewed yet ("Revisá las pantallas"). The writers never get it.
+  pending: z.boolean().optional(),
 });
 export type CastMember = z.infer<typeof CastMemberSchema>;
 
@@ -398,13 +423,18 @@ export const SeriesFieldsSchema = z.object({
   lyricStyle: LyricStyleSchema,
   look: SeriesLookSchema,
   brand: BrandSchema,
-  cast: z.array(CastMemberSchema).max(60),
+  cast: z.array(CastMemberSchema).max(CAST_MAX),
   // "Personaje de los explicativos": the cast id of the character who hosts every explainer ("": none, the writer
   // and the studio pick as before).
   explainerCharacter: z.string().max(40).default(""),
   // "Corresponsal": the cast id of the character who reports "on location" in stories with a correspondent and
   // visits the people in a field visit ("": none; the writer invents one and the app offers to add it).
   correspondent: z.string().max(40).default(""),
+  // "Referencias": ads that work, torn down into their structure (shared/reference.ts). Text only, never the picture.
+  references: z.array(ReferenceSchema).max(MAX_REFERENCES).default([]),
+  // "Mascota en código" (shared/mascot.ts): its name, description and fingerprint; the code is the library's file
+  // (server-owned, like a puppet's). null: the series has none.
+  mascot: MascotMetaSchema.nullable().default(null),
 });
 export type SeriesFields = z.infer<typeof SeriesFieldsSchema>;
 
@@ -430,6 +460,8 @@ export const EMPTY_SERIES: SeriesFields = {
   cast: [],
   explainerCharacter: "",
   correspondent: "",
+  references: [],
+  mascot: null,
 };
 
 // The heading each field is written under. The writer is told that the WORKS_TODAY list is the only thing
@@ -495,6 +527,7 @@ export function seriesToMarkdown(f: SeriesFields): string {
     `Marca (logo, colores y fuentes para motion graphics): ${JSON.stringify(f.brand)}`,
     ...castLine(f, EXPLAINER_CHARACTER, f.explainerCharacter),
     ...castLine(f, CORRESPONDENT, f.correspondent),
+    ...mascotLine(f.mascot),
   ];
   for (const [key, heading] of SECTIONS) {
     const body = isList(key) ? f[key].map((w) => `- ${w}`).join("\n") : f[key].trim();
@@ -509,6 +542,7 @@ export function seriesToMarkdown(f: SeriesFields): string {
       "```",
     );
   }
+  if (f.references?.length) parts.push("", `## ${REFERENCES_HEADING}`, referencesToMarkdown(f.references));
   if (f.other.trim()) parts.push("", `## Otras notas\n${f.other.trim()}`);
   return `${parts.join("\n")}\n`;
 }
@@ -565,6 +599,7 @@ export function markdownToSeries(text: string, fallbackName: string): SeriesFiel
   // Only the id is read back; the name in brackets is for people.
   fields.explainerCharacter = text.match(new RegExp(`^${EXPLAINER_CHARACTER}:[ \\t]*([a-z0-9-]{1,40})`, "im"))?.[1].toLowerCase() ?? "";
   fields.correspondent = text.match(new RegExp(`^${CORRESPONDENT}:[ \\t]*([a-z0-9-]{1,40})`, "im"))?.[1].toLowerCase() ?? "";
+  fields.mascot = readMascotLine(text);
 
   const other: string[] = [];
   const chunks = text.split(/^## /m).slice(1);
@@ -581,6 +616,8 @@ export function markdownToSeries(text: string, fallbackName: string): SeriesFiel
       } catch {
         // A hand-edited block that is not JSON leaves the cast empty rather than breaking the series.
       }
+    } else if (heading.toLowerCase().startsWith(REFERENCES.toLowerCase())) {
+      fields.references = markdownToReferences(body);
     } else if (heading.toLowerCase().startsWith("otras notas")) {
       if (body) other.push(body);
     } else if (!match) {

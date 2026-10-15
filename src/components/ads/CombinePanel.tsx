@@ -295,7 +295,7 @@ export function CombinePanel({ series, state, seconds, folder, busy, flags, revi
           </ul>
         )}
         <p className="mt-2 text-xs text-muted">
-          El CSV trae id, archivo, nivel, público (fría / retargeting), hook, meat, CTA, texto principal, titular y botón. Al subir el reporte de la plataforma con esos nombres, las métricas vuelven a cada pieza solas.
+          El CSV trae id, archivo, nivel, público (fría / retargeting), hook, meat, CTA, texto principal, titular, botón, tipo y formato; las versiones estáticas de los hooks de la tanda («Estáticos») van al final, como imagen, con su archivo en estaticos/. Si exportás estáticos después, volvé a descargar el CSV. Al subir el reporte de la plataforma con esos nombres, las métricas vuelven a cada pieza solas.
         </p>
       </div>
     </section>

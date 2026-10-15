@@ -21,6 +21,7 @@ test("the parts behind a click still download on demand", () => {
         "./components/BoardView.tsx",
         "./components/MotionStudio.tsx",
         "./components/LyricStudio.tsx",
+        "./components/StillStudio.tsx",
         "./components/SeriesEditor.tsx",
         "./components/EpisodesPanel.tsx",
         "./components/ModelsPanel.tsx",
@@ -28,8 +29,10 @@ test("the parts behind a click still download on demand", () => {
     ],
     ["src/components/ProductionView.tsx", ["./VideoPanel.tsx"]],
     ["src/components/AdsSection.tsx", ["./ads/AdsStudio.tsx"]],
+    ["src/components/ads/AdsStudio.tsx", ["./StaticsPanel.tsx"]],
     ["src/components/MotionStoryboardPanel.tsx", ["./MotionStoryboard.tsx"]],
     ["src/components/SetupsPanel.tsx", ["./SheetBuilder.tsx", "./CastRefs.tsx"]],
+    ["src/components/SeriesEditor.tsx", ["./MascotPanel.tsx"]],
   ];
   for (const [file, modules] of cases) {
     const text = read(file);

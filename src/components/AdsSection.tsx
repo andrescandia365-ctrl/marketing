@@ -4,6 +4,7 @@ import { lazy, type Dispatch, type SetStateAction } from "react";
 import type { Brief, SeriesInfo, Status } from "../../shared/schema.ts";
 import { Lazy, Notice } from "./ui.tsx";
 import type { Section } from "./AppHeader.tsx";
+import type { AdSeed } from "../../shared/adsFromExplainer.ts";
 
 const AdsStudio = lazy(() => import("./ads/AdsStudio.tsx").then((m) => ({ default: m.AdsStudio })));
 
@@ -17,9 +18,11 @@ type Props = {
   // Back to Playbook's brief with a hook as its angle.
   setStep: (step: "brief") => void;
   setShowModels: (show: boolean) => void;
+  // "Hacelo como explicativo": back to Playbook with a new explainer prefilled with the piece's text.
+  onToExplainer: (seed: AdSeed) => void;
 };
 
-export function AdsSection({ brief, setBrief, status, currentSeries, setSection, setStep, setShowModels }: Props) {
+export function AdsSection({ brief, setBrief, status, currentSeries, setSection, setStep, setShowModels, onToExplainer }: Props) {
   return (
     <div className="mt-6 space-y-4">
       <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -62,6 +65,7 @@ export function AdsSection({ brief, setBrief, status, currentSeries, setSection,
             setSection("playbook");
             setStep("brief");
           }}
+          onToExplainer={onToExplainer}
         />
         </Lazy>
       ) : (

@@ -16,6 +16,7 @@ import {
   type MotionScript,
 } from "./motion.ts";
 import { WORLD_PLACES, worldOf, type SceneWorld, type WorldPlace } from "./world.ts";
+import { clipText } from "./screenVideo.ts";
 
 // The current script as the studio sends it. Old saved scenes may lack the later fields: they get the values the
 // studio already reads them with; everything else passes through untouched.
@@ -86,6 +87,7 @@ export function noteView(script: MotionScript): string {
         disclosure: s.disclosure ?? "real",
         beyondToday: beyondNow(s)?.what ?? "",
         world: worldOf(s, script.world) ?? "none",
+        clip: clipText(s.recording),
       })),
     },
     null,
@@ -142,9 +144,12 @@ function changedScene(cur: MotionScene, rev: MotionScene, camera: MotionCamera |
   }
   if (template === "zoom" && !near(rev.zoom, cur.zoom, 0.01)) patch.zoom = rev.zoom;
   if (realOf(rev.disclosure) !== realOf(cur.disclosure)) patch.disclosure = rev.disclosure ?? "real";
+  // "Videos de la app funcionando": the stretch of the recording, compared as the writer reads it.
+  if (clipText(rev.recording) !== clipText(cur.recording)) patch.recording = rev.recording;
   if (!Object.keys(patch).length) return null;
   const next: MotionScene = { ...cur, ...patch };
   if ("world" in patch && patch.world === undefined) delete next.world;
+  if ("recording" in patch && patch.recording === undefined) delete next.recording;
   // The writer's own flag for what it now shows; else the old one, which stops applying once what it shows changed.
   if (rev.beyond) next.beyond = rev.beyond;
   // Hand tweaks stay on the elements the scene still has; another template is another layout.

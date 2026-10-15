@@ -11,6 +11,8 @@ import { BriefForm } from "./components/BriefForm.tsx";
 import { MenuPicker } from "./components/MenuPicker.tsx";
 import type { LyricOpen } from "./components/LyricStudio.tsx";
 import type { MotionOpen } from "./components/MotionStudio.tsx";
+import type { AdSeed } from "../shared/adsFromExplainer.ts";
+import type { StillOpen } from "./components/StillStudio.tsx";
 import { ProjectsPanel } from "./components/ProjectsPanel.tsx";
 import { DirectionLog, StoryNotes, type LibraryEntry } from "./components/ScriptView.tsx";
 import { StoryView } from "./components/StoryView.tsx";
@@ -34,13 +36,14 @@ import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from 
 const BoardView = lazy(() => import("./components/BoardView.tsx").then((m) => ({ default: m.BoardView })));
 const MotionStudio = lazy(() => import("./components/MotionStudio.tsx").then((m) => ({ default: m.MotionStudio })));
 const LyricStudio = lazy(() => import("./components/LyricStudio.tsx").then((m) => ({ default: m.LyricStudio })));
+const StillStudio = lazy(() => import("./components/StillStudio.tsx").then((m) => ({ default: m.StillStudio })));
 const SeriesEditor = lazy(() => import("./components/SeriesEditor.tsx").then((m) => ({ default: m.SeriesEditor })));
 const EpisodesPanel = lazy(() => import("./components/EpisodesPanel.tsx").then((m) => ({ default: m.EpisodesPanel })));
 const ModelsPanel = lazy(() => import("./components/ModelsPanel.tsx").then((m) => ({ default: m.ModelsPanel })));
 
 // "lyrics": a lyric video (series of type music), with its own steps inside.
-// "motion": a motion-graphics explainer (software or one product).
-type Step = "brief" | "menu" | "story" | "board" | "production" | "lyrics" | "motion";
+// "motion": a motion-graphics explainer (software or one product). "still": "Imagen fija", one picture.
+type Step = "brief" | "menu" | "story" | "board" | "production" | "lyrics" | "motion" | "still";
 
 // What a project folder's project.json holds (media files are tracked by the server).
 type SavedState = {
@@ -138,6 +141,7 @@ export function App() {
   // The open lyric video, if this piece is one; `key` remounts it for another piece.
   const [lyric, setLyric] = useState<{ key: string; initial: LyricOpen | null } | null>(null);
   const [motion, setMotion] = useState<{ key: string; initial: MotionOpen | null } | null>(null);
+  const [still, setStill] = useState<StillOpen | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   // The writers' room: other pieces of this series, and the note this piece will pick up.
   const [room, setRoom] = useState<RoomCard[]>([]);
@@ -152,7 +156,11 @@ export function App() {
   const library: Record<string, LibraryEntry> = Object.fromEntries(
     (pieceSeries?.cast ?? []).map((m) => [
       m.id,
-      { ...m, url: m.image ? libraryFileUrl(pieceSeries!.id, m.image, libraryVersion) : undefined },
+      {
+        ...m,
+        url: m.image ? libraryFileUrl(pieceSeries!.id, m.image, libraryVersion) : undefined,
+        ...(m.video && { videoUrl: libraryFileUrl(pieceSeries!.id, m.video.file) }),
+      },
     ]),
   );
   const currentSeries = status?.series.find((s) => s.id === brief.series);
@@ -161,7 +169,7 @@ export function App() {
   // The project folder: the autosave (lyric videos and explainers save themselves) and each shot's media.
   const castKindsKey = JSON.stringify(Object.fromEntries((pieceSeries?.cast ?? []).map((m) => [m.id, m.kind])));
   const files = useProject({
-    studios: [lyric, motion],
+    studios: [lyric, motion, still],
     snapshot: (sketchUploads) => {
       const state: SavedState = {
         version: 1,
@@ -304,6 +312,7 @@ export function App() {
       info.type !== "music" &&
       !lyric &&
       !motion &&
+      !still &&
       (step === "menu" || step === "story" || step === "board" || (step === "brief" && brief.piece === "story" && editingSeries === undefined));
     if (!visible) return;
     let cancel = false;
@@ -318,7 +327,7 @@ export function App() {
     return () => {
       cancel = true;
     };
-  }, [step, brief.series, brief.piece, pieceBrief.series, projectId, lyric, motion, status, editingSeries]);
+  }, [step, brief.series, brief.piece, pieceBrief.series, projectId, lyric, motion, still, status, editingSeries]);
 
 
   function addLog(entry: Omit<LogEntry, "at">) {
@@ -352,6 +361,7 @@ export function App() {
     setAudio(DEFAULT_AUDIO);
     setLyric(null);
     setMotion(null);
+    setStill(null);
     setRoomNotes([]);
     setSeed(null);
     setHookVariants(null);
@@ -368,7 +378,7 @@ export function App() {
   async function openProject(id: string) {
     const project = await run("open", () => api.project(id));
     if (!project) return;
-    const st = project.state as Partial<SavedState> & { kind?: string; lyrics?: LyricOpen["piece"]; motion?: MotionOpen["piece"] };
+    const st = project.state as Partial<SavedState> & { kind?: string; lyrics?: LyricOpen["piece"]; motion?: MotionOpen["piece"]; still?: unknown };
     resetPiece();
     const pb = { ...EMPTY_BRIEF, ...(st.pieceBrief ?? brief) };
     setBrief(pb);
@@ -377,6 +387,12 @@ export function App() {
       setProjectId(id);
       setMotion({ key: id, initial: { piece: st.motion, media: project.media, music: project.music } });
       setStep("motion");
+      return;
+    }
+    if (st.kind === "still") {
+      setProjectId(id);
+      setStill({ key: id, initial: { piece: st.still } });
+      setStep("still");
       return;
     }
     if (st.kind === "lyrics" && st.lyrics) {
@@ -414,22 +430,41 @@ export function App() {
     }
   }
 
-  // A lyric video or an explainer: its own project folder, then its studio.
-  async function startStudio(kind: "lyrics" | "motion") {
+  // A lyric video, an explainer or a still: its own project folder, then its studio. An explainer can start from a
+  // given brief and piece ("Hacelo como explicativo" in Publicidad).
+  async function startStudio(kind: "lyrics" | "motion" | "still", from?: { brief: Brief; motion: MotionOpen }) {
+    const b = from?.brief ?? brief;
     resetPiece();
     setError("");
-    setPieceBrief(brief);
+    setPieceBrief(b);
     let id: string | null = null;
     try {
-      id = (await api.createProject(brief.series)).id;
+      id = (await api.createProject(b.series)).id;
     } catch (e) {
       setError(`Se puede seguir, pero no se pudo crear la carpeta del proyecto: ${message(e)}`);
     }
     setProjectId(id);
+    if (kind === "motion" && from) {
+      setMotion({ key: id ?? String(Date.now()), initial: from.motion });
+      setStep("motion");
+      return;
+    }
     const open = { key: id ?? String(Date.now()), initial: null };
     if (kind === "lyrics") setLyric(open);
+    else if (kind === "still") setStill(open);
     else setMotion(open);
     setStep(kind);
+  }
+
+  // "Hacelo como explicativo": a new explainer of the same series, its brief noting the piece's text, its script a
+  // starting one built from that text (no AI needed); with a key, "Escribir el guion" writes it from the notes.
+  // The explainer's code comes with the studio, not with the first screen.
+  async function startExplainerFrom(seed: AdSeed) {
+    const { seedNotes, starterPiece } = await import("../shared/adsFromExplainer.ts");
+    const b: Brief = { ...brief, piece: "explainer", notes: [brief.notes.trim(), seedNotes(seed)].filter(Boolean).join("\n") };
+    setBrief(b);
+    setSection("playbook");
+    await startStudio("motion", { brief: b, motion: { piece: starterPiece(seed, b.format, b.tone), media: {}, music: null } });
   }
 
   // Step 1 → menu. A new piece gets its own project folder.
@@ -613,6 +648,7 @@ export function App() {
     roomSeriesInfo.type !== "music" &&
     !lyric &&
     !motion &&
+    !still &&
     (step === "menu" || step === "story" || step === "board" || (step === "brief" && brief.piece === "story" && editingSeries === undefined));
   const roomEl = showRoom ? (
     <WritersRoom
@@ -636,7 +672,12 @@ export function App() {
           { id: "brief", label: "1 · Brief", enabled: true },
           { id: "motion", label: "2 · Explicativo", enabled: true },
         ]
-      : [
+      : still
+        ? [
+            { id: "brief", label: "1 · Brief", enabled: true },
+            { id: "still", label: "2 · Imagen fija", enabled: true },
+          ]
+        : [
           { id: "brief", label: "1 · Brief", enabled: true },
           { id: "menu", label: "2 · Menú", enabled: menu !== null },
           { id: "story", label: "3 · Historia", enabled: story !== null },
@@ -686,6 +727,7 @@ export function App() {
           setSection={setSection}
           setStep={setStep}
           setShowModels={setShowModels}
+          onToExplainer={(seed) => void startExplainerFrom(seed)}
         />
       )}
 
@@ -708,7 +750,7 @@ export function App() {
       </nav>
 
       <div className="mt-6 space-y-4">
-        {status && !status.writer && !lyric && !motion && (
+        {status && !status.writer && !lyric && !motion && !still && (
           <Notice tone="warn">
             <b>Modo de muestra.</b> No hay clave de IA: el menú, la historia y el storyboard son un ejemplo fijo de
             IMAN, y las revisiones no cambian nada. Cargá una clave en{" "}
@@ -738,6 +780,7 @@ export function App() {
             }}
             onClose={() => setEditingSeries(undefined)}
             maxRefs={toolsRefCap(status?.tools ?? [])}
+            aiReady={Boolean(status?.writer)}
           />
           </Lazy>
         )}
@@ -772,6 +815,17 @@ export function App() {
                 {lyric && (
                   <Button variant="secondary" onClick={() => setStep("lyrics")}>
                     Volver al video abierto
+                  </Button>
+                )}
+              </div>
+            ) : brief.piece === "still" ? (
+              <div className="flex items-center gap-3 border-t border-line pt-5">
+                <Button onClick={() => startStudio("still")} disabled={busy !== null}>
+                  Empezar una imagen fija
+                </Button>
+                {still && (
+                  <Button variant="secondary" onClick={() => setStep("still")}>
+                    Volver a la imagen abierta
                   </Button>
                 )}
               </div>
@@ -829,8 +883,24 @@ export function App() {
             ffmpeg={status?.render?.ffmpeg ?? false}
             demucs={status?.render?.demucs ?? false}
             autoSync={status?.lyrics.autoSync ?? false}
+            aiReady={Boolean(status?.writer)}
             onSaveStatus={setSaveStatus}
           />
+          </Lazy>
+        )}
+
+        {step === "still" && still && pieceSeries && (
+          <Lazy>
+            <StillStudio
+              key={still.key}
+              projectId={projectId}
+              brief={pieceBrief}
+              series={pieceSeries}
+              tools={status?.tools ?? []}
+              initial={still.initial}
+              aiReady={Boolean(status?.writer)}
+              onSaveStatus={setSaveStatus}
+            />
           </Lazy>
         )}
 

@@ -15,7 +15,8 @@ import { BeatChip, Button, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
 
 export type ClipFile = { url: string; blob: Blob; name: string; duration: number };
 // A member of the series' fixed cast, with the URL of its approved image.
-export type LibraryEntry = CastMember & { url?: string };
+// videoUrl: a real screen's recording ("Videos de la app funcionando"), which a screen shot can take as its clip.
+export type LibraryEntry = CastMember & { url?: string; videoUrl?: string };
 // The writer's look at an uploaded image or clip frame, and the picture's format against the video's.
 export type ReviewState = { what: "image" | "clip"; loading: boolean; result?: ImageReview; format?: string; error?: string };
 
@@ -389,6 +390,8 @@ function ShotCard(props: CardProps) {
   const [viewing, setViewing] = useState<"image" | "clip" | null>(null);
   const [note, setNote] = useState("");
   const [rewriting, setRewriting] = useState(false);
+  const [takingVideo, setTakingVideo] = useState(false);
+  const [videoError, setVideoError] = useState("");
   const vertical = brief.format === "vertical";
   const setup = board.setups.find((s) => s.id === shot.setups[0]);
   const screen = shot.kind === "screen" ? library[shot.screen] : undefined;
@@ -602,6 +605,34 @@ function ShotCard(props: CardProps) {
               {screen ? `Pantalla real: ${screen.name}. No se genera con IA.` : `Falta la pantalla "${shot.screen}" en el elenco de la serie.`}
             </p>
           )}
+          {shot.kind === "screen" && screen?.videoUrl && screen.video && (
+            <button
+              type="button"
+              disabled={media.loading || takingVideo}
+              onClick={async () => {
+                // The recording of the app working, as this shot's clip (the render plays it from its start and cuts it
+                // at the shot's length; its own sound follows "Sonido del clip").
+                setTakingVideo(true);
+                setVideoError("");
+                try {
+                  const res = await fetch(screen.videoUrl!);
+                  if (!res.ok) throw new Error("No se pudo traer el video de la pantalla.");
+                  const blob = await res.blob();
+                  const ext = screen.video!.file.split(".").pop() ?? "mp4";
+                  onUploadClip(shot.index, new File([blob], `${screen.id}-video.${ext}`, { type: blob.type || "video/mp4" }));
+                } catch (e) {
+                  setVideoError(e instanceof Error ? e.message : "No se pudo traer el video de la pantalla.");
+                } finally {
+                  setTakingVideo(false);
+                }
+              }}
+              className="w-full rounded-md border border-line py-1 text-xs font-semibold hover:border-ink disabled:opacity-50"
+              title={`Usa la grabación de ${screen.name} (${screen.video.seconds.toFixed(1)} s) como clip de esta toma`}
+            >
+              {takingVideo ? "Trayendo el video…" : `Usar el video de la app como clip (${screen.video.seconds.toFixed(1)} s)`}
+            </button>
+          )}
+          {videoError && <p className="text-xs text-neg">{videoError}</p>}
           <button
             type="button"
             disabled={media.loading || !generatesImage(shot)}

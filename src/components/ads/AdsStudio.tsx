@@ -1,7 +1,7 @@
 // Publicidad (Método 50-5-3): paid ads next to Playbook's organic content. Tabs: the offer profile, the sources of
-// winning hooks, the hooks, the meats, the CTAs and the combiner. Reuses the app's writer, its image generators, its
+// winning hooks, the hooks, the meats, the CTAs, the combiner and the hooks' static versions. Reuses the app's writer, its image generators, its
 // 6/10/15 s clip prompts and its video renderer (render.ts, by pieces with a cache).
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AD_SECONDS,
   BUDGETS,
@@ -25,10 +25,11 @@ import {
 } from "../../../shared/ads.ts";
 import type { ImageProviderInfo, SeriesInfo, ToolInfo } from "../../../shared/schema.ts";
 import { ads as adsApi, adsFileUrl, api } from "../../lib/api.ts";
-import { concatPieces, renderAdWhole, renderPiece, type PieceLook } from "../../lib/adsRender.ts";
+import { concatPieces, renderAdWhole, renderPiece, type PieceLook, type PieceMedia } from "../../lib/adsRender.ts";
 import { blobToDataUrl, readImageFile } from "../../lib/files.ts";
+import type { AdSeed, ExplainerKind } from "../../../shared/adsFromExplainer.ts";
 import { audioDuration } from "../Audio.tsx";
-import { Button, Notice, Segmented, Spinner } from "../ui.tsx";
+import { Button, Lazy, Notice, Segmented, Spinner } from "../ui.tsx";
 import { BatchWizard, type Wizard } from "./BatchWizard.tsx";
 import { CombinePanel, type RenderProgress } from "./CombinePanel.tsx";
 import { HooksPanel } from "./HooksPanel.tsx";
@@ -36,8 +37,13 @@ import { OfferForm } from "./OfferForm.tsx";
 import { PiecesPanel } from "./PiecesPanel.tsx";
 import { PieceCard, type PieceMediaState } from "./pieces.tsx";
 import { SourcesPanel } from "./SourcesPanel.tsx";
+import { SpeakerBatch } from "./SpeakerBatch.tsx";
+import { SpeakerPanel } from "./SpeakerPanel.tsx";
 
-type Tab = "offer" | "sources" | "hooks" | "meats" | "ctas" | "combine";
+// "Estáticos de la tanda" downloads only when opened (it brings the still renderer).
+const StaticsPanel = lazy(() => import("./StaticsPanel.tsx").then((m) => ({ default: m.StaticsPanel })));
+
+type Tab = "offer" | "sources" | "hooks" | "meats" | "ctas" | "combine" | "statics";
 const TABS: { id: Tab; label: string }[] = [
   { id: "offer", label: "Oferta" },
   { id: "sources", label: "Fuentes" },
@@ -45,6 +51,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "meats", label: "2 · Meats" },
   { id: "ctas", label: "3 · CTAs" },
   { id: "combine", label: "4 · Combinar" },
+  { id: "statics", label: "Estáticos" },
 ];
 
 type Props = {
@@ -55,9 +62,12 @@ type Props = {
   // Generated voices (OpenAI speech): whether the key is there, and the app's default voice.
   voice: { available: boolean; defaultVoice: string };
   onToPlaybook: (text: string) => void;
+  // "Hacelo como explicativo": a new explainer of this series prefilled with a meat's or CTA's text.
+  onToExplainer?: (seed: AdSeed) => void;
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const findPieceIn = (state: AdsState | null, id: string): Piece | undefined => (state ? [...state.hooks, ...state.meats, ...state.ctas].find((p) => p.id === id) : undefined);
 
 function clipDuration(url: string): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -81,7 +91,7 @@ function loadSettings(): Settings {
   return { seconds: 15, levels: [], format: "vertical", tool: "", provider: "" };
 }
 
-export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPlaybook }: Props) {
+export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPlaybook, onToExplainer }: Props) {
   const [state, setState] = useState<AdsState | null>(null);
   const [ranking, setRanking] = useState<RankedHook[]>([]);
   const [transcription, setTranscription] = useState(false);
@@ -340,6 +350,32 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       onGenerateVoice={voice.available ? () => generateVoice(piece) : null}
       cached={cachedFormat(piece.id)}
       flags={flagsFor(piece.id)}
+      explainer={state?.media[piece.id]?.clip?.explainer ? { title: state.media[piece.id]!.clip!.explainer!.title, from: state.media[piece.id]!.clip!.from ?? 0 } : undefined}
+      onMakeExplainer={
+        onToExplainer && piece.kind !== "hook"
+          ? () => onToExplainer({ id: piece.id, kind: piece.kind as ExplainerKind, text: piece.text, onScreenText: piece.onScreenText, seconds: piece.seconds })
+          : undefined
+      }
+      speakerPanel={
+        <SpeakerPanel
+          key={`${piece.id}-${piece.speaker?.castId ?? ""}`}
+          piece={piece}
+          series={series}
+          tool={tools.find((t) => t.id === toolId)}
+          format={settings.format}
+          hasClip={Boolean(media[piece.id]?.clip)}
+          hasVoice={Boolean(media[piece.id]?.voice)}
+          onSave={async (speaker) => {
+            const r = await act("patch", () => adsApi.patchPiece(series.id, piece.id, { speaker }));
+            if (r) renders.current.delete(piece.id);
+          }}
+          onMascot={
+            onToExplainer && series.mascot
+              ? (emotion) => onToExplainer({ id: piece.id, kind: piece.kind, text: piece.text, onScreenText: piece.onScreenText, seconds: piece.seconds, presenter: "mascot", emotion })
+              : undefined
+          }
+        />
+      }
       stats={
         piece.kind === "hook" ? (
           <Button variant="ghost" className="px-2 py-1 text-xs" title="Lleva este hook al brief de Playbook como momento/peg" onClick={() => onToPlaybook(piece.text)}>
@@ -405,7 +441,21 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
 
   // ── The run: pieces once (cached), then the ads cut from them ─────────────────
   const look = (): PieceLook => ({ format: settings.format, style: series.textStyle, disclosure: "Imágenes ilustrativas", fullFrame: true, headlines: true });
-  const shotMedia = (id: string) => ({ image: media[id]?.image, clip: media[id]?.clip?.blob, voice: media[id]?.voice?.blob });
+  // An explainer's clip plays from its in point and carries its own words (nothing drawn on top).
+  // A character's clip ("Que lo diga un personaje") plays from the speaker's in point, muted when the piece's own voice
+  // says the line instead.
+  const shotMedia = (id: string): PieceMedia => {
+    const saved = state?.media[id]?.clip;
+    const speaker = findPieceIn(state, id)?.speaker;
+    return {
+      image: media[id]?.image,
+      clip: media[id]?.clip?.blob,
+      voice: media[id]?.voice?.blob,
+      clipFrom: saved?.from ?? speaker?.from ?? 0,
+      finished: Boolean(saved?.explainer),
+      ...(speaker && !saved?.explainer && { clipGain: speaker.sound === "voice" ? 0 : 1 }),
+    };
+  };
 
   // A piece's render: this session's, the cached file, or a new render saved to the cache.
   async function ensureRender(piece: Piece, current: AdsState): Promise<{ blob: Blob; state: AdsState }> {
@@ -698,6 +748,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           }}
           onStatus={setStatus}
           renderCard={(h: Hook) => renderCard(h)}
+          extra={<SpeakerBatch pieces={state.hooks} series={series} format={settings.format} label="hooks" />}
         />
       )}
       {tab === "meats" && (
@@ -715,6 +766,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
             await generateMeats(count, formats);
           }}
           renderCard={(m) => renderCard(m)}
+          extra={<SpeakerBatch pieces={state.meats} series={series} format={settings.format} label="meats" />}
         />
       )}
       {tab === "ctas" && (
@@ -732,6 +784,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
             await generateCtas(count);
           }}
           renderCard={(c) => renderCard(c)}
+          extra={<SpeakerBatch pieces={state.ctas} series={series} format={settings.format} label="ctas" />}
         />
       )}
       {tab === "combine" && (
@@ -762,6 +815,11 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           }}
           onBatchCsv={async (id) => (await adsApi.batchCsv(series.id, id)).csv}
         />
+      )}
+      {tab === "statics" && (
+        <Lazy>
+          <StaticsPanel key={series.id} series={series} state={state} tools={tools} flags={flags} folder={folder} onState={setState} />
+        </Lazy>
       )}
     </div>
   );

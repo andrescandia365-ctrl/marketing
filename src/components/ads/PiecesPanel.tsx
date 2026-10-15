@@ -29,9 +29,11 @@ type Props<T extends Meat | Cta> = {
   onLevels: (levels: number[]) => void;
   onGenerate: (count: number, formats: MeatFormat[]) => Promise<void>;
   renderCard: (piece: T) => ReactNode;
+  // "Que lo digan los personajes": the approved pieces' character prompts in one go.
+  extra?: ReactNode;
 };
 
-export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, renderCard }: Props<T>) {
+export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, renderCard, extra }: Props<T>) {
   const isMeat = kind === "meat";
   const chosen = levelsOf(levels);
   const recipe = [...new Set(chosen.flatMap((l) => LEVEL_INFO[l].meats))];
@@ -114,6 +116,7 @@ export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels,
         {demo && <p className="mt-2 text-xs text-muted">Sin clave de IA, las piezas son de muestra.</p>}
       </div>
       {approvedHooks.length === 0 && hooks.length > 0 && <Notice tone="warn">Aprobá primero algunos hooks: el meat y el CTA se escriben con el hook elegido como contexto para que sean coherentes.</Notice>}
+      {extra}
       <div className="space-y-2">{pieces.map((p) => renderCard(p))}</div>
       {pieces.length === 0 && <p className="text-sm text-muted">Todavía no hay {isMeat ? "meats" : "CTAs"}.</p>}
     </section>

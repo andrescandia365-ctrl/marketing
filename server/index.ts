@@ -19,6 +19,9 @@ import {
 } from "../shared/schema.ts";
 import {
   WriterError,
+  writeSceneCode,
+  writeMascotCode,
+  writeStillText,
   backgroundPrompts,
   currentWriter,
   lyricElements,
@@ -43,7 +46,11 @@ import {
   writeBoard,
   writeStory,
   hookVariants,
+  teardownAd,
+  nameScreen,
 } from "./claude.ts";
+import { readDevice, SCREEN_DEVICES } from "../shared/screenBatch.ts";
+import { normalizeReference } from "../shared/reference.ts";
 import { KimiError } from "./kimi.ts";
 import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
 import { BrandWebError, bringPictures, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.ts";
@@ -96,6 +103,8 @@ import {
   removeMusic,
   saveMedia,
   saveAppSketch,
+  saveStillExport,
+  pruneStillExports,
   pruneAppSketches,
   saveMusic,
   saveState,
@@ -124,10 +133,25 @@ import {
   addCorrespondent,
   addCastRef,
   removeCastRef,
+  getSeries,
+  addScreen,
+  confirmScreens,
+  libraryVideo,
+  readMascot,
+  removeMascot,
+  setMascot,
+  removeScreenVideo,
+  screenVideoTemp,
+  setScreenVideo,
+  setScreenVideoPoster,
 } from "./series.ts";
+import { SCREEN_VIDEO_MAX_BYTES } from "../shared/screenVideo.ts";
+import { createReadStream, createWriteStream, rmSync as removeFile } from "node:fs";
+import { Readable } from "node:stream";
 import { listTools, referenceLimit } from "./tools.ts";
 import { AdsError } from "./ads.ts";
 import { checkErrorText } from "../shared/errors.ts";
+import { CODE_MAX_CHARS } from "../shared/codeScene.ts";
 import { MAX_ZIP_TOTAL, exportProjectZip, importProjectZip } from "./projectZip.ts";
 import { adsRoutes } from "./adsRoutes.ts";
 import { usageScope, usageView } from "./usage.ts";
@@ -272,6 +296,39 @@ app.put("/api/series/:id/cast/:castId/image", async (c) => {
   return c.json({ file, series: listSeries() });
 });
 
+// "Subir muchas pantallas": one screenshot of the batch per request (the browser sends them one after the other), saved
+// as a pending real screen with its image.
+app.put("/api/series/:id/screens", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  const q = z
+    .object({ file: z.string().trim().min(1, "Falta el nombre del archivo.").max(200), name: z.string().max(60).default(""), device: z.enum(SCREEN_DEVICES).optional() })
+    .parse({ file: c.req.query("file"), name: c.req.query("name") ?? "", device: c.req.query("device") || undefined });
+  const member = addScreen(c.req.param("id"), data, { fileName: q.file, name: q.name, device: q.device });
+  return c.json({ member, series: listSeries() });
+});
+
+// "Confirmar" in "Revisá las pantallas": names, what each shows, device, order, and the ones taken out.
+app.post("/api/series/:id/screens/confirm", async (c) => {
+  const body = z
+    .object({
+      screens: z
+        .array(
+          z.object({
+            id: z.string().regex(/^[a-z0-9-]{1,40}$/),
+            name: z.string().trim().min(1, "Falta el nombre de una pantalla.").max(60),
+            ref: z.string().regex(/^[A-Za-z0-9_]{1,30}$/, "La @referencia va sin espacios ni acentos."),
+            identity: z.string().trim().max(600),
+            device: z.enum(SCREEN_DEVICES).optional(),
+          }),
+        )
+        .max(200),
+      removed: z.array(z.string().regex(/^[a-z0-9-]{1,40}$/)).max(200).default([]),
+    })
+    .parse(await c.req.json());
+  const cast = confirmScreens(c.req.param("id"), body.screens, body.removed);
+  return c.json({ cast, series: listSeries() });
+});
+
 // Extra reference images of a cast member: a crop of its sheet (the face) or a loose view, each its own @ reference.
 app.post("/api/series/:id/cast/:castId/refs", async (c) => {
   const data = Buffer.from(await c.req.arrayBuffer());
@@ -360,7 +417,97 @@ app.put("/api/series/:id/cast/:castId/rig", async (c) => {
   return c.json({ member, series: listSeries() });
 });
 
+// "Videos de la app funcionando": a real screen's recording. The body streams to a temporary file and stops past the
+// cap; the series code reads its type from the bytes. What the browser measured (length, size) comes in the query.
+app.put("/api/series/:id/cast/:castId/video", async (c) => {
+  const info = z
+    .object({
+      seconds: z.coerce.number().min(0.1, "El video dura menos de una décima de segundo.").max(3600, "El video dura más de una hora."),
+      width: z.coerce.number().int().min(1).max(10000),
+      height: z.coerce.number().int().min(1).max(10000),
+      name: z.string().max(200).default(""),
+    })
+    .parse({ seconds: c.req.query("seconds"), width: c.req.query("width"), height: c.req.query("height"), name: c.req.query("name") ?? "" });
+  const declared = Number(c.req.header("content-length") ?? 0);
+  if (declared > SCREEN_VIDEO_MAX_BYTES) return c.json({ error: `El video pesa más de ${SCREEN_VIDEO_MAX_BYTES / 1024 / 1024} MB: acortalo o bajale la calidad.` }, 413);
+  const body = c.req.raw.body;
+  if (!body) return c.json({ error: "El archivo está vacío." }, 400);
+  const temp = screenVideoTemp(c.req.param("id"));
+  const out = createWriteStream(temp);
+  let size = 0;
+  try {
+    const reader = body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > SCREEN_VIDEO_MAX_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new SeriesError(`El video pesa más de ${SCREEN_VIDEO_MAX_BYTES / 1024 / 1024} MB: acortalo o bajale la calidad.`);
+      }
+      if (!out.write(value)) await new Promise((done) => out.once("drain", done));
+    }
+    await new Promise<void>((done, failed) => out.end((e?: Error | null) => (e ? failed(e) : done())));
+  } catch (e) {
+    out.destroy();
+    removeFile(temp, { force: true });
+    throw e;
+  }
+  const member = setScreenVideo(c.req.param("id"), c.req.param("castId"), temp, info);
+  return c.json({ member, series: listSeries() });
+});
+
+app.put("/api/series/:id/cast/:castId/video/poster", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  if (!data.length) return c.json({ error: "El archivo está vacío." }, 400);
+  const member = setScreenVideoPoster(c.req.param("id"), c.req.param("castId"), data);
+  return c.json({ member, series: listSeries() });
+});
+
+app.delete("/api/series/:id/cast/:castId/video", (c) => {
+  const member = removeScreenVideo(c.req.param("id"), c.req.param("castId"));
+  return c.json({ member, series: listSeries() });
+});
+
+// "Mascota en código": the series' mascot as code (shared/mascot.ts), kept in its library; the browser tests it in its
+// sandbox before saving. GET answers { mascot: null } when the series has none.
+app.get("/api/series/:id/mascot", (c) => {
+  const got = readMascot(c.req.param("id"));
+  return c.json({ mascot: got ? { ...got.meta, source: got.source } : null });
+});
+
+app.put("/api/series/:id/mascot", async (c) => {
+  const parsed = z
+    .object({ source: z.string().min(1, "Falta el código.").max(CODE_MAX_CHARS + 1000), name: z.string().trim().min(1, "Falta el nombre de la mascota.").max(60), description: z.string().trim().max(600).default("") })
+    .safeParse(await c.req.json());
+  if (!parsed.success) return c.json({ error: checkErrorText(parsed.error, "Faltan datos de la mascota") }, 400);
+  const mascot = setMascot(c.req.param("id"), parsed.data);
+  return c.json({ mascot, series: listSeries() });
+});
+
+app.delete("/api/series/:id/mascot", (c) => {
+  removeMascot(c.req.param("id"));
+  return c.json({ series: listSeries() });
+});
+
 app.get("/api/series/:id/files/:name", (c) => {
+  // A recording plays and seeks by byte ranges (the preview and the render page jump to exact frames).
+  const video = libraryVideo(c.req.param("id"), c.req.param("name"));
+  if (video) {
+    const range = /^bytes=(\d*)-(\d*)$/.exec(c.req.header("range") ?? "");
+    const head = { "Content-Type": video.type, "Accept-Ranges": "bytes", "Cache-Control": "no-cache" };
+    if (!range || (!range[1] && !range[2])) {
+      const stream = Readable.toWeb(createReadStream(video.path)) as ReadableStream;
+      return c.body(stream, 200, { ...head, "Content-Length": String(video.size) });
+    }
+    let start = range[1] ? Number(range[1]) : Math.max(0, video.size - Number(range[2]));
+    let end = range[1] && range[2] ? Math.min(Number(range[2]), video.size - 1) : video.size - 1;
+    if (start >= video.size || start > end) return c.body(null, 416, { "Content-Range": `bytes */${video.size}` });
+    start = Math.max(0, start);
+    end = Math.max(start, end);
+    const stream = Readable.toWeb(createReadStream(video.path, { start, end })) as ReadableStream;
+    return c.body(stream, 206, { ...head, "Content-Range": `bytes ${start}-${end}/${video.size}`, "Content-Length": String(end - start + 1) });
+  }
   const { data, type } = readLibraryFile(c.req.param("id"), c.req.param("name"));
   return c.body(new Uint8Array(data), 200, { "Content-Type": type, "Cache-Control": "no-cache" });
 });
@@ -422,6 +569,26 @@ app.put("/api/projects/:id/media/:index/:kind", async (c) => {
 app.delete("/api/projects/:id/media/:index/:kind", async (c) => {
   await removeMedia(c.req.param("id"), Number(c.req.param("index")), Kind.parse(c.req.param("kind")));
   return c.json({ ok: true });
+});
+
+// "Imagen fija": the exports the browser drew (fija-NN-<format>.png|jpg) go into the project folder; a new export
+// first removes the last one's files that it does not write again.
+app.put("/api/projects/:id/still/:name", async (c) => {
+  const data = Buffer.from(await c.req.arrayBuffer());
+  return c.json({ file: await saveStillExport(c.req.param("id"), c.req.param("name"), data) });
+});
+
+app.post("/api/projects/:id/still/prune", async (c) => {
+  const { keep } = z.object({ keep: z.array(z.string().max(40)).max(200) }).parse(await c.req.json());
+  return c.json({ removed: await pruneStillExports(c.req.param("id"), keep) });
+});
+
+// "Imagen fija" with a key: the studio's prompt for Opus as it is; the reply comes back in the strict paste format
+// and the studio reads it with the same parser as a pasted one. Without a key: demo (the studio shows the sample).
+app.post("/api/still/ask", async (c) => {
+  const { prompt } = z.object({ prompt: z.string().trim().min(200, "Falta el prompt.").max(60000) }).parse(await c.req.json());
+  if (demo()) return c.json({ demo: true as const });
+  return c.json({ ...(await writeStillText(prompt)), demo: false as const });
 });
 
 // The app's pencil sketch of a shot, drawn by the browser, for pieza.md (boceto-app-NN.png).
@@ -494,6 +661,21 @@ app.post("/api/motion/revise", async (c) => {
   if (demo()) return c.json({ demo: true as const });
   const merge = await reviseMotion(brief, script as unknown as MotionScript, note, layers);
   return c.json({ ...merge, demo: false as const });
+});
+
+// "Escena de código" with a key: the prompt the studio builds for Opus (shared/codePrompt.ts) goes to the writer, which
+// answers the code. Sample mode writes nothing and says so (the person pastes Opus's code by hand).
+app.post("/api/motion/code", async (c) => {
+  const { prompt } = z.object({ prompt: z.string().trim().min(200, "Falta el prompt de la escena.").max(60000) }).parse(await c.req.json());
+  if (demo()) return c.json({ demo: true as const });
+  return c.json({ ...(await writeSceneCode(prompt)), demo: false as const });
+});
+
+// "Mascota en código" with a key: the editor's prompt for Opus goes to the writer. Sample mode writes nothing.
+app.post("/api/mascot/code", async (c) => {
+  const { prompt } = z.object({ prompt: z.string().trim().min(200, "Falta el prompt de la mascota.").max(120000) }).parse(await c.req.json());
+  if (demo()) return c.json({ demo: true as const });
+  return c.json({ ...(await writeMascotCode(prompt)), demo: false as const });
 });
 
 // An explainer's own track (the file as uploaded): Demucs separates its drums on this computer and the kicks are
@@ -599,6 +781,48 @@ app.post("/api/review", async (c) => {
     });
   }
   return c.json({ ...(await reviewPicture(brief, shot, setups, picture, refs)), demo: false });
+});
+
+// "Analizar un anuncio que funciona": the vision model tears a reference ad down into its structure. The picture is
+// used for this request only (never saved, never sent to an image generator); the answer is the written teardown.
+app.post("/api/reference/teardown", async (c) => {
+  const { series, picture, note } = z
+    .object({
+      series: z.string().regex(/^[a-z0-9-]{1,40}$/).nullable().default(null),
+      picture: Jpeg.min(100, "Falta la imagen del anuncio."),
+      note: z.string().max(400).default(""),
+    })
+    .parse(await c.req.json());
+  if (demo()) {
+    return c.json({
+      reference: null,
+      note: "Para desarmar un anuncio hace falta una IA que mire imágenes: cargá una clave en Modelos (Claude, o un modelo de visión). Sin clave, la app no inventa un análisis.",
+      demo: true as const,
+    });
+  }
+  const raw = await teardownAd(series && getSeries(series) ? series : null, picture, note);
+  return c.json({ reference: normalizeReference(raw, new Date().toISOString().slice(0, 10), note), note: "", demo: false as const });
+});
+
+// "Que la IA las nombre": the vision model names one real screenshot (name, what it shows, device). One per request.
+app.post("/api/screens/name", async (c) => {
+  const { series, picture, file } = z
+    .object({
+      series: z.string().regex(/^[a-z0-9-]{1,40}$/).nullable().default(null),
+      picture: Jpeg.min(100, "Falta la captura."),
+      file: z.string().max(200).default(""),
+    })
+    .parse(await c.req.json());
+  if (demo()) {
+    return c.json({
+      screen: null,
+      note: "Para que la IA nombre las pantallas hace falta una clave en Modelos. Sin clave: «Copiar prompt para nombrarlas en claude.ai» y pegá la respuesta acá.",
+      demo: true as const,
+    });
+  }
+  const raw = await nameScreen(series && getSeries(series) ? series : null, picture, file);
+  const device = readDevice(raw.device);
+  return c.json({ screen: { name: raw.name.trim().slice(0, 60), shows: raw.shows.trim().slice(0, 600), ...(device && { device }) }, note: "", demo: false as const });
 });
 
 // ── Modelos: keys and models, set from the app. Only from this computer: the request must come from the loopback

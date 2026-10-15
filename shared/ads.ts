@@ -2,6 +2,7 @@
 // rendered separately; the combination hook × meat × CTA is pure code (this file), so no AI credits go into
 // assembling the ads. Shared by the server (validation, storage) and the browser (UI, render).
 import { z } from "zod";
+import { ALIGNS, CORNERS, PLACEMENTS, STILL_FORMATS } from "./stillLayout.ts";
 
 // ── Awareness levels ──────────────────────────────────────────────────────────────
 export const LEVELS = [1, 2, 3, 4, 5] as const;
@@ -172,6 +173,31 @@ export type PieceSource = (typeof PIECE_SOURCES)[number];
 const levelField = z.number().int().min(1).max(5);
 const levelsField = z.array(levelField).min(1).max(5);
 
+// Whose voice the piece plays: the clip's own (Grok says the line) or the piece's voice file (generated or uploaded)
+// with the clip muted, for when the lips do not match. "Que lo diga un personaje" (shared/adsSpeaker.ts).
+export const SPEAKER_SOUNDS = ["clip", "voice"] as const;
+export type SpeakerSound = (typeof SPEAKER_SOUNDS)[number];
+export const SPEAKER_SOUND_LABEL: Record<SpeakerSound, string> = {
+  clip: "La voz del clip (la dice Grok)",
+  voice: "Clip mudo y la voz de la pieza (generada o subida)",
+};
+
+export const PieceSpeakerSchema = z.object({
+  castId: z.string().regex(/^[a-z0-9-]{1,40}$/, "Id de personaje no válido."),
+  // How the line is said, in the person's words (Spanish, like a story line's emotion).
+  emotion: z.string().trim().max(120).default(""),
+  // The one thing the character does while saying it (English, the prompt's language).
+  action: z.string().trim().max(200).default(""),
+  // Where it is said (English). Empty: the series type's default place.
+  place: z.string().trim().max(300).default(""),
+  // The name of a voice in Grok's Audio panel (optional).
+  voice: z.string().trim().max(60).default(""),
+  sound: z.enum(SPEAKER_SOUNDS).default("clip"),
+  // Where the piece starts playing the uploaded clip (the character often takes a moment before the first word).
+  from: z.number().min(0).max(14).default(0),
+});
+export type PieceSpeaker = z.infer<typeof PieceSpeakerSchema>;
+
 const PieceBase = z.object({
   id: z.string().regex(/^[HMC]\d{1,4}$/),
   text: z.string().max(600),
@@ -184,6 +210,8 @@ const PieceBase = z.object({
   source: z.enum(PIECE_SOURCES),
   createdAt: z.string(),
   note: z.string().max(600).default(""),
+  // "Que lo diga un personaje" (shared/adsSpeaker.ts): the cast character who says the line on camera. Missing: none.
+  speaker: PieceSpeakerSchema.optional(),
 });
 
 export const HookSchema = PieceBase.extend({
@@ -290,10 +318,44 @@ export type Batch = Omit<z.infer<typeof BatchSchema>, "ads"> & { ads: AdCombo[] 
 
 export const AdsMediaSchema = z.object({
   image: z.string().optional(),
-  clip: z.object({ file: z.string(), name: z.string(), duration: z.number() }).optional(),
+  clip: z
+    .object({
+      file: z.string(),
+      name: z.string(),
+      duration: z.number(),
+      // Where the piece starts playing the clip (seconds into it; 0 or missing: its start).
+      from: z.number().min(0).max(3600).optional(),
+      // The clip is a finished explainer of the same series (shared/adsFromExplainer.ts): it brings its own words,
+      // subtitles and notice, so the render draws nothing on top of it.
+      explainer: z.object({ project: z.string().max(80), file: z.string().max(80), title: z.string().max(200) }).optional(),
+    })
+    .optional(),
   voice: z.object({ file: z.string(), name: z.string(), duration: z.number() }).optional(),
 });
 export type AdsMedia = z.infer<typeof AdsMediaSchema>;
+
+// "Versión estática" of a hook (shared/adsStatic.ts): the picture made in Grok with no text, the words the app sets on
+// it ("Variantes de texto": headlines × calls × placements) and the files exported to publicidad/<series>/estaticos/.
+export const HookStaticSchema = z.object({
+  picture: z.object({ file: z.string().max(200), w: z.number().int().min(1).max(20000), h: z.number().int().min(1).max(20000) }).nullable().default(null),
+  // "título | bajada" per line; empty: the hook's onScreenText.
+  headlines: z.string().max(4000).default(""),
+  // One call per line; empty: no call on the picture.
+  ctas: z.string().max(2000).default(""),
+  // The approved CTA whose words go on the picture (its platform texts go to the CSV row); empty: none.
+  ctaId: z.string().max(10).default(""),
+  placements: z.array(z.enum(PLACEMENTS)).max(3).default(["top"]),
+  align: z.enum(ALIGNS).default("left"),
+  formats: z.array(z.enum(STILL_FORMATS)).max(3).default([...STILL_FORMATS]),
+  fit: z.enum(["full", "crop"]).default("full"),
+  // Where the tool's watermark is on this picture; null: the tool profile's default.
+  keepOut: z.object({ corner: z.enum([...CORNERS, "none"]), w: z.number().min(0).max(0.6), h: z.number().min(0).max(0.6) }).nullable().default(null),
+  // The last export's file names (in estaticos/).
+  exports: z.array(z.string().max(80)).max(500).default([]),
+  // Non-blocking checks the person marked "no es un problema".
+  dismissed: z.array(z.string().max(300)).max(50).default([]),
+});
+export type HookStatic = z.infer<typeof HookStaticSchema>;
 
 export const AdsStateSchema = z.object({
   version: z.literal(1),
@@ -312,6 +374,8 @@ export const AdsStateSchema = z.object({
   media: z.record(z.string(), AdsMediaSchema),
   // Per piece: its rendered file in publicidad/<series>/piezas/ (the cache the ads are cut from).
   renders: z.record(z.string(), z.string()),
+  // Per hook: its static version (older files have none).
+  statics: z.record(z.string(), HookStaticSchema).default({}),
 });
 export type AdsState = Omit<z.infer<typeof AdsStateSchema>, "hooks" | "meats" | "ctas" | "clips" | "batches"> & {
   hooks: Hook[];
@@ -337,6 +401,7 @@ export function emptyAds(series: string): AdsState {
     counters: { hook: 0, meat: 0, cta: 0 },
     media: {},
     renders: {},
+    statics: {},
   };
 }
 
@@ -852,16 +917,18 @@ export function rankHooks(state: AdsState): RankedHook[] {
 }
 
 // ── Export CSV (ready for the ads platform) ────────────────────────────────────────
-const csvCell = (v: string | number) => {
+export const csvCell = (v: string | number) => {
   const s = String(v);
   return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
+// "tipo" is video or imagen (the hooks' static versions, shared/adsStatic.ts); "formato" the length or the shape.
+export const CSV_HEAD = ["id", "archivo", "nivel", "publico", "hook", "meat", "cta", "texto_principal", "titular", "boton", "tipo", "formato"];
 export function exportCsv(batch: Batch, hooks: Hook[], meats: Meat[], ctas: Cta[]): string {
   const by = <T extends Piece>(list: T[]) => Object.fromEntries(list.map((p) => [p.id, p]));
   const H = by(hooks);
   const M = by(meats);
   const C = by(ctas);
-  const head = ["id", "archivo", "nivel", "publico", "hook", "meat", "cta", "texto_principal", "titular", "boton"];
+  const head = CSV_HEAD;
   const lines = batch.ads.map((a) => {
     const copy = batch.copies[copyKey(a.hookId, a.ctaId)];
     return [
@@ -875,6 +942,8 @@ export function exportCsv(batch: Batch, hooks: Hook[], meats: Meat[], ctas: Cta[
       copy?.primary ?? "",
       copy?.headline ?? "",
       copy?.button ?? "",
+      "video",
+      `${batch.seconds} s`,
     ]
       .map(csvCell)
       .join(",");

@@ -149,3 +149,15 @@ test("a project.json that fails its check says what is wrong, and nothing is lef
   );
   assert.deepEqual(await readdir(root), before);
 });
+
+test("an «Imagen fija» project is listed by its concept's problem (or «Imagen fija»), its step in Spanish", async () => {
+  const { projectTitle } = await import("../server/projects.ts");
+  const still = { kind: "still", step: "still", still: { picked: "c2", concepts: [{ id: "c1", problem: "Uno", title: "T1" }, { id: "c2", problem: "La toalla en la puerta", title: "T2" }] } };
+  assert.equal(projectTitle(still), "▣ La toalla en la puerta");
+  assert.equal(projectTitle({ ...still, still: { picked: null, concepts: [{ id: "c1", problem: "", title: "Un título" }] } }), "▣ Un título");
+  assert.equal(projectTitle({ ...still, still: { picked: null, concepts: [] } }), "▣ Imagen fija");
+  assert.equal(projectTitle({}), "Sin título todavía");
+  assert.equal(projectTitle({ story: { problem: "p" } }), "p");
+  const panel = await readFile(new URL("../src/components/ProjectsPanel.tsx", import.meta.url), "utf8");
+  assert.match(panel, /still: "Imagen fija"/);
+});

@@ -2,7 +2,7 @@
 // own page, offered for the person to pick. A picked one joins the cast like any member with an approved image, and
 // its note says it came from the website. A site screenshot is marketing, not proof of the app's current UI: it joins
 // as a real screen only after the person confirms the app looks like that today.
-import { CAST_KIND_LABEL, castRef, type CastMember, type SeriesType } from "./series.ts";
+import { CAST_KIND_LABEL, CAST_MAX, castRef, type CastMember, type SeriesType } from "./series.ts";
 
 export type WebPictureKind = "product" | "screen";
 // Where on the page it was found: the product's schema.org data, the page's share image, or an image in the page.
@@ -35,7 +35,7 @@ export function webPictureKinds(type: SeriesType | undefined): WebPictureKind[] 
   return ["product", "screen"];
 }
 
-export const CAST_MAX = 60;
+export { CAST_MAX };
 
 const host = (url: string) => {
   try {

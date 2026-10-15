@@ -332,6 +332,152 @@ people and politics. The playbook's 75 s ad template does not drive the app.
     (lazy MotionStoryboard), with `useHeardWords` and `pieceMarkdown` (src/lib/motionMarkdown.ts). LyricStudio's are
     LyricPreview/LyricVideoTab/LyricSync, SeriesEditor's are CastCard/SeriesBrandLook, and ScriptView's SetupsPanel is
     its own file (lazy SheetBuilder/CastRefs). tests/splitFiles.test.ts guards these lazy boundaries.
+- Screens, code scenes, statics and presenters (idea 66):
+  - "Pantallas en lote" (`shared/screenBatch.ts`, `ScreenBatch.tsx` in Editar serie → "Pantallas reales de la app",
+    software and e-commerce): many screenshots at once (drop, files, or a folder via webkitdirectory). Each one is
+    sent on its own (`PUT /api/series/:id/screens`, `addScreen`: PNG/JPEG/WebP read from the bytes, `SCREEN_MAX_BYTES`
+    15 MB) and becomes a `pending` screen with its image in biblioteca/<series>/. It is named from the file
+    (`cleanScreenName`; names a camera or computer made up become "Pantalla N", `nextScreenNumber`), with unique ids
+    and @refs (`uniqueScreenId`, `uniqueScreenRef` via `extraRefName`), a device guessed from its shape
+    (`guessDevice`), and the original file name kept in its note (`batchFileName`). A failed file does not stop the
+    rest and is listed. "Revisá las pantallas" edits name, function (`identity`), device (`CastMember.device`
+    phone/pc), order (`reorderSubset`) and removal. Naming with no key: "Copiar prompt para nombrarlas en claude.ai"
+    (`screenNamingPrompt`, batches of `PROMPT_BATCH` 20), whose answer, one line per file `archivo | nombre | qué
+    muestra | celular o pc`, is pasted back and read by `parseScreenNames`, then matched by file name
+    (`matchScreenNames`). With a key, "Que la IA las nombre" sends each screenshot as a small JPEG to the vision model
+    (`POST /api/screens/name`, `nameScreen`). "Confirmar" (`POST .../screens/confirm`, `confirmScreens`) clears
+    `pending`, saves names, order and removals at once, and offers each function as an unchecked "Lo que existe hoy"
+    line (`worksTodayOffers`). Pending screens never reach the writers, the brief or the sample output. The story and
+    explainer writers get the confirmed screens as a list of id, @ref, device, name and function (`screensForWriter`
+    in `contextBlocks`). The cast holds up to `CAST_MAX` 150 members.
+  - "Videos de la app funcionando": a real screen of the cast can carry a screen recording (`video` on the cast
+    member: file, poster, seconds, width, height, name; `ScreenVideoSchema` in shared/series.ts; server-owned like
+    puppet files).   - Upload: Editar serie → `ScreenVideoBox`. It goes to `PUT /api/series/:id/cast/:castId/video`
+    (streamed, `SCREEN_VIDEO_MAX_BYTES` 200 MB, type read from the bytes by `videoTypeOf`: mp4/webm/mov), then
+    `.../video/poster` with a JPEG taken by the browser (`probeScreenVideo`, which refuses what this browser cannot
+    play). `DELETE .../video` removes it.   - Serving: library videos are served with Range (`libraryVideo`).   -
+    Explainer scenes: hook/screen/zoom/callouts (asset) and a character's assetB can play it (`scene.recording` {from,
+    to?, rate, end?: "loop"}; the wire field is `clip`, "2-7 x1.5", read by `pickClip`, written by `clipText`;
+    `settleClips` keeps it only on a screen with a recording, clamped). It is muted. It starts at its element's time.
+    - Timing (`clipTime` in shared/screenVideo.ts): the recording time follows the scene time at its rate and then
+    holds the last frame before `to` (`HOLD_BACK`) or loops. `videoPlan`/`drawnAt` say which scene players a frame
+    needs (the previous scene at its last moment during a push or carry).   - Players: src/lib/screenVideo.ts
+    `VideoDeck` keeps one player per scene. The engine only reads them (`assetOf` in src/lib/motion.ts; the poster
+    stands in, at the recording's size). `world.videos` is the deck.   - Exact captures `await deck.ready(script, t)`
+    before drawing (`drawReady`, each with its own `fork()` via `withOwnVideos`): the render page's `window.seek` (now
+    async), the in-browser render, the poster, the contact sheet and the storyboard (`storyboardSheet`/`storyboardPng`
+    take a `prepare`). The preview calls `deck.follow(script, t, playing)` (plays at the rate, re-seeks past
+    `PLAY_DRIFT`).   - Unreadable recordings: the still with `VIDEO_FAILED_NOTE`. Renders stop instead (`check(used)`,
+    `unreadableVideos`).   - Writer and reviewer: the writer's screen list says "has a screen recording of N s".
+    `describeScenes`, `noteView`/`mergeNote` and the storyboard panel (`recording`) name the stretch.   - Stories: a
+    screen shot can use the recording as its clip ("Usar el video de la app como clip", `LibraryEntry.videoUrl`).
+  - "Escena de código" (explainer template `code`, idea 66): the scene's animation is JavaScript the person pastes
+    (written by Opus in claude.ai).   - Contract in one constant (`CODE_CONTRACT`, shared/codeScene.ts) used by the
+    prompt and the runner:     - the code defines `draw(ctx, t, info)`, a pure function of t on an OffscreenCanvas at
+    full size (1080x1920 / 1920x1080);     - no Date, performance, Math.random, timers, network or async;
+    `info.random(seed)` is mulberry32;     - it returns the texts it drew as `[{text, x, y, w, h}]`;     - `info`
+    holds width, height, format, duration, fps, brand, tone, voice, words (scene time, from the subtitle cues),
+    emotion, assets (ImageBitmaps by cast id or `layer:N`), safe and floor.   - "Copiar el prompt para Opus"
+    (`codePrompt`, shared/codePrompt.ts):     - a Spanish note, then the technical brief in English: the contract and
+    `CODE_EXAMPLE`;     - the scene, the brand, the picked pictures with their sizes, and the scenes around it;     -
+    `MOTION_VOCABULARY` (idea 62's moves), `EMOTION_MOTION` (surprise pops, frustration shakes and crumbles, relief
+    settles and breathes);     - the house rules with each text's `readingNeed` and the safe zone and floor in pixels.
+    - "Pegá acá el código" (`CodeScenePanel`):     - `stripFences`, then `validateSource` (static check, Spanish, with
+    the line);     - `testCode` in a fresh sandbox at every `CODE_SAMPLE_STEP` (0.1 s), then saved as `scene.code =
+    {source, assets, samples}`, with samples as frame shares and a sig from `samplesSig`.   - Sandbox
+    (src/lib/codeSandbox.ts):     - an iframe with `sandbox="allow-scripts"` and a srcdoc with a CSP meta (`default-
+    src 'none'; script-src 'unsafe-inline'; img-src blob: data:; font-src blob: data:`);     - a runtime script blocks
+    clocks, randomness, timers and network, then the code runs as its own inline script (`sandboxDoc` knows its first
+    line, so errors give the person's line);     - only postMessage, with a per-instance token (`CodeRunner`: ready →
+    init with fonts as ArrayBuffers via `fontBytes` and pictures transferred → frames one at a time, each an
+    ImageBitmap plus the texts);     - `CODE_FRAME_MS` 250 ms per frame; a request with no answer in `CODE_HANG_MS`
+    tears the iframe down.   - Drawing:     - `CodeDeck` (one sandbox per scene and format, rebuilt when its code,
+    pictures or info change) is `world.code`;     - drawMotionFrame stays synchronous and paints the frame full size,
+    with the subtitle and AI notice on top;     - `drawReady(world, script, t, draw, size?)` awaits `world.code.ready`
+    (duck-typed; `codeNeeds` covers the push and blur subframes), and the preview calls `follow` and shows the latest
+    frame;     - renders (RenderPage, MotionStudio.render) use a strict fork (`fork(true)`) and `check()` first: no
+    code, a failed test or a failing frame stops the render.   - Checks:     - `codeHolds` feeds `readingIssues`
+    (`codeReadingIssues`, key `code:<text>`, dismissible);     - drawn texts feed `figureIssues` ([VERIFY] blocks),
+    `revealTimes` (`codeReveals`) and the contact sheet facts (`codeFacts`);     - `codeIssues` blocks the render (no
+    code, `code.error`, stale samples, which the studio re-tests by itself once per sig, or `codeBreaches` out of the
+    9:16 safe zone or over the subtitle floor), shown in MotionChecks.   - With a key, "Que la IA escriba la
+    animación" sends the same prompt to `POST /api/motion/code` (`writeSceneCode`; sample mode answers demo).   -
+    pieza.md includes the code.   - The writer never picks `code` for a new scene.
+  - Add under Rules (after the Publicidad or explainer bullets): - "Imagen fija" (`brief.piece = "still"`,
+    `StillStudio`, lazy; IDEAS 34 points 3-5, PLAYBOOK §3.2/§5/§7.4): one picture with the pain and the relief.
+    Concepts by family (`shared/still.ts`: STILL_FAMILIES, each names pain, relief, touching detail;
+    offer/press/testimonial need a real `proof` the person confirms (`proofOk`, press needs its link), else [VERIFY]
+    and `conceptBlocks` blocks export). The picked concept's Grok prompt follows §3.2's 10 slots
+    (`stillPromptSlots`/`stillImagePrompt`): no text in the picture, clear space where the words go, 9:16. No key:
+    "Copiar el prompt para Opus" (`stillMenuPrompt`, `stillCopyPrompt`) and a paste box read by `parseStillPaste`
+    (strict "## Concepto N" / "## Texto N" blocks of "campo: valor", errors per block); sample is Máshogar
+    (`shared/stillSample.ts`); with a key `POST /api/still/ask` sends the same prompt and the reply goes through the
+    same parser. The app sets the words (`shared/stillLayout.ts`, `src/lib/stillDraw.ts`): brand fonts (blocked if not
+    loaded), inside the 9:16 safe zone, never in the watermark band (`watermarkKeepOut` reads "Watermark keep-out:"
+    from the tool profile, editable per picture), a brand colour at 4.5:1 on the picture's 10th percentile or a solid
+    box only when needed (`pickTextStyle`; no gradient, no glow). Exports at full resolution (`exportSize`) in 9:16,
+    4:5, 1:1 ("Cuadro completo" by default; "crop" anchors on the watermark's corner so it is never cut). "Variantes
+    de texto": headlines × CTAs × placements (`variantGrid`, MAX_VARIANTS 48) exported in one click as a stored zip
+    (`shared/storeZip.ts`) and into the project as fija-NN-<format>.<png|jpg> (`PUT /api/projects/:id/still/:name`,
+    `POST .../still/prune`); the picture is media slot 500 (fija-imagen). `stillChecks` gates export (§7.4 static).
+  - En el párrafo de Publicidad, agregar: "«Estáticos» (`StaticsPanel`, carga diferida; `shared/adsStatic.ts`; Imagen
+    fija paso 3): cada hook aprobado como imagen fija. `hookConcept` → `stillImagePrompt` da el prompt para Grok sin
+    texto, con lugar libre donde va la frase. La persona sube la imagen a `estaticos/<hookId>-imagen.<ext>`. La app
+    pone la frase en pantalla del hook (y opcional el llamado de un CTA aprobado, `ctaId`) con `drawStill`, y exporta
+    9:16/4:5/1:1 a `publicidad/<serie>/estaticos/<hookId>-<formato>.png` (variantes de texto `-vN-`,
+    `staticFile`/`STATIC_FILE`). `AdsState.statics` guarda los ajustes por hook. Los controles son los de Imagen fija
+    (`staticChecks`) más hook sin aprobar y claim/policy de la revisión. El CSV de la tanda (`campaignCsv`) suma las
+    columnas tipo/formato y lista los estáticos de sus hooks después de los videos; `estaticos/estaticos.csv`
+    (`staticsCsv`) lista todos. Anda sin clave: los prompts se copian (también todos seguidos) y las imágenes se suben
+    a mano."
+  - Add under Publicidad (or under the explainer craft list): - "Usar como cuerpo o llamado"
+    (`shared/adsFromExplainer.ts`, `ExplainerToAds` in MotionStudio, `POST /api/ads/:series/pieces/from-explainer`,
+    `GET /api/ads/:series/explainers/:project`): a finished explainer's saved render
+    (`explainerVideos`/`pickExplainerVideo`: video-final-<format>.mp4 first, else the browser's video-<format>)
+    becomes the clip of an approved meat or CTA of the same series (`explainerTargets`) or of a new one
+    (`explainerPiece`: approved, manual, all levels, its seconds `pieceSecondsFor` the ad length, its text the voice
+    said in the stretch, `voiceInRange`), copied on the server into publicidad/<series>/media/ and the piece's cached
+    render dropped. The piece keeps its budget: `fitClip` plays a longer explainer from an in point
+    (`media.clip.from`, clamped) for the piece's seconds, a shorter one holds its last frame. The render plays a clip
+    from `ShotMedia.clipFrom` and draws nothing over an explainer clip (`media.clip.explainer` → `ShotMedia.finished`:
+    it brings its own words, subtitles and notice). The way back: a meat or CTA with no clip shows "Hacelo como
+    explicativo" (`onToExplainer`), a new explainer with the piece's text in brief.notes (`seedNotes`) and a starting
+    script built with no AI (`starterScript`/`starterPiece`).
+  - "Mascota en código" (`shared/mascot.ts`, `MascotPanel` lazy in SeriesEditor, `GET/PUT/DELETE
+    /api/series/:id/mascot`, `POST /api/mascot/code` with a key): a series can hold one original mascot as code,
+    `drawMascot(ctx, t, pose)` (`MASCOT_CONTRACT`; pose = x, y feet, scale 1 = 400 px tall, facing ±1, expression
+    neutral|happy|surprised|worried|talking, mouth 0..1, gesture idle|wave|point|present|cheer, reach 0..1, lookAt;
+    `normalizePose`, the same as `MASCOT_POSE_JS` in the sandbox). "Copiar el prompt para Opus" (`mascotPrompt`:
+    invented, never a known character or "in the style of"; brand palette only; flat or halftone/dither; blink and
+    breath pure in t; NOMBRE/DESCRIPCIÓN + one js block, `mascotFromReply`). The paste box runs it in the code-scene
+    sandbox (`testMascot`, `MASCOT_STUB` + `{source, main: true}`, "pose" messages measured) at `MASCOT_SAMPLES` and
+    shows a contact sheet; `checkMascotSamples` blocks errors, slow calls, nothing drawn, a background, impure frames
+    and a figure off its pose, and warns on faces, gestures, mouth, facing, scale, x, lookAt or t that change nothing
+    (`offBrandColours` warns too). The code lives in biblioteca/<series>/mascota.js (server-owned); the bible keeps
+    only "Mascota en código: {file,name,description,sig}" (`mascotLine`/`readMascotLine`; old series have none). Every
+    code scene's sandbox gets it (`sandboxDoc(..., {source})`: its own wrapped script before the scene's code;
+    `info.mascot.draw` and `drawMascot`, posed safely with save/restore; a scene that defines drawMascot is refused;
+    the code prompt says "reuse drawMascot, never redraw the character"; `samplesSig` includes the mascot's sig). With
+    no drawable host character, the mascot hosts the character scenes (asset `MASCOT_ASSET` "mascota:codigo", in
+    hostScenes and the writer's cast): `CodeDeck` draws it on `MASCOT_FRAME` at `mascotPoseAt` (mouth from the voice,
+    face from `expressionFor`, gesture eased in on its beat; `mascotNeeds`, `mascotKey`), frame-exact for renders,
+    which stop on a missing or failing mascot (`NO_MASCOT`). "Descargar la hoja de la mascota (PNG)" exports
+    `SHEET_SAMPLES` with no words, for Grok as an @ref.
+  - Under Publicidad (or as an idea-65-style bullet) add: - "Que lo diga un personaje" (`shared/adsSpeaker.ts`,
+    `SpeakerPanel`, `SpeakerBatch`): each hook/meat/CTA can be said on camera by an invented adult of the cast with an
+    approved image (`speakerCandidates`). `speakerPrompt` writes the Grok video prompt with no key: @ref + identity,
+    place by series type (`defaultPlace`), one action, locked camera, the series look or `PLAIN_VIDEO`, the line in
+    quotes via `speakingPrompt` (emotion as tone, `spokenLine` strips inner double quotes), `audioLine` with no music,
+    and the clip that fits the words (`speakerFit`: words/2.7 + 0.4 s, at least the piece, 6/10/15). [VERIFY], empty
+    or over-15 s lines block the copy (`speakerIssues`). The choice is saved as `piece.speaker` (PieceSpeakerSchema in
+    shared/ads.ts; PATCH .../pieces/:id, null removes it; a change drops the cached render) with `sound` (clip's
+    voice, or clip muted via `clipGain` with the piece's voice as fallback) and `from` (the clip's in point). The
+    render's notice becomes `speakerDisclosure` ("Personaje (y voz) hechos con IA", `pieceDisclosure` in adsRender).
+    Lip sync is read from the tool profile's "Lip sync:" line (`lipSyncNote`, ToolInfo.lipSync; Grok: [NOT SURE]).
+    "Que lo digan los personajes (lote)" copies or downloads the approved pieces' prompts in order, with a quantity
+    (`speakerBatch`/`speakerBatchText`). "Que lo diga la mascota" (series with a code mascot) opens an explainer from
+    `AdSeed.presenter = "mascot"` (`mascotScript`: one character scene per sentence with MASCOT_ASSET); "Usar en
+    Publicidad" can also target an approved hook (`TARGET_KINDS`).
 - Publicidad (Método 50-5-3, `src/components/ads/`, `server/ads*.ts`, `shared/ads.ts`): the second section of the app,
   paid ads next to Playbook's organic content (header toggle). An ad = Hook + Meat + CTA; pieces are written and
   rendered separately and the combination hook × meat × CTA is pure code (`combine`, `varyHook`), never the AI. Per

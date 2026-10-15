@@ -2,7 +2,8 @@
 // the brand and preloaded images only. No timers, no state carried between frames; noise is seeded (mulberry32),
 // never Math.random. The studio's banned defaults are not here: no centred title on a gradient, no
 // everything-fades-in, no corner labels or frame borders, no glow, no particle bursts.
-import { actingFor, drawPuppet, mouthBlockStart, puppetPose, type Acting, type PuppetAsset } from "./puppet.ts";
+import { actingFor, drawPuppet, expressionFor, mouthBlockStart, puppetPose, type Acting, type PuppetAsset } from "./puppet.ts";
+import { MASCOT_ASSET, MASCOT_FRAME, MASCOT_UNIT, scenePose, type MascotPose } from "../../shared/mascot.ts";
 import type { ActorAsset } from "./actor.ts";
 import {
   STAT_COUNT,
@@ -32,10 +33,40 @@ import {
 import { BUTTONS_FROM, PHONE_SAFE, isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import { stepDownColour, type Brand, type BrandMotion } from "../../shared/series.ts";
 import { cueAt, litWord, type SubtitleCue } from "../../shared/subtitles.ts";
+import { videoAssetOf } from "../../shared/screenVideo.ts";
 import { WORLD_DEPTH, busyClear, worldOf, worldPalette, worldShapes, worldStepDown, type WorldPlace } from "../../shared/world.ts";
 
-// screen: a real screenshot of the app (shown inside a phone or laptop).
-export type MotionAsset = { image: CanvasImageSource; width: number; height: number; name: string; screen?: boolean };
+// screen: a real screenshot of the app (shown inside a phone or laptop). video: the screen's recording ("Videos de la
+// app funcionando"), its address, length and size; a scene with a clip plays it (assetOf). note: a short line drawn
+// on the picture when its recording could not be read and the still stands in for it.
+export type MotionAsset = {
+  image: CanvasImageSource;
+  width: number;
+  height: number;
+  name: string;
+  screen?: boolean;
+  video?: { url: string; seconds: number; width: number; height: number; poster?: CanvasImageSource };
+  note?: string;
+};
+// The players of the screens' recordings (src/lib/screenVideo.ts): each scene's own player, already sought to the
+// second frame t shows before the frame is drawn. frame() is null while it is not there (still loading, or failed).
+export type VideoFrames = { frame(sceneId: string): CanvasImageSource | null; failed(asset: string): boolean };
+export const VIDEO_FAILED_NOTE = "No se pudo leer el video: va la imagen fija";
+// "Escena de código" (src/lib/codeSandbox.ts): the frames the pasted animation painted in its sandbox, already asked
+// for scene time lt before an exact capture draws (drawReady); the preview shows the latest one. frame() is null
+// while there is none yet; problem() says why, when it failed.
+export type CodeFrames = {
+  frame(sceneId: string, lt: number, w: number, h: number): CanvasImageSource | null;
+  problem(sceneId: string): string | null;
+  // Asks every code frame frame t draws and resolves when they are in hand (CodeDeck.ready).
+  ready?(script: MotionScript, t: number, world: MotionWorld, size?: { w: number; h: number }): Promise<void>;
+  // The live preview: asks frame t without waiting (CodeDeck.follow).
+  follow?(script: MotionScript, t: number, world: MotionWorld, size?: { w: number; h: number }): void;
+  // "Mascota en código": the series' mascot painted at `pose` at piece time t on MASCOT_FRAME's canvas (else the
+  // latest one), and why there is none (no mascot, or its code failed).
+  mascot?(t: number, pose: MascotPose): CanvasImageSource | null;
+  mascotProblem?(): string | null;
+};
 export type MotionWorld = {
   brand: Brand;
   // By cast id, or "layer:N".
@@ -55,7 +86,25 @@ export type MotionWorld = {
   cutBlur?: boolean;
   // The subtitle cues (pieceSubtitles): word by word, or each scene's whole line. Absent: each scene's whole line.
   subtitles?: SubtitleCue[];
+  // The screens' recordings, sought for frame t by the caller before it draws (VideoFrames). Absent: the stills.
+  videos?: VideoFrames;
+  // The code scenes' frames (CodeFrames). Absent: a code scene shows what is missing.
+  code?: CodeFrames;
 };
+
+// The picture a scene draws for one of its elements: its cast image, or, when the scene plays its screen's recording
+// (scene.recording), that scene's player at the second frame t shows, in the recording's own size. While the player has no
+// frame the still stands in (the poster); when the recording could not be read it says so on the picture.
+export function assetOf(world: MotionWorld, s: Pick<MotionScene, "id" | "template" | "asset" | "assetB" | "recording">, key: "media" | "prop"): MotionAsset | undefined {
+  const id = key === "prop" ? s.assetB : s.asset;
+  const base = id ? world.assets[id] : undefined;
+  if (!base?.video || !s.recording || !playsRecording(s, key)) return base;
+  const sized = { ...base, image: base.video.poster ?? base.image, width: base.video.width, height: base.video.height };
+  const frame = world.videos?.frame(s.id);
+  if (frame) return { ...sized, image: frame };
+  return world.videos?.failed(id) ? { ...sized, note: VIDEO_FAILED_NOTE } : sized;
+}
+const playsRecording = (s: Pick<MotionScene, "template" | "asset" | "assetB">, key: "media" | "prop") => videoAssetOf(s)?.key === key;
 
 // How open a character's mouth is at piece time t in scene s (scene time lt).
 function talkLevel(world: MotionWorld, s: TimedScene, t: number, lt: number): number {
@@ -71,6 +120,19 @@ function talkLevel(world: MotionWorld, s: TimedScene, t: number, lt: number): nu
   if (lt < at || lt > at + length) return 0;
   const syllables = Math.max(0, Math.sin((lt - at) * Math.PI * 2 * 4.4 + noise(world.seed + 11, lt * 1.7) * 2));
   return syllables * (0.6 + 0.4 * noise(world.seed + 13, lt * 3));
+}
+
+// "Mascota en código": the pose of the series' code mascot hosting character scene s at piece time t (scene time lt).
+// Its mouth follows the voice like a puppet's, its face the line's emotion (expressionFor), its gesture comes in on
+// the gesture's beat, and it looks at what it presents. A pure function of its inputs: the deck asks the same pose.
+export function mascotPoseAt(world: MotionWorld, s: TimedScene, t: number, lt: number, vertical: boolean, tone?: string): MascotPose {
+  const hasProp = Boolean(s.assetB);
+  const toward = hasProp && !vertical ? -1 : 1;
+  const sinceGesture = lt - (elementTimes(s).gesture ?? 0);
+  // What it presents sits beside it, a little above its head (in MASCOT_FRAME's pixels).
+  const lookAt = hasProp ? { x: MASCOT_FRAME.x + toward * MASCOT_FRAME.scale * MASCOT_UNIT * 0.9, y: MASCOT_FRAME.y - MASCOT_FRAME.scale * MASCOT_UNIT * 0.85 } : null;
+  const face = expressionFor(s.emotion ?? "");
+  return scenePose({ gesture: s.gesture ?? "present", sinceGesture, talk: talkLevel(world, s, t, lt), expression: face, toward, lookAt, dry: tone === "dry" });
 }
 
 // ── Seeded noise ────────────────────────────────────────────────────────────────
@@ -211,6 +273,8 @@ type Frame = {
   pieceWorld?: WorldPlace;
   // A measuring pass (wordBoxes): nothing is painted, so the costly drawers (a rigged character) are skipped.
   dry?: boolean;
+  // The piece's tone (the code mascot's gesture eases in faster when dry).
+  tone?: string;
 };
 
 const display = (f: Frame, size: number, weight = 700) => `${weight} ${size}px "${f.world.brand.displayFont}", "Inter", system-ui, sans-serif`;
@@ -317,6 +381,7 @@ function device(f: Frame, asset: MotionAsset | undefined, cx: number, cy: number
   ctx.clip();
   if (asset) ctx.drawImage(asset.image, x, y, sw, sh);
   else placeholder(f, x, y, sw, sh, label);
+  if (asset?.note) pictureNote(f, asset.note, x, y, sw, sh);
   ctx.restore();
   if (landscape) {
     ctx.fillStyle = "#1a1a1e";
@@ -327,6 +392,23 @@ function device(f: Frame, asset: MotionAsset | undefined, cx: number, cy: number
   return { x, y, w: sw, h: sh };
 }
 
+// A short line across the bottom of a picture (a recording that could not be read), so nobody takes the still for it.
+function pictureNote(f: Frame, text: string, x: number, y: number, w: number, h: number) {
+  const { ctx } = f;
+  const size = Math.max(9, Math.min(f.unit * 0.026, w * 0.07));
+  ctx.save();
+  ctx.font = ui(f, size, 600);
+  const lines = wrap(ctx, text, w * 0.86);
+  const bh = lines.length * size * 1.25 + size * 0.7;
+  ctx.fillStyle = "rgba(11, 11, 13, 0.82)";
+  ctx.fillRect(x, y + h - bh, w, bh);
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  lines.forEach((l, i) => ctx.fillText(l, x + w / 2, y + h - bh + size * 0.35 + size * (i + 1) * 1.15));
+  ctx.restore();
+}
+
 function drawImage(f: Frame, asset: MotionAsset | undefined, cx: number, cy: number, maxW: number, maxH: number, label: string) {
   if (!asset) {
     placeholder(f, cx - maxW / 2, cy - maxH / 2, maxW, maxH, label);
@@ -334,6 +416,7 @@ function drawImage(f: Frame, asset: MotionAsset | undefined, cx: number, cy: num
   }
   const s = fitInto(asset, maxW, maxH, "contain");
   f.ctx.drawImage(asset.image, cx - s.w / 2, cy - s.h / 2, s.w, s.h);
+  if (asset.note) pictureNote(f, asset.note, cx - s.w / 2, cy - s.h / 2, s.w, s.h);
   return { x: cx - s.w / 2, y: cy - s.h / 2, w: s.w, h: s.h };
 }
 
@@ -837,6 +920,7 @@ function drawCarried(f: Frame, asset: MotionAsset | undefined, b: CarryBox) {
     ctx.fillStyle = hexA(world.brand.text, 0.08);
     ctx.fillRect(b.x, b.y, b.w, b.h);
   }
+  if (asset?.note) pictureNote(f, asset.note, b.x, b.y, b.w, b.h);
   ctx.restore();
 }
 
@@ -959,7 +1043,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
     const spot = vertical ? s.tweaks?.[key]?.v : s.tweaks?.[key]?.h;
     return { dx: (spot?.dx ?? 0) * unit, dy: (spot?.dy ?? 0) * unit };
   };
-  const asset = s.asset ? world.assets[s.asset] : undefined;
+  const asset = assetOf(world, s, "media");
   const missing = s.asset ? `Falta la imagen: ${s.asset}` : "Sin imagen";
   const land = f.land;
   // On a 9:16 frame the subtitle and the AI notice sit at the bottom of the safe zone (overlayLayout). The templates'
@@ -991,6 +1075,19 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
   const text = (x: number, y: number, size: number, max: number, p: number) => put("text", x, y, () => slideText(f, s.text, x, y, size, max, p));
 
   switch (s.template) {
+    case "code": {
+      // The pasted animation paints the whole frame in its sandbox; the subtitle and the notice go on top as always.
+      const img = world.code?.frame(s.id, lt, w, h) ?? null;
+      put("media", w / 2, h / 2, () => {
+        if (img) ctx.drawImage(img, 0, 0, w, h);
+        else {
+          const why = world.code?.problem(s.id) ?? (s.code?.source.trim() ? (s.code.error ? `La animación falló: ${s.code.error}` : "Preparando la animación…") : "Escena de código: pegá el código de la animación");
+          placeholder(f, m, h * 0.3, w - m * 2, h * 0.3, why.length > 64 ? `${why.slice(0, 62)}…` : why);
+        }
+        return { x: 0, y: 0, w, h };
+      });
+      break;
+    }
     case "hook": {
       const ty = vertical ? h * 0.36 : h * 0.4;
       const hTitle = title(m, ty, unit * (vertical ? 0.13 : 0.11), w - m * 2, (r) => {
@@ -1062,7 +1159,7 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
       // present a real screen or the product (assetB).
       const actor = s.asset ? world.actors?.[s.asset] : undefined;
       const puppet = s.asset ? world.puppets?.[s.asset] : undefined;
-      const prop = s.assetB ? world.assets[s.assetB] : undefined;
+      const prop = assetOf(world, s, "prop");
       const hasProp = Boolean(s.assetB);
       const cx = vertical ? (hasProp ? w * 0.3 : w / 2) : hasProp ? w * 0.8 : w * 0.72;
       const bottom = vertical ? h * 0.87 : h * 0.97;
@@ -1082,6 +1179,24 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         });
       }
       put("media", cx, bottom, () => {
+        if (s.asset === MASCOT_ASSET) {
+          // "Mascota en código": the series' mascot, painted in its sandbox at this pose, comes up into place.
+          const pose = mascotPoseAt(world, s, f.t, lt, vertical, f.tone);
+          const img = world.code?.mascot?.(f.t, pose) ?? null;
+          const k = height / (MASCOT_FRAME.scale * MASCOT_UNIT);
+          const e = clamp01(outCubic(span(lt, at("media"), 0.5)));
+          if (!img) {
+            const why = world.code?.mascotProblem?.() ?? "Preparando la mascota…";
+            placeholder(f, cx - height * 0.3, bottom - height, height * 0.6, height, why.length > 48 ? "Falta la mascota en código" : why);
+          } else {
+            ctx.save();
+            ctx.globalAlpha *= clamp01(e * 2);
+            ctx.translate(0, (1 - e) * height * 0.25);
+            ctx.drawImage(img, cx - MASCOT_FRAME.x * k, bottom - MASCOT_FRAME.y * k, MASCOT_FRAME.w * k, MASCOT_FRAME.h * k);
+            ctx.restore();
+          }
+          return { x: cx - height * 0.3, y: bottom - height, w: height * 0.6, h: height };
+        }
         if (actor && !f.dry) {
           return actor.draw(ctx, cx, bottom, height, Math.max(0, lt - at("media")), s.seconds, s.move ?? "walk", talkLevel(world, s, f.t, lt));
         }
@@ -1792,6 +1907,7 @@ export function anchorOf(scene: TimedScene, w: number, h: number): { x: number; 
     product: vertical ? [0.5, 0.47] : [0.5, 0.55],
     stat: vertical ? [0.4, 0.45] : [0.4, 0.48],
     logo: vertical ? [0.5, 0.42] : [0.5, 0.36],
+    code: [0.5, 0.5],
   };
   const [fx, fy] = P[scene.template];
   const key = scene.template === "stat" || scene.template === "flow" ? "title" : scene.template === "contradiction" ? "item1" : "media";
@@ -1861,6 +1977,7 @@ export function drawMotionFrame(
     land: landFor(script.tone, world.brand.motion),
     acting: actingFor(script.tone, world.brand.motion),
     pieceWorld: script.world,
+    tone: script.tone,
   };
   if (!scenes.length) {
     backdrop(f);
@@ -2005,7 +2122,8 @@ function carryEnds(f: Frame, a: TimedScene, b: TimedScene, lt: number) {
   const keyA = carriedAsset(a)?.key;
   const keyB = carriedAsset(b)?.key;
   if (!id || !keyA || !keyB) return null;
-  const asset = f.world.assets[id];
+  // The incoming scene's picture: its recording at this moment when it plays one.
+  const asset = assetOf(f.world, b, keyB);
   if (!asset && (a.template === "hook" || b.template === "hook")) return null;
   const look: CarryLook = { aspect: asset ? asset.width / Math.max(1, asset.height) : null, screen: Boolean(asset?.screen), notice: Boolean(f.world.disclosure), seed: f.world.seed };
   const from = carryBox(a, a.seconds - 0.001, f.w, f.h, look);

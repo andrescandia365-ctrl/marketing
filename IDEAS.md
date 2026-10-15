@@ -246,6 +246,8 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   cambiado.
 
 #### 54. Publicidad: lo que sigue — **Construido (7 Oct 2026), menos las métricas por API**
+- **Decidido (11 Oct 2026):** las métricas por API no hacen falta. Alcanza con subir el informe que exporta la
+  plataforma ("Cargar reporte CSV" en Fuentes, que ya existe).
 - Voz por pieza: `media.voice` ya existe en el esquema pero la tarjeta no la sube ni la genera. Sumar "Voz
   generada" con `/api/voice` y la voz del presentador del perfil.
 - "Probar un anuncio": antes de la tanda, elegir un hook, un meat y un CTA y ver el anuncio armado en la app.
@@ -483,6 +485,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - **Decidido (4 Oct 2026):** se elige por toma.
 
 ### 39. Narrador hecho en ElevenLabs (4 Oct 2026) — **A y B construidos (4 Oct 2026); C queda**
+- **Decidido (11 Oct 2026):** C (ElevenLabs desde la app) no hace falta. La narración hecha afuera entra como hoy, con "Importar narración".
 - **Idea (tuya):** hacer la voz del narrador en ElevenLabs y traerla a la app.
 - **Ya existe:** "Grabada o subida" por toma o escena: hoy podés subir cada parte por separado.
 - **Lo que falta:**
@@ -507,6 +510,16 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   4. ¿Por cuál empezamos?
 - **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
 - **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
+
+### 66. Pantallas, escena de código, imagen fija y quien presenta (15 Oct 2026) — **Construido ("Go a los dos", "Go a los tres")**
+- **Pantallas en lote:** subís muchas capturas reales de una vez y las revisás en una grilla (nombre, qué muestra, celular o PC); sin clave, se nombran pegando la respuesta de claude.ai.
+- **Videos de la app funcionando** dentro del celular en los explicativos, con desde y hasta, iguales en la vista previa y en el render.
+- **Escena de código:** "Copiar el prompt para Opus" y una caja donde pegás el código; corre aislado (no llega a la app, a tus archivos ni a internet) y se revisa la lectura y la zona segura.
+- **Imagen fija:** analizar tus anuncios ganadores, conceptos que calman un dolor, prompt para Grok sin texto, el texto lo pone la app sin tapar la marca de agua, variantes de texto para sacar cantidad; y la versión estática de cada gancho en Publicidad.
+- **Usar un explicativo como cuerpo o llamado** de Publicidad, sin bajar y subir el MP4.
+- **Mascota en código** guardada en la serie, reusada en cada escena de código y como presentadora.
+- **Que lo diga un personaje:** prompt para Grok con un personaje inventado del elenco diciendo el gancho, el cuerpo o el llamado, o la mascota con la voz del narrador.
+- **Revisión del código:** 12 errores confirmados y arreglados; el más importante, que el código pegado podía salirse de su caja (ahora corre en un worker aislado y se probó en Chromium que no navega ni llega a la red).
 
 ### 65. Videos de letra, historias y la app por dentro (10 Oct 2026) — **Construido (10 Oct 2026, "Go a las listas")**
 - **Videos de letra:**
@@ -1082,6 +1095,7 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - Marcar [TESTED] lo que viste vos y [NOT SURE] lo demás.
 
 ## Contenido y datos que faltan (no es código)
+- **Decidido (11 Oct 2026):** el material de IMAN (funciones al día y capturas) llega cuando IMAN esté terminado. Mientras tanto, se puede empezar por Máshogar.
 - **IMAN:** la lista actualizada de funciones ("Lo que existe hoy"). Se edita en la app: Brief → Editar serie.
 - **Máshogar:** ✓ nombre con acento y frase "porque el hogar es un sentimiento" (4 Oct 2026, ya en la serie).
 - **IMAN:** las capturas de pantalla reales (las pasás después).
