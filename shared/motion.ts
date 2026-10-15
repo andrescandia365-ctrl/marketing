@@ -233,8 +233,11 @@ export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture"
   // By element key (see sceneElements). Empty or missing: the template's own timing and layout.
   tweaks?: Record<string, Tweak>;
   // Only on the arranged copy (snapElements), never saved: an element's template time moved onto a beat. A hand-set
-  // `at` always wins over it.
+  // `at` and the word that names it (onWord) win over it.
   onBeat?: Record<string, number>;
+  // Only on the arranged copy (enterOnWords, shared/wordEntry.ts), never saved: "Entrar con la palabra", the element
+  // enters when the voice says the word that names it. A hand-set `at` wins over it; it wins over the beat.
+  onWord?: Record<string, number>;
 };
 export type MotionScript = Omit<z.infer<typeof MotionScriptSchema>, "scenes" | "music" | "caption" | "world"> & {
   scenes: MotionScene[];
@@ -703,8 +706,9 @@ function snapWith(scenes: MotionScene[], beats: number[], strong: number[], bigC
 export const ELEMENT_SNAP = 0.1;
 
 // Moves each element's template time onto the nearest beat when one is within ELEMENT_SNAP, so an entrance, its
-// sound and every check read the same second. Hand-set times (tweaks) stay where the person put them; the voice is
-// never moved, and what enters with the cut stays with it. Returns scenes with `onBeat` (never saved).
+// sound and every check read the same second. Hand-set times (tweaks) stay where the person put them, an element that
+// enters on its word (onWord) stays on the word; the voice is never moved, and what enters with the cut stays with
+// it. Returns scenes with `onBeat` (never saved).
 export function snapElements(scenes: MotionScene[], beats: number[], within = ELEMENT_SNAP): MotionScene[] {
   if (beats.length < 2) return scenes;
   return timeScenes(scenes).map(({ index: _index, start, end: _end, ...scene }) => {
@@ -713,7 +717,7 @@ export function snapElements(scenes: MotionScene[], beats: number[], within = EL
     // One at a time, in order: some template times follow others (the typed text's button and result).
     for (;;) {
       const next = sceneElements({ ...scene, onBeat })
-        .filter((e) => !decided.has(e.key) && e.lane !== "voice" && scene.tweaks?.[e.key]?.at === undefined)
+        .filter((e) => !decided.has(e.key) && e.lane !== "voice" && scene.tweaks?.[e.key]?.at === undefined && scene.onWord?.[e.key] === undefined)
         .sort((a, b) => a.at - b.at)[0];
       if (!next) break;
       decided.add(next.key);
@@ -761,6 +765,12 @@ const MEDIA_LABEL: Record<MotionTemplate, string> = {
   logo: "Logo",
   code: "Animación",
 };
+
+// Where an element was put, if anywhere: by hand (tweaks), on the word that names it (onWord), on a beat (onBeat), in
+// that order. Undefined: the template's own time.
+export function placedAt(scene: Pick<MotionScene, "tweaks" | "onWord" | "onBeat">, key: string): number | undefined {
+  return scene.tweaks?.[key]?.at ?? scene.onWord?.[key] ?? scene.onBeat?.[key];
+}
 
 // Every element of a scene with the second it enters (the template's timing, or the person's), only the ones that
 // show something: an empty title or text is not an element.
@@ -815,7 +825,7 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
       // The first is fully in at 0.85 s; the second follows once it has had time to be read. The strike follows the
       // second wherever it was put (by hand or on a beat), so nothing is struck before what contradicts it is there.
       const real = 0.85 + Math.min(1.2, Math.max(0.6, (d - 1.2) / 3));
-      const realAt = scene.tweaks?.item1?.at ?? scene.onBeat?.item1 ?? real;
+      const realAt = placedAt(scene, "item1") ?? real;
       if (scene.items[0]) add("item0", `Lo que dicen: ${scene.items[0]}`, "items", 0.35);
       if (scene.items[1]) add("item1", `Lo que pasa: ${scene.items[1]}`, "items", real);
       if (scene.items[0] && scene.items[1]) add("strike", "Tachado", "moves", realAt + 0.7, false);
@@ -855,7 +865,7 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
     }
     case "type": {
       add("media", media, "media", 0);
-      const typed = (scene.tweaks?.title?.at ?? scene.onBeat?.title ?? 0.35) + typingSeconds(title);
+      const typed = (placedAt(scene, "title") ?? 0.35) + typingSeconds(title);
       if (title) add("title", "Texto tipeado", "title", 0.35);
       if (scene.items[1]) add("tag", "Botón", "tag", typed + 0.15);
       if (text) add("text", "Resultado", "text", typed + 0.6);
@@ -875,7 +885,7 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
       break;
     case "stat": {
       // The supporting line waits for the number to stop counting.
-      const counted = (scene.tweaks?.title?.at ?? scene.onBeat?.title ?? 0) + STAT_COUNT + 0.1;
+      const counted = (placedAt(scene, "title") ?? 0) + STAT_COUNT + 0.1;
       if (title) add("title", "Número", "title", 0);
       if (text) add("text", "Texto", "text", title ? counted : 0.8);
       break;
@@ -892,7 +902,7 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
   }
   if (scene.voice.trim()) add("voice", "Voz", "voice", 0.25, false);
   const latest = Math.max(0, d - 0.3);
-  return list.map((e) => ({ ...e, at: Math.min(latest, Math.max(0, scene.tweaks?.[e.key]?.at ?? scene.onBeat?.[e.key] ?? defaults[e.key])) }));
+  return list.map((e) => ({ ...e, at: Math.min(latest, Math.max(0, placedAt(scene, e.key) ?? defaults[e.key])) }));
 }
 
 // How long the stat template's number counts up.
@@ -1256,6 +1266,9 @@ export type MotionPiece = {
   // "Palabra por palabra": the subtitle lights the word being said (subtitleCues). On by default; a piece saved before
   // it existed has none and counts as on (wordByWordOn).
   wordByWord?: boolean;
+  // "Entrar con la palabra": an element whose words the voice says enters on that word (enterOnWords). On for new
+  // pieces; a piece saved before it existed has none and stays off, so it does not change (enterOnWordOn).
+  enterOnWord?: boolean;
   // Word times heard in each scene's voice file (whisper-1, aligned to the written words), by scene id. Without them,
   // or once the line or the file changed, the times are estimated (sceneWordTimes).
   wordTimes?: Record<string, HeardWordTimes>;
@@ -1282,7 +1295,14 @@ export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {
     conceptsOk: [],
     cutBlur: true,
     wordByWord: true,
+    enterOnWord: true,
   };
+}
+
+// A saved piece as the studio and the render page open it: the defaults under what was saved. A switch that starts on
+// for new pieces but must stay off for older ones ("Entrar con la palabra") is off unless the piece saved it on.
+export function openMotionPiece(format: "vertical" | "horizontal", saved: Partial<MotionPiece>): MotionPiece {
+  return { ...newMotionPiece(format), ...saved, enterOnWord: saved.enterOnWord === true };
 }
 
 export const DURATIONS = [15, 30, 45, 60, 90] as const;

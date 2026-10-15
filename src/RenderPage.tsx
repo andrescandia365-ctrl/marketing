@@ -2,14 +2,14 @@
 // fonts, voices and track, then exposes window.seek(t), which paints frame t at full size, and the finished mix.
 // Nothing here moves on its own: every frame comes from seek(t).
 import { useEffect, useRef, useState } from "react";
-import { cutBlurOn, cutPush, newMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
+import { cutBlurOn, cutPush, openMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
 import type { Brief } from "../shared/schema.ts";
 import { api } from "./lib/api.ts";
 import { ensureFont, fontBytes, fontLoaded } from "./lib/fonts.ts";
 import { CodeDeck } from "./lib/codeSandbox.ts";
 import { drawMotionFrame, scriptDuration } from "./lib/motion.ts";
 import { toWav } from "./lib/motionAudio.ts";
-import { arrangeScenes, layerAssets, loadPieceMedia, loadSeriesImages, makeWorld, motionBeats, motionSound, pieceSubtitles, speechLevels, usesAiImages } from "./lib/motionProject.ts";
+import { arrangeScenes, layerAssets, loadPieceMedia, loadSeriesImages, makeWorld, motionBeats, motionSound, pieceSubtitles, pieceWords, speechLevels, usesAiImages } from "./lib/motionProject.ts";
 import { toSrt } from "../shared/subtitles.ts";
 import { videoAssetOf } from "../shared/screenVideo.ts";
 import { VideoDeck, drawReady, unreadableVideos, videoSources } from "./lib/screenVideo.ts";
@@ -54,7 +54,7 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       const [status, project] = await Promise.all([api.status(), api.project(projectId)]);
       const st = project.state as { kind?: string; motion?: Partial<MotionPiece>; pieceBrief?: Brief };
       if (st.kind !== "motion" || !st.motion?.script || !st.pieceBrief) throw new Error("Esta pieza no es un explicativo con guion.");
-      const piece: MotionPiece = { ...newMotionPiece(st.pieceBrief.format), ...st.motion };
+      const piece: MotionPiece = openMotionPiece(st.pieceBrief.format, st.motion);
       const series = status.series.find((s) => s.id === st.pieceBrief!.series);
       if (!series) throw new Error(`No existe la serie "${st.pieceBrief.series}".`);
       await Promise.all([ensureFont(series.brand.displayFont), ensureFont(series.brand.uiFont)]);
@@ -73,7 +73,7 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       const mascot = saved ? { source: saved.source, name: saved.name, description: saved.description } : null;
       const script = piece.script!;
       const beats = motionBeats(script, piece.music, piece.kickGrid);
-      const scenes = arrangeScenes(script, beats, piece.snap !== false, piece.music, piece.kickGrid);
+      const scenes = arrangeScenes(script, beats, piece.snap !== false, piece.music, piece.kickGrid, pieceWords(piece, media.voices));
       const snapped = { ...script, scenes };
       const notice = piece.disclosure && usesAiImages(scenes, series);
       const speech = await speechLevels(snapped, piece, media.voices);

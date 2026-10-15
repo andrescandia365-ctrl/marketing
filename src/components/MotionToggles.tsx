@@ -1,7 +1,9 @@
 // Next to the inspector: undo, and the switches that change how the whole explainer plays (cuts on the beats, blur in the
-// cuts, word by word subtitles) or what the preview shows (the platform's bands on 9:16).
+// cuts, word by word subtitles, entrances on the word that names them) or what the preview shows (the platform's bands
+// on 9:16).
 import type { MotionPiece, MotionScene } from "../../shared/motion.ts";
 import { wordByWordOn } from "../../shared/subtitles.ts";
+import { enterOnWordOn } from "../../shared/wordEntry.ts";
 import { Button } from "./ui.tsx";
 
 type Props = {
@@ -54,6 +56,17 @@ export function MotionToggles({ undoCount, undo, snap, set, pushes, cutBlur, voi
         >
           <input type="checkbox" checked={wordByWordOn(piece)} onChange={(e) => set({ wordByWord: e.target.checked })} />
           Palabra por palabra
+        </label>
+        <label
+          className={`flex items-center gap-1.5 ${voiced.length ? "" : "text-muted"}`}
+          title={
+            voiced.length
+              ? "Un título, un rótulo o un número que la voz dice entra justo cuando se dice esa palabra, aunque no caiga en el beat. Lo que moviste a mano en la línea de tiempo queda donde lo pusiste."
+              : "Ninguna escena tiene voz: no hay palabras con las que entrar."
+          }
+        >
+          <input type="checkbox" checked={enterOnWordOn(piece)} onChange={(e) => set({ enterOnWord: e.target.checked })} />
+          Entrar con la palabra
         </label>
         {vertical && (
           <label

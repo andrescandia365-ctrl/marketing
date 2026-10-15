@@ -15,6 +15,7 @@ import {
   readingIssues,
   readingKey,
   newMotionPiece,
+  openMotionPiece,
   planCameras,
   quietGaps,
   revealTimes,
@@ -73,6 +74,7 @@ import {
   loadSeriesImages,
   makeWorld,
   motionBeats,
+  pieceWords,
   motionSound,
   pieceSubtitles,
   posterJpeg,
@@ -130,7 +132,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const noKey = !aiReady;
   const [piece, setPiece] = useState<MotionPiece>(() =>
     initial
-      ? { ...newMotionPiece(brief.format), ...initial.piece }
+      ? openMotionPiece(brief.format, initial.piece)
       : // Without a narrator the piece starts with no voice.
         { ...newMotionPiece(brief.format), ...(brief.narrator === "without" && { voice: "none" as const }) },
   );
@@ -261,7 +263,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       const next = seconds;
       const trial = { ...script, scenes: script.scenes.map((x) => (x.id === sceneId ? { ...x, seconds: next } : x)) };
       const grid = motionBeats(trial, piece.music, piece.kickGrid);
-      const played = timeScenes(arrangeScenes(trial, grid, snap, piece.music, piece.kickGrid)).find((x) => x.id === sceneId);
+      const played = timeScenes(arrangeScenes(trial, grid, snap, piece.music, piece.kickGrid, words)).find((x) => x.id === sceneId);
       if (!played || voiceOverrun(played, v.duration) <= 0) break;
       seconds = Math.min(SCENE_SECONDS.max, Math.round((seconds + 0.25) * 1000) / 1000);
     }
@@ -298,7 +300,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   // A saved piece brings back its voices, layers and track.
   useEffect(() => {
     if (!projectId || !initial) return;
-    loadPieceMedia(projectId, { ...newMotionPiece(brief.format), ...initial.piece }, initial.media, initial.music)
+    loadPieceMedia(projectId, openMotionPiece(brief.format, initial.piece), initial.media, initial.music)
       .then((loaded) => {
         setVoices(Object.fromEntries(Object.entries(loaded.voices).map(([id, v]) => [id, { ...v, url: objectUrl(v.blob) }])));
         setLayers(loaded.layers);
@@ -318,7 +320,12 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     [script?.music.bpm, piece.music, piece.kickGrid, duration, Boolean(script)],
   );
   const snap = piece.snap !== false;
-  const scenes = useMemo(() => arrangeScenes(script, beats, snap, piece.music, piece.kickGrid), [script, beats, snap, piece.music, piece.kickGrid]);
+  // "Entrar con la palabra": what the voice names enters on its word (the same word times as the subtitles).
+  const words = useMemo(() => pieceWords(piece, voices), [piece.enterOnWord, piece.voice, piece.wordTimes, voices]);
+  const scenes = useMemo(
+    () => arrangeScenes(script, beats, snap, piece.music, piece.kickGrid, words),
+    [script, beats, snap, piece.music, piece.kickGrid, words],
+  );
   const snapped: MotionScript | null = script ? { ...script, scenes } : null;
   const total = scenes.reduce((n, s) => n + s.seconds, 0);
 
@@ -663,7 +670,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   async function roundSheets(working: MotionScript, formats: SheetFormat[]) {
     await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
     const roundBeats = motionBeats(working, piece.music, piece.kickGrid);
-    const roundScenes = arrangeScenes(working, roundBeats, snap, piece.music, piece.kickGrid);
+    const roundScenes = arrangeScenes(working, roundBeats, snap, piece.music, piece.kickGrid, words);
     const played = { ...working, scenes: roundScenes };
     const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), {
       puppets,
@@ -715,7 +722,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const stateFor = (working: MotionScript, formats: SheetFormat[], passed: boolean, rounds: QualityRound[]): QualityState => {
     const finalBeats = motionBeats(working, piece.music, piece.kickGrid);
     return {
-      key: qualityKey(arrangeScenes(working, finalBeats, snap, piece.music, piece.kickGrid), working, qualityExtra),
+      key: qualityKey(arrangeScenes(working, finalBeats, snap, piece.music, piece.kickGrid, words), working, qualityExtra),
       formats,
       passed,
       accepted: false,
@@ -851,7 +858,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   // The scenes, beats and world for a script that may be newer than this render's state.
   function playable(next: MotionScript) {
     const b = motionBeats(next, piece.music, piece.kickGrid);
-    const sc = arrangeScenes(next, b, snap, piece.music, piece.kickGrid);
+    const sc = arrangeScenes(next, b, snap, piece.music, piece.kickGrid, words);
     const subs = pieceSubtitles(sc, piece, voices);
     return {
       played: { ...next, scenes: sc },
