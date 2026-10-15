@@ -142,6 +142,20 @@ export function layoutOnly(
   return { layout, watermarkWhole: placed.whole };
 }
 
+// Everything a preview of a still draws, as one key: it is drawn again when any of it changes, the brand fonts
+// arriving included (until then the words are measured and painted in the fallback face).
+export const previewKey = (parts: {
+  format: StillFormat;
+  fit: StillFit;
+  keepOut: KeepOut;
+  copies: OverlayCopy[];
+  selected: number;
+  pictureSize: { w: number; h: number };
+  brand: Brand;
+  open: boolean;
+  fontsReady: boolean;
+}): string => JSON.stringify([parts.format, parts.fit, parts.keepOut, parts.copies, parts.selected, parts.pictureSize, parts.brand, parts.open, parts.fontsReady]);
+
 export function canvasBlob(canvas: HTMLCanvasElement, type: "png" | "jpg"): Promise<Blob> {
   return new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("No se pudo armar la imagen."))), type === "png" ? "image/png" : "image/jpeg", 0.92),

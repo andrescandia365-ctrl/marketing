@@ -113,6 +113,31 @@ export function defaultStatic(h: Hook): HookStatic {
 export const staticOf = (h: Hook, statics: Record<string, HookStatic>): HookStatic => statics[h.id] ?? defaultStatic(h);
 export const keepOutOf = (st: HookStatic, toolDefault: KeepOut | null): KeepOut => st.keepOut ?? toolDefault ?? { corner: "none", w: 0, h: 0 };
 
+// "Estáticos" keeps a local copy of each hook's static while the person edits it. What the server saved replaces it for
+// every hook that has no edit waiting or on its way (`busy`), so an edit saved as the panel closed shows when it opens
+// again. Nothing new: the same object.
+export function adoptSaved(local: Record<string, HookStatic>, saved: Record<string, HookStatic>, busy: ReadonlySet<string>): Record<string, HookStatic> {
+  let next = local;
+  for (const [id, st] of Object.entries(saved)) {
+    if (busy.has(id) || JSON.stringify(local[id]) === JSON.stringify(st)) continue;
+    if (next === local) next = { ...local };
+    next[id] = st;
+  }
+  return next;
+}
+
+// The edits still waiting when the panel closes, sent one after another (never two at once, so the last answer is the
+// last save) and every answer handed on. One that fails does not stop the rest.
+export async function flushInOrder<P, S>(patches: [string, P][], send: (id: string, patch: P) => Promise<S>, onState: (state: S) => void): Promise<void> {
+  for (const [id, patch] of patches) {
+    try {
+      onState(await send(id, patch));
+    } catch {
+      // Kept as it was on the server; the panel shows the server's copy when it opens again.
+    }
+  }
+}
+
 // The words a CTA puts on the picture: its on-screen line, else the action it asks for.
 export const ctaWords = (c: Pick<Cta, "onScreenText" | "what" | "text">) => oneLine(c.onScreenText, 60) || oneLine(c.what, 60) || oneLine(c.text, 60);
 

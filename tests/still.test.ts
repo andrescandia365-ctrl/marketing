@@ -15,6 +15,7 @@ import {
   conceptBlocks,
   familyOf,
   migrateStill,
+  nextConceptId,
   newStillPiece,
   normalizeConcept,
   notFrozen,
@@ -199,6 +200,34 @@ test("watermark keep-out comes from the tool profile and is never cropped or cov
   }
   const centred = fitPicture(1152, 1152, 1152, 2048, "crop", NO_KEEP_OUT);
   assert.equal(centred.pic.y, -(2048 - 1152) / 2);
+});
+
+test("the solid box behind the words never reaches the watermark, in any format, fit or alignment", () => {
+  const mark: KeepOut = { corner: "bottom-right", w: 0.2, h: 0.06 };
+  for (const format of ["9x16", "4x5", "1x1"] as const)
+    for (const fit of ["full", "crop"] as const) {
+      const { w, h } = exportSize(format, 1080, 1920, fit);
+      const pic = fitPicture(w, h, 1080, 1920, fit, mark);
+      for (const align of ["left", "center", "right"] as const)
+        for (const headline of ["Frío afuera", "La toalla ya no vive en la puerta de casa nunca más"]) {
+          const lay = layoutOverlay({ w, h, copy: copy({ headline, align }), fonts: FONTS, keepOut: pic.keepOut, measure });
+          if (!lay.fits || !pic.keepOut) continue;
+          assert.ok(!intersects(lay.block, pic.keepOut), `${format} ${fit} ${align} «${headline}»: block ends ${lay.block.y + lay.block.h}, mark starts ${pic.keepOut.y}`);
+        }
+    }
+});
+
+test("concepts added after one was removed get new ids; a saved piece with repeated ids is read back with unique ones", () => {
+  const sample = parseStillPaste(STILL_SAMPLE_MENU, "left", 1).concepts;
+  const left = sample.filter((c) => c.id !== "c1");
+  const more = parseStillPaste(STILL_SAMPLE_MENU, "left", nextConceptId(left)).concepts;
+  const ids = [...left, ...more].map((c) => c.id);
+  assert.equal(new Set(ids).size, ids.length, ids.join(","));
+  assert.equal(nextConceptId([]), 1);
+  assert.equal(nextConceptId([{ id: "c2" }, { id: "c9" }, { id: "x" }]), 10);
+  const twice = migrateStill({ concepts: [sample[0], sample[1], { ...sample[1] }], picked: sample[1].id }, null);
+  assert.deepEqual(twice.concepts.map((c) => c.id), ["c1", "c2", "c3"]);
+  assert.equal(twice.picked, "c2", "the picked one stays the first with that id");
 });
 
 test("exports keep the picture's resolution, at least 1080 wide", () => {

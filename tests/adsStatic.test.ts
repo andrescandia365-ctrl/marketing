@@ -195,3 +195,67 @@ test("older campaign files load with no statics", () => {
   assert.deepEqual(one.statics.H1.placements, ["top"]);
   assert.equal(one.statics.H1.picture, null);
 });
+
+test("a static ad's preview is drawn again when the brand fonts arrive (its key changes with them)", async () => {
+  const { previewKey } = await import("../src/lib/stillDraw.ts");
+  const { DEFAULT_BRAND } = await import("../shared/series.ts");
+  const parts = {
+    format: "9x16" as const,
+    fit: "full" as const,
+    keepOut: { corner: "bottom-right" as const, w: 0.2, h: 0.06 },
+    copies: [{ headline: "Frío afuera", sub: "", cta: "", placement: "bottom" as const, align: "left" as const }],
+    selected: 0,
+    pictureSize: { w: 1080, h: 1920 },
+    brand: DEFAULT_BRAND,
+    open: false,
+  };
+  assert.notEqual(previewKey({ ...parts, fontsReady: false }), previewKey({ ...parts, fontsReady: true }));
+  // Estáticos passes the panel's fontsReady down to every row's preview.
+  const { readFileSync } = await import("node:fs");
+  const panel = readFileSync(new URL("../src/components/ads/StaticsPanel.tsx", import.meta.url), "utf8");
+  assert.match(panel, /previewKey\(\{[^}]*fontsReady[^}]*\}\)/);
+  assert.match(panel, /fontsReady=\{fontsReady\}/);
+});
+
+test("edits sent as Estáticos closes are saved one after another and their last answer reaches the studio", async () => {
+  const { flushInOrder } = await import("../shared/adsStatic.ts");
+  const sent: string[] = [];
+  const states: string[] = [];
+  let release: () => void = () => undefined;
+  const first = new Promise<void>((r) => (release = r));
+  const done = flushInOrder(
+    [
+      ["H1", { headlines: "uno" }],
+      ["H2", { headlines: "dos" }],
+    ],
+    async (id) => {
+      sent.push(id);
+      if (id === "H1") await first;
+      return `estado tras ${id}`;
+    },
+    (s) => states.push(s),
+  );
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(sent, ["H1"], "the second waits for the first");
+  release();
+  await done;
+  assert.deepEqual(sent, ["H1", "H2"]);
+  assert.deepEqual(states, ["estado tras H1", "estado tras H2"]);
+  // One that fails does not stop the rest.
+  const after: string[] = [];
+  await flushInOrder([["A", {}], ["B", {}]], async (id) => (id === "A" ? Promise.reject(new Error("x")) : id), (s) => after.push(s));
+  assert.deepEqual(after, ["B"]);
+});
+
+test("Estáticos takes what the server saved for every hook it is not editing or saving right now", async () => {
+  const { adoptSaved } = await import("../shared/adsStatic.ts");
+  const mk = (headlines: string) => ({ headlines }) as unknown as HookStatic;
+  const local = { H1: mk("viejo"), H2: mk("tipeando"), H3: mk("igual") };
+  const saved = { H1: mk("nuevo"), H2: mk("del servidor"), H3: mk("igual"), H4: mk("otro") };
+  const next = adoptSaved(local, saved, new Set(["H2"]));
+  assert.equal(next.H1.headlines, "nuevo", "the text saved as the panel closed comes back when it opens again");
+  assert.equal(next.H2.headlines, "tipeando", "an edit on its way is never overwritten");
+  assert.equal(next.H4.headlines, "otro");
+  assert.equal(next.H3, local.H3);
+  assert.equal(adoptSaved(local, { H3: mk("igual") }, new Set()), local, "nothing new: the same object");
+});

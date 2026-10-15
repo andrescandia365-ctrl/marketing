@@ -169,7 +169,8 @@ export function textArea(w: number, h: number, keepOut: Rect | null): Rect {
   let top = s.y + m;
   let bottom = s.y + s.h - m;
   if (keepOut) {
-    const gap = m * 0.5;
+    // Never less than the solid box's widest padding (around the biggest headline), so the box clears the mark too.
+    const gap = Math.max(m * 0.5, short * HEADLINE_MAX * BOX_PAD + 1);
     if (keepOut.y + keepOut.h / 2 > h / 2) bottom = Math.min(bottom, keepOut.y - gap);
     else top = Math.max(top, keepOut.y + keepOut.h + gap);
   }
@@ -247,7 +248,8 @@ export function layoutOverlay(o: {
   });
   const pad = size * BOX_PAD;
   const block = { x: x0 - pad, y: y0 - pad, w: set.width + 2 * pad, h: set.height + 2 * pad };
-  if (o.keepOut && boxes.some((b) => intersects(b, o.keepOut!))) problems.push("El texto pisa la marca de agua.");
+  // The words and the solid box that may go behind them.
+  if (o.keepOut && [...boxes, block].some((b) => intersects(b, o.keepOut!))) problems.push("El texto pisa la marca de agua.");
   return { boxes, block, fits: problems.length === 0, problems };
 }
 

@@ -16,6 +16,7 @@ import {
   addCopies,
   conceptBlocks,
   migrateStill,
+  nextConceptId,
   parseStillPaste,
   pickConcept,
   stillChecks,
@@ -323,7 +324,7 @@ export function StillStudio({ projectId, brief, series, tools, initial, aiReady,
 
   // Concepts from a reply (pasted, the writer's or the sample) join the menu.
   function readMenu(text: string): string[] {
-    const r = parseStillPaste(text, piece.align, piece.concepts.length + 1);
+    const r = parseStillPaste(text, piece.align, nextConceptId(piece.concepts));
     if (r.concepts.length) {
       setPiece((p) => ({ ...p, concepts: [...p.concepts, ...r.concepts] }));
       setStatus(`${r.concepts.length} concepto${r.concepts.length === 1 ? "" : "s"} al menú.`);

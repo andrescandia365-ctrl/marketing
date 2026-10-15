@@ -10,12 +10,14 @@ import {
   nextScreenNumber,
   parseScreenNames,
   promptBatches,
+  removeScreen,
   renameScreen,
   reorderSubset,
   screenFileProblem,
   screenMember,
   screenNamingPrompt,
   screenTypeOf,
+  screensBlock,
   screensForWriter,
   uniqueScreenId,
   uniqueScreenRef,
@@ -77,6 +79,23 @@ test("renaming moves an automatic @ref along, never a hand-made one", () => {
   assert.equal(renameScreen(cast[0], "Stock", cast).ref, "Stock");
   const hand = member("h", { name: "Stock", ref: "MiPantalla" });
   assert.equal(renameScreen(hand, "Caja", [hand]).ref, "MiPantalla");
+});
+
+test("clearing a screen's name key by key and typing a new one keeps its @ref following the name", () => {
+  let m = member("pantalla-stock", { name: "Stock", ref: "Stock" });
+  for (const name of ["Stoc", "Sto", "St", "S", "", "P", "Pe", "Pedido"]) m = renameScreen(m, name, [m]);
+  assert.equal(m.name, "Pedido");
+  assert.equal(m.ref, "Pedido");
+  // A hand-made @ref still stays, even through an empty name.
+  let hand = member("h", { name: "Stock", ref: "MiPantalla" });
+  for (const name of ["", "Caja"]) hand = renameScreen(hand, name, [hand]);
+  assert.equal(hand.ref, "MiPantalla");
+});
+
+test("«Quitar» on the last pending screen sends the removals at once (no «Confirmar» is left to send them)", () => {
+  assert.deepEqual(removeScreen(["a", "b"], [], "a"), { removed: ["a"], sendNow: false });
+  assert.deepEqual(removeScreen(["b"], ["a"], "b"), { removed: ["a", "b"], sendNow: true });
+  assert.deepEqual(removeScreen(["b"], ["b"], "b"), { removed: ["b"], sendNow: true }, "never twice");
 });
 
 test("device from the picture's shape; file checks; type read from the bytes", () => {
@@ -183,6 +202,23 @@ test("the writers read confirmed screens with name, function and device; pending
   const text = screensForWriter(cast);
   assert.equal(text, "- pantalla-stock (@StockBuscar, phone): Stock buscar — Buscador de productos");
   assert.equal(screensForWriter(cast, ["otra"]), "");
+});
+
+test("a story's writer hears only the screens its brief picked; an explainer or naming a screen hears them all", () => {
+  const cast = [
+    member("pantalla-stock", { name: "Stock", ref: "Stock", identity: "Buscador" }),
+    member("pantalla-caja", { name: "Caja", ref: "Caja", identity: "Cierre del día" }),
+  ];
+  // A brief with no screens picked (the default, and always for e-commerce): no "pick the screen" block at all.
+  assert.equal(screensBlock(cast, { piece: "story", screens: [] }), "");
+  const story = screensBlock(cast, { piece: "story", screens: ["pantalla-caja"] });
+  assert.match(story, /pantalla-caja/);
+  assert.doesNotMatch(story, /pantalla-stock/);
+  assert.match(story, /Only these may appear/);
+  const explainer = screensBlock(cast, { piece: "explainer", screens: [] });
+  assert.match(explainer, /pantalla-stock/);
+  assert.match(explainer, /pantalla-caja/);
+  assert.match(screensBlock(cast, { piece: "story", screens: [] }, true), /pantalla-stock/);
 });
 
 test("works-today offers skip lines already listed and screens with no function", () => {

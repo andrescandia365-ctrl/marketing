@@ -56,7 +56,7 @@ import { pickWorld, worldLean } from "../shared/world.ts";
 import { momentsForWriter } from "../shared/calendar.ts";
 import { getSeries } from "./series.ts";
 import { REFERENCE_ANGLES, ReferenceWireSchema, type ReferenceWire } from "../shared/reference.ts";
-import { screensForWriter } from "../shared/screenBatch.ts";
+import { screensBlock } from "../shared/screenBatch.ts";
 import { askKimi, listChatModels, type ChatTarget, type ListedModel } from "./kimi.ts";
 import { baseUrlOf, claudeEffort, keyOf, labelOf, visionChoice, writerChoice, EFFORTS, type Effort, type ProviderId } from "./settings.ts";
 import { getTool } from "./tools.ts";
@@ -173,7 +173,7 @@ function claudeError(error: unknown): Error {
 
 // The series bible and the tool profile come after the cached system block, so switching either never
 // re-bills the engine and playbook.
-function contextBlocks(brief: Brief, withTool: boolean): string[] {
+function contextBlocks(brief: Brief, withTool: boolean, opts: { allScreens?: boolean } = {}): string[] {
   const series = getSeries(brief.series);
   if (!series) throw new WriterError(`No existe la serie "${brief.series}".`);
   const blocks = [
@@ -181,13 +181,9 @@ function contextBlocks(brief: Brief, withTool: boolean): string[] {
   ];
   // The series' calendar moments, nearest first with how far each one is (after the cache: it changes every day).
   // The confirmed real screens by name and function, so the writer picks the right one per scene (a batch screen
-  // still pending review is not in it: it is not confirmed as the app today).
-  const screens = screensForWriter(series.cast);
-  if (screens) {
-    blocks.push(
-      `The series' real screens (kind "screen", confirmed real screenshots of the app as it is today), by id, @ref, device, name and what each shows. Pick the screen whose function matches what the scene shows; never one whose function does not fit. A cast member with "pending": true is not confirmed yet: never use it.\n${screens}`,
-    );
-  }
+  // still pending review is not in it: it is not confirmed as the app today). A story reads only the brief's picks.
+  const screens = screensBlock(series.cast, brief, opts.allScreens);
+  if (screens) blocks.push(screens);
   const moments = momentsForWriter(series.moments, new Date());
   if (moments) blocks.push(moments);
   // The offer profile from Publicidad, when the series has one: the same audience, promise and proofs as the ads.
@@ -979,7 +975,7 @@ export function teardownAd(seriesId: string | null, picture: string, note: strin
   const who = currentVision() ?? currentWriter();
   if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
   const series = seriesId ? getSeries(seriesId) : null;
-  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false) : [])];
+  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false, { allScreens: true }) : [])];
   return askWith(
     who,
     system,
@@ -1005,7 +1001,7 @@ export function nameScreen(seriesId: string | null, picture: string, fileName: s
   const who = currentVision() ?? currentWriter();
   if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
   const series = seriesId ? getSeries(seriesId) : null;
-  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false) : [])];
+  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false, { allScreens: true }) : [])];
   return askWith(
     who,
     system,

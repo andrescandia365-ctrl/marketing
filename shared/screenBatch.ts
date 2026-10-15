@@ -118,12 +118,19 @@ export function screenMember(
   };
 }
 
-// A screen renamed in the grid: its @ref follows the name until it was edited by hand (as in the cast card).
+// A screen renamed in the grid: its @ref follows the name until it was edited by hand (as in the cast card). An empty
+// name gets the @ref an empty name makes, so the next letter typed still reads as automatic and the @ref follows it.
 export function renameScreen(member: CastMember, name: string, cast: CastMember[]): CastMember {
   const auto = member.ref.replace(/\d+$/, "") === castRef(member.name).replace(/\d+$/, "");
   if (!auto) return { ...member, name };
   const others = cast.filter((m) => m.id !== member.id);
-  return { ...member, name, ref: uniqueScreenRef(name || member.name, others) };
+  return { ...member, name, ref: uniqueScreenRef(name, others) };
+}
+
+// «Quitar» in the review grid: the screens to drop on the server, and whether they go now. Removing the last pending
+// one leaves no «Confirmar» to send them, so they go at once (the server drops them and deletes their pictures).
+export function removeScreen(pendingIds: string[], removed: string[], id: string): { removed: string[]; sendNow: boolean } {
+  return { removed: removed.includes(id) ? removed : [...removed, id], sendNow: pendingIds.every((x) => x === id) };
 }
 
 // The order after review: the listed ids take the places those members had, in the listed order; everyone else stays.
@@ -253,6 +260,18 @@ export function screensForWriter(cast: CastMember[], allowed?: string[]): string
   return screens
     .map((m) => `- ${m.id} (@${m.ref}${m.device ? `, ${m.device === "phone" ? "phone" : "computer"}` : ""}${m.image ? "" : ", no image yet"}): ${m.name}${m.identity ? ` — ${m.identity}` : ""}`)
     .join("\n");
+}
+
+// The writer's block of real screens. An explainer (or a request with no piece of its own, such as naming a screen)
+// reads every confirmed screen; a story, its board and its revisions only the screens the brief picked ("Pantallas
+// reales"), so it never hears "pick the screen that matches" next to "this piece may show none". "" when there are none.
+export function screensBlock(cast: CastMember[], brief: { piece?: string; screens: string[] }, all = false): string {
+  const every = all || brief.piece === "explainer";
+  const list = screensForWriter(cast, every ? undefined : brief.screens);
+  if (!list) return "";
+  return every
+    ? `The series' real screens (kind "screen", confirmed real screenshots of the app as it is today), by id, @ref, device, name and what each shows. Pick the screen whose function matches what the scene shows; never one whose function does not fit. A cast member with "pending": true is not confirmed yet: never use it.\n${list}`
+    : `The real screens this piece may show (kind "screen", picked in the brief; confirmed real screenshots of the app as it is today), by id, @ref, device, name and what each shows. Only these may appear in a screen shot: pick the one whose function matches what the scene shows; never another screen of the series, and never one whose function does not fit.\n${list}`;
 }
 
 // "Lo que existe hoy" lines offered from confirmed screens (each one unchecked until the person ticks it): its name and

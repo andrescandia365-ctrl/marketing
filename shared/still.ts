@@ -441,12 +441,25 @@ export function newStillPiece(keepOut: KeepOut | null): StillPiece {
   };
 }
 
+// The number the next concept's id takes (c1, c2…): one past the highest in use, so a concept removed from the
+// middle never gives its number to a new one while a later one still has it.
+export const nextConceptId = (concepts: { id: string }[]): number =>
+  1 + Math.max(0, ...concepts.map((c) => Number(/^c(\d+)$/.exec(c.id)?.[1] ?? 0)));
+
 // A saved piece read back: unknown values fall back to the defaults.
 export function migrateStill(raw: unknown, keepOut: KeepOut | null): StillPiece {
   const base = newStillPiece(keepOut);
   if (!raw || typeof raw !== "object") return base;
   const p = raw as Partial<StillPiece>;
-  const concepts = Array.isArray(p.concepts) ? p.concepts.map((c, i) => normalizeConcept(c as never, typeof c?.id === "string" ? c.id : `c${i + 1}`)) : [];
+  const read = Array.isArray(p.concepts) ? p.concepts.map((c, i) => normalizeConcept(c as never, typeof c?.id === "string" ? c.id : `c${i + 1}`)) : [];
+  // Ids repeated by an older version get the next free number (the first keeps its own).
+  const seen = new Set<string>();
+  const concepts: StillConcept[] = [];
+  for (const c of read) {
+    const id = seen.has(c.id) ? `c${nextConceptId([...read, ...concepts])}` : c.id;
+    seen.add(id);
+    concepts.push(id === c.id ? c : { ...c, id });
+  }
   return {
     ...base,
     concepts,

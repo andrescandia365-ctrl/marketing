@@ -143,6 +143,28 @@ export async function createProject(series: string): Promise<ProjectFile> {
   return project;
 }
 
+type SavedState = {
+  story?: { problem?: string; title?: string };
+  lyrics?: { title?: string; artist?: string };
+  motion?: { script?: { problem?: string } | null };
+  still?: { picked?: string | null; concepts?: { id?: string; problem?: string; title?: string }[] };
+};
+
+// The name a project shows in «Proyectos»: a story's problem or title, a lyric video's song, an explainer's problem,
+// an «Imagen fija»'s concept (the picked one, else the first) or its kind.
+export function projectTitle(state: SavedState): string {
+  const concepts = state.still?.concepts ?? [];
+  const concept = concepts.find((c) => c.id === state.still?.picked) ?? concepts[0];
+  return (
+    state.story?.problem ||
+    state.story?.title ||
+    (state.lyrics?.title && `♪ ${state.lyrics.title}${state.lyrics.artist ? ` · ${state.lyrics.artist}` : ""}`) ||
+    (state.motion && `▶ ${state.motion.script?.problem || "Explicativo"}`) ||
+    (state.still && `▣ ${concept?.problem?.trim() || concept?.title?.trim() || "Imagen fija"}`) ||
+    "Sin título todavía"
+  );
+}
+
 export async function listProjects(): Promise<ProjectSummary[]> {
   let names: string[];
   try {
@@ -155,10 +177,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
     if (!ID.test(name)) continue;
     try {
       const p = await read(name);
-      const state = p.state as {
-        story?: { problem?: string; title?: string };
-        lyrics?: { title?: string; artist?: string };
-        motion?: { script?: { problem?: string } | null };
+      const state = p.state as SavedState & {
         menu?: unknown;
         pieceBrief?: { series?: string };
         step?: string;
@@ -166,12 +185,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       };
       out.push({
         id: p.id,
-        title:
-          state.story?.problem ||
-          state.story?.title ||
-          (state.lyrics?.title && `♪ ${state.lyrics.title}${state.lyrics.artist ? ` · ${state.lyrics.artist}` : ""}`) ||
-          (state.motion && `▶ ${state.motion.script?.problem || "Explicativo"}`) ||
-          "Sin título todavía",
+        title: projectTitle(state),
         series: state.pieceBrief?.series ?? "",
         step: state.step ?? "brief",
         updatedAt: p.updatedAt,

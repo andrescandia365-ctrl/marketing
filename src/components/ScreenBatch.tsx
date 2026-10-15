@@ -14,6 +14,7 @@ import {
   matchScreenNames,
   parseScreenNames,
   promptBatches,
+  removeScreen,
   renameScreen,
   reorderSubset,
   screenFileProblem,
@@ -133,9 +134,23 @@ export function ScreenBatch({
     onCast((all) => reorderSubset(all, ids));
   }
 
-  function remove(id: string) {
+  async function remove(id: string) {
+    const plan = removeScreen(
+      pending.map((m) => m.id),
+      removed,
+      id,
+    );
     onCast((all) => all.filter((m) => m.id !== id));
-    setRemoved((r) => [...r, id]);
+    setRemoved(plan.removed);
+    if (!plan.sendNow || !seriesId) return;
+    // The last pending screen: nothing is left to confirm, so the removals go now.
+    try {
+      const { series } = await api.confirmScreens(seriesId, [], plan.removed);
+      setRemoved([]);
+      onSeries?.(series);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   async function nameWithAi() {

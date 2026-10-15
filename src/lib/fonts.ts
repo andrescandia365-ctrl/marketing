@@ -64,7 +64,12 @@ export function fontBytes(families: string[]): Promise<{ family: string; weight:
           );
           return out.filter((x): x is { family: string; weight: string; data: ArrayBuffer } => x !== null);
         })
-        .catch(() => []);
+        .catch(() => [])
+        .then((list) => {
+          // A family that brought nothing is asked again next time (a network blip is not kept for the session).
+          if (!list.length) bytes.delete(family);
+          return list;
+        });
       bytes.set(family, done);
     }
     return done;

@@ -22,7 +22,8 @@ import {
 import { MOTION_VOCABULARY, codePrompt, emotionMotion, type CodePromptInput } from "../shared/codePrompt.ts";
 import { blankScene, figureIssues, quietGaps, readingIssues, readingNeed, timeScenes, type MotionScene, type MotionScript } from "../shared/motion.ts";
 import { DEFAULT_BRAND } from "../shared/series.ts";
-import { CodeDeck, CodeRunner, codeInfo, codeIssues, codeNeeds, sampleRunner, sandboxDoc, type SandboxPort, type Timers } from "../src/lib/codeSandbox.ts";
+import { CodeDeck, CodeRunner, codeInfo, codeIssues, codeNeeds, loadGuard, sampleRunner, sandboxDoc, type SandboxPort, type Timers } from "../src/lib/codeSandbox.ts";
+import { bootSandbox, settle } from "./sandboxHarness.ts";
 import { drawMotionFrame, type MotionWorld } from "../src/lib/motion.ts";
 import { pieceMarkdown } from "../src/lib/motionMarkdown.ts";
 import { drawReady } from "../src/lib/screenVideo.ts";
@@ -191,6 +192,7 @@ test("a render waits for every code scene: no code, a failed test, untested as i
   const sig = (s: MotionScene) => samplesSig(s, "vertical", "warm");
   const none = scene({ id: "a" });
   const failed = scene({ id: "b", code: { source: "function draw(){return []}", assets: [], error: "Línea 2: x is not defined" } });
+  failed.code!.errorSig = sig(failed);
   const stale = scene({ id: "c", code: { source: "function draw(){return []}", assets: [], samples: samples(30, () => []) } });
   const fresh: MotionScene = scene({ id: "d", seconds: 3, code: { source: "function draw(){return []}", assets: [] } });
   fresh.code!.samples = samples(30, () => [box("Afuera", 0.1, 0.01)], sig(fresh));
@@ -205,17 +207,158 @@ test("a render waits for every code scene: no code, a failed test, untested as i
   assert.deepEqual(sampleTimes(0.35), [0, 0.1, 0.2, 0.3]);
 });
 
+test("a failed automatic retest belongs to the way the scene played: back at its tested length, its samples count again", async () => {
+  const sig = (s: MotionScene) => samplesSig(s, "vertical", "warm");
+  const tested = scene({ id: "a", seconds: 2, code: { source: "function draw(){return []}", assets: [] } });
+  tested.code!.samples = samples(20, () => [], sig(tested));
+  // Longer, the quiet retest failed: the failure is kept for that length, with the old samples.
+  const longer = { ...tested, seconds: 3 };
+  const failed: MotionScene = { ...longer, code: { ...tested.code!, error: "Línea 2: boom", errorSig: sig(longer) } };
+  assert.match(codeIssues(timeScenes([failed]), "vertical", false, sig)[0].text, /falló \(Línea 2: boom\)/);
+  // Back at the length it was tested at: nothing blocks, the samples are its own.
+  const back: MotionScene = { ...failed, seconds: 2 };
+  assert.deepEqual(codeIssues(timeScenes([back]), "vertical", false, sig), []);
+  // Any other length is tested again by itself (stale), never stuck on the old failure.
+  assert.equal(codeIssues(timeScenes([{ ...failed, seconds: 4 }]), "vertical", false, sig)[0].stale, true);
+  // The render page's deck reads it the same way.
+  const deck = new CodeDeck({ fonts: allFonts, format: "vertical", strict: true, mount: () => autoRunner(() => ({})).r });
+  await deck.ready(script([back]), 1, world(), { w: 1080, h: 1920 });
+  await assert.rejects(deck.ready(script([failed]), 1, world(), { w: 1080, h: 1920 }), /falló en su última prueba: Línea 2: boom/);
+});
+
+test("a horizontal piece rendered vertical checks its code scenes' texts against the 9:16 safe zone too", async () => {
+  // Tested in 16:9 (the piece's format): its samples say nothing about the phone's bands.
+  const sc = script([scene({ id: "a", seconds: 0.5, code: { source: "function draw(){return []}", assets: [] } })]);
+  sc.scenes[0].code!.samples = { sig: samplesSig(sc.scenes[0], "horizontal", "warm"), step: 0.1, frames: [[], [], [], [], []] };
+  const high = () => autoRunner(() => ({ texts: [{ text: "Arriba", x: 100, y: 10, w: 300, h: 80 }] })).r;
+  const vertical = await new CodeDeck({ fonts: allFonts, format: "horizontal", strict: true, mount: high }).check(sc, world(), { w: 1080, h: 1920 });
+  assert.equal(vertical.length, 1);
+  assert.match(vertical[0].problem, /«Arriba» queda arriba, bajo la barra de la app en 9:16/);
+  // The 16:9 pass has no phone bands; the same text is fine there.
+  assert.deepEqual(await new CodeDeck({ fonts: allFonts, format: "horizontal", strict: true, mount: high }).check(sc, world(), { w: 1920, h: 1080 }), []);
+  // Samples already taken on 9:16 as it plays are read as they are.
+  const own: MotionScene = { ...sc.scenes[0] };
+  own.code = { ...own.code!, samples: { sig: samplesSig(own, "vertical", "warm"), step: 0.1, frames: [[{ text: "Bien", x: 0.2, y: 0.4, w: 0.3, h: 0.05 }]] } };
+  assert.deepEqual(await new CodeDeck({ fonts: allFonts, format: "vertical", strict: true, mount: high }).check(script([own]), world(), { w: 1080, h: 1920 }), []);
+});
+
 // ── The sandbox ────────────────────────────────────────────────────────────────────────────────────────────────
-test("the sandbox document: a strict CSP, the token, the code on its own script with its first line known", () => {
+test("the sandbox document: a strict CSP, the token in the relay only, the code in the worker's script with its first line known", () => {
   const code = 'function draw(ctx, t) {\n  ctx.fillText("</script><b>", 0, 0);\n  return [];\n}';
-  const { html, codeLine } = sandboxDoc(code, "tok-123");
-  assert.ok(html.includes(`content="default-src 'none'; script-src 'unsafe-inline'; img-src blob: data:; font-src blob: data:"`));
+  const { html, worker, codeLine } = sandboxDoc(code, "tok-123");
+  assert.ok(html.includes(`content="default-src 'none'; script-src 'unsafe-inline'; worker-src blob:; img-src blob: data:; font-src blob: data:"`));
   assert.ok(html.includes('var TOKEN = "tok-123";'));
-  assert.ok(html.includes("var LIMIT = 250;"));
-  assert.ok(!html.slice(html.indexOf("function draw")).split("\n")[1].includes("</script>"), "a </script> in the code cannot close its tag");
-  assert.equal(html.split("\n")[codeLine - 1], "function draw(ctx, t) {");
-  assert.ok(html.includes(`var CODE_LINE = ${codeLine};`));
-  assert.ok(html.includes('Math.random = blocked("Math.random"'));
+  assert.ok(!worker.includes("tok-123"), "the code's own script never holds the token");
+  assert.ok(worker.includes("var LIMIT = 250;"));
+  assert.equal(html.split("</script>").length, 2, "a </script> in the code cannot close the relay's tag");
+  assert.ok(!html.includes("function draw(ctx, t) {\n"), "the code is not a script of the iframe's document");
+  assert.equal(worker.split("\n")[codeLine - 1], "function draw(ctx, t) {");
+  assert.ok(worker.includes(`var CODE_LINE = ${codeLine};`));
+  assert.ok(worker.includes('Math.random = blocked("Math.random"'));
+});
+
+// The sandbox run for real: the relay and the worker each in a node:vm context (tests/sandboxHarness.ts).
+const recorderCtx = () => {
+  const ops: string[] = [];
+  const ctx = new Proxy({ measureText: (t: string) => ({ width: t.length * 10 }) } as Record<string, unknown>, {
+    get: (o, k: string) => (k in o ? o[k] : (...args: unknown[]) => ops.push(`${k}(${args.map(String).join(",")})`)),
+    set: (_o, k: string, v: unknown) => (ops.push(`${k}=${String(v)}`), true),
+  });
+  return { ctx, ops };
+};
+
+test("the person's code runs in the relay's worker, never in the iframe's document, and never sees the token", async () => {
+  const code = "function draw(ctx, t, info) {\n  return [{ text: 'hola ' + t, x: 1, y: 2, w: 3, h: 4 }];\n}";
+  const box = await bootSandbox(sandboxDoc(code, "T").html, recorderCtx);
+  assert.ok(box.workerStarted);
+  assert.equal(typeof box.relay.draw, "undefined", "the document holds no draw of the person's");
+  assert.equal(typeof box.worker.draw, "function");
+  assert.deepEqual(box.posted[0], { type: "ready", hasDraw: true, hasMascot: false, token: "T" });
+  box.send({ token: "other", type: "frame", id: 9, t: 1 });
+  box.send({ token: "T", type: "init", info: codeInfo(timeScenes([scene({ id: "c" })])[0], "vertical", world()), fonts: [], assets: [] });
+  await settle();
+  box.send({ token: "T", type: "frame", id: 1, t: 0.5 });
+  await settle();
+  assert.equal(box.toWorker.length, 2, "a message without the token never reaches the worker");
+  assert.ok(box.toWorker.every((m) => !("token" in (m as object))), "the token is stripped before the code's worker");
+  const frame = box.posted.find((m) => m.type === "frame");
+  assert.ok(frame?.type === "frame" && frame.token === "T");
+  assert.deepEqual(frame.texts, [{ text: "hola 0.5", x: 1, y: 2, w: 3, h: 4 }]);
+});
+
+test("an error before the code is ready (a throw at its top, a syntax error) is the ready answer, with the line", async () => {
+  const thrown = await bootSandbox(sandboxDoc("const a = 1;\nmissing.call();\nfunction draw(ctx, t, info) { return []; }", "T").html, recorderCtx);
+  assert.deepEqual(thrown.posted, [{ type: "ready", hasDraw: false, hasMascot: false, error: { message: "ReferenceError: missing is not defined", line: 2 }, token: "T" }]);
+  const port = new FakePort();
+  const r = new CodeRunner("T", port, new FakeTimers());
+  r.receive(thrown.posted[0]);
+  await assert.rejects(r.whenReady(), /Línea 2: ReferenceError: missing is not defined/);
+});
+
+test("the runtime blocks the browser's other clocks and randomness: crypto, an event's time stamp", async () => {
+  const code = [
+    "function draw(ctx, t, info) {",
+    "  var out = [];",
+    "  try { crypto.getRandomValues(new Uint32Array(1)); out.push('crypto abierto'); } catch (e) { out.push(e.message); }",
+    "  try { crypto.randomUUID(); out.push('uuid abierto'); } catch (e) { out.push(e.message); }",
+    "  out.push('stamp ' + new Event('x').timeStamp);",
+    "  out.push('performance ' + typeof performance);",
+    "  try { postMessage({ type: 'frame', id: 1 }); out.push('post abierto'); } catch (e) { out.push(e.message); }",
+    "  return out.map(function (text) { return { text: text, x: 0, y: 0, w: 1, h: 1 }; });",
+    "}",
+  ].join("\n");
+  const box = await bootSandbox(sandboxDoc(code, "T").html, recorderCtx, { crypto: true });
+  box.send({ token: "T", type: "init", info: codeInfo(timeScenes([scene({ id: "c" })])[0], "vertical", world()), fonts: [], assets: [] });
+  await settle();
+  box.send({ token: "T", type: "frame", id: 1, t: 0 });
+  await settle();
+  const frames = box.posted.filter((m) => m.type === "frame");
+  assert.equal(frames.length, 1, "the code cannot post answers of its own");
+  const texts = (frames[0].type === "frame" ? (frames[0].texts as { text: string }[]) : []).map((x) => x.text);
+  assert.deepEqual(texts, [
+    "crypto.getRandomValues no está permitido en una escena de código: usá info.random(semilla)",
+    "crypto.randomUUID no está permitido en una escena de código: usá info.random(semilla)",
+    "stamp 0",
+    "performance undefined",
+    "postMessage no está permitido en una escena de código",
+  ]);
+  // The static check names them before anything runs.
+  const p = validateSource("function draw(ctx, t, info) {\n  const r = crypto.getRandomValues(new Uint32Array(1))[0];\n  const c = document.timeline.currentTime;\n  return [];\n}");
+  assert.deepEqual(p.map((x) => x.line), [2, 3]);
+});
+
+test("a draw that keeps something between frames fails the test: the same t is drawn again and compared", async () => {
+  let n = 0;
+  const counting = autoRunner((t) => ({ texts: [{ text: `n=${++n} ${t}`, x: 0, y: 0, w: 10, h: 10 }] }));
+  const res = await sampleRunner(counting.r, 0.3, { w: 1080, h: 1920 }, "sig");
+  assert.equal(res.samples, null);
+  assert.equal(res.problems.length, 1);
+  assert.match(res.problems[0].message, /draw no es una función pura de t: en t = 0\.20 s dibujó «n=3 0\.2» y la segunda vez «n=4 0\.2»/);
+  const pure = autoRunner((t) => ({ texts: t > 0.1 ? [{ text: "fijo", x: 0, y: 0, w: 10, h: 10 }] : [] }));
+  const ok = await sampleRunner(pure.r, 0.3, { w: 1080, h: 1920 }, "sig");
+  assert.deepEqual(ok.problems, []);
+  assert.equal(ok.samples?.frames.length, 3);
+});
+
+test("an iframe that loads a second time has left its relay: the guard says so once", () => {
+  let left = 0;
+  const guard = loadGuard(() => left++);
+  guard.onLoad();
+  assert.equal(guard.left, false);
+  guard.onLoad();
+  guard.onLoad();
+  assert.equal(guard.left, true);
+  assert.equal(left, 1);
+});
+
+test("code the static check refuses is never mounted", async () => {
+  const mounted: string[] = [];
+  const deck = new CodeDeck({ fonts: async () => [], format: "vertical", mount: (source) => (mounted.push(source), autoRunner(() => ({})).r) });
+  const sc = script([scene({ id: "a", seconds: 2, code: { source: "function draw(ctx, t, info) { fetch('/api'); return []; }", assets: [] } })]);
+  const problems = await deck.check(sc, world());
+  assert.equal(mounted.length, 0);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0].problem, /intenta usar la red/);
 });
 
 class FakePort implements SandboxPort {
@@ -312,14 +455,17 @@ test("a frame that never answers (an endless loop) tears the sandbox down and fa
   await assert.rejects(slow.whenReady(), /no arrancó/);
 });
 
+// Every weight of every family asked for (what fontBytes brings when the network answers).
+const allFonts = async (families: string[]) => families.flatMap((family) => ["400", "700"].map((weight) => ({ family, weight, data: new ArrayBuffer(1) })));
+
 // A runner whose sandbox answers by itself with `answer(t)`.
-function autoRunner(answer: (t: number) => { texts?: unknown; error?: { message: string; line?: number }; ms?: number }) {
+function autoRunner(answer: (t: number) => { texts?: unknown; error?: { message: string; line?: number }; ms?: number }, fontErrors: string[] = []) {
   const port = new FakePort();
   const r = new CodeRunner(`R${Math.random()}`, port, new FakeTimers());
   port.post = (message) => {
     port.sent.push({ message, transfer: [] });
     queueMicrotask(() => {
-      if (message.type === "init") r.receive({ token: r.token, type: "inited", fontErrors: [] });
+      if (message.type === "init") r.receive({ token: r.token, type: "inited", fontErrors });
       if (message.type === "frame") r.receive({ token: r.token, type: "frame", id: message.id, bitmap: bitmap(`t${message.t}`), ms: 1, texts: [], ...answer(message.t) });
     });
   };
@@ -384,13 +530,27 @@ test("the deck: frame t's code frames are in hand before drawing, the push asks 
   const empty = script([scene({ id: "e", seconds: 2 })]);
   await assert.rejects(deck.fork(true).ready(empty, 1, w), /sin código/);
   await deck.ready(empty, 1, w);
-  const failing = new CodeDeck({ fonts: async () => [], format: "vertical", strict: true, mount: () => autoRunner(() => ({ error: { message: "boom", line: 2 } })).r });
+  const failing = new CodeDeck({ fonts: allFonts, format: "vertical", strict: true, mount: () => autoRunner(() => ({ error: { message: "boom", line: 2 } })).r });
   await assert.rejects(failing.ready(sc, 1, w), /La escena 1 \(código\): Línea 2 \(en t = 1\.00 s\): boom/);
   assert.deepEqual(await new CodeDeck({ fonts: async () => [], format: "vertical", mount: () => autoRunner(() => ({ error: { message: "boom" } })).r }).check(sc, w), [
     { index: 0, problem: "El código (en t = 0.00 s): boom" },
     { index: 1, problem: "El código (en t = 0.00 s): boom" },
   ]);
   deck.dispose();
+});
+
+test("a render stops when a brand font did not reach a code scene's sandbox; the preview only goes on", async () => {
+  const sc = script([scene({ id: "a", seconds: 2, code: { source: "function draw(ctx, t, info) { return []; }", assets: [] } })]);
+  const w = world({ brand: { ...DEFAULT_BRAND, displayFont: "Fraunces", uiFont: "Inter" } });
+  const onlyInter = async (families: string[]) => allFonts(families.filter((f) => f === "Inter"));
+  await assert.rejects(new CodeDeck({ fonts: onlyInter, format: "vertical", strict: true, mount: () => autoRunner(() => ({})).r }).ready(sc, 1, w), /No cargó la fuente «Fraunces» en la escena de código: el render se frena/);
+  await assert.rejects(new CodeDeck({ fonts: async () => Promise.reject(new Error("red")), format: "vertical", strict: true, mount: () => autoRunner(() => ({})).r }).ready(sc, 1, w), /«Fraunces», «Inter»/);
+  // A face that came but did not load inside the sandbox stops it too.
+  const badFace = autoRunner(() => ({}), ["Inter 700"]);
+  await assert.rejects(new CodeDeck({ fonts: allFonts, format: "vertical", strict: true, mount: () => badFace.r }).ready(sc, 1, w), /«Inter 700»/);
+  // With every face, it renders; the preview deck never stops for a font.
+  await new CodeDeck({ fonts: allFonts, format: "vertical", strict: true, mount: () => autoRunner(() => ({})).r }).ready(sc, 1, w);
+  await new CodeDeck({ fonts: onlyInter, format: "vertical", mount: () => autoRunner(() => ({})).r }).ready(sc, 1, w);
 });
 
 test("the info a scene's code gets: full size, its own words in scene time, the safe zone and the floor", () => {

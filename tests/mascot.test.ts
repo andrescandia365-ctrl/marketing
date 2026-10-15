@@ -4,8 +4,7 @@
 // that draws the mascot in a character scene, and the prompts.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import vm from "node:vm";
-import { CODE_CONTRACT, validateSource, type HostMessage, type SandboxMessage } from "../shared/codeScene.ts";
+import { CODE_CONTRACT, validateSource, type HostMessage } from "../shared/codeScene.ts";
 import { codePrompt } from "../shared/codePrompt.ts";
 import {
   MASCOT_ASSET,
@@ -35,6 +34,7 @@ import { blankScene, hostScenes, timeScenes, type MotionScene, type MotionScript
 import { DEFAULT_BRAND, EMPTY_SERIES, markdownToSeries, seriesToMarkdown } from "../shared/series.ts";
 import { CodeDeck, CodeRunner, MASCOT_STUB, NO_MASCOT, codeInfo, mascotNeeds, sandboxDoc, testCode, testMascot, type SandboxPort, type Timers } from "../src/lib/codeSandbox.ts";
 import { drawMotionFrame, mascotPoseAt, type MotionWorld } from "../src/lib/motion.ts";
+import { bootSandbox as boot, settle } from "./sandboxHarness.ts";
 
 const world = (o: Partial<MotionWorld> = {}): MotionWorld => ({ brand: DEFAULT_BRAND, assets: {}, logo: null, beats: [], seed: 1, disclosure: "", ...o });
 const script = (scenes: MotionScene[], tone: MotionScript["tone"] = "warm"): MotionScript => ({ problem: "p", title: "t", durationNote: "", note: "", music: { mood: "drive", bpm: 100 }, tone, scenes });
@@ -224,73 +224,29 @@ test("the bible keeps one header line (name, description, fingerprint); a series
 });
 
 // ── The injection into the sandbox ──────────────────────────────────────────────────────────────────────────
-test("the sandbox document: the mascot in its own wrapped script before the scene's code, both first lines known", () => {
+test("the sandbox's worker script: the mascot wrapped before the scene's code, both first lines known", () => {
   const mascot = 'function ease(x) { return x; }\nfunction drawMascot(ctx, t, pose) {\n  ctx.fillText("</script>", 0, 0);\n}';
   const scene = "function draw(ctx, t, info) {\n  return [];\n}";
-  const { html, codeLine, mascotLine: first } = sandboxDoc(scene, "tok", 250, { source: mascot });
-  const lines = html.split("\n");
+  const { html, worker, codeLine, mascotLine: first } = sandboxDoc(scene, "tok", 250, { source: mascot });
+  const lines = worker.split("\n");
   assert.equal(lines[first - 1], "function ease(x) { return x; }");
   assert.equal(lines[first - 2], "var __mascot = (function () {");
   assert.equal(lines[codeLine - 1], "function draw(ctx, t, info) {");
-  assert.ok(html.indexOf("var __mascot") < html.indexOf("function draw(ctx, t, info)"), "the mascot comes first");
-  assert.ok(!lines[first + 1].includes("</script>"), "a </script> in the mascot cannot close its tag");
-  assert.ok(html.includes('window.__codeReady(typeof draw === "function" ? draw : null, typeof __mascot === "function" ? __mascot : null);'));
-  assert.ok(html.includes(`var MASCOT_LINE = ${first};`));
-  assert.ok(html.includes("var MASCOT_MAIN = false;"));
-  // Without a mascot, the scene's code sits where it always did.
+  assert.ok(worker.indexOf("var __mascot") < worker.indexOf("function draw(ctx, t, info)"), "the mascot comes first");
+  assert.equal(html.split("</script>").length, 2, "a </script> in the mascot cannot close the relay's tag");
+  assert.ok(worker.includes(';self.__codeReady(typeof draw === "function" ? draw : null, typeof __mascot === "function" ? __mascot : null);'));
+  assert.ok(worker.includes(`var MASCOT_LINE = ${first};`));
+  assert.ok(worker.includes("var MASCOT_MAIN = false;"));
+  // Without a mascot, the scene's code sits right after the runtime.
   const plain = sandboxDoc(scene, "tok");
   assert.equal(plain.mascotLine, 0);
-  assert.equal(plain.html.split("\n")[plain.codeLine - 1], "function draw(ctx, t, info) {");
-  assert.ok(!plain.html.includes("var __mascot"));
-  assert.ok(sandboxDoc(MASCOT_STUB, "tok", 250, { source: mascot, main: true }).html.includes("var MASCOT_MAIN = true;"));
+  assert.equal(plain.worker.split("\n")[plain.codeLine - 1], "function draw(ctx, t, info) {");
+  assert.ok(!plain.worker.includes("var __mascot"));
+  assert.ok(sandboxDoc(MASCOT_STUB, "tok", 250, { source: mascot, main: true }).worker.includes("var MASCOT_MAIN = true;"));
 });
 
-// The iframe stood in by a node:vm context: the document's scripts run in order in one global (each at its own line,
-// named about:srcdoc as in the browser), with the browser parts the runtime needs faked.
-function bootSandbox(html: string) {
-  const posted: SandboxMessage[] = [];
-  const listeners: Record<string, (e: unknown) => void> = {};
-  const parent = { postMessage: (m: SandboxMessage) => posted.push(JSON.parse(JSON.stringify({ ...m, bitmap: undefined }))) };
-  const drawn: string[][] = [];
-  class OffscreenCanvas {
-    width: number;
-    height: number;
-    constructor(w: number, h: number) {
-      this.width = w;
-      this.height = h;
-    }
-    getContext() {
-      const { ctx, ops } = recorder();
-      drawn.push(ops);
-      return ctx;
-    }
-    transferToImageBitmap() {
-      return { close() {} };
-    }
-  }
-  const global: Record<string, unknown> = {
-    parent,
-    performance: { now: () => 0 },
-    OffscreenCanvas,
-    FontFace: class {},
-    document: { fonts: { add() {} } },
-    addEventListener: (type: string, fn: (e: unknown) => void) => (listeners[type] = fn),
-    console,
-  };
-  global.window = global;
-  const context = vm.createContext(global);
-  const scripts = [...html.matchAll(/<script>(\n?)([\s\S]*?)\n?<\/script>/g)];
-  for (const m of scripts) {
-    const line = html.slice(0, m.index! + "<script>".length + m[1].length).split("\n").length;
-    try {
-      vm.runInContext(m[2], context, { filename: "about:srcdoc", lineOffset: line - 1 });
-    } catch (e) {
-      listeners.error?.({ message: String((e as Error).message), lineno: undefined });
-    }
-  }
-  const send = (data: HostMessage) => listeners.message({ source: parent, data });
-  return { posted, send, drawn, context };
-}
+// The sandbox run for real: the relay and the worker each in a node:vm context (tests/sandboxHarness.ts).
+const bootSandbox = (html: string) => boot(html, recorder);
 const sceneInfo = () => codeInfo(timeScenes([{ ...blankScene("code"), id: "c", seconds: 2 }])[0], "vertical", world(), "warm", { name: "Yerbi", description: "Un paquete de yerba" });
 
 test("the injection, run: a scene's draw reaches the mascot as info.mascot.draw and drawMascot, helpers never collide", async () => {
@@ -304,11 +260,12 @@ test("the injection, run: a scene's draw reaches the mascot as info.mascot.draw 
     "  return [];",
     "}",
   ].join("\n");
-  const box = bootSandbox(sandboxDoc(sceneCode, "T", 250, { source: mascot }).html);
+  const box = await bootSandbox(sandboxDoc(sceneCode, "T", 250, { source: mascot }).html);
   assert.deepEqual(box.posted[0], { type: "ready", hasDraw: true, hasMascot: true, token: "T" });
   box.send({ token: "T", type: "init", info: sceneInfo(), fonts: [], assets: [] });
-  await new Promise((r) => setImmediate(r));
+  await settle();
   box.send({ token: "T", type: "frame", id: 1, t: 0.5 });
+  await settle();
   const frame = box.posted.find((m) => m.type === "frame")!;
   assert.equal(frame.type === "frame" && frame.error, undefined);
   const ops = box.drawn.flat();
@@ -321,35 +278,39 @@ test("the injection, run: a scene's draw reaches the mascot as info.mascot.draw 
 test("the injection, run: an error inside the mascot says so, with the mascot's own line", async () => {
   const mascot = "function drawMascot(ctx, t, pose) {\n  const a = 1;\n  missing.call();\n}";
   const sceneCode = "function draw(ctx, t, info) {\n  info.mascot.draw(ctx, t, {});\n  return [];\n}";
-  const box = bootSandbox(sandboxDoc(sceneCode, "T", 250, { source: mascot }).html);
+  const box = await bootSandbox(sandboxDoc(sceneCode, "T", 250, { source: mascot }).html);
   box.send({ token: "T", type: "init", info: sceneInfo(), fonts: [], assets: [] });
-  await new Promise((r) => setImmediate(r));
+  await settle();
   box.send({ token: "T", type: "frame", id: 1, t: 0 });
+  await settle();
   const frame = box.posted.find((m) => m.type === "frame");
   assert.ok(frame?.type === "frame" && frame.error);
   assert.match(frame.error!.message, /^en el código de la mascota \(línea 3\): missing is not defined/);
   // Tested on its own (the paste box), the line is the mascot's.
-  const alone = bootSandbox(sandboxDoc(MASCOT_STUB, "M", 250, { source: mascot, main: true }).html);
+  const alone = await bootSandbox(sandboxDoc(MASCOT_STUB, "M", 250, { source: mascot, main: true }).html);
   alone.send({ token: "M", type: "init", info: sceneInfo(), fonts: [], assets: [] });
-  await new Promise((r) => setImmediate(r));
+  await settle();
   alone.send({ token: "M", type: "pose", id: 1, t: 0, pose: {}, w: 64, h: 56, measure: true });
+  await settle();
   const own = alone.posted.find((m) => m.type === "frame");
   assert.ok(own?.type === "frame");
   assert.deepEqual(own.error, { message: "missing is not defined", line: 3 });
 });
 
 test("the injection, run: a series without a mascot gives info.mascot null; a pose request is measured", async () => {
-  const box = bootSandbox(sandboxDoc("function draw(ctx, t, info) {\n  ctx.fillText(String(info.mascot), 0, 0);\n  return [];\n}", "T").html);
+  const box = await bootSandbox(sandboxDoc("function draw(ctx, t, info) {\n  ctx.fillText(String(info.mascot), 0, 0);\n  return [];\n}", "T").html);
   assert.deepEqual(box.posted[0], { type: "ready", hasDraw: true, hasMascot: false, token: "T" });
   box.send({ token: "T", type: "init", info: { ...sceneInfo(), mascot: null }, fonts: [], assets: [] });
-  await new Promise((r) => setImmediate(r));
+  await settle();
   box.send({ token: "T", type: "frame", id: 1, t: 0 });
+  await settle();
   assert.ok(box.drawn.flat().includes("fillText(null,0.00,0.00)"));
-  const alone = bootSandbox(sandboxDoc(MASCOT_STUB, "M", 250, { source: MASCOT_EXAMPLE, main: true }).html);
+  const alone = await bootSandbox(sandboxDoc(MASCOT_STUB, "M", 250, { source: MASCOT_EXAMPLE, main: true }).html);
   assert.deepEqual(alone.posted[0], { type: "ready", hasDraw: true, hasMascot: true, token: "M" });
   alone.send({ token: "M", type: "init", info: sceneInfo(), fonts: [], assets: [] });
-  await new Promise((r) => setImmediate(r));
+  await settle();
   alone.send({ token: "M", type: "pose", id: 7, t: 0, pose: { x: 32, y: 50, scale: 0.1 }, w: 64, h: 56, measure: true });
+  await settle();
   const got = alone.posted.find((m) => m.type === "frame");
   assert.ok(got?.type === "frame" && !got.error);
   assert.deepEqual(got.stats && { box: got.stats.box, ink: got.stats.ink }, { box: null, ink: 0 }, "the stand-in canvas reads back blank; the shape of the answer is what counts here");
@@ -552,6 +513,17 @@ test("the deck draws the mascot of a character scene at the exact pose, frame-ex
     [NO_MASCOT],
   );
   await tick();
+  deck.dispose();
+});
+
+test("a blurred push between two mascot scenes keeps every pose it fetched: each subframe draws its own", async () => {
+  const sc = script([scene({ id: "m", asset: MASCOT_ASSET, seconds: 2, gesture: "wave" }), scene({ id: "n", asset: MASCOT_ASSET, seconds: 2, gesture: "point" })], "warm");
+  const w = world({ cutBlur: true });
+  const needs = mascotNeeds(sc, 2.2, w, true, true);
+  assert.equal(needs.length, 16, "8 subframes, both scenes");
+  const deck = new CodeDeck({ fonts: async () => [], format: "vertical", strict: true, mascot: { source: MASCOT_EXAMPLE, name: "Caja", description: "" }, mount: () => autoRunner({ needs: "mascot" }).r });
+  await deck.ready(sc, 2.2, w, { w: 1080, h: 1920 });
+  for (const { t, pose } of needs) assert.equal((deck.mascot(t, pose) as unknown as { name: string } | null)?.name, `pose${t}`, `the pose at ${t.toFixed(4)}`);
   deck.dispose();
 });
 

@@ -1,7 +1,8 @@
-// "Escena de código", the browser side: the pasted animation runs in a sandboxed iframe (sandbox="allow-scripts",
-// so an opaque origin with no access to the app, its API, its storage or the network; a CSP that allows only its own
-// inline scripts and blob:/data: pictures and fonts). The only way in or out is postMessage with a token made for that
-// instance. Each frame request answers an ImageBitmap (OffscreenCanvas.transferToImageBitmap) and the texts drawn.
+// "Escena de código", the browser side: the pasted animation runs in a worker started by a sandboxed iframe
+// (sandbox="allow-scripts", so an opaque origin with no access to the app, its API, its storage or the network; a CSP
+// that allows only the iframe's own inline relay, blob: workers and blob:/data: pictures and fonts, which the worker
+// inherits). The code never runs in the iframe's document, so it cannot navigate it away from that CSP. The only way
+// in or out is postMessage with a token made for that instance, which the code never sees. Each frame request answers an ImageBitmap (OffscreenCanvas.transferToImageBitmap) and the texts drawn.
 // A frame over CODE_FRAME_MS is an error; one that never answers (an endless loop) tears the iframe down.
 //
 // The engine stays synchronous (drawMotionFrame reads CodeDeck.frame); every exact capture (the render page, the
@@ -13,10 +14,12 @@ import {
   CODE_HANG_MS,
   CODE_LOAD_MS,
   codeBreaches,
+  codeError,
   codeSig,
   problemText,
   readSandboxMessage,
   sampleTimes,
+  samplesSig,
   shareTexts,
   textsOf,
   validateSource,
@@ -42,33 +45,40 @@ import {
   type MascotPose,
   type MascotResult,
 } from "../../shared/mascot.ts";
-import { blurSamples, cutPush, pushOf, timeScenes, type MotionScript, type TimedScene } from "../../shared/motion.ts";
+import { BLUR_SUBFRAMES, blurSamples, cutPush, pushOf, timeScenes, type MotionScript, type TimedScene } from "../../shared/motion.ts";
 import { safeRect } from "../../shared/safeZone.ts";
 import { floorOf, mascotPoseAt, sceneAt, type CodeFrames, type MotionAsset, type MotionWorld } from "./motion.ts";
 
-// ── The iframe's document ──────────────────────────────────────────────────────────────────────────────────────
-// The runtime runs first: it keeps what it needs (the clock for the time limit, OffscreenCanvas, FontFace), then
-// blocks the clocks, randomness, timers and network for the scene's code, which runs next as its own inline script
-// (a syntax error there is reported with its line), and a last script says whether draw exists.
-const RUNTIME = `(function () {
+// ── The sandbox ────────────────────────────────────────────────────────────────────────────────────────────────
+// The person's code never runs in the iframe's own document: a document can navigate itself away (sandbox and CSP do
+// not stop that), and the page it lands on has neither. The iframe only holds a relay with no code of the person's;
+// the code runs in a dedicated worker the relay starts from a blob. The worker inherits the iframe's CSP (no network,
+// no eval, no imports) and cannot navigate anything; the relay checks the token, strips it before passing a message
+// on (the code never sees it), and adds it to the worker's answers.
+//
+// The worker's runtime runs first: it keeps what it needs (the clock for the time limit, OffscreenCanvas, FontFace,
+// its channel to the relay), then blocks the clocks, randomness, timers and network for the scene's code, which comes
+// next in the same script; its last line says whether draw exists. An error before that (a syntax error, or a throw
+// at the top of the code) reaches the relay, which answers "ready" with it and its line.
+const WORKER_RUNTIME = `(function () {
   "use strict";
-  var TOKEN = __TOKEN__;
   var LIMIT = __LIMIT__;
   var CODE_LINE = __LINE__;
   var CODE_END = __END__;
   var MASCOT_LINE = __MASCOT_LINE__;
   var MASCOT_END = __MASCOT_END__;
   var MASCOT_MAIN = __MASCOT_MAIN__;
-  var host = window.parent;
+  var G = self;
+  var send = G.postMessage.bind(G);
   var now = performance.now.bind(performance);
   var Canvas = OffscreenCanvas;
   var Face = FontFace;
-  var fontSet = document.fonts;
-  var listen = window.addEventListener.bind(window);
+  var fontSet = G.fonts;
+  var listen = G.addEventListener.bind(G);
   var normalizePose = __POSE__;
   var firstError = null;
-  function post(m, transfer) { m.token = TOKEN; host.postMessage(m, "*", transfer || []); }
-  // A document line as a line of the person's code: the scene's, or the mascot's (its own lines from 1).
+  function post(m, transfer) { send(m, transfer || []); }
+  // A script line as a line of the person's code: the scene's, or the mascot's (its own lines from 1).
   function userLine(n) {
     n = Number(n);
     if (n >= CODE_LINE && n <= CODE_END) return { line: n - CODE_LINE + 1, mascot: false };
@@ -83,7 +93,7 @@ const RUNTIME = `(function () {
   }
   // The first place in the person's code on the error's stack (a blocked call throws from the runtime's own lines).
   function lineOf(e) {
-    var re = /about:srcdoc:(\\d+):\\d+/g, m, stack = String((e && e.stack) || "");
+    var re = /blob:[^\\s)]*?:(\\d+):\\d+/g, m, stack = String((e && e.stack) || "");
     while ((m = re.exec(stack))) { var k = userLine(m[1]); if (k) return k; }
     return null;
   }
@@ -93,12 +103,25 @@ const RUNTIME = `(function () {
   function blocked(name, hint) {
     return function () { throw new Error(name + " no está permitido en una escena de código" + (hint ? ": " + hint : "")); };
   }
-  Math.random = blocked("Math.random", "usá info.random(semilla)");
-  ["setTimeout", "setInterval", "requestAnimationFrame", "queueMicrotask", "fetch", "XMLHttpRequest", "WebSocket", "EventSource", "Worker", "SharedWorker", "open"].forEach(function (n) {
-    try { Object.defineProperty(window, n, { value: blocked(n), configurable: false, writable: false }); } catch (x) {}
+  function block(owner, name, value) {
+    try { Object.defineProperty(owner, name, { value: value, configurable: false, writable: false }); } catch (x) {}
+  }
+  var random = "usá info.random(semilla)";
+  Math.random = blocked("Math.random", random);
+  // Randomness the browser gives without Math: the frame depends only on t.
+  if (typeof crypto === "object" && crypto) {
+    block(crypto, "getRandomValues", blocked("crypto.getRandomValues", random));
+    block(crypto, "randomUUID", blocked("crypto.randomUUID", random));
+    try { block(Object.getPrototypeOf(crypto), "getRandomValues", blocked("crypto.getRandomValues", random)); block(Object.getPrototypeOf(crypto), "randomUUID", blocked("crypto.randomUUID", random)); } catch (x) {}
+  }
+  ["setTimeout", "setInterval", "requestAnimationFrame", "requestIdleCallback", "queueMicrotask", "fetch", "XMLHttpRequest", "WebSocket", "WebSocketStream", "EventSource", "Worker", "SharedWorker", "importScripts", "MessageChannel", "BroadcastChannel", "postMessage"].forEach(function (n) {
+    block(G, n, blocked(n));
   });
-  try { Object.defineProperty(window, "performance", { value: undefined, configurable: false, writable: false }); } catch (x) {}
-  try { Object.defineProperty(window, "Date", { value: blocked("Date", "el cuadro depende solo de t"), configurable: false, writable: false }); } catch (x) {}
+  try { if (typeof DedicatedWorkerGlobalScope === "function") block(DedicatedWorkerGlobalScope.prototype, "postMessage", blocked("postMessage")); } catch (x) {}
+  block(G, "performance", undefined);
+  block(G, "Date", blocked("Date", "el cuadro depende solo de t"));
+  // An event's own clock reads 0.
+  try { Object.defineProperty(Event.prototype, "timeStamp", { get: function () { return 0; }, configurable: false }); } catch (x) {}
   function mulberry(seed) {
     var a = seed >>> 0;
     return function () {
@@ -135,12 +158,10 @@ const RUNTIME = `(function () {
     }
     return { box: ink ? { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 } : null, ink: ink, share: ink / (w * h), hash: (hash >>> 0).toString(16) };
   }
-  Object.defineProperty(window, "__codeReady", { configurable: false, writable: false, value: function (draw, mascot) {
+  Object.defineProperty(G, "__codeReady", { configurable: false, writable: false, value: function (draw, mascot) {
     drawFn = typeof draw === "function" ? draw : null;
     mascotFn = typeof mascot === "function" ? mascot : null;
-    if (mascotFn) {
-      try { Object.defineProperty(window, "drawMascot", { value: drawMascot, configurable: false, writable: false }); } catch (x) {}
-    }
+    if (mascotFn) block(G, "drawMascot", drawMascot);
     post({ type: "ready", hasDraw: !!drawFn, hasMascot: !!mascotFn, error: firstError || undefined });
   } });
   function fresh(w, h) {
@@ -151,9 +172,8 @@ const RUNTIME = `(function () {
     return canvas.getContext("2d", { willReadFrequently: false });
   }
   listen("message", function (e) {
-    if (e.source !== host) return;
     var m = e.data;
-    if (!m || m.token !== TOKEN) return;
+    if (!m || typeof m !== "object") return;
     if (m.type === "init") {
       var assets = {};
       (m.assets || []).forEach(function (a) { assets[a.name] = a.bitmap; });
@@ -207,61 +227,132 @@ const RUNTIME = `(function () {
   });
 })();`;
 
-// The iframe's whole document for this code and token. `codeLine`: the document line where the code starts, so a
-// line in an error reads as the line of the person's code. "Mascota en código": the series' mascot goes in its own
-// script before the scene's code, wrapped in a function so its helpers stay its own (a scene's `ease` never replaces
-// the mascot's), and reaches the scene as info.mascot.draw and drawMascot. `main`: the mascot is the code under test
-// (the paste box, a character scene), so its errors carry its own line numbers.
+// The iframe's relay: it starts the worker, passes the host's messages on without the token (only the ones from its
+// parent with the token), and the worker's answers back with it. An error in the worker before it said "ready" (a
+// syntax error, a throw at the top of the code) is the "ready" answer, with the line in the person's code.
+const RELAY = `(function () {
+  "use strict";
+  var TOKEN = __TOKEN__;
+  var CODE_LINE = __LINE__;
+  var CODE_END = __END__;
+  var MASCOT_LINE = __MASCOT_LINE__;
+  var MASCOT_END = __MASCOT_END__;
+  var MASCOT_MAIN = __MASCOT_MAIN__;
+  var host = window.parent;
+  var ready = false;
+  function post(m, transfer) { m.token = TOKEN; host.postMessage(m, "*", transfer || []); }
+  function failed(message, n) {
+    if (ready) return;
+    ready = true;
+    n = Number(n);
+    var error = { message: message };
+    if (n >= CODE_LINE && n <= CODE_END) error.line = n - CODE_LINE + 1;
+    else if (MASCOT_LINE > 0 && n >= MASCOT_LINE && n <= MASCOT_END) {
+      if (MASCOT_MAIN) error.line = n - MASCOT_LINE + 1;
+      else error.message = "en el código de la mascota (línea " + (n - MASCOT_LINE + 1) + "): " + message;
+    }
+    post({ type: "ready", hasDraw: false, hasMascot: false, error: error });
+  }
+  var worker;
+  try {
+    worker = new Worker(URL.createObjectURL(new Blob([__WORKER__], { type: "text/javascript" })));
+  } catch (x) {
+    failed("No pude arrancar la animación en su caja: " + String((x && x.message) || x), 0);
+    return;
+  }
+  worker.addEventListener("error", function (e) {
+    if (ready) return;
+    e.preventDefault();
+    failed(String(e.message || "Error").replace(/^Uncaught /, ""), e.lineno);
+  });
+  worker.addEventListener("message", function (e) {
+    var m = e.data;
+    if (!m || typeof m !== "object") return;
+    if (m.type === "ready") {
+      if (ready) return;
+      ready = true;
+    }
+    post(m, m.bitmap ? [m.bitmap] : []);
+  });
+  window.addEventListener("message", function (e) {
+    if (e.source !== host) return;
+    var m = e.data;
+    if (!m || typeof m !== "object" || m.token !== TOKEN) return;
+    var out = {};
+    for (var k in m) if (k !== "token") out[k] = m[k];
+    var transfer = m.type === "init" ? (m.assets || []).map(function (a) { return a && a.bitmap; }).filter(Boolean) : [];
+    worker.postMessage(out, transfer);
+  });
+})();`;
+
+// The worker's script for this code: the runtime, the series' mascot when it has one, the scene's code, the line
+// that says what it defined. `codeLine`: the script line where the person's code starts, so a line in an error
+// reads as the line of their code. "Mascota en código": the series' mascot goes in before the scene's code, wrapped
+// in a function so its helpers stay its own (a scene's `ease` never replaces the mascot's), and reaches the scene as
+// info.mascot.draw and drawMascot. `main`: the mascot is the code under test (the paste box, a character scene), so
+// its errors carry its own line numbers.
+export function sandboxWorker(
+  source: string,
+  limitMs = CODE_FRAME_MS,
+  mascot?: { source: string; main?: boolean } | null,
+): { js: string; codeLine: number; codeEnd: number; mascotLine: number; mascotEnd: number } {
+  // The pose normaliser goes in first: it has lines of its own.
+  const withPose = WORKER_RUNTIME.replace("__POSE__", MASCOT_POSE_JS);
+  const runtimeLines = withPose.split("\n").length;
+  const mascotCode = mascot?.source.trim() ? mascot.source : null;
+  // After the runtime: the mascot's wrapper (its first line, its code, its end), then the scene's code.
+  const mascotLines = mascotCode ? ["var __mascot = (function () {", mascotCode, ';return typeof drawMascot === "function" ? drawMascot : null;', "})();"] : [];
+  const mascotLine = mascotCode ? runtimeLines + 2 : 0;
+  const mascotEnd = mascotCode ? mascotLine + mascotCode.split("\n").length - 1 : 0;
+  const mascotLength = mascotCode ? mascotLines.join("\n").split("\n").length : 0;
+  const codeLine = runtimeLines + mascotLength + 1;
+  const codeEnd = codeLine + source.split("\n").length - 1;
+  const runtime = withPose
+    .replace("__LIMIT__", String(limitMs))
+    .replace("__LINE__", String(codeLine))
+    .replace("__END__", String(codeEnd))
+    .replace("__MASCOT_LINE__", String(mascotLine))
+    .replace("__MASCOT_END__", String(mascotEnd))
+    .replace("__MASCOT_MAIN__", mascot?.main ? "true" : "false");
+  const js = [
+    runtime,
+    ...mascotLines,
+    source,
+    ';self.__codeReady(typeof draw === "function" ? draw : null, typeof __mascot === "function" ? __mascot : null);',
+  ].join("\n");
+  return { js, codeLine, codeEnd, mascotLine, mascotEnd };
+}
+
+// The iframe's whole document for this code and token: a strict CSP (only its own inline script, blob: workers,
+// blob:/data: pictures and fonts) and the relay, with the worker's script inside it as a string.
+export const SANDBOX_CSP = "default-src 'none'; script-src 'unsafe-inline'; worker-src blob:; img-src blob: data:; font-src blob: data:";
 export function sandboxDoc(
   source: string,
   token: string,
   limitMs = CODE_FRAME_MS,
   mascot?: { source: string; main?: boolean } | null,
-): { html: string; codeLine: number; mascotLine: number } {
-  // The code sits inside a <script>: a "</script" in it would close it early, "<!--" would change how it is read.
-  const safe = (text: string) => text.replace(/<\/(script)/gi, "<\\/$1").replace(/<!--/g, "<\\!--");
-  const code = safe(source);
-  const csp = "default-src 'none'; script-src 'unsafe-inline'; img-src blob: data:; font-src blob: data:";
-  const head = [
+): { html: string; worker: string; codeLine: number; mascotLine: number } {
+  const w = sandboxWorker(source, limitMs, mascot);
+  // As a string literal inside a <script>: a "<" never reaches the HTML parser ("</script", "<!--").
+  const literal = (value: string) => JSON.stringify(value).replace(/</g, "\\u003c");
+  const relay = RELAY.replace("__TOKEN__", literal(token))
+    .replace("__LINE__", String(w.codeLine))
+    .replace("__END__", String(w.codeEnd))
+    .replace("__MASCOT_LINE__", String(w.mascotLine))
+    .replace("__MASCOT_END__", String(w.mascotEnd))
+    .replace("__MASCOT_MAIN__", mascot?.main ? "true" : "false")
+    .replace("__WORKER__", () => literal(w.js));
+  const html = [
     "<!doctype html>",
     '<html><head><meta charset="utf-8">',
-    `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
+    `<meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}">`,
     "</head><body>",
     "<script>",
-  ];
-  // The pose normaliser goes in first: it has lines of its own.
-  const withPose = RUNTIME.replace("__POSE__", MASCOT_POSE_JS);
-  const runtimeLines = withPose.split("\n").length;
-  const mascotCode = mascot?.source.trim() ? safe(mascot.source) : null;
-  // After the head, the runtime and its closing tag: the mascot's script (its opening tag and the wrapper's first line,
-  // its code, the wrapper's end and its closing tag), then the scene's code after its own opening tag.
-  const afterRuntime = head.length + runtimeLines + 1;
-  const mascotLine = mascotCode ? afterRuntime + 3 : 0;
-  const mascotLines = mascotCode
-    ? ["<script>", "var __mascot = (function () {", mascotCode, ';return typeof drawMascot === "function" ? drawMascot : null;', "})();", "</script>"]
-    : [];
-  const mascotLength = mascotCode ? mascotLines.join("\n").split("\n").length : 0;
-  const codeLine = afterRuntime + mascotLength + 2;
-  const runtime = withPose
-    .replace("__TOKEN__", JSON.stringify(token))
-    .replace("__LIMIT__", String(limitMs))
-    .replace("__LINE__", String(codeLine))
-    .replace("__END__", String(codeLine + code.split("\n").length - 1))
-    .replace("__MASCOT_LINE__", String(mascotLine))
-    .replace("__MASCOT_END__", String(mascotCode ? mascotLine + mascotCode.split("\n").length - 1 : 0))
-    .replace("__MASCOT_MAIN__", mascot?.main ? "true" : "false");
-  const html = [
-    ...head,
-    runtime,
+    relay,
     "</script>",
-    ...mascotLines,
-    "<script>",
-    code,
-    "</script>",
-    '<script>window.__codeReady(typeof draw === "function" ? draw : null, typeof __mascot === "function" ? __mascot : null);</script>',
     "</body></html>",
   ].join("\n");
-  return { html, codeLine, mascotLine };
+  return { html, worker: w.js, codeLine: w.codeLine, mascotLine: w.mascotLine };
 }
 
 // The scene code of a sandbox that only draws the mascot (the paste box's test, a character scene).
@@ -432,6 +523,28 @@ export class CodeRunner {
   }
 }
 
+// The iframe's loads: the first is its own document; any later one means it went somewhere else (`onLeave` once).
+export function loadGuard(onLeave: () => void): { onLoad: () => void; readonly left: boolean } {
+  let loads = 0;
+  return {
+    onLoad: () => {
+      loads++;
+      if (loads === 2) onLeave();
+    },
+    get left() {
+      return loads > 1;
+    },
+  };
+}
+
+// A runner that never had a sandbox: code the static check refused.
+export function deadRunner(reason: string): CodeRunner {
+  const timers: Timers = { set: () => 0, clear: () => undefined };
+  const runner = new CodeRunner("", { post: () => undefined, close: () => undefined }, timers);
+  runner.kill(reason);
+  return runner;
+}
+
 // A sandbox in this page: a hidden iframe whose only channel is postMessage, checked by its window and token.
 export type MascotMount = { source: string; main?: boolean } | null;
 export function mountSandbox(source: string, mascot: MascotMount = null): CodeRunner {
@@ -443,18 +556,24 @@ export function mountSandbox(source: string, mascot: MascotMount = null): CodeRu
   frame.tabIndex = -1;
   frame.style.cssText = "position:fixed;left:-10000px;top:0;width:8px;height:8px;border:0;visibility:hidden;pointer-events:none";
   let runner: CodeRunner | null = null;
+  // A document that loads a second time is no longer the relay (nothing in it navigates): nothing more goes to it.
+  const navigated = loadGuard(() => runner?.kill("La animación intentó salir de su caja y se cerró."));
   const onMessage = (e: MessageEvent) => {
-    if (e.source === frame.contentWindow) runner?.receive(e.data);
+    if (!navigated.left && e.source === frame.contentWindow) runner?.receive(e.data);
   };
   const port: SandboxPort = {
-    post: (message, transfer) => frame.contentWindow?.postMessage(message, "*", transfer),
+    post: (message, transfer) => {
+      if (!navigated.left) frame.contentWindow?.postMessage(message, "*", transfer);
+    },
     close: () => {
       window.removeEventListener("message", onMessage);
+      frame.removeEventListener("load", navigated.onLoad);
       frame.remove();
     },
   };
   runner = new CodeRunner(token, port, realTimers, { load: CODE_LOAD_MS, hang: CODE_HANG_MS }, mascot?.main ? "mascot" : "draw");
   window.addEventListener("message", onMessage);
+  frame.addEventListener("load", navigated.onLoad);
   frame.srcdoc = html;
   document.body.appendChild(frame);
   return runner;
@@ -578,9 +697,10 @@ export function mascotNeeds(script: MotionScript, t: number, world: MotionWorld,
 }
 
 const frameKey = (lt: number) => lt.toFixed(4);
-// How many frames a scene keeps (the latest is never dropped while it is shown); the mascot's are bigger and fewer.
+// How many frames a scene keeps (the latest is never dropped while it is shown); the mascot's are bigger and fewer,
+// but never fewer than one frame can ask for: every blur subframe of a push between two mascot scenes, and a margin.
 const KEEP = 32;
-const MASCOT_KEEP = 12;
+const MASCOT_KEEP = BLUR_SUBFRAMES * 2 + 8;
 
 type Entry = {
   runner: CodeRunner;
@@ -644,13 +764,21 @@ export class CodeDeck implements CodeFrames {
     if (had && had.sig === sig) return had;
     if (had) this.drop(key);
     const static_ = validateSource(code.source, { mascot: Boolean(mascot) }).find((p) => p.fatal);
-    const runner = (this.opts.mount ?? mountSandbox)(code.source, mascot ? { source: mascot.source } : null);
+    // Code the static check refuses never runs (an imported project's code included).
+    const runner = static_ ? deadRunner(static_.message) : (this.opts.mount ?? mountSandbox)(code.source, mascot ? { source: mascot.source } : null);
     const entry: Entry = { runner, sig, started: Promise.resolve(), frames: new Map(), latest: null, inflight: false, wanted: null, problem: null, keep: KEEP };
     entry.started = (async () => {
       if (static_) throw new Error(static_.message);
       await runner.whenReady();
-      const [fonts, assets] = await Promise.all([this.opts.fonts([info.brand.displayFont, info.brand.uiFont]).catch(() => []), assetBitmaps(code.assets, world.assets)]);
-      await runner.init(info, fonts, assets);
+      const families = [info.brand.displayFont, info.brand.uiFont];
+      const [fonts, assets] = await Promise.all([this.opts.fonts(families).catch(() => [] as FontBytes[]), assetBitmaps(code.assets, world.assets)]);
+      const fontErrors = await runner.init(info, fonts, assets);
+      // A render never goes out with another typeface: a brand font that did not reach the sandbox stops it.
+      if (this.opts.strict) {
+        const missing = [...new Set(families.filter((f) => f.trim() && !fonts.some((b) => b.family === f)))];
+        if (missing.length || fontErrors.length)
+          throw new Error(`No cargó la fuente ${[...missing.map((f) => `«${f}»`), ...fontErrors.map((f) => `«${f}»`)].join(", ")} en la escena de código: el render se frena para no salir con otra letra.`);
+      }
     })().catch((e: unknown) => {
       entry.problem = e instanceof Error ? e.message : String(e);
       runner.dispose();
@@ -672,7 +800,7 @@ export class CodeDeck implements CodeFrames {
     if (had && had.sig === sig) return had;
     if (had) this.drop(key);
     const static_ = validateMascotSource(mascot.source).find((p) => p.fatal);
-    const runner = (this.opts.mount ?? mountSandbox)(MASCOT_STUB, { source: mascot.source, main: true });
+    const runner = static_ ? deadRunner(`La mascota: ${static_.message}`) : (this.opts.mount ?? mountSandbox)(MASCOT_STUB, { source: mascot.source, main: true });
     const entry: Entry = { runner, sig, started: Promise.resolve(), frames: new Map(), latest: null, inflight: false, wanted: null, problem: null, keep: MASCOT_KEEP };
     entry.started = (async () => {
       if (static_) throw new Error(`La mascota: ${static_.message}`);
@@ -794,7 +922,8 @@ export class CodeDeck implements CodeFrames {
     const poses = mascotNeeds(script, t, world, format === "vertical", Boolean(world.cutBlur));
     await Promise.all([
       ...needs.map(async ({ scene, lt }) => {
-        if (this.opts.strict && scene.code?.error) throw new Error(`La escena ${scene.index + 1} (código) falló en su última prueba: ${scene.code.error}`);
+        const failed = this.errorOf(scene, format, script.tone);
+        if (this.opts.strict && failed) throw new Error(`La escena ${scene.index + 1} (código) falló en su última prueba: ${failed}`);
         const e = this.entry(scene, format, world, script.tone);
         if (!e) {
           if (this.opts.strict) throw new Error(`La escena ${scene.index + 1} es una escena de código sin código: pegalo o cambiá la plantilla.`);
@@ -838,8 +967,9 @@ export class CodeDeck implements CodeFrames {
     const out: { index: number; problem: string }[] = [];
     const timed = timeScenes(script.scenes);
     for (const scene of timed.filter((s) => s.template === "code")) {
-      if (scene.code?.error) {
-        out.push({ index: scene.index, problem: scene.code.error });
+      const failed = this.errorOf(scene, format, script.tone);
+      if (failed) {
+        out.push({ index: scene.index, problem: failed });
         continue;
       }
       const e = this.entry(scene, format, world, script.tone);
@@ -848,7 +978,16 @@ export class CodeDeck implements CodeFrames {
         continue;
       }
       await this.fetch(e, 0);
-      if (e.problem) out.push({ index: scene.index, problem: e.problem });
+      if (e.problem) {
+        out.push({ index: scene.index, problem: e.problem });
+        continue;
+      }
+      // A 9:16 render checks the texts against the phone's safe zone in this very format, whatever format the piece
+      // was tested in (a horizontal piece also rendered vertical).
+      if (this.opts.strict && format === "vertical") {
+        const breaches = await this.verticalBreaches(e, scene, world, script.tone);
+        if (breaches) out.push({ index: scene.index, problem: breaches });
+      }
     }
     const hosted = timed.filter((s) => s.template === "character" && s.asset === MASCOT_ASSET);
     if (hosted.length) {
@@ -862,6 +1001,29 @@ export class CodeDeck implements CodeFrames {
       }
     }
     return out;
+  }
+
+  // The texts a code scene draws on 9:16 that leave the safe zone or reach the subtitle: from its samples when they
+  // were taken on 9:16 as it plays now, else sampled here in this sandbox. null: none.
+  private async verticalBreaches(e: Entry, scene: TimedScene, world: MotionWorld, tone?: string): Promise<string | null> {
+    const { w, h } = sizeOf("vertical");
+    const mascot = this.mascotCode;
+    const sig = samplesSig(scene, "vertical", tone, mascot ? mascotSig(mascot.source) : undefined);
+    let samples = scene.code?.samples?.sig === sig ? scene.code.samples : null;
+    if (!samples) {
+      const test = await sampleRunner(e.runner, scene.seconds, { w, h }, sig).catch((err: unknown) => ({ problems: [{ message: err instanceof Error ? err.message : String(err), fatal: true }], samples: null }));
+      const fatal = test.problems.find((p) => p.fatal);
+      if (fatal || !test.samples) return fatal?.message ?? "no se pudo probar en 9:16";
+      samples = test.samples;
+    }
+    const breaches = verticalBreaches(scene, samples, Boolean(world.disclosure));
+    return breaches.length ? breaches.map((b) => `«${b.text}» ${BREACH_LABEL[b.where]} en 9:16 (desde t = ${b.at.toFixed(1)} s)`).join("; ") + ". Pedile a Opus que lo suba o lo achique." : null;
+  }
+
+  // The scene's last failed test, while it is for the way the scene plays now in this format (codeError).
+  private errorOf(scene: TimedScene, format: "vertical" | "horizontal", tone?: string): string | null {
+    const mascot = this.mascotCode;
+    return codeError(scene.code, samplesSig(scene, format, tone, mascot ? mascotSig(mascot.source) : undefined));
   }
 
   // A deck of its own (its own sandboxes), for a render that must not share the preview's.
@@ -909,6 +1071,22 @@ export async function sampleRunner(runner: CodeRunner, seconds: number, size: { 
       problems.push({ message: "draw no devolvió la lista de textos: al final de draw poné return texts; (o return []; si no dibuja texto).", fatal: true });
     }
     frames.push(shareTexts(got.texts ?? [], size.w, size.h));
+  }
+  // The same t again, after every other sample: a frame that keeps something between calls (a counter, a clock the
+  // runtime missed) draws something else. The one with the most texts, so a change shows.
+  if (frames.length && !problems.some((p) => p.fatal)) {
+    const k = frames.reduce((best, f, i) => (f.length > frames[best].length ? i : best), frames.length - 1);
+    const again = await runner.frame(times[k]).catch(() => null);
+    again?.bitmap?.close?.();
+    const before = JSON.stringify(frames[k]);
+    const after = again && !again.error ? JSON.stringify(shareTexts(again.texts ?? [], size.w, size.h)) : before;
+    if (after !== before) {
+      const said = (f: CodeText[]) => f.map((x) => x.text).join(" · ") || "nada";
+      problems.push({
+        message: `draw no es una función pura de t: en t = ${times[k].toFixed(2)} s dibujó «${said(frames[k])}» y la segunda vez «${said(shareTexts(again!.texts ?? [], size.w, size.h))}». No guardes variables entre cuadros ni leas un reloj o azar: todo sale de t (y de info.random).`,
+        fatal: true,
+      });
+    }
   }
   return { problems, samples: problems.some((p) => p.fatal) ? null : { sig, step: times.length > 1 ? times[1] - times[0] : 0.1, frames }, slowest };
 }
@@ -987,19 +1165,23 @@ export async function testMascot(
 // changed: the studio tests it again by itself), or with a text out of the 9:16 safe zone or over the subtitle.
 // Reading holds go with readingIssues and numbers with figureIssues, like every other scene.
 export type CodeIssue = { sceneId: string; index: number; text: string; stale?: true };
-export function codeIssues(scenes: TimedScene[], format: "vertical" | "horizontal", notice: boolean, sigOf: (scene: TimedScene) => string): CodeIssue[] {
-  const { w, h } = sizeOf(format);
+// The texts of a scene's samples out of the 9:16 safe zone or over the subtitle.
+function verticalBreaches(scene: TimedScene, samples: CodeSamples, notice: boolean) {
+  const { w, h } = sizeOf("vertical");
   const safe = safeRect(w, h);
-  const share = { x: safe.x / w, y: safe.y / h, w: safe.w / w, h: safe.h / h };
+  return codeBreaches(samples, { x: safe.x / w, y: safe.y / h, w: safe.w / w, h: safe.h / h }, floorOf(scene, w, h, notice) / h);
+}
+export function codeIssues(scenes: TimedScene[], format: "vertical" | "horizontal", notice: boolean, sigOf: (scene: TimedScene) => string): CodeIssue[] {
   return scenes.flatMap((s): CodeIssue[] => {
     if (s.template !== "code") return [];
     const n = s.index + 1;
     if (!s.code?.source.trim()) return [{ sceneId: s.id, index: s.index, text: `Escena ${n}: es de código y todavía no tiene código. Copiá el prompt para Opus y pegá su respuesta.` }];
-    if (s.code.error) return [{ sceneId: s.id, index: s.index, text: `Escena ${n}: la última prueba del código falló (${s.code.error}).` }];
+    const sig = sigOf(s);
+    const error = codeError(s.code, sig);
+    if (error) return [{ sceneId: s.id, index: s.index, text: `Escena ${n}: la última prueba del código falló (${error}).` }];
     const samples = s.code.samples;
-    if (!samples || samples.sig !== sigOf(s)) return [{ sceneId: s.id, index: s.index, text: `Escena ${n}: probando el código otra vez (cambió la escena, su largo o el formato)…`, stale: true }];
+    if (!samples || samples.sig !== sig) return [{ sceneId: s.id, index: s.index, text: `Escena ${n}: probando el código otra vez (cambió la escena, su largo o el formato)…`, stale: true }];
     if (format !== "vertical") return [];
-    const floor = floorOf(s, w, h, notice) / h;
-    return codeBreaches(samples, share, floor).map((b) => ({ sceneId: s.id, index: s.index, text: `Escena ${n}: «${b.text}» ${BREACH_LABEL[b.where]} (desde t = ${b.at.toFixed(1)} s). Pedile a Opus que lo suba o lo achique.` }));
+    return verticalBreaches(s, samples, notice).map((b) => ({ sceneId: s.id, index: s.index, text: `Escena ${n}: «${b.text}» ${BREACH_LABEL[b.where]} (desde t = ${b.at.toFixed(1)} s). Pedile a Opus que lo suba o lo achique.` }));
   });
 }

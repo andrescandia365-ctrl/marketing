@@ -26,10 +26,10 @@ export const CODE_CONTRACT = `CONTRACT (the app runs your code exactly like this
    fresh, transparent canvas with the default state: paint the whole frame, starting with the background (info.brand.bg).
 3. t is the second inside this scene, 0 <= t <= info.duration. The app asks for frames in any order (frame 90, then
    frame 12, then frame 90 again): draw must be a pure function of t. The same t always paints the same frame.
-4. Forbidden (they are blocked and throw): Date, performance, Math.random, setTimeout, setInterval,
+4. Forbidden (they are blocked and throw): Date, performance, Math.random, crypto, setTimeout, setInterval,
    requestAnimationFrame, fetch, XMLHttpRequest, WebSocket, import, eval, async/await, promises, and any variable that
-   keeps state between calls. For randomness use info.random(seed): it returns a function that gives numbers in
-   0..1, the same sequence for the same seed; create it inside draw.
+   keeps state between calls (the app draws a frame twice and compares). For randomness use info.random(seed): it
+   returns a function that gives numbers in 0..1, the same sequence for the same seed; create it inside draw.
 5. One frame must take under ${CODE_FRAME_MS} ms (aim for under 20 ms).
 6. Return an array with every piece of text you drew this frame, as it appears in this frame:
    [{ text: "the exact words", x, y, w, h }] where x, y is the top-left corner of its box and w, h its size, in
@@ -88,8 +88,14 @@ export type CodeText = { text: string; x: number; y: number; w: number; h: numbe
 // y, h of its height), so the checks read the same at any size. `sig`: what was sampled (codeSig).
 export type CodeSamples = { sig: string; step: number; frames: CodeText[][] };
 // What a code scene saves (MotionScene.code): the code, the pictures it gets (cast ids or "layer:N"), and its sampled
-// texts. `error`: the last test run failed (the scene does not render until it passes again).
-export type SceneCode = { source: string; assets: string[]; samples?: CodeSamples; error?: string };
+// texts. `error`: the last test run failed (the scene does not render until it passes again), for the way the scene
+// played then (`errorSig`, its samplesSig).
+export type SceneCode = { source: string; assets: string[]; samples?: CodeSamples; error?: string; errorSig?: string };
+
+// The last test's failure while it still describes the scene as it plays (`sig`, its samplesSig now). One recorded for
+// another length, words or format is not current: the scene is tested again as it plays, or uses the samples of a
+// test that passed for exactly this way. An error saved without its sig is tested again too.
+export const codeError = (code: SceneCode | undefined, sig: string): string | null => (code?.error && code.errorSig === sig ? code.error : null);
 
 // A problem with the code, in Spanish, with its line when known.
 export type CodeProblem = { message: string; line?: number; fatal: boolean };
@@ -163,6 +169,8 @@ export function stripComments(code: string): string {
 // What the code may not use, and what to say. The sandbox blocks them too; this says so before it runs, with the line.
 const BANNED: { re: RegExp; message: string }[] = [
   { re: /\bMath\s*\.\s*random\b/, message: "usa Math.random: la animación tiene que salir igual cada vez; usá info.random(semilla)" },
+  { re: /\bcrypto\s*\.\s*(getRandomValues|randomUUID)\b/, message: "usa crypto: la animación tiene que salir igual cada vez; usá info.random(semilla)" },
+  { re: /\.\s*(timeStamp|timeline)\b/, message: "lee un reloj (timeStamp, timeline): el cuadro depende solo de t, nunca del reloj" },
   { re: /\bDate\b/, message: "usa Date: el cuadro depende solo de t, nunca del reloj" },
   { re: /\bperformance\s*\./, message: "usa performance: el cuadro depende solo de t, nunca del reloj" },
   { re: /\b(setTimeout|setInterval|requestAnimationFrame|queueMicrotask)\b/, message: "usa temporizadores: la app pide cada cuadro con su t, el código no anima solo" },

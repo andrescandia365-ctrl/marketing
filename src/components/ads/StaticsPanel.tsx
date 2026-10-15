@@ -6,8 +6,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LEVEL_INFO, type AdsState, type Cta, type Hook, type HookStatic, type ReviewFlag } from "../../../shared/ads.ts";
 import {
+  adoptSaved,
   allStaticPrompts,
   ctaWords,
+  flushInOrder,
   hookHeadline,
   keepOutOf,
   staticChecks,
@@ -38,7 +40,7 @@ import { ads as adsApi, adsFileUrl, api } from "../../lib/api.ts";
 import { copyText } from "../../lib/files.ts";
 import { ensureFont, fontLoaded } from "../../lib/fonts.ts";
 import { download } from "../../lib/markdown.ts";
-import { canvasBlob, drawStill, layoutOnly } from "../../lib/stillDraw.ts";
+import { canvasBlob, drawStill, layoutOnly, previewKey } from "../../lib/stillDraw.ts";
 import { Button, Field, Notice, Segmented, Spinner, inputClass } from "../ui.tsx";
 import { LevelChip } from "./pieces.tsx";
 
@@ -78,6 +80,8 @@ export function StaticsPanel({ series, state, tools, flags, folder, onState }: P
   const [status, setStatus] = useState("");
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pending = useRef(new Map<string, Partial<HookStatic>>());
+  // Saves on their way, by hook.
+  const saving = useRef(new Map<string, number>());
   const measure = useMemo(() => document.createElement("canvas").getContext("2d"), []);
 
   const hooks = state.hooks.filter((h) => h.status === "approved");
@@ -113,18 +117,29 @@ export function StaticsPanel({ series, state, tools, flags, folder, onState }: P
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [series.id]);
 
-  // Unsaved changes are sent when the panel closes.
+  // Unsaved changes are sent when the panel closes, one after another, and the studio keeps what was saved: the panel
+  // opens again with it.
   useEffect(() => {
     const t = timers.current;
     const p = pending.current;
     return () => {
+      const out: [string, Partial<HookStatic>][] = [];
       for (const [id, timer] of t) {
         clearTimeout(timer);
         const patch = p.get(id);
-        if (patch) void adsApi.patchStatic(series.id, id, patch).catch(() => undefined);
+        if (patch) out.push([id, patch]);
       }
+      void flushInOrder(out, (id, patch) => adsApi.patchStatic(series.id, id, patch).then((r) => r.state), onState);
     };
+    // onState is the studio's setState.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [series.id]);
+
+  // What the server saved comes into the local copy for every hook not being edited or saved right now.
+  useEffect(() => {
+    const busy = new Set([...pending.current.keys(), ...saving.current.keys()]);
+    setLocal((prev) => adoptSaved(prev, state.statics, busy));
+  }, [state.statics]);
 
   const stOf = (h: Hook) => staticOf(h, local);
 
@@ -139,10 +154,22 @@ export function StaticsPanel({ series, state, tools, flags, folder, onState }: P
         const body = pending.current.get(h.id) ?? {};
         pending.current.delete(h.id);
         timers.current.delete(h.id);
+        saving.current.set(h.id, (saving.current.get(h.id) ?? 0) + 1);
+        const done = () => {
+          const left = (saving.current.get(h.id) ?? 1) - 1;
+          if (left > 0) saving.current.set(h.id, left);
+          else saving.current.delete(h.id);
+        };
         adsApi
           .patchStatic(series.id, h.id, body)
-          .then((r) => onState(r.state))
-          .catch((e) => setError(message(e)));
+          .then((r) => {
+            done();
+            onState(r.state);
+          })
+          .catch((e) => {
+            done();
+            setError(message(e));
+          });
       }, 500),
     );
   }
@@ -315,6 +342,7 @@ export function StaticsPanel({ series, state, tools, flags, folder, onState }: P
             picture={pictures[hook.id] ?? null}
             review={review(hook)}
             brand={series.brand}
+            fontsReady={fontsReady}
             copied={copied.has(hook.id)}
             busy={busy}
             onCopy={() => copy(prompt, `Prompt de ${hook.id}`, hook.id)}
@@ -341,6 +369,7 @@ function StaticRow({
   picture,
   review,
   brand,
+  fontsReady,
   copied,
   busy,
   onCopy,
@@ -355,6 +384,7 @@ function StaticRow({
   picture: HTMLImageElement | null;
   review: Review;
   brand: SeriesInfo["brand"];
+  fontsReady: boolean;
   copied: boolean;
   busy: string;
   onCopy: () => void;
@@ -370,7 +400,7 @@ function StaticRow({
   const { variants, problems, blocking, keepOut, jobs } = review;
   const current = variants[Math.min(selected, Math.max(0, variants.length - 1))];
   const pictureSize = st.picture ? { w: st.picture.w, h: st.picture.h } : { w: 1080, h: 1920 };
-  const drawKey = JSON.stringify([format, st.fit, keepOut, variants, selected, pictureSize, brand, open]);
+  const drawKey = previewKey({ format, fit: st.fit, keepOut, copies: variants, selected, pictureSize, brand, open, fontsReady });
 
   useEffect(() => {
     const base = { format, picture, pictureSize, fit: st.fit, keepOut, brand, showKeepOut: true };

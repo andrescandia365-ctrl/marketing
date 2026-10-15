@@ -913,7 +913,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       editScenes((list) => list.map((x) => (x.id === sceneId ? { ...x, code: { source, assets: picked, samples: result.samples! } } : x)));
     } else if (quiet && fatal) {
       // A saved code that stopped working (its scene got longer, the format changed): it stays, marked as failing.
-      editScenes((list) => list.map((x) => (x.id === sceneId && x.code ? { ...x, code: { ...x.code, error: fatal.message.slice(0, 300) } } : x)));
+      editScenes((list) => list.map((x) => (x.id === sceneId && x.code ? { ...x, code: { ...x.code, error: fatal.message.slice(0, 300), errorSig: sig } } : x)));
     }
     const texts = new Set((result.samples?.frames ?? []).flat().map((t) => t.text.trim())).size;
     return { problems: result.problems, saved, texts, slowest: result.slowest };
