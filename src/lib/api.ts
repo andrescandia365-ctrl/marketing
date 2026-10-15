@@ -30,7 +30,7 @@ import type { RoomCard } from "../../shared/room.ts";
 import type { Reference } from "../../shared/reference.ts";
 import type { ScreenDevice } from "../../shared/screenBatch.ts";
 import type { ClipFit, ExplainerKind, ExplainerVideo } from "../../shared/adsFromExplainer.ts";
-import type { AdCombo, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceSpeaker, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
+import type { AdCombo, AdCopy, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceSpeaker, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 
 // Demucs on this computer (Modelos → Demucs).
 export type DemucsStatus = { ready: boolean; command: string; model: string; songs: number; envBin: boolean };
@@ -129,6 +129,24 @@ export const sendAsk = <T>(ask: WriterAsk<T>, reply?: string) =>
 // The exact text to paste into claude.ai for this request.
 export const askPrompt = (ask: WriterAsk<unknown>) => call<PromptOnly>(ask.path, { ...ask.body, handoff: { mode: "prompt" } });
 
+// Publicidad's writer requests, for copy and paste with claude.ai ("Sin clave", shared/adsHandoff.ts). `part` is which
+// prompt of a request split in several; the prompt's answer says how many there are.
+type Parted = { part?: number; parts?: number };
+export type PartPrompt = PromptOnly & Parted & { keys?: string[] };
+type PieceBody = { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; part: number };
+export const adsAsks = {
+  hooks: (series: string, body: PieceBody) => writerAsk<{ state: AdsState; hooks: Hook[]; note: string } & Demo & Parted>(`/api/ads/${enc(series)}/hooks`, body),
+  meats: (series: string, body: PieceBody & { formats: MeatFormat[] }) =>
+    writerAsk<{ state: AdsState; meats: Meat[]; note: string } & Demo & Parted>(`/api/ads/${enc(series)}/meats`, body),
+  ctas: (series: string, body: PieceBody) => writerAsk<{ state: AdsState; ctas: Cta[]; note: string } & Demo & Parted>(`/api/ads/${enc(series)}/ctas`, body),
+  clipText: (series: string, name: string, transcript: string) =>
+    writerAsk<{ state: AdsState; clip: ClipRecord } & Demo>(`/api/ads/${enc(series)}/clips/text`, { name, transcript }),
+  clipSplit: (series: string, clipId: string) => writerAsk<{ state: AdsState; clip: ClipRecord } & Demo>(`/api/ads/${enc(series)}/clips/${enc(clipId)}/split`, {}),
+  review: (series: string) => writerAsk<{ flags: ReviewFlag[]; note: string } & Demo>(`/api/ads/${enc(series)}/review`, {}),
+  copies: (series: string, ads: AdCombo[], part: number) =>
+    writerAsk<{ copies: Record<string, AdCopy>; keys: string[] } & Parted>(`/api/ads/${enc(series)}/copies`, { ads, part }),
+};
+
 export type AdsView = { state: AdsState; transcription: boolean; folder: string; ranking: RankedHook[] };
 export const adsFileUrl = (series: string, file: string) => `/api/ads/${enc(series)}/files/${file.split("/").map(enc).join("/")}`;
 
@@ -186,7 +204,7 @@ export const ads = {
   ) => call<{ state: AdsState; pieceId: string; fit: ClipFit }>(`/api/ads/${enc(series)}/pieces/from-explainer`, body),
   dropRender: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, undefined, "DELETE"),
   uploadRender: (series: string, id: string, video: Blob) => upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, video, video.type),
-  createBatch: (series: string, body: { seconds: number; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[] }) =>
+  createBatch: (series: string, body: { seconds: number; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[]; copies?: Record<string, AdCopy> }) =>
     call<{ state: AdsState; batch: Batch } & Demo>(`/api/ads/${enc(series)}/batches`, body),
   uploadAd: (series: string, batch: string, adId: string, video: Blob) =>
     upload<{ file: string }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/ads/${enc(adId)}`, video, video.type),

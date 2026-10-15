@@ -1,8 +1,9 @@
 // The writer for Publicidad: hooks, meats and CTAs by awareness level, the catalogue of uploaded clips, the review of
-// a run and the platform texts. Same providers as the rest of the app (Claude or Kimi), through askWith. The system
+// a run and the platform texts. Same providers as the rest of the app (Claude or Kimi), as writer tasks (runTask), or by copy and paste with claude.ai. The system
 // prompt (the 50-5-3 method and the playbook) is frozen so it stays in the prompt cache; the series bible, the offer
 // profile and the tool profile come after it.
 import { readFileSync } from "node:fs";
+import type { z } from "zod";
 import {
   ANGLES,
   BUDGETS,
@@ -36,7 +37,7 @@ import {
 } from "../shared/ads.ts";
 import { PRACTICES, WORKS_TODAY } from "../shared/series.ts";
 import { momentsForWriter } from "../shared/calendar.ts";
-import { WriterError, askWith, currentWriter } from "./claude.ts";
+import { WriterError, runTask, type WriterTask } from "./claude.ts";
 import { getSeries } from "./series.ts";
 import { getTool } from "./tools.ts";
 
@@ -68,10 +69,10 @@ function blocks(series: string, offer: Offer, tool: string | null): string[] {
   return out;
 }
 
-async function ask<T>(series: string, offer: Offer, tool: string | null, prompt: string, schema: Parameters<typeof askWith<T>>[3]): Promise<T> {
-  const who = currentWriter();
-  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
-  return askWith(who, [SYSTEM, ...blocks(series, offer, tool)], prompt, schema);
+// One Publicidad request as a writer task (server/claude.ts): it runs on the connected writer, or goes to claude.ai by
+// copy and paste with the same text and schema ("Sin clave", shared/adsHandoff.ts).
+function task<T>(series: string, offer: Offer, tool: string | null, prompt: string, schema: z.ZodType<T>): WriterTask<T, T> {
+  return { system: [SYSTEM, ...blocks(series, offer, tool)], prompt, schema, finish: (wire) => wire };
 }
 
 const levelLines = (levels: Level[]) => levels.map((l) => `${l}. ${LEVEL_INFO[l].label}: ${LEVEL_INFO[l].desc}`).join("\n");
@@ -84,20 +85,25 @@ export type HookRequest = {
   winners: string[];
   existing: string[];
   language: "es" | "en";
+  // One prompt of a split request (copy and paste): how many hooks of each level this one asks for.
+  perLevel?: { level: Level; count: number }[];
 };
 
-export function writeHooks(series: string, offer: Offer, tool: string, req: HookRequest): Promise<HooksWire> {
+const levelQuota = (req: HookRequest) =>
+  req.perLevel?.length
+    ? `Awareness levels to cover, with exactly this many hooks each:\n${req.perLevel.map((p) => `${p.level}. ${LEVEL_INFO[p.level].label}: ${LEVEL_INFO[p.level].desc} (${p.count} hooks)`).join("\n")}`
+    : `Awareness levels to cover (about ${Math.ceil(req.count / req.levels.length)} hooks each):\n${levelLines(req.levels)}`;
+
+export function hooksTask(series: string, offer: Offer, tool: string, req: HookRequest): WriterTask<HooksWire, HooksWire> {
   const budget = budgetOf(req.seconds);
   const words = wordsFor(budget.hook);
-  const perLevel = Math.ceil(req.count / req.levels.length);
-  return ask(
+  return task(
     series,
     offer,
     tool,
     `Write ${req.count} hooks for ${req.seconds}-second ads. Each hook lasts ${budget.hook} s: at most ${words} spoken words (about 2.7 words per second), in ${req.language === "es" ? "Rioplatense Spanish" : "English"}.
 
-Awareness levels to cover (about ${perLevel} hooks each):
-${levelLines(req.levels)}
+${levelQuota(req)}
 
 Cover a grid inside each level: spread the angles (${ANGLES.join(", ")}) and the formulas (${FORMULAS.join(", ")}) so no two hooks of a level share both. Each hook names a different concrete situation from the offer's problem and the audience's words.
 
@@ -108,6 +114,7 @@ Give every hook its onScreenText, visualPrompt and videoPrompt (one frozen momen
     HooksWireSchema,
   );
 }
+export const writeHooks = (series: string, offer: Offer, tool: string, req: HookRequest): Promise<HooksWire> => runTask(hooksTask(series, offer, tool, req));
 
 export type MeatRequest = {
   levels: Level[];
@@ -118,10 +125,10 @@ export type MeatRequest = {
   language: "es" | "en";
 };
 
-export function writeMeats(series: string, offer: Offer, tool: string, req: MeatRequest): Promise<MeatsWire> {
+export function meatsTask(series: string, offer: Offer, tool: string, req: MeatRequest): WriterTask<MeatsWire, MeatsWire> {
   const budget = budgetOf(req.seconds);
   const words = wordsFor(budget.meat);
-  return ask(
+  return task(
     series,
     offer,
     tool,
@@ -140,13 +147,14 @@ Give every meat its onScreenText, visualPrompt and videoPrompt, same presenter a
     MeatsWireSchema,
   );
 }
+export const writeMeats = (series: string, offer: Offer, tool: string, req: MeatRequest): Promise<MeatsWire> => runTask(meatsTask(series, offer, tool, req));
 
 export type CtaRequest = { levels: Level[]; count: number; seconds: AdSeconds; hooks: Hook[]; language: "es" | "en" };
 
-export function writeCtas(series: string, offer: Offer, tool: string, req: CtaRequest): Promise<CtasWire> {
+export function ctasTask(series: string, offer: Offer, tool: string, req: CtaRequest): WriterTask<CtasWire, CtasWire> {
   const budget = budgetOf(req.seconds);
   const words = wordsFor(budget.cta);
-  return ask(
+  return task(
     series,
     offer,
     tool,
@@ -164,9 +172,10 @@ No invented deadline, discount or scarcity: if the offer gives none, the urgency
     CtasWireSchema,
   );
 }
+export const writeCtas = (series: string, offer: Offer, tool: string, req: CtaRequest): Promise<CtasWire> => runTask(ctasTask(series, offer, tool, req));
 
-export function analyzeClip(series: string, offer: Offer, transcript: string, name: string): Promise<ClipAnalysisWire> {
-  return ask(
+export function clipTask(series: string, offer: Offer, transcript: string, name: string): WriterTask<ClipAnalysisWire, ClipAnalysisWire> {
+  return task(
     series,
     offer,
     null,
@@ -178,11 +187,12 @@ Split it into Hook (usually the first 3–5 seconds), Meat and CTA. Label the ho
     ClipAnalysisWireSchema,
   );
 }
+export const analyzeClip = (series: string, offer: Offer, transcript: string, name: string): Promise<ClipAnalysisWire> => runTask(clipTask(series, offer, transcript, name));
 
-export function reviewRun(series: string, offer: Offer, hooks: Hook[], meats: Meat[], ctas: Cta[]): Promise<ReviewWire> {
+export function reviewTask(series: string, offer: Offer, hooks: Hook[], meats: Meat[], ctas: Cta[]): WriterTask<ReviewWire, ReviewWire> {
   const line = (p: Hook | Meat | Cta) =>
     `- ${p.id} (${p.kind}${p.kind === "hook" ? ` N${p.level} ${p.angle}/${p.formula}` : ` N${p.levels.join(",")}${p.kind === "meat" ? ` ${p.format}` : ""}`}): ${p.text}`;
-  return ask(
+  return task(
     series,
     offer,
     null,
@@ -201,9 +211,10 @@ Flag: promises the ad platforms usually reject (health, money, body results, gua
     ReviewWireSchema,
   );
 }
+export const reviewRun = (series: string, offer: Offer, hooks: Hook[], meats: Meat[], ctas: Cta[]): Promise<ReviewWire> => runTask(reviewTask(series, offer, hooks, meats, ctas));
 
-export function writeCopies(series: string, offer: Offer, pairs: { key: string; hook: string; cta: string; level: Level }[]): Promise<CopiesWire> {
-  return ask(
+export function copiesTask(series: string, offer: Offer, pairs: { key: string; hook: string; cta: string; level: Level }[]): WriterTask<CopiesWire, CopiesWire> {
+  return task(
     series,
     offer,
     null,
@@ -213,6 +224,8 @@ ${pairs.map((p) => `- ${p.key} (N${p.level})\n  Hook: ${p.hook}\n  CTA: ${p.cta}
     CopiesWireSchema,
   );
 }
+export const writeCopies = (series: string, offer: Offer, pairs: { key: string; hook: string; cta: string; level: Level }[]): Promise<CopiesWire> =>
+  runTask(copiesTask(series, offer, pairs));
 
 // ── Sample mode (no AI key): fixed examples that show the shape of each step ───────
 const SAMPLE_HOOKS: Record<Level, [string, string, string][]> = {

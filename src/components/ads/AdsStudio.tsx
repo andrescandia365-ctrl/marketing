@@ -10,6 +10,7 @@ import {
   currentRender,
   offerFilled,
   type AdCombo,
+  type AdCopy,
   type AdSeconds,
   type AdsState,
   type CombineRules,
@@ -24,7 +25,8 @@ import {
   type ReviewFlag,
 } from "../../../shared/ads.ts";
 import type { ImageProviderInfo, SeriesInfo, ToolInfo } from "../../../shared/schema.ts";
-import { ads as adsApi, adsFileUrl, api } from "../../lib/api.ts";
+import { ads as adsApi, adsAsks, adsFileUrl, api, askPrompt, sendAsk } from "../../lib/api.ts";
+import type { Handoff } from "../ClaudeHandoff.tsx";
 import { concatPieces, renderAdWhole, renderPiece, type PieceLook, type PieceMedia } from "../../lib/adsRender.ts";
 import { blobToDataUrl, readImageFile } from "../../lib/files.ts";
 import type { AdSeed, ExplainerKind } from "../../../shared/adsFromExplainer.ts";
@@ -107,6 +109,14 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   const [progress, setProgress] = useState<RenderProgress | null>(null);
   const [wizard, setWizard] = useState<Wizard | null>(null);
   const [fields, setFields] = useState<{ worksToday: string[]; audience: string; what: string } | null>(null);
+  // "Sin clave": the platform texts pasted from claude.ai (by pair key) until a run takes them, and the counts
+  // "Generar tanda" asked for, which the tabs' copy-and-paste boxes start from.
+  const [pastedCopies, setPastedCopies] = useState<Record<string, AdCopy>>({});
+  const [preset, setPreset] = useState<{ hooks?: number; meats?: number; ctas?: number }>({});
+  useEffect(() => {
+    setPastedCopies({});
+    setPreset({});
+  }, [series.id]);
   const renders = useRef(new Map<string, Blob>());
   const urls = useRef<string[]>([]);
   const toolId = settings.tool && tools.some((t) => t.id === settings.tool) ? settings.tool : (tools[0]?.id ?? "");
@@ -403,10 +413,48 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     return r;
   }
 
+  // ── "Sin clave": the same requests by copy and paste with claude.ai (shared/adsHandoff.ts) ─────
+  const pastedNote = (r: { note: string; part?: number; parts?: number }) =>
+    `${r.note ? `${r.note} · ` : ""}respuesta pegada de claude.ai${r.parts && r.parts > 1 ? ` (prompt ${r.part} de ${r.parts})` : ""}`;
+  const via = <T,>(ask: Parameters<typeof sendAsk<T>>[0], done: (r: T) => void): Handoff => ({
+    prompt: () => askPrompt(ask),
+    paste: async (reply) => done(await sendAsk(ask, reply)),
+  });
+  const body = (count: number, part: number) => ({ levels: settings.levels, count, seconds: settings.seconds, tool: toolId, language: lang, part });
+  const handoffs = demo
+    ? {
+        hooks: (count: number) => (part: number) =>
+          via(adsAsks.hooks(series.id, body(count, part)), (r) => {
+            setState(r.state);
+            setNotes((n) => ({ ...n, hooks: pastedNote(r) }));
+          }),
+        meats: (count: number, formats: MeatFormat[]) => (part: number) =>
+          via(adsAsks.meats(series.id, { ...body(count, part), formats }), (r) => {
+            setState(r.state);
+            setNotes((n) => ({ ...n, meats: pastedNote(r) }));
+          }),
+        ctas: (count: number) => (part: number) =>
+          via(adsAsks.ctas(series.id, body(count, part)), (r) => {
+            setState(r.state);
+            setNotes((n) => ({ ...n, ctas: pastedNote(r) }));
+          }),
+        clipText: (name: string, transcript: string) => via(adsAsks.clipText(series.id, name, transcript), (r) => setState(r.state)),
+        clipSplit: (clipId: string) => via(adsAsks.clipSplit(series.id, clipId), (r) => setState(r.state)),
+        review: via(adsAsks.review(series.id), (r) => {
+          setFlags(r.flags);
+          setReviewNote(pastedNote(r));
+        }),
+        copies: (combos: AdCombo[], part: number) => via(adsAsks.copies(series.id, combos, part), (r) => setPastedCopies((prev) => ({ ...prev, ...r.copies }))),
+      }
+    : null;
+
+  // Without a key the wizard does not fill the tabs with samples: it opens each tab with its count, where the
+  // copy-and-paste box is.
   async function startWizard(w: Wizard) {
     setSettings((s) => ({ ...s, levels: w.levels, seconds: w.seconds }));
     setWizard(w);
     setTab("hooks");
+    if (demo) return setPreset({ hooks: w.hooks, meats: w.meats, ctas: w.ctas });
     await generateHooks(w.hooks, w.levels, w.seconds);
   }
   async function nextWizard() {
@@ -414,10 +462,12 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     if (wizard.stage === "hooks") {
       setTab("meats");
       setWizard({ ...wizard, stage: "meats" });
+      if (demo) return;
       await generateMeats(wizard.meats, [...new Set(levelsOf(wizard.levels).flatMap((l) => LEVEL_INFO[l].meats))], wizard.levels, wizard.seconds);
     } else if (wizard.stage === "meats") {
       setTab("ctas");
       setWizard({ ...wizard, stage: "ctas" });
+      if (demo) return;
       await generateCtas(wizard.ctas, wizard.levels, wizard.seconds);
     } else if (wizard.stage === "ctas") {
       setTab("combine");
@@ -526,7 +576,13 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     setBusy("run");
     const errors: string[] = [];
     try {
-      const created = await adsApi.createBatch(series.id, { seconds: settings.seconds, mode, rules, ads: combos });
+      const created = await adsApi.createBatch(series.id, {
+        seconds: settings.seconds,
+        mode,
+        rules,
+        ads: combos,
+        ...(Object.keys(pastedCopies).length > 0 && { copies: pastedCopies }),
+      });
       setState(created.state);
       const batch = created.batch;
       let current = created.state;
@@ -732,6 +788,8 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
             setTab("hooks");
           }}
           onOpenOffer={() => setTab("offer")}
+          clipHandoff={handoffs?.clipText ?? null}
+          splitHandoff={handoffs?.clipSplit ?? null}
         />
       )}
       {tab === "hooks" && (
@@ -749,6 +807,8 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           onStatus={setStatus}
           renderCard={(h: Hook) => renderCard(h)}
           extra={<SpeakerBatch pieces={state.hooks} series={series} format={settings.format} label="hooks" />}
+          handoff={handoffs?.hooks ?? null}
+          presetCount={preset.hooks}
         />
       )}
       {tab === "meats" && (
@@ -767,6 +827,8 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           }}
           renderCard={(m) => renderCard(m)}
           extra={<SpeakerBatch pieces={state.meats} series={series} format={settings.format} label="meats" />}
+          handoff={handoffs?.meats ?? null}
+          presetCount={preset.meats}
         />
       )}
       {tab === "ctas" && (
@@ -785,6 +847,8 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           }}
           renderCard={(c) => renderCard(c)}
           extra={<SpeakerBatch pieces={state.ctas} series={series} format={settings.format} label="ctas" />}
+          handoff={handoffs?.ctas ?? null}
+          presetCount={preset.ctas}
         />
       )}
       {tab === "combine" && (
@@ -814,6 +878,9 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
             await act("batch", () => adsApi.removeBatch(series.id, id));
           }}
           onBatchCsv={async (id) => (await adsApi.batchCsv(series.id, id)).csv}
+          reviewHandoff={handoffs?.review ?? null}
+          copiesVia={handoffs?.copies ?? null}
+          pastedCopies={pastedCopies}
         />
       )}
       {tab === "statics" && (

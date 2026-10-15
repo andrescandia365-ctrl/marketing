@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   AD_SECONDS,
   AdComboSchema,
+  AdCopySchema,
   CombineRulesSchema,
   LEVEL_INFO,
   MEAT_FORMATS,
@@ -12,7 +13,6 @@ import {
   OfferSchema,
   PIECE_STATUS,
   clipFromWire,
-  copyKey,
   ctasFromWire,
   flagsFromWire,
   hooksFromWire,
@@ -30,11 +30,12 @@ import {
   type AdSeconds,
   type AdsState,
   type Batch,
-  type Level,
   type Piece,
 } from "../shared/ads.ts";
 import { campaignCsv, defaultStatic, staticBelongs, staticsCsv } from "../shared/adsStatic.ts";
-import { currentWriter } from "./claude.ts";
+import { currentWriter, taskFromPaste, taskPrompt } from "./claude.ts";
+import { HandoffSchema } from "../shared/handoff.ts";
+import { copiesFromWire, copyChunks, copyPairs, countParts, hookParts, partOf, type PromptPart } from "../shared/adsHandoff.ts";
 import {
   ADS_DIR,
   AdsError,
@@ -58,6 +59,12 @@ import {
 } from "./ads.ts";
 import {
   analyzeClip,
+  clipTask,
+  copiesTask,
+  ctasTask,
+  hooksTask,
+  meatsTask,
+  reviewTask,
   reviewRun,
   sampleAnalysis,
   sampleCopies,
@@ -80,6 +87,13 @@ const Levels = z.array(z.number().int().min(1).max(5)).max(5).default([]);
 const Lang = z.enum(["es", "en"]).default("es");
 const PieceId = z.string().regex(/^[HMC]\d{1,4}$/);
 const HookId = z.string().regex(/^H\d{1,4}$/);
+// "Sin clave" (shared/handoff.ts, shared/adsHandoff.ts): `handoff` "prompt" answers the text for claude.ai, "paste"
+// reads its reply through the same schema; `part` is which prompt of a request split in several (1-based).
+const Handoff = HandoffSchema.optional();
+const Part = z.number().int().min(1).max(500).default(1);
+const partInfo = (one: PromptPart | null) => (one ? { part: one.part, parts: one.parts } : {});
+// The writer calls the platform texts take with a key (the copy-and-paste prompts are smaller, PASTE_PER_PROMPT).
+const COPIES_PER_CALL = 50;
 // What the batch view changes in a hook's static version (the picture and the exports have their own routes).
 const StaticPatch = HookStaticSchema.omit({ picture: true, exports: true }).partial();
 
@@ -155,15 +169,45 @@ export function adsRoutes(app: Hono) {
   // The same, from a pasted transcript (no transcription key, or an ad that only exists as text).
   app.post("/api/ads/:series/clips/text", async (c) => {
     const id = series(c);
-    const { name, transcript } = z.object({ name: z.string().trim().max(200), transcript: z.string().trim().min(10).max(20000) }).parse(await c.req.json());
+    const { name, transcript, handoff } = z
+      .object({ name: z.string().trim().max(200), transcript: z.string().trim().min(10).max(20000), handoff: Handoff })
+      .parse(await c.req.json());
     const state0 = await loadAds(id);
     const label = name || `texto ${state0.clips.length + 1}`;
-    const wire = demo() ? sampleAnalysis(transcript) : await analyzeClip(id, state0.offer, transcript, label);
+    if (handoff?.mode === "prompt") return c.json(taskPrompt(clipTask(id, state0.offer, transcript, label)));
+    const wire =
+      handoff?.mode === "paste"
+        ? taskFromPaste(clipTask(id, state0.offer, transcript, label), handoff.reply)
+        : demo()
+          ? sampleAnalysis(transcript)
+          : await analyzeClip(id, state0.offer, transcript, label);
     const clip = clipFromWire(wire, { id: `clip-${Date.now().toString(36)}`, name: label, file: "", transcript });
     const { state } = await updateAds(id, (s) => {
       s.clips.push(clip);
     });
-    return c.json({ state, clip, demo: demo() });
+    return c.json({ state, clip, demo: !handoff && demo(), pasted: Boolean(handoff) });
+  });
+
+  // A catalogued clip cut again by claude.ai (copy and paste): its saved transcript, the same task, the clip replaced.
+  app.post("/api/ads/:series/clips/:id/split", async (c) => {
+    const id = series(c);
+    const clipId = z.string().regex(/^clip-[a-z0-9]+$/).parse(c.req.param("id"));
+    const { handoff } = z.object({ handoff: HandoffSchema }).parse(await c.req.json());
+    const state0 = await loadAds(id);
+    const old = state0.clips.find((x) => x.id === clipId);
+    if (!old) throw new AdsError("Ese clip no existe.");
+    if (old.transcript.trim().length < 10) throw new AdsError("Ese clip no tiene transcripción para cortar.");
+    const make = () => clipTask(id, state0.offer, old.transcript, old.name);
+    if (handoff.mode === "prompt") return c.json(taskPrompt(make()));
+    const wire = taskFromPaste(make(), handoff.reply);
+    const { state, result } = await updateAds(id, (s) => {
+      const i = s.clips.findIndex((x) => x.id === clipId);
+      if (i < 0) throw new AdsError("Ese clip no existe.");
+      const clip = clipFromWire(wire, { id: clipId, name: s.clips[i].name, file: s.clips[i].file, transcript: s.clips[i].transcript });
+      s.clips[i] = clip;
+      return clip;
+    });
+    return c.json({ state, clip: result, demo: false, pasted: true });
   });
 
   app.delete("/api/ads/:series/clips/:id", async (c) => {
@@ -197,13 +241,16 @@ export function adsRoutes(app: Hono) {
   // Hooks: the winners (metrics, organic) go in as patterns; existing hooks are not repeated.
   app.post("/api/ads/:series/hooks", async (c) => {
     const id = series(c);
-    const { levels, count, seconds, tool, language } = z
-      .object({ levels: Levels, count: z.number().int().min(1).max(60), seconds: Seconds, tool: z.string().max(60), language: Lang })
+    const { levels, count, seconds, tool, language, handoff, part } = z
+      .object({ levels: Levels, count: z.number().int().min(1).max(60), seconds: Seconds, tool: z.string().max(60), language: Lang, handoff: Handoff, part: Part })
       .parse(await c.req.json());
     const state0 = await loadAds(id);
+    // By copy and paste, 50 hooks are several prompts: this one asks for its share of the levels.
+    const one = handoff ? partOf(hookParts(count, levelsOf(levels)), part) : null;
     const req = {
-      levels: levelsOf(levels),
-      count,
+      levels: one ? one.perLevel.map((p) => p.level) : levelsOf(levels),
+      count: one?.count ?? count,
+      ...(one && { perLevel: one.perLevel }),
       seconds,
       winners: [
         ...rankHooks(state0)
@@ -214,13 +261,19 @@ export function adsRoutes(app: Hono) {
       existing: state0.hooks.filter((h) => h.status !== "rejected").map((h) => h.text),
       language,
     };
-    const wire = demo() ? sampleHooks(req) : await writeHooks(id, state0.offer, tool, req);
+    if (handoff?.mode === "prompt") return c.json({ ...taskPrompt(hooksTask(id, state0.offer, tool, req)), ...partInfo(one) });
+    const wire =
+      handoff?.mode === "paste"
+        ? taskFromPaste(hooksTask(id, state0.offer, tool, req), handoff.reply)
+        : demo()
+          ? sampleHooks(req)
+          : await writeHooks(id, state0.offer, tool, req);
     const { state, result } = await updateAds(id, (s) => {
       const hooks = hooksFromWire(s, wire, BUDGETS[seconds].hook, "ai");
       s.hooks.push(...hooks);
       return hooks;
     });
-    return c.json({ state, hooks: result, note: wire.note, demo: demo() });
+    return c.json({ state, hooks: result, note: wire.note, demo: !handoff && demo(), pasted: Boolean(handoff), ...partInfo(one) });
   });
 
   // "Enviar a Publicidad": a hook from a Playbook piece.
@@ -239,7 +292,7 @@ export function adsRoutes(app: Hono) {
 
   app.post("/api/ads/:series/meats", async (c) => {
     const id = series(c);
-    const { levels, formats, count, seconds, tool, language } = z
+    const { levels, formats, count, seconds, tool, language, handoff, part } = z
       .object({
         levels: Levels,
         formats: z.array(z.enum(MEAT_FORMATS)).max(5).default([]),
@@ -247,42 +300,58 @@ export function adsRoutes(app: Hono) {
         seconds: Seconds,
         tool: z.string().max(60),
         language: Lang,
+        handoff: Handoff,
+        part: Part,
       })
       .parse(await c.req.json());
     const state0 = await loadAds(id);
     const lv = levelsOf(levels);
+    const one = handoff ? partOf(countParts("meat", count), part) : null;
     const req = {
       levels: lv,
       formats: formats.length ? formats : [...new Set(lv.flatMap((l) => LEVEL_INFO[l].meats))],
-      count,
+      count: one?.count ?? count,
       seconds,
       hooks: state0.hooks.filter((h) => h.status === "approved" && lv.includes(h.level)).slice(0, 20),
       language,
     };
-    const wire = demo() ? sampleMeats(req) : await writeMeats(id, state0.offer, tool, req);
+    if (handoff?.mode === "prompt") return c.json({ ...taskPrompt(meatsTask(id, state0.offer, tool, req)), ...partInfo(one) });
+    const wire =
+      handoff?.mode === "paste"
+        ? taskFromPaste(meatsTask(id, state0.offer, tool, req), handoff.reply)
+        : demo()
+          ? sampleMeats(req)
+          : await writeMeats(id, state0.offer, tool, req);
     const { state, result } = await updateAds(id, (s) => {
       const meats = meatsFromWire(s, wire, BUDGETS[seconds].meat, "", lv);
       s.meats.push(...meats);
       return meats;
     });
-    return c.json({ state, meats: result, note: wire.note, demo: demo() });
+    return c.json({ state, meats: result, note: wire.note, demo: !handoff && demo(), pasted: Boolean(handoff), ...partInfo(one) });
   });
 
   app.post("/api/ads/:series/ctas", async (c) => {
     const id = series(c);
-    const { levels, count, seconds, tool, language } = z
-      .object({ levels: Levels, count: z.number().int().min(1).max(5), seconds: Seconds, tool: z.string().max(60), language: Lang })
+    const { levels, count, seconds, tool, language, handoff, part } = z
+      .object({ levels: Levels, count: z.number().int().min(1).max(5), seconds: Seconds, tool: z.string().max(60), language: Lang, handoff: Handoff, part: Part })
       .parse(await c.req.json());
     const state0 = await loadAds(id);
     const lv = levelsOf(levels);
-    const req = { levels: lv, count, seconds, hooks: state0.hooks.filter((h) => h.status === "approved" && lv.includes(h.level)).slice(0, 20), language };
-    const wire = demo() ? sampleCtas(req) : await writeCtas(id, state0.offer, tool, req);
+    const one = handoff ? partOf(countParts("cta", count), part) : null;
+    const req = { levels: lv, count: one?.count ?? count, seconds, hooks: state0.hooks.filter((h) => h.status === "approved" && lv.includes(h.level)).slice(0, 20), language };
+    if (handoff?.mode === "prompt") return c.json({ ...taskPrompt(ctasTask(id, state0.offer, tool, req)), ...partInfo(one) });
+    const wire =
+      handoff?.mode === "paste"
+        ? taskFromPaste(ctasTask(id, state0.offer, tool, req), handoff.reply)
+        : demo()
+          ? sampleCtas(req)
+          : await writeCtas(id, state0.offer, tool, req);
     const { state, result } = await updateAds(id, (s) => {
       const ctas = ctasFromWire(s, wire, BUDGETS[seconds].cta, lv);
       s.ctas.push(...ctas);
       return ctas;
     });
-    return c.json({ state, ctas: result, note: wire.note, demo: demo() });
+    return c.json({ state, ctas: result, note: wire.note, demo: !handoff && demo(), pasted: Boolean(handoff), ...partInfo(one) });
   });
 
   // Approve, reject or edit one piece. A text edit drops its cached render.
@@ -366,16 +435,24 @@ export function adsRoutes(app: Hono) {
   // The review before rendering: local checks (length, near-duplicates) plus the writer's pass.
   app.post("/api/ads/:series/review", async (c) => {
     const id = series(c);
+    const { handoff } = z.object({ handoff: Handoff }).parse(await c.req.json().catch(() => ({})));
     const state = await loadAds(id);
     const live = <T extends Piece>(xs: T[]) => xs.filter((p) => p.status === "approved");
     const hooks = live(state.hooks);
     const meats = live(state.meats);
     const ctas = live(state.ctas);
     const local = localFlags(hooks, meats, ctas);
+    const ids = new Set([...hooks, ...meats, ...ctas].map((p) => p.id));
+    if (handoff) {
+      if (!ids.size) throw new AdsError("No hay piezas aprobadas para revisar.");
+      const make = () => reviewTask(id, state.offer, hooks, meats, ctas);
+      if (handoff.mode === "prompt") return c.json(taskPrompt(make()));
+      const wire = taskFromPaste(make(), handoff.reply);
+      return c.json({ flags: [...local, ...flagsFromWire(wire, ids)], note: wire.note, demo: false, pasted: true });
+    }
     if (demo()) return c.json({ flags: local, note: "Revisión de muestra: solo los controles locales (largo y repetidos). Sin clave de IA no se revisan las promesas.", demo: true });
     if (!hooks.length && !meats.length && !ctas.length) return c.json({ flags: local, note: "No hay piezas aprobadas para revisar.", demo: false });
     const wire = await reviewRun(id, state.offer, hooks, meats, ctas);
-    const ids = new Set([...hooks, ...meats, ...ctas].map((p) => p.id));
     return c.json({ flags: [...local, ...flagsFromWire(wire, ids)], note: wire.note, demo: false });
   });
 
@@ -497,8 +574,15 @@ export function adsRoutes(app: Hono) {
   // A batch: the combinations (code) and the platform texts (one writer call per 50 hook+CTA pairs).
   app.post("/api/ads/:series/batches", async (c) => {
     const id = series(c);
-    const { seconds, mode, rules, ads } = z
-      .object({ seconds: Seconds, mode: z.enum(["full", "stage"]), rules: CombineRulesSchema, ads: z.array(AdComboSchema).min(1).max(1000) })
+    const { seconds, mode, rules, ads, copies: pasted } = z
+      .object({
+        seconds: Seconds,
+        mode: z.enum(["full", "stage"]),
+        rules: CombineRulesSchema,
+        ads: z.array(AdComboSchema).min(1).max(1000),
+        // The platform texts already pasted from claude.ai ("Sin clave"), by pair key; the rest are written here.
+        copies: z.record(z.string(), AdCopySchema).optional(),
+      })
       .parse(await c.req.json());
     const state0 = await loadAds(id);
     // The weekly limit holds here too, not only on the screen.
@@ -506,23 +590,15 @@ export function adsRoutes(app: Hono) {
     if (week + ads.length > state0.weeklyLimit) {
       throw new AdsError(`Esta tanda (${ads.length}) pasa el límite semanal: ya van ${week} de ${state0.weeklyLimit}. Subí el límite o achicá la tanda.`);
     }
-    const H = new Map(state0.hooks.map((h) => [h.id, h]));
-    const C = new Map(state0.ctas.map((x) => [x.id, x]));
-    const pairs = new Map<string, { key: string; hook: string; cta: string; level: Level }>();
-    for (const a of ads) {
-      const key = copyKey(a.hookId, a.ctaId);
-      const h = H.get(a.hookId);
-      const x = C.get(a.ctaId);
-      if (h && x && !pairs.has(key)) pairs.set(key, { key, hook: h.text, cta: x.text, level: h.level });
-    }
+    const pairs = copyPairs(ads, state0.hooks, state0.ctas);
     const copies: Batch["copies"] = {};
-    const list = [...pairs.values()];
-    for (let i = 0; i < list.length; i += 50) {
-      const chunk = list.slice(i, i + 50);
+    for (const p of pairs) if (pasted?.[p.key]) copies[p.key] = pasted[p.key];
+    for (const chunk of copyChunks(
+      pairs.filter((p) => !copies[p.key]),
+      COPIES_PER_CALL,
+    )) {
       const wire = demo() ? sampleCopies(chunk) : await writeCopies(id, state0.offer, chunk);
-      for (const w of wire.copies) {
-        if (pairs.has(w.key)) copies[w.key] = { primary: w.primary.slice(0, 600), headline: w.headline.slice(0, 80), button: w.button.slice(0, 40) };
-      }
+      Object.assign(copies, copiesFromWire(wire, chunk.map((p) => p.key)));
     }
     const stamp = new Date();
     const day = stamp.toISOString().slice(0, 10);
@@ -542,6 +618,24 @@ export function adsRoutes(app: Hono) {
       return batch;
     });
     return c.json({ state, batch: result, demo: demo() });
+  });
+
+  // The platform texts of a run by copy and paste: one prompt per PASTE_PER_PROMPT.copy pairs. Nothing is saved here:
+  // the studio keeps the pasted texts and sends them with the run (POST .../batches, `copies`).
+  app.post("/api/ads/:series/copies", async (c) => {
+    const id = series(c);
+    const { ads, part, handoff } = z.object({ ads: z.array(AdComboSchema).min(1).max(1000), part: Part, handoff: HandoffSchema }).parse(await c.req.json());
+    const state0 = await loadAds(id);
+    const chunks = copyChunks(copyPairs(ads, state0.hooks, state0.ctas));
+    if (!chunks.length) throw new AdsError("Esas combinaciones no tienen hooks ni CTAs que existan.");
+    const at = Math.min(chunks.length, part) - 1;
+    const chunk = chunks[at];
+    const info = { part: at + 1, parts: chunks.length, keys: chunk.map((p) => p.key) };
+    const make = () => copiesTask(id, state0.offer, chunk);
+    if (handoff.mode === "prompt") return c.json({ ...taskPrompt(make()), ...info });
+    const copies = copiesFromWire(taskFromPaste(make(), handoff.reply), info.keys);
+    if (!Object.keys(copies).length) throw new AdsError("La respuesta no trae textos para estos pares: fijate que cada uno tenga su «key» (por ejemplo H1-C1) tal como venía en el prompt.");
+    return c.json({ copies, ...info, pasted: true });
   });
 
   app.put("/api/ads/:series/batches/:batch/ads/:adId", async (c) => {
