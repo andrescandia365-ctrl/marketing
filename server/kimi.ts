@@ -6,6 +6,8 @@
 // accept response_format json_schema and ignore it, and the model would never see the field names.
 import { z } from "zod";
 import { chatUsage, chunkUsage, type Tokens } from "../shared/usage.ts";
+// Reasoning blocks, the JSON objects in a reply and what a model may wrap the answer in (shared with the claude.ai paste).
+import { candidates, jsonObjects, stripThinking } from "../shared/handoff.ts";
 
 // Where a request goes: the provider's name for messages, its base URL, key and model.
 export type ChatTarget = { label: string; baseUrl: string; key: string; model: string };
@@ -320,55 +322,6 @@ async function readStream(response: Response, name: string): Promise<Reply> {
   }
   handle(buffer.trim());
   return { content, finish, reasoning, ended: ended || finish !== null, usage, model };
-}
-
-// Reasoning models may write their thinking into the content: <think>…</think>, or only the closing tag.
-function stripThinking(text: string): string {
-  const t = text.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, "");
-  const close = t.search(/<\/think(?:ing)?>/i);
-  return close >= 0 ? t.slice(t.indexOf(">", close) + 1) : t;
-}
-
-// Every top-level JSON object in the text, in order (a code fence, a sentence or a second object around it is fine).
-function jsonObjects(text: string): unknown[] {
-  const found: unknown[] = [];
-  let i = text.indexOf("{");
-  while (i >= 0) {
-    let depth = 0;
-    let inString = false;
-    let end = -1;
-    for (let j = i; j < text.length; j++) {
-      const c = text[j];
-      if (inString) {
-        if (c === "\\") j++;
-        else if (c === '"') inString = false;
-      } else if (c === '"') inString = true;
-      else if (c === "{") depth++;
-      else if (c === "}" && --depth === 0) {
-        end = j;
-        break;
-      }
-    }
-    if (end < 0) break;
-    try {
-      found.push(JSON.parse(text.slice(i, end + 1)));
-      i = text.indexOf("{", end + 1);
-    } catch {
-      i = text.indexOf("{", i + 1);
-    }
-  }
-  return found;
-}
-
-// What a model may have wrapped the answer in: {"reply": {...}}, {"json": {...}} or a one-item array.
-function candidates(value: unknown): unknown[] {
-  const out = [value];
-  if (Array.isArray(value) && value.length === 1) out.push(value[0]);
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    const entries = Object.values(value);
-    if (entries.length === 1 && entries[0] && typeof entries[0] === "object") out.push(entries[0]);
-  }
-  return out;
 }
 
 function issues(error: z.ZodError): string {

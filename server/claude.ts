@@ -65,6 +65,7 @@ import { claudeUsage } from "../shared/usage.ts";
 import { offerOf } from "./ads.ts";
 import { offerBlock } from "../shared/ads.ts";
 import { settleEditFrom, settleScreenShot } from "../shared/transformScreen.ts";
+import { NO_JSON, assemblePrompt, readReply, replyErrorText, type PromptOnly } from "../shared/handoff.ts";
 
 const ENGINE = readFileSync(new URL("./engine.md", import.meta.url), "utf8");
 const PLAYBOOK = readFileSync(new URL("./playbook.md", import.meta.url), "utf8");
@@ -254,6 +255,36 @@ async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z
   return askWith(who, [SYSTEM, ...contextBlocks(brief, withTool)], prompt, schema, pictures);
 }
 
+// ── Writer tasks ────────────────────────────────────────────────────────────────────
+// One writer request as data: what the writer reads (system blocks, request), the shape of its answer, and what the
+// app does with that answer. It runs against the connected writer (runTask) or, with no key, goes to claude.ai by copy
+// and paste (taskPrompt, taskFromPaste): the same text, the same schema, the same post-processing.
+export type WriterTask<W, R> = { system: string[]; prompt: string; schema: z.ZodType<W>; finish: (wire: W) => R };
+
+function task<W, R>(brief: Brief, withTool: boolean, prompt: string, schema: z.ZodType<W>, finish: (wire: W) => R): WriterTask<W, R> {
+  return { system: [SYSTEM, ...contextBlocks(brief, withTool)], prompt, schema, finish };
+}
+
+export async function runTask<W, R>(t: WriterTask<W, R>): Promise<R> {
+  const who = currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  return t.finish(await askWith(who, t.system, t.prompt, t.schema));
+}
+
+// The exact text for claude.ai, with its size.
+export function taskPrompt<W, R>(t: WriterTask<W, R>): PromptOnly {
+  const prompt = assemblePrompt(t.system, t.prompt, t.schema);
+  return { prompt, chars: prompt.length };
+}
+
+// A reply pasted from claude.ai, read tolerantly and checked with the task's own schema; errors name the field.
+export class PasteError extends Error {}
+export function taskFromPaste<W, R>(t: WriterTask<W, R>, reply: string): R {
+  const read = readReply(reply, t.schema);
+  if (!read.ok) throw new PasteError(replyErrorText(read) ?? NO_JSON);
+  return t.finish(read.value);
+}
+
 // The system blocks: the first (engine and playbook) is cached; the series and tool blocks come after it.
 // Every reply's tokens go to the usage log (server/usage.ts), the failed requests' too.
 export async function askWith<T>(who: Writer, system: string[], prompt: string, schema: z.ZodType<T>, pictures: Picture[] = []): Promise<T> {
@@ -369,8 +400,8 @@ function ideasText(ideas: TopicIdea[]): string {
 }
 
 // Step 1: like a show's morning menu, offer topics to pick from.
-export function proposeMenu(brief: Brief): Promise<Menu> {
-  return ask(
+export function menuTask(brief: Brief): WriterTask<Menu, Menu> {
+  return task(
     brief,
     false,
     `Brief:
@@ -378,14 +409,15 @@ ${describeBrief(brief)}
 
 Propose six topic ideas for this piece, each built on a different concrete pain from the series and named by the problem it solves, ready for the Good-vs-Bad engine. Every pain follows how people really work today (the series' "${PRACTICES}" list and the brief's notes); never invent a way of working. Use the optional peg where it fits. Then list any gaps the person should fill.`,
     MenuSchema,
+    (menu) => menu,
   );
 }
+export const proposeMenu = (brief: Brief): Promise<Menu> => runTask(menuTask(brief));
 
 // Step 2: the story, written as a Good-vs-Bad script with topics, bridges and callbacks.
-export async function writeStory(brief: Brief, topics: TopicIdea[], room = "", askNote = ""): Promise<Story> {
+export function storyTask(brief: Brief, topics: TopicIdea[], room = "", askNote = "") {
   const len = LENGTHS[brief.length];
-  return normalizeStory(
-    await ask(
+  return task(
       brief,
       false,
       `Brief:
@@ -403,13 +435,14 @@ ${askNote ? `The room asked this episode to do this, without dropping the episod
 
 ${STORY_CHECKS}`,
       StoryWireSchema,
-    ),
+      normalizeStory,
   );
 }
+export const writeStory = (brief: Brief, topics: TopicIdea[], room = "", askNote = ""): Promise<Story> =>
+  runTask(storyTask(brief, topics, room, askNote));
 
-export async function reviseStory(brief: Brief, story: Story, note: string, room = ""): Promise<Story> {
-  return normalizeStory(
-    await ask(
+export function reviseStoryTask(brief: Brief, story: Story, note: string, room = "") {
+  return task(
       brief,
       false,
       `Brief:
@@ -426,14 +459,15 @@ Rewrite the story to answer the notes. Keep everything the notes don't touch; do
 ${ROOM_CRAFT}
 ${STORY_CHECKS}`,
       StoryWireSchema,
-    ),
+      normalizeStory,
   );
 }
+export const reviseStory = (brief: Brief, story: Story, note: string, room = ""): Promise<Story> =>
+  runTask(reviseStoryTask(brief, story, note, room));
 
 // PLAYBOOK §3: five hook variants per script, each naming the move it uses. Same problem and story, five ways in.
-export async function hookVariants(brief: Brief, story: Story): Promise<HookVariant[]> {
-  return normalizeHookVariants(
-    await ask(
+export function hookVariantsTask(brief: Brief, story: Story) {
+  return task(
       brief,
       false,
       `Brief:
@@ -444,9 +478,10 @@ ${JSON.stringify({ problem: story.problem, title: story.title, logline: story.lo
 
 Write five hook variants for this piece: the same problem and story, five different ways into it, each leaning on a different playbook move (§2.5) and naming it. Each one stops the scroll in the first 2 seconds with something concrete (the object, the number, the hour) and makes sense with no context. Punch at the problem, never at the person. Only what the series shows as real; anything unconfirmed carries [VERIFY]. Do not repeat the current hook. Say which awareness level (1–5) of the viewer each one speaks to, so the best ones can also run as paid ads.`,
       HookVariantsWireSchema,
-    ),
+      normalizeHookVariants,
   );
 }
+export const hookVariants = (brief: Brief, story: Story): Promise<HookVariant[]> => runTask(hookVariantsTask(brief, story));
 
 // What a writers' room keeps across episodes, on top of the callbacks inside this one.
 const ROOM_CRAFT = `Like a series writers' room, also fill:
@@ -482,9 +517,8 @@ const BOARD_RULES = `Shot rules:
 - issues: after writing the board, check it like a strict critic: a shot whose action does not follow the previous one (continuity), the brand shown doing something not on its list without a label (reality), people working in a way the series' "${PRACTICES}" list and the brief don't confirm (practice), an image prompt with more than one moment (image), an open loop never paid off (loop), a first shot that does not show or name the pain within 2 seconds (hook), a Good that never shows the product in use: a real screen, or the product doing its job on screen (product). List every problem you still see; empty only if there are none.`;
 
 // Step 3: the storyboard.
-export async function writeBoard(brief: Brief, story: Story): Promise<Board> {
-  return settleScreens(brief, normalizeBoard(
-    await ask(
+export function boardTask(brief: Brief, story: Story) {
+  return task(
       brief,
       true,
       `Brief:
@@ -497,20 +531,20 @@ Break it into a storyboard.
 
 ${BOARD_RULES}`,
       BoardWireSchema,
-    ),
-  ));
+      (wire): Board => settleScreens(brief, normalizeBoard(wire)),
+  );
 }
+export const writeBoard = (brief: Brief, story: Story): Promise<Board> => runTask(boardTask(brief, story));
 
-export async function reviseBoard(
+export function reviseBoardTask(
   brief: Brief,
   story: Story,
   board: Board,
   note: string,
   shotNotes: { index: number; note: string }[],
-): Promise<Board> {
+) {
   const perShot = shotNotes.map((n) => `- Shot ${n.index + 1}: "${n.note}"`).join("\n");
-  return settleScreens(brief, normalizeBoard(
-    await ask(
+  return task(
       brief,
       true,
       `Brief:
@@ -530,12 +564,19 @@ Revise the storyboard to answer every note. Keep the shots the notes don't touch
 
 ${BOARD_RULES}`,
       BoardWireSchema,
-    ),
-  ));
+      (wire): Board => settleScreens(brief, normalizeBoard(wire)),
+  );
 }
+export const reviseBoard = (
+  brief: Brief,
+  story: Story,
+  board: Board,
+  note: string,
+  shotNotes: { index: number; note: string }[],
+): Promise<Board> => runTask(reviseBoardTask(brief, story, board, note, shotNotes));
 
 // In production: one shot, one note. The neighbours come along so the shot keeps following on.
-export async function rewriteShot(brief: Brief, story: Story, board: Board, index: number, note: string): Promise<Shot> {
+export function rewriteShotTask(brief: Brief, story: Story, board: Board, index: number, note: string): WriterTask<z.infer<typeof ShotWireSchema>, Shot> {
   const shot = board.shots[index];
   if (!shot) throw new WriterError("Esa toma ya no existe.");
   const setups = shot.setups.map((id) => board.setups.find((s) => s.id === id)?.name ?? id).join(", ");
@@ -543,7 +584,7 @@ export async function rewriteShot(brief: Brief, story: Story, board: Board, inde
     const s = board.shots[i];
     return s ? `Shot ${i + 1}: "${s.title}". ${s.action} (line: "${s.voiceover || "none"}")` : "none";
   };
-  const wire = await ask(
+  return task(
     brief,
     true,
     `Brief:
@@ -564,11 +605,15 @@ Rewrite this one shot to answer the note, so it follows the shot before and lead
 
 ${BOARD_RULES}`,
     ShotWireSchema,
+    (wire) => {
+      const settled = settleScreenShot(normalizeShot(wire), allowedScreens(brief));
+      const next = settleEditFrom(board.shots.map((s, i) => (i === index ? settled : s)))[index];
+      return { ...next, topic: shot.topic, beat: shot.beat, speaker: shot.speaker };
+    },
   );
-  const settled = settleScreenShot(normalizeShot(wire), allowedScreens(brief));
-  const next = settleEditFrom(board.shots.map((s, i) => (i === index ? settled : s)))[index];
-  return { ...next, topic: shot.topic, beat: shot.beat, speaker: shot.speaker };
 }
+export const rewriteShot = (brief: Brief, story: Story, board: Board, index: number, note: string): Promise<Shot> =>
+  runTask(rewriteShotTask(brief, story, board, index, note));
 
 // Lyric videos (series of type music). There is no brief; the series bible still goes along.
 function lyricBrief(series: string): Brief {

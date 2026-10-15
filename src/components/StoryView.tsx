@@ -5,6 +5,7 @@ import type { Story } from "../../shared/schema.ts";
 import { LENGTHS, ROLE_LABEL, formatTime, spokenSeconds } from "../../shared/template.ts";
 import { ChecksPanel, LoopsMap } from "./Checks.tsx";
 import { BeatChip, Button, PieceTitle, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
+import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
 
 type Props = {
   story: Story;
@@ -21,10 +22,12 @@ type Props = {
   usedRunners?: { bit: string; problem: string }[];
   // A line the writers' room put on, or took off, the director's note.
   seed?: { id: number; text: string; on: boolean } | null;
+  // Without a key: each writer button by copy and paste with claude.ai (the buttons show the sample).
+  handoffs?: { revise: (note: string) => Handoff; fix: Handoff; board: Handoff } | null;
 };
 
 // Step 2: the story as a Good-vs-Bad script. Notes go back to Claude for another round until you approve it.
-export function StoryView({ story, round, length, busy, problems, dismissed, onRevise, onFix, onDismiss, onApprove, usedRunners = [], seed }: Props) {
+export function StoryView({ story, round, length, busy, problems, dismissed, onRevise, onFix, onDismiss, onApprove, usedRunners = [], seed, handoffs }: Props) {
   const [note, setNote] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
   const cast = Object.fromEntries(story.characters.map((c) => [c.id, c]));
@@ -206,6 +209,7 @@ export function StoryView({ story, round, length, busy, problems, dismissed, onR
         disabled={busy !== null}
         onFix={onFix}
         onDismiss={onDismiss}
+        handoff={handoffs?.fix}
       />
 
       <div className="space-y-3 rounded-xl border border-ink/20 bg-white p-4">
@@ -229,6 +233,8 @@ export function StoryView({ story, round, length, busy, problems, dismissed, onR
               <>
                 <Spinner /> Reescribiendo…
               </>
+            ) : handoffs ? (
+              "Ver un ejemplo"
             ) : (
               "Reescribir la historia"
             )}
@@ -242,11 +248,30 @@ export function StoryView({ story, round, length, busy, problems, dismissed, onR
               <>
                 <Spinner /> Armando el storyboard…
               </>
+            ) : handoffs ? (
+              "Aprobar → storyboard de ejemplo"
             ) : (
               "Aprobar → storyboard"
             )}
           </Button>
         </div>
+        {handoffs && (
+          <div className="grid gap-2 md:grid-cols-2">
+            <ClaudeHandoff
+              title="Reescribir la historia"
+              what={`la ronda ${round + 1}`}
+              disabled={!note.trim() || busy !== null}
+              via={{ ...handoffs.revise(note.trim()), paste: async (reply) => (await handoffs.revise(note.trim()).paste(reply)) && setNote("") }}
+            />
+            <ClaudeHandoff
+              title="Aprobar → storyboard"
+              what="el storyboard"
+              disabled={busy !== null || problems.length > 0}
+              via={handoffs.board}
+            />
+          </div>
+        )}
+        {handoffs && !note.trim() && <p className="text-xs text-muted">Para reescribir con claude.ai, primero escribí la nota de esta ronda.</p>}
       </div>
     </div>
   );

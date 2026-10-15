@@ -30,7 +30,6 @@ import {
   motionScript,
   reviseMotion,
   brandFromSite,
-  proposeMenu,
   productShot,
   reviewMotion,
   listModels,
@@ -39,19 +38,26 @@ import {
   referenceSheet,
   reviewPicture,
   segmentEdit,
-  reviseBoard,
-  reviseStory,
-  rewriteShot,
   secondLines,
-  writeBoard,
-  writeStory,
-  hookVariants,
+  boardTask,
+  hookVariantsTask,
+  menuTask,
+  reviseBoardTask,
+  reviseStoryTask,
+  rewriteShotTask,
+  storyTask,
+  runTask,
+  taskFromPaste,
+  taskPrompt,
+  PasteError,
+  type WriterTask,
   teardownAd,
   nameScreen,
 } from "./claude.ts";
 import { readDevice, SCREEN_DEVICES } from "../shared/screenBatch.ts";
 import { normalizeReference } from "../shared/reference.ts";
 import { KimiError } from "./kimi.ts";
+import { HandoffSchema, type Handoff } from "../shared/handoff.ts";
 import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
 import { BrandWebError, bringPictures, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.ts";
 import { EMPTY_BRIEF } from "../shared/example.ts";
@@ -166,6 +172,7 @@ app.use("/api/*", (c, next) => usageScope.run({ kind: usageKind(c.req.path) }, n
 
 app.onError((error, c) => {
   if (error instanceof WriterError || error instanceof KimiError) return c.json({ error: error.message }, 502);
+  if (error instanceof PasteError) return c.json({ error: error.message }, 400);
   if (error instanceof SeriesError || error instanceof ProjectError || error instanceof RenderError || error instanceof SettingsError) {
     return c.json({ error: error.message }, 400);
   }
@@ -220,6 +227,22 @@ const StoryInput = z.preprocess(
 const TopicInput = TopicIdeaSchema.extend({ problem: z.string().default("") });
 const BoardInput = z.preprocess(fillOld, BoardWireSchema).transform(normalizeBoard);
 const demo = () => currentWriter() === null;
+
+// "Sin clave" (shared/handoff.ts): a writer route with `handoff` either returns the exact prompt for claude.ai
+// ("prompt") or reads the pasted reply ("paste") through the task's schema and post-processing, and answers as if the
+// writer had (demo false, pasted true). Without `handoff`: the writer when there is a key, else the sample.
+const HandoffField = HandoffSchema.optional();
+async function viaWriter<W, R>(
+  handoff: Handoff | undefined,
+  make: () => WriterTask<W, R>,
+  sample: () => object,
+  wrap: (result: R) => object,
+): Promise<object> {
+  if (handoff?.mode === "prompt") return taskPrompt(make());
+  if (handoff?.mode === "paste") return { ...wrap(taskFromPaste(make(), handoff.reply)), demo: false, pasted: true };
+  if (demo()) return { ...sample(), demo: true };
+  return { ...wrap(await runTask(make())), demo: false };
+}
 
 // Publicidad (Método 50-5-3): its own routes, under /api/ads/:series.
 adsRoutes(app);
@@ -1298,80 +1321,81 @@ app.delete("/api/series/:id", (c) => {
 });
 
 app.post("/api/menu", async (c) => {
-  const { brief } = z.object({ brief: BriefSchema }).parse(await c.req.json());
-  if (demo()) return c.json({ ...DEMO_MENU, demo: true });
-  return c.json({ ...(await proposeMenu(brief)), demo: false });
+  const { brief, handoff } = z.object({ brief: BriefSchema, handoff: HandoffField }).parse(await c.req.json());
+  return c.json(await viaWriter(handoff, () => menuTask(brief), () => DEMO_MENU, (menu) => menu));
 });
 
 app.post("/api/story", async (c) => {
-  const { brief, topics, note, projectId } = z
+  const { brief, topics, note, projectId, handoff } = z
     .object({
       brief: BriefSchema,
       topics: z.array(TopicInput).min(1).max(4),
       note: z.string().max(4000).default(""),
       projectId: z.string().max(80).default(""),
+      handoff: HandoffField,
     })
     .parse(await c.req.json());
-  if (demo()) return c.json({ story: demoStory(brief), demo: true });
-  const room = roomBrief(await listRoom(brief.series, projectId));
-  return c.json({ story: await writeStory(brief, topics, room, note), demo: false });
+  const room = handoff || !demo() ? roomBrief(await listRoom(brief.series, projectId)) : "";
+  return c.json(await viaWriter(handoff, () => storyTask(brief, topics, room, note), () => ({ story: demoStory(brief) }), (story) => ({ story })));
 });
 
 app.post("/api/story/revise", async (c) => {
-  const { brief, story, note, projectId } = z
+  const { brief, story, note, projectId, handoff } = z
     .object({
       brief: BriefSchema,
       story: StoryInput,
       note: z.string().min(1),
       projectId: z.string().max(80).default(""),
+      handoff: HandoffField,
     })
     .parse(await c.req.json());
-  if (demo()) return c.json({ story, demo: true });
-  const room = roomBrief(await listRoom(brief.series, projectId));
-  return c.json({ story: await reviseStory(brief, story, note, room), demo: false });
+  const room = handoff || !demo() ? roomBrief(await listRoom(brief.series, projectId)) : "";
+  return c.json(await viaWriter(handoff, () => reviseStoryTask(brief, story, note, room), () => ({ story }), (revised) => ({ story: revised })));
 });
 
 // Five hook variants for a story (PLAYBOOK §3), each with its move and the viewer's awareness level.
 app.post("/api/story/hooks", async (c) => {
-  const { brief, story } = z.object({ brief: BriefSchema, story: StoryInput }).parse(await c.req.json());
-  if (demo()) return c.json({ variants: demoHookVariants(story), demo: true });
-  return c.json({ variants: await hookVariants(brief, story), demo: false });
+  const { brief, story, handoff } = z.object({ brief: BriefSchema, story: StoryInput, handoff: HandoffField }).parse(await c.req.json());
+  return c.json(await viaWriter(handoff, () => hookVariantsTask(brief, story), () => ({ variants: demoHookVariants(story) }), (variants) => ({ variants })));
 });
 
 app.post("/api/board", async (c) => {
-  const { brief, story } = z.object({ brief: BriefSchema, story: StoryInput }).parse(await c.req.json());
-  if (demo()) return c.json({ board: DEMO_BOARD, demo: true });
-  return c.json({ board: await writeBoard(brief, story), demo: false });
+  const { brief, story, handoff } = z.object({ brief: BriefSchema, story: StoryInput, handoff: HandoffField }).parse(await c.req.json());
+  return c.json(await viaWriter(handoff, () => boardTask(brief, story), () => ({ board: DEMO_BOARD }), (board) => ({ board })));
 });
 
 app.post("/api/board/revise", async (c) => {
-  const { brief, story, board, note, shotNotes } = z
+  const { brief, story, board, note, shotNotes, handoff } = z
     .object({
       brief: BriefSchema,
       story: StoryInput,
       board: BoardInput,
       note: z.string(),
       shotNotes: z.array(z.object({ index: z.number().int().min(0), note: z.string().min(1) })),
+      handoff: HandoffField,
     })
     .parse(await c.req.json());
   if (!note.trim() && shotNotes.length === 0) return c.json({ error: "Escribí al menos una nota." }, 400);
-  if (demo()) return c.json({ board, demo: true });
-  return c.json({ board: await reviseBoard(brief, story, board, note, shotNotes), demo: false });
+  return c.json(
+    await viaWriter(handoff, () => reviseBoardTask(brief, story, board, note, shotNotes), () => ({ board }), (revised) => ({ board: revised })),
+  );
 });
 
 app.post("/api/shot/rewrite", async (c) => {
-  const { brief, story, board, index, note } = z
+  const { brief, story, board, index, note, handoff } = z
     .object({
       brief: BriefSchema,
       story: StoryInput,
       board: BoardInput,
       index: z.number().int().min(0),
       note: z.string().min(1),
+      handoff: HandoffField,
     })
     .parse(await c.req.json());
   if (!board.shots[index]) return c.json({ error: "Esa toma ya no existe." }, 400);
-  if (demo()) return c.json({ shot: board.shots[index], demo: true });
-  return c.json({ shot: await rewriteShot(brief, story, board, index, note), demo: false });
+  return c.json(
+    await viaWriter(handoff, () => rewriteShotTask(brief, story, board, index, note), () => ({ shot: board.shots[index] }), (shot) => ({ shot })),
+  );
 });
 
 app.post("/api/image", async (c) => {

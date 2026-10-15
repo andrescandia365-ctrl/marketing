@@ -8,6 +8,7 @@ import { drawShot, loadImage, type Speaker } from "../lib/render.ts";
 import { sketchSetups, type SketchSetup } from "../lib/sketch.ts";
 import { copyText } from "../lib/files.ts";
 import { ChecksPanel } from "./Checks.tsx";
+import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
 import { Button, PieceTitle, ROLE_TEXT, Segmented, Spinner, inputClass } from "./ui.tsx";
 
 type Props = {
@@ -26,6 +27,8 @@ type Props = {
   // "Boceto con IA": a sketch made with an image tool, uploaded for one shot, or removed.
   onSketch: (index: number, file: File) => Promise<void>;
   onSketchRemove: (index: number) => void;
+  // Without a key: the revision and "Arreglalo" by copy and paste with claude.ai (the buttons show the sample).
+  handoffs?: { revise: (note: string, shotNotes: { index: number; note: string }[]) => Handoff; fix: Handoff } | null;
 };
 
 const BAR = { negative: "bg-neg", touching: "bg-touch", good: "bg-good" };
@@ -267,7 +270,7 @@ function RunnerMark({ story }: { story: Story }) {
   );
 }
 
-export function BoardView({ story, board, round, busy, problems, dismissed, look, onRevise, onFix, onDismiss, onApprove, onSketch, onSketchRemove }: Props) {
+export function BoardView({ story, board, round, busy, problems, dismissed, look, onRevise, onFix, onDismiss, onApprove, onSketch, onSketchRemove, handoffs }: Props) {
   // Bocetos: the drawn storyboard (uploaded sketches, else the app's pencil sketch). Imágenes: the pictures so far.
   const [view, setView] = useState<"sketch" | "image">("sketch");
   const [sketchImages, setSketchImages] = useState<Record<number, HTMLImageElement | null>>({});
@@ -541,6 +544,7 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
         disabled={busy !== null}
         onFix={onFix}
         onDismiss={onDismiss}
+        handoff={handoffs?.fix}
       />
 
       <div className="space-y-3 rounded-xl border border-ink/20 bg-white p-4">
@@ -564,6 +568,8 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
               <>
                 <Spinner /> Revisando…
               </>
+            ) : handoffs ? (
+              "Ver un ejemplo"
             ) : (
               "Revisar storyboard"
             )}
@@ -576,6 +582,22 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
             Aprobar → producción
           </Button>
         </div>
+        {handoffs && (
+          <ClaudeHandoff
+            title="Revisar storyboard"
+            what={`la ronda ${round + 1}`}
+            disabled={busy !== null || (!note.trim() && pending.length === 0)}
+            via={{
+              ...handoffs.revise(note.trim(), pending),
+              paste: async (reply) => {
+                if (await handoffs.revise(note.trim(), pending).paste(reply)) {
+                  setNote("");
+                  setShotNotes({});
+                }
+              },
+            }}
+          />
+        )}
       </div>
     </div>
   );

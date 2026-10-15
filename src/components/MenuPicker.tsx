@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { TopicIdea } from "../../shared/schema.ts";
 import { Button, Field, Spinner, inputClass } from "./ui.tsx";
+import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
 
 type Props = {
   ideas: TopicIdea[];
@@ -8,12 +9,14 @@ type Props = {
   max: number;
   busy: boolean;
   onWrite: (topics: TopicIdea[]) => void;
+  // Without a key: the story by copy and paste with claude.ai, for the chosen topics (the button shows the sample).
+  handoff?: ((topics: TopicIdea[]) => Handoff) | null;
 };
 
 const BLANK: TopicIdea = { problem: "", title: "", pain: "", bad: "", good: "", peg: "", why: "Tema propio." };
 
 // Step 1: the menu. Pick the topic (a short) or up to four in order (an episode); add your own if none fits.
-export function MenuPicker({ ideas, questions, max, busy, onWrite }: Props) {
+export function MenuPicker({ ideas, questions, max, busy, onWrite, handoff }: Props) {
   const [own, setOwn] = useState<TopicIdea[]>([]);
   const [draft, setDraft] = useState<TopicIdea>(BLANK);
   const [chosen, setChosen] = useState<TopicIdea[]>([]);
@@ -137,12 +140,14 @@ export function MenuPicker({ ideas, questions, max, busy, onWrite }: Props) {
         </div>
       )}
 
-      <div className="flex items-center gap-3 border-t border-line pt-5">
-        <Button onClick={() => onWrite(chosen)} disabled={chosen.length === 0 || busy}>
+      <div className="flex flex-wrap items-center gap-3 border-t border-line pt-5">
+        <Button onClick={() => onWrite(chosen)} disabled={chosen.length === 0 || busy} variant={handoff ? "secondary" : "primary"}>
           {busy ? (
             <>
               <Spinner /> Escribiendo la historia…
             </>
+          ) : handoff ? (
+            "Ver un ejemplo"
           ) : (
             "Escribir la historia"
           )}
@@ -150,6 +155,15 @@ export function MenuPicker({ ideas, questions, max, busy, onWrite }: Props) {
         <span className="text-sm text-muted">
           {chosen.length} de {max} elegido{max === 1 ? "" : "s"}
         </span>
+        {handoff && (
+          <ClaudeHandoff
+            className="w-full"
+            title="Escribir la historia"
+            what="la historia"
+            disabled={chosen.length === 0 || busy}
+            via={handoff(chosen)}
+          />
+        )}
       </div>
     </div>
   );

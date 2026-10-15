@@ -4,6 +4,7 @@ import { useState } from "react";
 import { MOVE_HINT, MOVE_LABEL } from "../../shared/moves.ts";
 import type { HookVariant } from "../../shared/schema.ts";
 import { Button, Spinner } from "./ui.tsx";
+import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
 
 const LEVEL_LABEL = { 1: "Inconsciente", 2: "Consciente del problema", 3: "Consciente de la solución", 4: "Consciente del producto", 5: "Totalmente consciente" } as const;
 
@@ -15,9 +16,11 @@ type Props = {
   onUse: (variant: HookVariant) => void;
   // Sends them to Publicidad; resolves with how many arrived.
   onSend: (variants: HookVariant[]) => Promise<number>;
+  // Without a key: the five by copy and paste with claude.ai (the button shows the sample).
+  handoff?: Handoff | null;
 };
 
-export function HookVariants({ variants, current, busy, onWrite, onUse, onSend }: Props) {
+export function HookVariants({ variants, current, busy, onWrite, onUse, onSend, handoff }: Props) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState<string>("");
   const key = (variants ?? []).map((v) => v.title).join("|");
@@ -34,12 +37,15 @@ export function HookVariants({ variants, current, busy, onWrite, onUse, onSend }
           <>
             <Spinner /> Escribiendo…
           </>
+        ) : handoff ? (
+          "Ver un ejemplo"
         ) : variants?.length ? (
           "Otras 5 variantes"
         ) : (
           "Escribir 5 variantes"
         )}
       </Button>
+      {handoff && <ClaudeHandoff className="mt-2" title="5 variantes" what="las 5 variantes" disabled={busy} via={handoff} />}
       {variants && variants.length > 0 && (
         <>
           <ol className="mt-3 space-y-2">

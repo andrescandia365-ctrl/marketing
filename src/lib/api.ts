@@ -1,4 +1,5 @@
 import type { MascotMeta } from "../../shared/mascot.ts";
+import type { PromptOnly } from "../../shared/handoff.ts";
 import type {
   Board,
   BrandFromWeb,
@@ -89,7 +90,30 @@ async function call<T>(path: string, body?: unknown, method?: "PUT" | "PATCH" | 
   return data as T;
 }
 
-type Demo = { demo: boolean };
+type Demo = { demo: boolean; pasted?: boolean };
+
+// "Sin clave" (shared/handoff.ts): a writer request as data, so the same request can run on the writer, give the
+// prompt for claude.ai, or read a reply pasted from there.
+export type WriterAsk<T> = { path: string; body: Record<string, unknown>; result?: T };
+const writerAsk = <T>(path: string, body: Record<string, unknown>): WriterAsk<T> => ({ path, body });
+export const asks = {
+  menu: (brief: Brief) => writerAsk<Menu & Demo>("/api/menu", { brief }),
+  story: (brief: Brief, topics: TopicIdea[], note = "", projectId = "") =>
+    writerAsk<{ story: Story } & Demo>("/api/story", { brief, topics, note, projectId }),
+  reviseStory: (brief: Brief, story: Story, note: string, projectId = "") =>
+    writerAsk<{ story: Story } & Demo>("/api/story/revise", { brief, story, note, projectId }),
+  board: (brief: Brief, story: Story) => writerAsk<{ board: Board } & Demo>("/api/board", { brief, story }),
+  storyHooks: (brief: Brief, story: Story) => writerAsk<{ variants: HookVariant[] } & Demo>("/api/story/hooks", { brief, story }),
+  reviseBoard: (brief: Brief, story: Story, board: Board, note: string, shotNotes: { index: number; note: string }[]) =>
+    writerAsk<{ board: Board } & Demo>("/api/board/revise", { brief, story, board, note, shotNotes }),
+  rewriteShot: (brief: Brief, story: Story, board: Board, index: number, note: string) =>
+    writerAsk<{ shot: Shot } & Demo>("/api/shot/rewrite", { brief, story, board, index, note }),
+};
+// Runs the request: on the writer (or the sample), or with `reply` as the answer pasted from claude.ai.
+export const sendAsk = <T>(ask: WriterAsk<T>, reply?: string) =>
+  call<T>(ask.path, reply === undefined ? ask.body : { ...ask.body, handoff: { mode: "paste", reply } });
+// The exact text to paste into claude.ai for this request.
+export const askPrompt = (ask: WriterAsk<unknown>) => call<PromptOnly>(ask.path, { ...ask.body, handoff: { mode: "prompt" } });
 
 export type AdsView = { state: AdsState; transcription: boolean; folder: string; ranking: RankedHook[] };
 export const adsFileUrl = (series: string, file: string) => `/api/ads/${enc(series)}/files/${file.split("/").map(enc).join("/")}`;
@@ -168,19 +192,19 @@ export const ads = {
 
 export const api = {
   status: () => call<Status>("/api/status"),
-  menu: (brief: Brief) => call<Menu & Demo>("/api/menu", { brief }),
+  menu: (brief: Brief, reply?: string) => sendAsk(asks.menu(brief), reply),
   room: (series: string, except = "") =>
     call<{ cards: RoomCard[] }>(`/api/room?series=${encodeURIComponent(series)}&except=${encodeURIComponent(except)}`),
-  story: (brief: Brief, topics: TopicIdea[], note = "", projectId = "") =>
-    call<{ story: Story } & Demo>("/api/story", { brief, topics, note, projectId }),
-  reviseStory: (brief: Brief, story: Story, note: string, projectId = "") =>
-    call<{ story: Story } & Demo>("/api/story/revise", { brief, story, note, projectId }),
-  board: (brief: Brief, story: Story) => call<{ board: Board } & Demo>("/api/board", { brief, story }),
-  storyHooks: (brief: Brief, story: Story) => call<{ variants: HookVariant[] } & Demo>("/api/story/hooks", { brief, story }),
-  reviseBoard: (brief: Brief, story: Story, board: Board, note: string, shotNotes: { index: number; note: string }[]) =>
-    call<{ board: Board } & Demo>("/api/board/revise", { brief, story, board, note, shotNotes }),
-  rewriteShot: (brief: Brief, story: Story, board: Board, index: number, note: string) =>
-    call<{ shot: Shot } & Demo>("/api/shot/rewrite", { brief, story, board, index, note }),
+  story: (brief: Brief, topics: TopicIdea[], note = "", projectId = "", reply?: string) =>
+    sendAsk(asks.story(brief, topics, note, projectId), reply),
+  reviseStory: (brief: Brief, story: Story, note: string, projectId = "", reply?: string) =>
+    sendAsk(asks.reviseStory(brief, story, note, projectId), reply),
+  board: (brief: Brief, story: Story, reply?: string) => sendAsk(asks.board(brief, story), reply),
+  storyHooks: (brief: Brief, story: Story, reply?: string) => sendAsk(asks.storyHooks(brief, story), reply),
+  reviseBoard: (brief: Brief, story: Story, board: Board, note: string, shotNotes: { index: number; note: string }[], reply?: string) =>
+    sendAsk(asks.reviseBoard(brief, story, board, note, shotNotes), reply),
+  rewriteShot: (brief: Brief, story: Story, board: Board, index: number, note: string, reply?: string) =>
+    sendAsk(asks.rewriteShot(brief, story, board, index, note), reply),
   image: (provider: string, prompt: string, style: string, aspect: Brief["format"], beat: string, look = "") =>
     call<{ dataUrl: string }>("/api/image", { provider, prompt, style, aspect, beat, look }),
   seriesFields: (id: string) => call<{ fields: SeriesFields }>(`/api/series/${encodeURIComponent(id)}`),
