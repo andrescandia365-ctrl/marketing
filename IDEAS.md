@@ -511,6 +511,16 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
 - **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
 
+### 66. Pantallas, escena de código, imagen fija y quien presenta (15 Oct 2026) — **Construido ("Go a los dos", "Go a los tres")**
+- **Pantallas en lote:** subís muchas capturas reales de una vez y las revisás en una grilla (nombre, qué muestra, celular o PC); sin clave, se nombran pegando la respuesta de claude.ai.
+- **Videos de la app funcionando** dentro del celular en los explicativos, con desde y hasta, iguales en la vista previa y en el render.
+- **Escena de código:** "Copiar el prompt para Opus" y una caja donde pegás el código; corre aislado (no llega a la app, a tus archivos ni a internet) y se revisa la lectura y la zona segura.
+- **Imagen fija:** analizar tus anuncios ganadores, conceptos que calman un dolor, prompt para Grok sin texto, el texto lo pone la app sin tapar la marca de agua, variantes de texto para sacar cantidad; y la versión estática de cada gancho en Publicidad.
+- **Usar un explicativo como cuerpo o llamado** de Publicidad, sin bajar y subir el MP4.
+- **Mascota en código** guardada en la serie, reusada en cada escena de código y como presentadora.
+- **Que lo diga un personaje:** prompt para Grok con un personaje inventado del elenco diciendo el gancho, el cuerpo o el llamado, o la mascota con la voz del narrador.
+- **Revisión del código:** 12 errores confirmados y arreglados; el más importante, que el código pegado podía salirse de su caja (ahora corre en un worker aislado y se probó en Chromium que no navega ni llega a la red).
+
 ### 65. Videos de letra, historias y la app por dentro (10 Oct 2026) — **Construido (10 Oct 2026, "Go a las listas")**
 - **Videos de letra:**
   1. **Laten con el kick:** con el Reloj armado (stem de batería), el fondo, las capas de Grok y los elementos "al
