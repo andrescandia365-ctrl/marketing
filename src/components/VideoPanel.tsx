@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CLIP_LEVEL_GAIN, type AudioSettings } from "../../shared/audio.ts";
 import type { Board, Brief, Story } from "../../shared/schema.ts";
 import type { TextStyle } from "../../shared/series.ts";
+import { HEADLINE_POSITIONS, HEADLINE_POSITION_LABEL, STORY_FONTS, SUBTITLE_POSITIONS, SUBTITLE_POSITION_LABEL } from "../../shared/storyText.ts";
 import { formatTime, totalSeconds } from "../../shared/template.ts";
 import { download, slug } from "../lib/markdown.ts";
 import { renderPreview, renderVideo, type RenderResult, type ShotMedia } from "../lib/render.ts";
@@ -21,6 +22,8 @@ type Props = {
   seriesStyle: TextStyle;
   // The series' two brand families, for "Letra de la marca" (TextStyle.font).
   brandFonts?: { display: string; ui: string };
+  // Families the series uploaded (Editar serie → Marca), offered first in "Otra letra".
+  ownFonts?: string[];
   onSaveStyle: (style: TextStyle) => Promise<void>;
   // Called with each finished video so it can be saved into the project folder.
   onRendered: (video: Blob) => Promise<string | null>;
@@ -70,6 +73,7 @@ export function VideoPanel({
   seriesName,
   seriesStyle,
   brandFonts,
+  ownFonts = [],
   onSaveStyle,
   onRendered,
   audio,
@@ -223,21 +227,92 @@ export function VideoPanel({
             <Swatch label="Headline" value={style.headlineColor} onChange={(v) => setStyleKey("headlineColor", v)} />
             <Swatch label="Fondo / borde" value={style.backingColor} onChange={(v) => setStyleKey("backingColor", v)} />
           </div>
-          {brandFonts && (
+          <div className="space-y-1">
+            <span className="text-xs font-semibold">Letra del headline y los subtítulos</span>
+            <div>
+              <Segmented
+                value={style.font ?? "app"}
+                onChange={(v) => {
+                  setStyleKey("font", v);
+                  if (v === "other" && !style.fontFamily) setStyleKey("fontFamily", ownFonts[0] ?? STORY_FONTS[0]);
+                }}
+                options={[
+                  { value: "app" as const, label: "La de la app" },
+                  ...(brandFonts
+                    ? [{ value: "brand" as const, label: `La de la marca (${brandFonts.display === brandFonts.ui ? brandFonts.display : `${brandFonts.display} y ${brandFonts.ui}`})` }]
+                    : []),
+                  { value: "other" as const, label: "Otra" },
+                ]}
+              />
+            </div>
+            {style.font === "other" && (
+              <select
+                className={`${inputClass} mt-1 py-1 text-xs`}
+                value={style.fontFamily}
+                onChange={(e) => setStyleKey("fontFamily", e.target.value)}
+                aria-label="Otra letra"
+              >
+                {ownFonts.length > 0 && (
+                  <optgroup label="Subidas a la serie">
+                    {ownFonts.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label="Google Fonts">
+                  {STORY_FONTS.filter((f) => !ownFonts.includes(f)).map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
             <div className="space-y-1">
-              <span className="text-xs font-semibold">Letra</span>
+              <span className="text-xs font-semibold">Headline</span>
               <div>
                 <Segmented
-                  value={style.font ?? "app"}
-                  onChange={(v) => setStyleKey("font", v)}
-                  options={[
-                    { value: "app", label: "La de la app" },
-                    { value: "brand", label: `La de la marca (${brandFonts.display === brandFonts.ui ? brandFonts.display : `${brandFonts.display} y ${brandFonts.ui}`})` },
-                  ]}
+                  value={style.headlinePosition ?? "top"}
+                  onChange={(v) => setStyleKey("headlinePosition", v)}
+                  options={HEADLINE_POSITIONS.map((p) => ({ value: p, label: HEADLINE_POSITION_LABEL[p] }))}
                 />
               </div>
             </div>
-          )}
+            <div className="space-y-1">
+              <span className="text-xs font-semibold">Subtítulos</span>
+              <div>
+                <Segmented
+                  value={style.subtitlePosition ?? "bottom"}
+                  onChange={(v) => setStyleKey("subtitlePosition", v)}
+                  options={SUBTITLE_POSITIONS.map((p) => ({ value: p, label: SUBTITLE_POSITION_LABEL[p] }))}
+                />
+              </div>
+            </div>
+          </div>
+          <p className="text-xs text-muted">
+            En 9:16 el texto queda siempre dentro de lo que no tapan Reels, TikTok y Shorts, y los subtítulos nunca se montan sobre el headline:
+            si chocan, bajan (o suben) solos.
+          </p>
+          <div className="space-y-1">
+            <span className="text-xs font-semibold">Nombre de quien habla</span>
+            <div className="flex flex-wrap items-center gap-3">
+              <Segmented
+                value={style.nameColor === "role" || !style.nameColor ? "role" : "one"}
+                onChange={(v) => setStyleKey("nameColor", v === "role" ? "role" : style.textColor)}
+                options={[
+                  { value: "role", label: "Color por papel" },
+                  { value: "one", label: "Un solo color" },
+                ]}
+              />
+              {style.nameColor && style.nameColor !== "role" && (
+                <Swatch label="Nombre" value={style.nameColor} onChange={(v) => setStyleKey("nameColor", v)} />
+              )}
+            </div>
+          </div>
           <div className="space-y-1">
             <span className="text-xs font-semibold">Para que se lea</span>
             <div>
@@ -271,7 +346,7 @@ export function VideoPanel({
         <input type="checkbox" className="mt-1 size-4" checked={headlines} onChange={(e) => setHeadlines(e.target.checked)} />
         <span>
           <b>Headlines</b>
-          <span className="block text-xs text-muted">El texto grande de arriba en cada toma. Apagalo para todo el video.</span>
+          <span className="block text-xs text-muted">El texto grande de cada toma. Apagalo para todo el video.</span>
         </span>
       </label>
 

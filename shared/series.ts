@@ -2,7 +2,8 @@
 // The writer reads the Markdown; the app edits the fields. Sections with an unknown heading are kept in `other`.
 import { z } from "zod";
 import { DEFAULT_LYRIC_STYLE, LyricStyleSchema } from "./lyrics.ts";
-import { BRAND_FONT_MAX, BrandFontSchema } from "./brandFonts.ts";
+import { BRAND_FONT_MAX, BrandFontSchema, FAMILY } from "./brandFonts.ts";
+import { HEADLINE_POSITIONS, SUBTITLE_POSITIONS } from "./storyText.ts";
 import { MascotMetaSchema, mascotLine, readMascotLine } from "./mascot.ts";
 import { MAX_REFERENCES, REFERENCES, REFERENCES_HEADING, ReferenceSchema, markdownToReferences, referencesToMarkdown } from "./reference.ts";
 
@@ -18,7 +19,14 @@ export const TextStyleSchema = z.object({
   backingColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   // The type of the story's headline and subtitles: the app's (IBM Plex Sans) or the brand's (titles in its display
   // font, lines in its UI font; Google Fonts or its own files, shared/brandFonts.ts).
-  font: z.enum(["app", "brand"]).default("app"),
+  // "other": one family by name, a Google Font from STORY_FONTS (shared/storyText.ts) or one the series uploaded.
+  font: z.enum(["app", "brand", "other"]).default("app"),
+  fontFamily: z.union([z.literal(""), z.string().regex(FAMILY)]).default(""),
+  // The speaker's name: tinted by role (Bueno / Malo / persona / narrador, as before) or one colour.
+  nameColor: z.union([z.literal("role"), z.string().regex(/^#[0-9a-fA-F]{6}$/)]).default("role"),
+  // Where the text sits (shared/storyText.ts), always inside the 9:16 safe zone; the subtitle never over the headline.
+  subtitlePosition: z.enum(SUBTITLE_POSITIONS).default("bottom"),
+  headlinePosition: z.enum(HEADLINE_POSITIONS).default("top"),
 });
 export type TextStyle = z.infer<typeof TextStyleSchema>;
 
@@ -30,6 +38,10 @@ export const DEFAULT_TEXT_STYLE: TextStyle = {
   backing: "shadow",
   backingColor: "#000000",
   font: "app",
+  fontFamily: "",
+  nameColor: "role",
+  subtitlePosition: "bottom",
+  headlinePosition: "top",
 };
 
 // The series' look, written as flaws, not "cinematic": what camera, its flash, the grain, how focus behaves and where

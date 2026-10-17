@@ -482,6 +482,7 @@ export function ProductionView({
           seriesName={pieceSeries?.name ?? ""}
           seriesStyle={pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE}
           brandFonts={pieceSeries ? storyFonts(pieceSeries.brand) : undefined}
+          ownFonts={[...new Set((pieceSeries?.brand.fonts ?? []).map((f) => f.family))]}
           onSaveStyle={saveStyle}
           onRendered={keepVideo}
           audio={audio}

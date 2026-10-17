@@ -21,7 +21,7 @@ export const FONT_ROLE_LABEL: Record<FontRole, string> = { display: "Títulos", 
 export const FONT_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900] as const;
 
 // What a family name may hold: it goes into CSS (`700 48px "Family"`), so no quotes, backslashes, braces or semicolons.
-const FAMILY = /^[\p{L}\p{N} _.&+-]{1,60}$/u;
+export const FAMILY = /^[\p{L}\p{N} _.&+-]{1,60}$/u;
 export const FONT_FILE = /^[a-z0-9-]{1,60}\.(woff2|woff|ttf|otf)$/;
 
 export const BrandFontSchema = z.object({
