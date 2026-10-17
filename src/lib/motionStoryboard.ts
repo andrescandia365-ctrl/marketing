@@ -3,6 +3,7 @@
 // (drawn by drawMotionFrame at one moment once everything in it has arrived), its time range, template, what is said,
 // what sounds (soundHits, and whether the bed dips: roomWindows), how it comes in, its camera and its CONCEPTO /
 // SIMULACIÓN label. The panel data and the Markdown are pure; only the PNG sheet touches a canvas.
+import { metaphorLine } from "../../shared/metaphor.ts";
 import { clipText, videoAssetOf } from "../../shared/screenVideo.ts";
 import {
   DISCLOSURE_TAG,
@@ -62,6 +63,8 @@ export type StoryboardPanel = {
   disclosure: string | null;
   // "Videos de la app funcionando": the stretch of its real screen's recording the scene plays (none: the still).
   recording?: string;
+  // "Escenas metáfora": what Grok draws for the scene, and whether the picture is uploaded.
+  metaphor?: string;
 };
 
 export type StoryboardOptions = {
@@ -136,6 +139,7 @@ export function storyboardPanels(script: MotionScript, opts: StoryboardOptions):
       camera: { kind: camera, label: MOTION_CAMERA_LABEL[camera], byAi: s.cameraBy === "ai" },
       disclosure: labelled(s) ? DISCLOSURE_TAG[s.disclosure as "concept" | "simulation"] : null,
       ...(s.recording && videoAssetOf(s) && { recording: `Video de la app ${videoAssetOf(s)!.id}, tramo ${clipText(s.recording)} s, sin sonido` }),
+      ...(s.template === "metaphor" && { metaphor: metaphorLine(s) }),
     };
   });
 }
@@ -150,7 +154,7 @@ export function soundsLine(p: StoryboardPanel): string {
 
 // The panel as short lines, for the PNG sheet (the studio's panels show the same fields).
 export function panelLines(p: StoryboardPanel): string[] {
-  const lines = [`Entra: ${p.entry.label}`, `Cámara: ${p.camera.label}`, ...(p.recording ? [p.recording] : [])];
+  const lines = [`Entra: ${p.entry.label}`, `Cámara: ${p.camera.label}`, ...(p.recording ? [p.recording] : []), ...(p.metaphor ? [p.metaphor] : [])];
   if (p.voice) lines.push(`${p.voiceHeard ? "Se dice" : "Subtítulo (sin voz)"}: “${p.voice}”`);
   const sound = soundsLine(p);
   lines.push(`Suena: ${sound || "solo la música"}`);
@@ -185,6 +189,7 @@ ${meta.format === "vertical" ? "9:16" : "16:9"} · ${secs(total)} · ${panels.le
         `- **Entra:** ${p.entry.label}`,
         `- **Cámara:** ${p.camera.label}${p.camera.byAi ? " (la eligió la IA)" : ""}`,
         ...(p.recording ? [`- **Pantalla:** ${p.recording}`] : []),
+        ...(p.metaphor ? [`- **Metáfora:** ${p.metaphor}`] : []),
         ...(p.onScreen.length ? [`- **En pantalla:**\n${p.onScreen.map((x) => `  - ${x.label}: “${x.text}”`).join("\n")}`] : []),
         p.voice ? `- **${p.voiceHeard ? "Se dice" : "Subtítulo (la pieza no tiene voz)"}:** “${p.voice}”` : "- **Se dice:** nada",
         `- **Suena:** ${soundsLine(p) || "solo la música"}`,

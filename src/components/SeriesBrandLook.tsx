@@ -14,11 +14,28 @@ import {
   type Brand,
   type SeriesLook,
 } from "../../shared/series.ts";
-import { ensureFont } from "../lib/fonts.ts";
+import { brandFontsKey, ensureBrandFonts, ensureFont } from "../lib/fonts.ts";
+import { fontChoices, type FontRole } from "../../shared/brandFonts.ts";
+import { BrandFontsBox } from "./BrandFontsBox.tsx";
 import { BrandFromWeb } from "./BrandFromWeb.tsx";
 import type { WebCastPick } from "../../shared/webCast.ts";
 import { libraryFileUrl } from "../lib/api.ts";
 import { Button, Field, Spinner, inputClass } from "./ui.tsx";
+
+// The font list of a select: the brand's own files first, then Google Fonts.
+function FontOptions({ choices }: { choices: { family: string; uploaded: boolean }[] }) {
+  const own = choices.filter((c) => c.uploaded);
+  const google = choices.filter((c) => !c.uploaded);
+  const options = (list: typeof choices) => list.map((c) => <option key={c.family}>{c.family}</option>);
+  return own.length ? (
+    <>
+      <optgroup label="Fuentes propias">{options(own)}</optgroup>
+      <optgroup label="Google Fonts">{options(google)}</optgroup>
+    </>
+  ) : (
+    <>{options(google)}</>
+  );
+}
 
 // The brand kit for motion graphics: logo, three colours (one accent) and two fonts.
 export function BrandSection({
@@ -27,6 +44,8 @@ export function BrandSection({
   version,
   onChange,
   onLogo,
+  onFontUpload,
+  onFontRemove,
   works,
   onName,
   onConfirm,
@@ -38,6 +57,8 @@ export function BrandSection({
   version: number;
   onChange: (brand: Brand) => void;
   onLogo: (file: File) => Promise<void>;
+  onFontUpload: (file: File, face: { family: string; role: FontRole; weight: number; style: "normal" | "italic" }) => Promise<void>;
+  onFontRemove: (file: string) => Promise<void>;
   works: string;
   onName: (name: string, tagline: string) => void;
   onConfirm: (claim: string) => void;
@@ -47,9 +68,13 @@ export function BrandSection({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
-    ensureFont(brand.displayFont);
-    ensureFont(brand.uiFont);
-  }, [brand.displayFont, brand.uiFont]);
+    if (seriesId) ensureBrandFonts(seriesId, brand);
+    else {
+      ensureFont(brand.displayFont);
+      ensureFont(brand.uiFont);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seriesId, brandFontsKey(brand)]);
   const logo = seriesId && brand.logo ? libraryFileUrl(seriesId, brand.logo, version) : undefined;
   const color = (key: "bg" | "text" | "accent", label: string) => (
     <label className="flex items-center gap-1.5 text-xs">
@@ -104,20 +129,17 @@ export function BrandSection({
             <label className="block text-xs">
               <span className="font-semibold">Fuente de títulos</span>
               <select className={`${inputClass} mt-0.5 py-1`} value={brand.displayFont} onChange={(e) => onChange({ ...brand, displayFont: e.target.value })}>
-                {[...new Set([...DISPLAY_FONTS, brand.displayFont])].map((f) => (
-                  <option key={f}>{f}</option>
-                ))}
+                <FontOptions choices={fontChoices(brand, "display", DISPLAY_FONTS)} />
               </select>
             </label>
             <label className="block text-xs">
               <span className="font-semibold">Fuente de interfaz</span>
               <select className={`${inputClass} mt-0.5 py-1`} value={brand.uiFont} onChange={(e) => onChange({ ...brand, uiFont: e.target.value })}>
-                {[...new Set([...UI_FONTS, brand.uiFont])].map((f) => (
-                  <option key={f}>{f}</option>
-                ))}
+                <FontOptions choices={fontChoices(brand, "ui", UI_FONTS)} />
               </select>
             </label>
           </div>
+          <BrandFontsBox brand={brand} seriesId={seriesId} onChange={onChange} onUpload={onFontUpload} onRemove={onFontRemove} />
           <label className="block text-xs">
             <span className="font-semibold">Cómo se mueve la marca</span>
             <select

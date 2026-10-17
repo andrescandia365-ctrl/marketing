@@ -1,6 +1,6 @@
 // Steps 2 and 3: meats (3–5, by format, neutral opening) and CTAs (1–3, four things each), written against the
 // approved hooks of the chosen levels.
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   BUDGETS,
   LEVEL_INFO,
@@ -14,7 +14,11 @@ import {
   type Meat,
   type MeatFormat,
 } from "../../../shared/ads.ts";
+import { promptCount } from "../../../shared/adsHandoff.ts";
+import type { Handoff } from "../ClaudeHandoff.tsx";
 import { Button, Notice, Spinner } from "../ui.tsx";
+import { PartsHandoff } from "./PartsHandoff.tsx";
+import { rememberCount, rememberedCount, takePreset } from "../../lib/handoffWalk.ts";
 import { LevelPicker } from "./pieces.tsx";
 
 type Props<T extends Meat | Cta> = {
@@ -31,13 +35,27 @@ type Props<T extends Meat | Cta> = {
   renderCard: (piece: T) => ReactNode;
   // "Que lo digan los personajes": the approved pieces' character prompts in one go.
   extra?: ReactNode;
+  // "Sin clave": the prompts for claude.ai for this count (and, for meats, these formats).
+  handoff?: ((count: number, formats: MeatFormat[]) => (part: number) => Handoff) | null;
+  presetCount?: number;
+  // Keeps the typed count and the prompts' walk while another tab is open (series id).
+  walkKey: string;
 };
 
-export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, renderCard, extra }: Props<T>) {
+export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, renderCard, extra, handoff = null, presetCount, walkKey }: Props<T>) {
   const isMeat = kind === "meat";
   const chosen = levelsOf(levels);
   const recipe = [...new Set(chosen.flatMap((l) => LEVEL_INFO[l].meats))];
-  const [count, setCount] = useState(isMeat ? 4 : 2);
+  const countKey = `${walkKey}:${kind}-count`;
+  const [count, setCountState] = useState(() => rememberedCount(countKey, presetCount ?? (isMeat ? 4 : 2)));
+  const setCount = (n: number) => {
+    setCountState(n);
+    rememberCount(countKey, n);
+  };
+  useEffect(() => {
+    if (takePreset(countKey, presetCount)) setCount(Math.min(isMeat ? 8 : 5, presetCount!));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetCount, isMeat, countKey]);
   const [formats, setFormats] = useState<MeatFormat[]>([]);
   const budget = BUDGETS[seconds];
   const pieceSeconds = isMeat ? budget.meat : budget.cta;
@@ -64,11 +82,13 @@ export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels,
             />
             <span className="ml-2 text-xs text-muted">{isMeat ? "3 a 5" : "1 a 3"}</span>
           </label>
-          <Button onClick={() => onGenerate(count, isMeat ? useFormats : [])} disabled={busy}>
+          <Button variant={handoff ? "secondary" : "primary"} onClick={() => onGenerate(count, isMeat ? useFormats : [])} disabled={busy}>
             {busy ? (
               <>
                 <Spinner /> Escribiendo…
               </>
+            ) : demo ? (
+              "Ver un ejemplo"
             ) : (
               `Generar ${count} ${isMeat ? "meats" : "CTAs"}`
             )}
@@ -113,7 +133,19 @@ export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels,
           Contexto que recibe la IA: {approvedHooks.length ? `${approvedHooks.length} hooks aprobados de esos niveles` : "todavía no hay hooks aprobados de esos niveles (escribe igual, por nivel)"}.
         </p>
         {note && <p className="mt-2 text-xs text-muted">{note}</p>}
-        {demo && <p className="mt-2 text-xs text-muted">Sin clave de IA, las piezas son de muestra.</p>}
+        {demo && <p className="mt-2 text-xs text-muted">Sin clave de IA, «Ver un ejemplo» trae piezas de muestra. Las de verdad, con claude.ai:</p>}
+        {handoff && (
+          <PartsHandoff
+            className="mt-2"
+            parts={promptCount(kind, count)}
+            what={isMeat ? "los meats" : "los CTAs"}
+            title={`${count} ${isMeat ? "meats" : "CTAs"}`}
+            via={handoff(count, isMeat ? useFormats : [])}
+            resetKey={`${count}-${levels.join(",")}-${seconds}-${isMeat ? useFormats.join(",") : ""}`}
+            walkKey={`${walkKey}:${kind}`}
+            disabled={busy}
+          />
+        )}
       </div>
       {approvedHooks.length === 0 && hooks.length > 0 && <Notice tone="warn">Aprobá primero algunos hooks: el meat y el CTA se escriben con el hook elegido como contexto para que sean coherentes.</Notice>}
       {extra}

@@ -9,9 +9,11 @@ import { libraryFileUrl, projectFileUrl, type MediaFileRecord, type MediaRecord 
 import { buildPuppet, singlePuppet, type PuppetAsset } from "./puppet.ts";
 import type { ActorAsset } from "./actor.ts";
 import { subtitleCues, wordByWordOn, type SubtitleCue } from "../../shared/subtitles.ts";
+import { enterOnWordOn, enterOnWords, readableOnWords, type WordEntryInput } from "../../shared/wordEntry.ts";
 import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "./motion.ts";
 import { buildSound, type HitKind, type SoundPlan } from "./motionAudio.ts";
 import { drawReady, withOwnVideos } from "./screenVideo.ts";
+import { isMetaphorAsset } from "../../shared/metaphor.ts";
 
 export const VOICE_BASE = 100;
 
@@ -191,18 +193,31 @@ export function monoPcm(buffer: AudioBuffer): Pcm {
 }
 
 // The scenes as they play: snapped onto the beats unless the person turned that off, with the cuts into the product
-// and the logo on the strongest hits, and each element's template time on a beat when one is within 0.1 s. This is
-// the one place timing moves to the grid: the drawing, the sound and the checks all read what it returns.
+// and the logo on the strongest hits, each element the voice names on its word ("Entrar con la palabra", `words`),
+// and each other element's template time on a beat when one is within 0.1 s. This is the one place timing
+// moves: the drawing, the sound and the checks all read what it returns.
 export function arrangeScenes(
   script: MotionScript | null,
   beats: number[],
   snap: boolean,
   music: MotionPiece["music"] = "synth",
   kicks: TrackKicks | null | undefined = null,
+  words: WordEntryInput | null = null,
 ): MotionScene[] {
   if (!script) return [];
-  if (!snap) return script.scenes;
-  return snapElements(snapScenes(script.scenes, beats, strongBeats(beats, music, kicks), cutPush(script.tone)), beats);
+  const cut = snap ? snapScenes(script.scenes, beats, strongBeats(beats, music, kicks), cutPush(script.tone)) : script.scenes;
+  const arrange = (list: MotionScene[]) => (snap ? snapElements(list, beats) : list);
+  if (!words) return arrange(cut);
+  // "Entrar con la palabra" first: the word wins over the beat (snapElements leaves those elements alone), unless it
+  // would leave a line too briefly on screen to read.
+  return readableOnWords(enterOnWords(cut, words), cutPush(script.tone), arrange);
+}
+
+// What "Entrar con la palabra" needs to place the elements (arrangeScenes), or null when it is off or the piece has
+// no voice: each voice file's length and the heard word times, the same the subtitles read.
+export function pieceWords(piece: MotionPiece, voices: Record<string, { duration: number }>): WordEntryInput | null {
+  if (!enterOnWordOn(piece) || piece.voice === "none") return null;
+  return { voiceSeconds: Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.duration])), heard: piece.wordTimes };
 }
 
 // The music bed's level by tone: lower under a dry piece, a touch higher in an absurd one.
@@ -212,9 +227,11 @@ export function layerAssets(layers: HTMLImageElement[]): Record<string, MotionAs
   return Object.fromEntries(layers.map((img, k) => [`layer:${k}`, asAsset(img, `layer:${k}`)]));
 }
 
-// Some picture on screen was made by an AI: an uploaded layer or a cast member that is not a real screenshot.
+// Some picture on screen was made by an AI: an uploaded layer, a metaphor's picture or a cast member that is not a
+// real screenshot.
 export function usesAiImages(scenes: MotionScene[], series: SeriesInfo): boolean {
-  return scenes.some((s) => [s.asset, s.assetB, ...(s.template === "code" ? (s.code?.assets ?? []) : [])].some((a) => a.startsWith("layer:") || series.cast.find((m) => m.id === a && m.kind !== "screen")));
+  // "Escenas metáfora": a metaphor's picture is always made with Grok.
+  return scenes.some((s) => [s.asset, s.assetB, ...(s.template === "code" ? (s.code?.assets ?? []) : [])].some((a) => a.startsWith("layer:") || isMetaphorAsset(a) || series.cast.find((m) => m.id === a && m.kind !== "screen")));
 }
 
 export function makeWorld(

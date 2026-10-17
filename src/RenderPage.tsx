@@ -2,16 +2,19 @@
 // fonts, voices and track, then exposes window.seek(t), which paints frame t at full size, and the finished mix.
 // Nothing here moves on its own: every frame comes from seek(t).
 import { useEffect, useRef, useState } from "react";
-import { cutBlurOn, cutPush, newMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
+import { cutBlurOn, cutPush, openMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
 import type { Brief } from "../shared/schema.ts";
 import { api } from "./lib/api.ts";
-import { ensureFont, fontBytes, fontLoaded } from "./lib/fonts.ts";
+import { ensureBrandFonts, fontBytes, fontLoaded } from "./lib/fonts.ts";
+import { missingFontText } from "../shared/brandFonts.ts";
 import { CodeDeck } from "./lib/codeSandbox.ts";
 import { drawMotionFrame, scriptDuration } from "./lib/motion.ts";
 import { toWav } from "./lib/motionAudio.ts";
-import { arrangeScenes, layerAssets, loadPieceMedia, loadSeriesImages, makeWorld, motionBeats, motionSound, pieceSubtitles, speechLevels, usesAiImages } from "./lib/motionProject.ts";
+import { arrangeScenes, layerAssets, loadPieceMedia, loadSeriesImages, makeWorld, motionBeats, motionSound, pieceSubtitles, pieceWords, speechLevels, usesAiImages } from "./lib/motionProject.ts";
 import { toSrt } from "../shared/subtitles.ts";
-import { videoAssetOf } from "../shared/screenVideo.ts";
+import { recordingsUsed } from "../shared/screenVideo.ts";
+import { metaphorIssues } from "../shared/metaphor.ts";
+import { loadMetaphorAssets } from "./lib/metaphorMedia.ts";
 import { VideoDeck, drawReady, unreadableVideos, videoSources } from "./lib/screenVideo.ts";
 
 export type MotionRender = {
@@ -54,17 +57,15 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       const [status, project] = await Promise.all([api.status(), api.project(projectId)]);
       const st = project.state as { kind?: string; motion?: Partial<MotionPiece>; pieceBrief?: Brief };
       if (st.kind !== "motion" || !st.motion?.script || !st.pieceBrief) throw new Error("Esta pieza no es un explicativo con guion.");
-      const piece: MotionPiece = { ...newMotionPiece(st.pieceBrief.format), ...st.motion };
+      const piece: MotionPiece = openMotionPiece(st.pieceBrief.format, st.motion);
       const series = status.series.find((s) => s.id === st.pieceBrief!.series);
       if (!series) throw new Error(`No existe la serie "${st.pieceBrief.series}".`);
-      await Promise.all([ensureFont(series.brand.displayFont), ensureFont(series.brand.uiFont)]);
+      // "Fuentes propias de la marca": an uploaded family loads from the series' files, any other from Google Fonts.
+      await ensureBrandFonts(series.id, series.brand);
       await document.fonts.ready;
       // The final render never goes out in a fallback face: it stops and says which font did not load.
       const missing = [...new Set([series.brand.displayFont, series.brand.uiFont])].filter((family) => !fontLoaded(family));
-      if (missing.length)
-        throw new Error(
-          `No cargó la fuente ${missing.map((f) => `«${f}»`).join(" ni ")} de la marca, así que el render se frena para no salir con otra letra. Revisá la conexión a internet, o elegí otra fuente en Editar serie.`,
-        );
+      if (missing.length) throw new Error(missingFontText(missing, series.brand));
       const [images, media, saved] = await Promise.all([
         loadSeriesImages(series),
         loadPieceMedia(projectId, piece, project.media, project.music),
@@ -73,18 +74,23 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       const mascot = saved ? { source: saved.source, name: saved.name, description: saved.description } : null;
       const script = piece.script!;
       const beats = motionBeats(script, piece.music, piece.kickGrid);
-      const scenes = arrangeScenes(script, beats, piece.snap !== false, piece.music, piece.kickGrid);
+      const scenes = arrangeScenes(script, beats, piece.snap !== false, piece.music, piece.kickGrid, pieceWords(piece, media.voices));
       const snapped = { ...script, scenes };
       const notice = piece.disclosure && usesAiImages(scenes, series);
       const speech = await speechLevels(snapped, piece, media.voices);
       const subtitles = pieceSubtitles(scenes, piece, media.voices);
       // "Videos de la app funcionando": the screens' recordings, each scene's player sought to the exact frame before
       // it is drawn. One that cannot be read here stops the render (never a still in its place).
-      const deck = new VideoDeck(videoSources(images.cast));
-      const used = new Set(scenes.flatMap((s) => (s.recording ? [videoAssetOf(s)?.id ?? ""] : [])));
+      // "Escenas metáfora": the pictures and clips Grok made, uploaded into the project. A metaphor scene with none
+      // stops the render (never a placeholder in a finished video); a clip plays through the same players.
+      const metaphors = await loadMetaphorAssets(projectId, scenes, project.media);
+      const noPicture = metaphorIssues(scenes, (id) => Boolean(metaphors[id]));
+      if (noPicture.length) throw new Error(noPicture.map((i) => `Escena ${i.index + 1} (metáfora): ${i.problem}`).join(" "));
+      const deck = new VideoDeck(videoSources({ ...images.cast, ...metaphors }));
+      const used = recordingsUsed(scenes);
       const broken = deck.empty || !used.size ? [] : await deck.check(used);
       if (broken.length) throw new Error(unreadableVideos(broken, series));
-      const world = makeWorld(series.brand, { ...images.cast, ...layerAssets(media.layers) }, images.logo, beats, notice, {
+      const world = makeWorld(series.brand, { ...images.cast, ...layerAssets(media.layers), ...metaphors }, images.logo, beats, notice, {
         puppets: images.puppets,
         actors: images.actors,
         speech,
@@ -93,7 +99,7 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
         videos: deck,
         // "Escena de código": each code scene in its own sandbox; one that fails stops the render.
         // "Mascota en código": the series' mascot goes into every code scene's sandbox and draws the character scenes it hosts.
-        code: new CodeDeck({ fonts: fontBytes, format, strict: true, mascot }),
+        code: new CodeDeck({ fonts: (families) => fontBytes(families, series.id), format, strict: true, mascot }),
       });
       const failing = await (world.code as CodeDeck).check(snapped, world, { w, h });
       if (failing.length) throw new Error(failing.map((f) => `Escena ${f.index + 1} (código): ${f.problem}`).join(" "));

@@ -31,6 +31,19 @@ import { codeHolds } from "../../shared/codeScene.ts";
 import { disclosureBox, drawMotionFrame, sceneAt, scriptDuration, subtitleBox, type Box, type MotionWorld } from "./motion.ts";
 
 export type SheetFormat = "vertical" | "horizontal";
+
+// "Sin clave": a review round built for claude.ai (its sheets to download and attach, the prompt's inputs), and the
+// piece as it was then: a reply pasted after an edit is refused.
+export type ManualRound = {
+  key: string;
+  script: MotionScript;
+  round: number;
+  earlier: string[];
+  formats: SheetFormat[];
+  scenesText: string;
+  facts: string;
+  sheets: { format: SheetFormat; blob: Blob | null }[];
+};
 export type Outside = { t: number; scene: number; key: string; format: SheetFormat };
 // Text under a phone's top bar, caption or buttons (9:16 only).
 export type Zoned = { t: number; scene: number; key: string; bands: SafeBand[] };

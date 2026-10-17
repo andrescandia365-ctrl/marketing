@@ -7,9 +7,11 @@ import { join, resolve, sep } from "node:path";
 import type { LyricStyle } from "../shared/lyrics.ts";
 import type { SeriesInfo } from "../shared/schema.ts";
 import { extraRefName, memberRefCount, refFileName, seriesRefNames } from "../shared/castRefs.ts";
+import { FONT_TYPES, afterFontRemoved, cleanFamily, fontFileName, fontTypeOf, fontUploadProblems, guessFontFace, keepBrandFonts, BrandFontSchema, FONT_FILE, type BrandFont, type FontRole } from "../shared/brandFonts.ts";
 import { MASCOT_FILE, MascotMetaSchema, mascotSig, validateMascotSource, type MascotMeta } from "../shared/mascot.ts";
 import { SCREEN_MAX_BYTES, reorderSubset, screenMember, screenTypeOf, type ScreenDevice } from "../shared/screenBatch.ts";
 import {
+  DEFAULT_BRAND,
   CAST_MAX,
   PUPPET_MAX_LAYERS,
   ScreenVideoSchema,
@@ -152,7 +154,9 @@ export function saveSeriesFromApp(id: string, fields: SeriesFields) {
   const correspondent = fields.cast.some((m) => m.id === fields.correspondent && m.kind === "character") ? fields.correspondent : "";
   // "Mascota en código" is the server's (saved and removed on its own route): what the app sends never changes it.
   const mascot = getSeriesFields(id).mascot;
-  saveSeries(id, { ...fields, mascot, explainerCharacter: host, correspondent, cast: fields.cast.map((m) => ({ ...withoutVideo(m), puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m), refs: keepRefs(old.find((o) => o.id === m.id)), ...keepVideo(old.find((o) => o.id === m.id), m) })) });
+  // "Fuentes propias de la marca": the files are the server's too; the form may rename them or change their role.
+  const brand = { ...fields.brand, fonts: keepBrandFonts(getSeriesFields(id).brand.fonts, fields.brand.fonts) };
+  saveSeries(id, { ...fields, brand, mascot, explainerCharacter: host, correspondent, cast: fields.cast.map((m) => ({ ...withoutVideo(m), puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m), refs: keepRefs(old.find((o) => o.id === m.id)), ...keepVideo(old.find((o) => o.id === m.id), m) })) });
 }
 
 // Adds a cast member to the series, or replaces the one with the same id (keeping its image if none is given).
@@ -493,6 +497,63 @@ export function readLibraryFile(id: string, name: string): { data: Buffer; type:
   }
 }
 
+// ── "Fuentes propias de la marca" ─────────────────────────────────────────────────────────────────────────────
+// Font files live in biblioteca/<series>/fuentes/<family>-<weight>.<ext>, the type read from the bytes; the bible lists
+// them in the brand line (brand.fonts). Only names the schema accepts are ever read or removed.
+export const FONTS_DIR = "fuentes";
+
+export function fontPath(id: string, file: string): string | null {
+  if (!ID.test(id) || !FONT_FILE.test(file)) return null;
+  return join(LIBRARY_DIR, id, FONTS_DIR, file);
+}
+
+export function addBrandFont(
+  id: string,
+  data: Buffer,
+  input: { fileName: string; family?: string; role?: FontRole; weight?: number; style?: "normal" | "italic" },
+): BrandFont {
+  const fields = getSeriesFields(id);
+  const bytes = new Uint8Array(data);
+  const problem = fontUploadProblems(bytes, fields.brand.fonts.length)[0];
+  if (problem) throw new SeriesError(problem);
+  const ext = fontTypeOf(bytes)!;
+  const guess = guessFontFace(input.fileName);
+  const family = cleanFamily(input.family ?? "") || guess.family;
+  const weight = input.weight ?? guess.weight;
+  const style = input.style ?? guess.style;
+  const file = fontFileName(family, weight, style, ext, fields.brand.fonts.map((f) => f.file));
+  const font = BrandFontSchema.parse({ file, family, role: input.role ?? "other", weight, style, name: input.fileName.slice(0, 120) });
+  const path = fontPath(id, file);
+  if (!path) throw new SeriesError("Nombre de archivo no válido.");
+  mkdirSync(join(LIBRARY_DIR, id, FONTS_DIR), { recursive: true });
+  writeFileSync(path, data);
+  saveSeries(id, { ...fields, brand: { ...fields.brand, fonts: [...fields.brand.fonts, font] } });
+  return font;
+}
+
+export function removeBrandFont(id: string, file: string) {
+  const fields = getSeriesFields(id);
+  const removed = fields.brand.fonts.filter((f) => f.file === file);
+  if (!removed.length) throw new SeriesError("Esa fuente no está en la marca.");
+  const path = fontPath(id, file);
+  if (path) rmSync(path, { force: true });
+  const brand = afterFontRemoved({ ...fields.brand, fonts: fields.brand.fonts.filter((f) => f.file !== file) }, removed, DEFAULT_BRAND);
+  saveSeries(id, { ...fields, brand });
+}
+
+export function readBrandFont(id: string, file: string): { data: Buffer; type: string } {
+  const path = fontPath(id, file);
+  const font = getSeries(id)?.brand.fonts.find((f) => f.file === file);
+  if (!path || !font) throw new SeriesError("Esa fuente no existe.");
+  try {
+    const data = readFileSync(path);
+    const ext = fontTypeOf(new Uint8Array(data));
+    return { data, type: ext ? FONT_TYPES[ext] : "application/octet-stream" };
+  } catch {
+    throw new SeriesError("Esa fuente no existe.");
+  }
+}
+
 // ── "Mascota en código" ────────────────────────────────────────────────────────────────────────────────────────
 // The code lives in the series library (biblioteca/<series>/mascota.js); the bible keeps its name, description and
 // fingerprint on one header line. The browser tests it in its sandbox before saving; the server checks it again
@@ -536,7 +597,7 @@ export function createSeries(fields: SeriesFields): string {
   let id = base;
   for (let n = 2; getSeries(id); n++) id = `${base}-${n}`;
   // A new series has no files of its own yet: images, puppet parts, rigs and extra references are uploaded after.
-  write(id, { ...fields, mascot: null, brand: { ...fields.brand, logo: "" }, cast: fields.cast.map((m) => ({ ...withoutVideo(m), image: "", puppet: { layers: [] }, rig: { ...m.rig, file: "" }, refs: [] })) });
+  write(id, { ...fields, mascot: null, brand: { ...fields.brand, logo: "", fonts: [] }, cast: fields.cast.map((m) => ({ ...withoutVideo(m), image: "", puppet: { layers: [] }, rig: { ...m.rig, file: "" }, refs: [] })) });
   return id;
 }
 

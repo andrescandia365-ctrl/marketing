@@ -168,6 +168,15 @@ export function sceneWordTimes(scene: Pick<MotionScene, "voice">, voiceSeconds: 
   return estimateWordTimes(words, voiceSeconds ?? words.length / SPOKEN_WORDS_PER_SECOND);
 }
 
+// A scene's word times from its voice start, as the subtitles show them: heard or estimated from the voice file
+// (`known`, its length), or with no file the estimate fitted into the scene after its voice mark, so nothing is cut
+// off at the cut. "Entrar con la palabra" reads the same times (shared/wordEntry.ts).
+export function voiceWordSpans(scene: Pick<MotionScene, "voice" | "seconds">, mark: number, known: number | undefined, heard?: HeardWordTimes): WordSpan[] {
+  const text = subtitleWords(scene.voice);
+  if (known !== undefined) return sceneWordTimes(scene, known, heard);
+  return estimateWordTimes(text, Math.max(0.1, Math.min(text.length / SPOKEN_WORDS_PER_SECOND, scene.seconds - mark - 0.1)));
+}
+
 // Subtitle lines: at most 37 characters (inside the 42 subtitle guides allow, and two of them fit the 9:16 band at the
 // subtitle's size), at most two lines a chunk.
 export const SUB_LINE = 37;
@@ -242,12 +251,7 @@ export function subtitleCues(
     if (!text.length || s.end <= s.start) continue;
     const mark = elementTimes(s).voice ?? 0.25;
     const at = s.start + mark;
-    const known = options.voiceSeconds[s.id];
-    // With no voice file nothing is cut off at the cut: the estimate fits the line into its scene.
-    const spans =
-      known === undefined
-        ? estimateWordTimes(text, Math.max(0.1, Math.min(text.length / SPOKEN_WORDS_PER_SECOND, s.seconds - mark - 0.1)))
-        : sceneWordTimes(s, known, options.heard?.[s.id]);
+    const spans = voiceWordSpans(s, mark, options.voiceSeconds[s.id], options.heard?.[s.id]);
     const clamp = (x: number) => Math.min(s.end, Math.max(s.start, x));
     const words = text.map((w, i) => ({ text: w, start: round(clamp(at + spans[i][0])), end: round(clamp(at + spans[i][1])) }));
     if (!options.karaoke) {

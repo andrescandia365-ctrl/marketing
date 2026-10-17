@@ -2,6 +2,7 @@
 // director's note (the writer changes only what it asks).
 import { DURATIONS, type MotionPiece, type MotionScript } from "../../shared/motion.ts";
 import type { SeriesInfo } from "../../shared/schema.ts";
+import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
 import { Button, Field, Segmented, Spinner, inputClass } from "./ui.tsx";
 
 type Props = {
@@ -12,13 +13,15 @@ type Props = {
   set: (patch: Partial<MotionPiece>) => void;
   busy: string | null;
   writeScript: () => Promise<void>;
+  // "Sin clave": the script and the director's note by copy and paste with claude.ai (null: a writer is connected).
+  handoffs: { write: Handoff; note: Handoff } | null;
   fitToTarget: () => void;
   directorNote: string;
   setDirectorNote: (note: string) => void;
   applyNote: () => Promise<void>;
 };
 
-export function MotionScriptBar({ series, script, total, piece, set, busy, writeScript, fitToTarget, directorNote, setDirectorNote, applyNote }: Props) {
+export function MotionScriptBar({ series, script, total, piece, set, busy, writeScript, handoffs, fitToTarget, directorNote, setDirectorNote, applyNote }: Props) {
   return (
     <>
       <div>
@@ -47,11 +50,13 @@ export function MotionScriptBar({ series, script, total, piece, set, busy, write
             )}
           </div>
         </Field>
-        <Button onClick={writeScript} disabled={busy !== null}>
+        <Button onClick={writeScript} disabled={busy !== null} variant={handoffs ? "secondary" : "primary"}>
           {busy === "write" ? (
             <>
               <Spinner /> Escribiendo…
             </>
+          ) : handoffs ? (
+            "Ver un ejemplo"
           ) : script ? (
             "Escribir otro guion"
           ) : (
@@ -62,6 +67,15 @@ export function MotionScriptBar({ series, script, total, piece, set, busy, write
           <Button variant="secondary" onClick={fitToTarget}>
             Ajustar a {piece.target} s
           </Button>
+        )}
+        {handoffs && (
+          <ClaudeHandoff
+            className="min-w-[16rem] flex-1"
+            title={script ? "Otro guion" : "El guion"}
+            what="el guion del explicativo"
+            disabled={busy !== null}
+            via={handoffs.write}
+          />
         )}
       </div>
 
@@ -78,15 +92,26 @@ export function MotionScriptBar({ series, script, total, piece, set, busy, write
               onChange={(e) => setDirectorNote(e.target.value)}
             />
           </label>
-          <Button variant="secondary" onClick={applyNote} disabled={!directorNote.trim() || busy !== null}>
-            {busy === "note" ? (
-              <>
-                <Spinner /> Aplicando la nota…
-              </>
-            ) : (
-              "Aplicar la nota"
-            )}
-          </Button>
+          {/* Without a key the sample cannot change the script: the note goes to claude.ai. */}
+          {!handoffs && (
+            <Button variant="secondary" onClick={applyNote} disabled={!directorNote.trim() || busy !== null}>
+              {busy === "note" ? (
+                <>
+                  <Spinner /> Aplicando la nota…
+                </>
+              ) : (
+                "Aplicar la nota"
+              )}
+            </Button>
+          )}
+          {handoffs && (
+            <ClaudeHandoff
+              title="La nota"
+              what="el guion con la nota aplicada"
+              disabled={busy !== null || !directorNote.trim()}
+              via={handoffs.note}
+            />
+          )}
         </div>
       )}
     </>

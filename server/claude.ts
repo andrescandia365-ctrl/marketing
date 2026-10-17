@@ -1,3 +1,4 @@
+import { metaphorCastOf } from "../shared/metaphor.ts";
 import { readFileSync } from "node:fs";
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
@@ -36,7 +37,7 @@ import type { SiteFacts } from "./brandWeb.ts";
 import { MOTION_TEMPLATES, MotionNoteSchema, MotionScriptSchema, READ_LETTERS_PER_SECOND, hostScenes, normalizeMotion, pickCamera, readingNeed, type MotionScript } from "../shared/motion.ts";
 import { mergeNote, noteView, type NoteMerge } from "../shared/motionNote.ts";
 import { recordingNote, settleClips } from "../shared/screenVideo.ts";
-import { MotionReviewSchema, normalizeReview, type MotionReview } from "../shared/motionQuality.ts";
+import { MotionReviewSchema, NO_SHEET_REPLY, normalizeReview, sheetFileName, type MotionReview, type MotionReviewWire } from "../shared/motionQuality.ts";
 import {
   BackgroundPromptsSchema,
   LyricElementsSchema,
@@ -65,6 +66,7 @@ import { claudeUsage } from "../shared/usage.ts";
 import { offerOf } from "./ads.ts";
 import { offerBlock } from "../shared/ads.ts";
 import { settleEditFrom, settleScreenShot } from "../shared/transformScreen.ts";
+import { NO_JSON, assemblePrompt, readReply, replyErrorText, type PromptOnly } from "../shared/handoff.ts";
 
 const ENGINE = readFileSync(new URL("./engine.md", import.meta.url), "utf8");
 const PLAYBOOK = readFileSync(new URL("./playbook.md", import.meta.url), "utf8");
@@ -72,7 +74,7 @@ const PLAYBOOK = readFileSync(new URL("./playbook.md", import.meta.url), "utf8")
 // Frozen system prompt: identical bytes on every request so it stays in the prompt cache.
 const SYSTEM = `You are the writers' room of a content studio in Argentina. You plan, write and storyboard recurring social-media content series (Reels, TikTok, Shorts, longer YouTube episodes). A separate image and video tool will illustrate your storyboards shot by shot, so every shot needs a concrete, filmable picture.
 
-The storytelling engine below is how every piece is built. The playbook after it is the house's research: use its moves, writing rules and guardrails, but its 75-second ad template does not apply; the engine's formats do.
+The storytelling engine below is how every piece is built. The playbook after it holds the house's rules: use its moves, writing rules and guardrails; the engine's formats set each piece's length and shape.
 
 ${ENGINE}
 
@@ -254,6 +256,45 @@ async function ask<T>(brief: Brief, withTool: boolean, prompt: string, schema: z
   return askWith(who, [SYSTEM, ...contextBlocks(brief, withTool)], prompt, schema, pictures);
 }
 
+// ── Writer tasks ────────────────────────────────────────────────────────────────────
+// One writer request as data: what the writer reads (system blocks, request), the shape of its answer, and what the
+// app does with that answer. It runs against the connected writer (runTask) or, with no key, goes to claude.ai by copy
+// and paste (taskPrompt, taskFromPaste): the same text, the same schema, the same post-processing.
+// pictures: what goes along with the request to the model that looks at pictures (the contact sheet). By copy and
+// paste they go as files the person attaches in claude.ai, which the prompt asks for in its own words.
+export type WriterTask<W, R> = { system: string[]; prompt: string; schema: z.ZodType<W>; finish: (wire: W) => R; pictures?: Picture[] };
+
+function task<W, R>(brief: Brief, withTool: boolean, prompt: string, schema: z.ZodType<W>, finish: (wire: W) => R): WriterTask<W, R> {
+  return { system: [SYSTEM, ...contextBlocks(brief, withTool)], prompt, schema, finish };
+}
+
+export async function runTask<W, R>(t: WriterTask<W, R>): Promise<R> {
+  const pictures = t.pictures ?? [];
+  const who = (pictures.length ? currentVision() : currentWriter()) ?? currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  return t.finish(await askWith(who, t.system, t.prompt, t.schema, pictures));
+}
+
+// The exact text for claude.ai, with its size.
+export function taskPrompt<W, R>(t: WriterTask<W, R>): PromptOnly {
+  const prompt = assemblePrompt(t.system, t.prompt, t.schema);
+  return { prompt, chars: prompt.length };
+}
+
+// A reply pasted from claude.ai, read tolerantly and checked with the task's own schema; errors name the field.
+export class PasteError extends Error {}
+export function taskFromPaste<W, R>(t: WriterTask<W, R>, reply: string): R {
+  const read = readReply(reply, t.schema);
+  if (!read.ok) throw new PasteError(replyErrorText(read) ?? NO_JSON);
+  // What the app would refuse from the writer (a script with no scenes) is the pasted reply's problem here.
+  try {
+    return t.finish(read.value);
+  } catch (e) {
+    if (e instanceof WriterError) throw new PasteError(e.message);
+    throw e;
+  }
+}
+
 // The system blocks: the first (engine and playbook) is cached; the series and tool blocks come after it.
 // Every reply's tokens go to the usage log (server/usage.ts), the failed requests' too.
 export async function askWith<T>(who: Writer, system: string[], prompt: string, schema: z.ZodType<T>, pictures: Picture[] = []): Promise<T> {
@@ -369,8 +410,8 @@ function ideasText(ideas: TopicIdea[]): string {
 }
 
 // Step 1: like a show's morning menu, offer topics to pick from.
-export function proposeMenu(brief: Brief): Promise<Menu> {
-  return ask(
+export function menuTask(brief: Brief): WriterTask<Menu, Menu> {
+  return task(
     brief,
     false,
     `Brief:
@@ -378,14 +419,15 @@ ${describeBrief(brief)}
 
 Propose six topic ideas for this piece, each built on a different concrete pain from the series and named by the problem it solves, ready for the Good-vs-Bad engine. Every pain follows how people really work today (the series' "${PRACTICES}" list and the brief's notes); never invent a way of working. Use the optional peg where it fits. Then list any gaps the person should fill.`,
     MenuSchema,
+    (menu) => menu,
   );
 }
+export const proposeMenu = (brief: Brief): Promise<Menu> => runTask(menuTask(brief));
 
 // Step 2: the story, written as a Good-vs-Bad script with topics, bridges and callbacks.
-export async function writeStory(brief: Brief, topics: TopicIdea[], room = "", askNote = ""): Promise<Story> {
+export function storyTask(brief: Brief, topics: TopicIdea[], room = "", askNote = "") {
   const len = LENGTHS[brief.length];
-  return normalizeStory(
-    await ask(
+  return task(
       brief,
       false,
       `Brief:
@@ -403,13 +445,14 @@ ${askNote ? `The room asked this episode to do this, without dropping the episod
 
 ${STORY_CHECKS}`,
       StoryWireSchema,
-    ),
+      normalizeStory,
   );
 }
+export const writeStory = (brief: Brief, topics: TopicIdea[], room = "", askNote = ""): Promise<Story> =>
+  runTask(storyTask(brief, topics, room, askNote));
 
-export async function reviseStory(brief: Brief, story: Story, note: string, room = ""): Promise<Story> {
-  return normalizeStory(
-    await ask(
+export function reviseStoryTask(brief: Brief, story: Story, note: string, room = "") {
+  return task(
       brief,
       false,
       `Brief:
@@ -426,14 +469,15 @@ Rewrite the story to answer the notes. Keep everything the notes don't touch; do
 ${ROOM_CRAFT}
 ${STORY_CHECKS}`,
       StoryWireSchema,
-    ),
+      normalizeStory,
   );
 }
+export const reviseStory = (brief: Brief, story: Story, note: string, room = ""): Promise<Story> =>
+  runTask(reviseStoryTask(brief, story, note, room));
 
 // PLAYBOOK §3: five hook variants per script, each naming the move it uses. Same problem and story, five ways in.
-export async function hookVariants(brief: Brief, story: Story): Promise<HookVariant[]> {
-  return normalizeHookVariants(
-    await ask(
+export function hookVariantsTask(brief: Brief, story: Story) {
+  return task(
       brief,
       false,
       `Brief:
@@ -444,9 +488,10 @@ ${JSON.stringify({ problem: story.problem, title: story.title, logline: story.lo
 
 Write five hook variants for this piece: the same problem and story, five different ways into it, each leaning on a different playbook move (§2.5) and naming it. Each one stops the scroll in the first 2 seconds with something concrete (the object, the number, the hour) and makes sense with no context. Punch at the problem, never at the person. Only what the series shows as real; anything unconfirmed carries [VERIFY]. Do not repeat the current hook. Say which awareness level (1–5) of the viewer each one speaks to, so the best ones can also run as paid ads.`,
       HookVariantsWireSchema,
-    ),
+      normalizeHookVariants,
   );
 }
+export const hookVariants = (brief: Brief, story: Story): Promise<HookVariant[]> => runTask(hookVariantsTask(brief, story));
 
 // What a writers' room keeps across episodes, on top of the callbacks inside this one.
 const ROOM_CRAFT = `Like a series writers' room, also fill:
@@ -482,9 +527,8 @@ const BOARD_RULES = `Shot rules:
 - issues: after writing the board, check it like a strict critic: a shot whose action does not follow the previous one (continuity), the brand shown doing something not on its list without a label (reality), people working in a way the series' "${PRACTICES}" list and the brief don't confirm (practice), an image prompt with more than one moment (image), an open loop never paid off (loop), a first shot that does not show or name the pain within 2 seconds (hook), a Good that never shows the product in use: a real screen, or the product doing its job on screen (product). List every problem you still see; empty only if there are none.`;
 
 // Step 3: the storyboard.
-export async function writeBoard(brief: Brief, story: Story): Promise<Board> {
-  return settleScreens(brief, normalizeBoard(
-    await ask(
+export function boardTask(brief: Brief, story: Story) {
+  return task(
       brief,
       true,
       `Brief:
@@ -497,20 +541,20 @@ Break it into a storyboard.
 
 ${BOARD_RULES}`,
       BoardWireSchema,
-    ),
-  ));
+      (wire): Board => settleScreens(brief, normalizeBoard(wire)),
+  );
 }
+export const writeBoard = (brief: Brief, story: Story): Promise<Board> => runTask(boardTask(brief, story));
 
-export async function reviseBoard(
+export function reviseBoardTask(
   brief: Brief,
   story: Story,
   board: Board,
   note: string,
   shotNotes: { index: number; note: string }[],
-): Promise<Board> {
+) {
   const perShot = shotNotes.map((n) => `- Shot ${n.index + 1}: "${n.note}"`).join("\n");
-  return settleScreens(brief, normalizeBoard(
-    await ask(
+  return task(
       brief,
       true,
       `Brief:
@@ -530,12 +574,19 @@ Revise the storyboard to answer every note. Keep the shots the notes don't touch
 
 ${BOARD_RULES}`,
       BoardWireSchema,
-    ),
-  ));
+      (wire): Board => settleScreens(brief, normalizeBoard(wire)),
+  );
 }
+export const reviseBoard = (
+  brief: Brief,
+  story: Story,
+  board: Board,
+  note: string,
+  shotNotes: { index: number; note: string }[],
+): Promise<Board> => runTask(reviseBoardTask(brief, story, board, note, shotNotes));
 
 // In production: one shot, one note. The neighbours come along so the shot keeps following on.
-export async function rewriteShot(brief: Brief, story: Story, board: Board, index: number, note: string): Promise<Shot> {
+export function rewriteShotTask(brief: Brief, story: Story, board: Board, index: number, note: string): WriterTask<z.infer<typeof ShotWireSchema>, Shot> {
   const shot = board.shots[index];
   if (!shot) throw new WriterError("Esa toma ya no existe.");
   const setups = shot.setups.map((id) => board.setups.find((s) => s.id === id)?.name ?? id).join(", ");
@@ -543,7 +594,7 @@ export async function rewriteShot(brief: Brief, story: Story, board: Board, inde
     const s = board.shots[i];
     return s ? `Shot ${i + 1}: "${s.title}". ${s.action} (line: "${s.voiceover || "none"}")` : "none";
   };
-  const wire = await ask(
+  return task(
     brief,
     true,
     `Brief:
@@ -564,11 +615,15 @@ Rewrite this one shot to answer the note, so it follows the shot before and lead
 
 ${BOARD_RULES}`,
     ShotWireSchema,
+    (wire) => {
+      const settled = settleScreenShot(normalizeShot(wire), allowedScreens(brief));
+      const next = settleEditFrom(board.shots.map((s, i) => (i === index ? settled : s)))[index];
+      return { ...next, topic: shot.topic, beat: shot.beat, speaker: shot.speaker };
+    },
   );
-  const settled = settleScreenShot(normalizeShot(wire), allowedScreens(brief));
-  const next = settleEditFrom(board.shots.map((s, i) => (i === index ? settled : s)))[index];
-  return { ...next, topic: shot.topic, beat: shot.beat, speaker: shot.speaker };
 }
+export const rewriteShot = (brief: Brief, story: Story, board: Board, index: number, note: string): Promise<Shot> =>
+  runTask(rewriteShotTask(brief, story, board, index, note));
 
 // Lyric videos (series of type music). There is no brief; the series bible still goes along.
 function lyricBrief(series: string): Brief {
@@ -809,6 +864,10 @@ function explainerCast(brief: Brief) {
   return { series, host, cast, characters, recordings: (id: string) => recordings.get(id) };
 }
 
+// "Escenas metáfora": the cast ids a metaphor's picture may call by @reference.
+// Never a real screen (a screen is never drawn by an AI), and only members with an approved image.
+const castIds = (series: ReturnType<typeof getSeries>) => metaphorCastOf(series?.cast ?? []).map((m) => m.id);
+
 function castBlock(cast: string, layers: number): string {
   return `What you can show (the series' fixed cast; use ids exactly; only members with an image will render, others show a placeholder):
 ${cast || "- (nothing yet: use hook, steps, stat and logo, and say in note what is missing)"}
@@ -839,6 +898,7 @@ ${
 - notify, when the pain or the payoff is what arrives on the phone (the supplier's message, the reminder, the alert the app sends): up to 3 notifications, each "title | body" (title up to 3 words, body up to 6), in the order they arrive; give the scene about 1 s per notification plus 2.5 s for the last. A notification the product sends must be on the series' working-today list; one from a person or another app follows "Cómo se trabaja hoy".
 - flow, when one thing goes to several places (one order to every supplier, one sale into stock, the cash and the report): title is the source (up to 3 words, its picture in asset if the cast has it), items up to 4 places of up to 3 words, named in the order the voice says them; about 1 s per place plus 1.5 s. Only connections the series lists as working today, unless the scene is labelled concept.
 - slots, the open loop on screen, at most one row per piece: the first slots scene names 2 to 5 boxes (items, up to 3 words each: what the piece promises to settle) and the voice promises them; later slots scenes (2.5 to 3.5 s, items empty, a short title) each fill the next box right after the scene that settles it, so the row fills as the piece goes and the last box fills before the logo. Use it in pieces of 30 s or more, never for fewer than 2 boxes.
+- metaphor, once or twice in a piece and only where an idea is abstract (a delay, a mess that piles up, a weight off someone's shoulders): one simple picture made with Grok that explains it as a metaphor (the order as a pile of boxes about to fall), with the title as its short line (up to 6 words) and text empty or one short line. Write the picture in imagePrompt, in English: one frozen moment, one subject, concrete objects, a plain background, room around it, never words, letters, numbers or logos in it, never a real person or a known character. In videoPrompt, optionally, how the still moves when animated (one action, one slow camera move). A cast member that appears goes in cast by its id (it is called by its @reference); a product or a place of the series only as it really is. Leave asset empty: the person uploads the picture. A metaphor is a picture of the pain or the relief, never a claim: it shows no feature that is not on the working-today list (else label it concept) and it never replaces showing the product in use.
 - Travel between scales when it helps the idea: from the whole to the detail (the shelf, the product on it, its expiry date) or back out to the whole. Make that move with entry "through" on the scene that opens inside the previous one (the camera dives into its main thing), once or twice per piece, never on every cut.
 - Continuity: when the next scene says more about the same picture (the real screen, then a zoom or labels on it; the product, then its callouts; the host presenting the screen, then the screen), give both scenes the same asset: the app carries that picture across the cut from where it was to where it settles (entry "cut" lets it do so by itself; "match" asks for it). Leave it to the scenes that really continue; a new idea gets its own picture.
 - In beforeAfter, reveal "iris" when the change starts in one spot and spreads (set focusX, focusY on that spot); "wipe" when it is a plain side-by-side.
@@ -853,9 +913,9 @@ ${brief.narrator === "without" ? "- No narrator: leave every scene's voice and e
 
 // A motion-graphics explainer (software: how the app does something; e-commerce: the episode's product). Follows the
 // studio's rules: hook in 2 s, something new every 2 to 4 s, no stock defaults, one accent, the brand's fonts.
-export async function motionScript(brief: Brief, target: number | null, layers: number): Promise<MotionScript> {
+export function motionTask(brief: Brief, target: number | null, layers: number): WriterTask<z.infer<typeof MotionScriptSchema>, MotionScript> {
   const { series, host, cast, characters, recordings } = explainerCast(brief);
-  const wire = await ask(
+  return task(
     brief,
     false,
     `Brief:
@@ -867,14 +927,17 @@ ${castBlock(cast, layers)}
 
 ${explainerRules(brief, host)}`,
     MotionScriptSchema,
+    (wire) => {
+      const wireWorld = wire.world;
+      const motion = normalizeMotion(wire, brief.tone, { cast: castIds(series) });
+      // The series' explainer character hosts every character scene, whatever id the writer put there. A writer that
+      // gave no place at all (not even none) gets the one the series leans to.
+      const world = motion.world ?? (pickWorld(wireWorld) === "none" ? undefined : worldLean(series?.type));
+      return { ...motion, ...(world && { world }), scenes: settleClips(hostScenes(motion.scenes, host?.id, characters, false), recordings), tone: brief.tone };
+    },
   );
-  const wireWorld = wire.world;
-  const motion = normalizeMotion(wire, brief.tone);
-  // The series' explainer character hosts every character scene, whatever id the writer put there. A writer that gave
-  // no place at all (not even none) gets the one the series leans to.
-  const world = motion.world ?? (pickWorld(wireWorld) === "none" ? undefined : worldLean(series?.type));
-  return { ...motion, ...(world && { world }), scenes: settleClips(hostScenes(motion.scenes, host?.id, characters, false), recordings), tone: brief.tone };
 }
+export const motionScript = (brief: Brief, target: number | null, layers: number): Promise<MotionScript> => runTask(motionTask(brief, target, layers));
 
 // "Nota del director" for an explainer: the writer returns the whole script with only what the note asks changed,
 // each scene naming the current scene it comes from; mergeNote keeps the rest as it was (ids, hand tweaks, voices).
@@ -917,9 +980,9 @@ export async function writeStillText(prompt: string): Promise<z.infer<typeof Sti
   return askWith(who, [system], prompt, StillTextSchema);
 }
 
-export async function reviseMotion(brief: Brief, current: MotionScript, note: string, layers: number): Promise<NoteMerge> {
+export function reviseMotionTask(brief: Brief, current: MotionScript, note: string, layers: number): WriterTask<z.infer<typeof MotionNoteSchema>, NoteMerge> {
   const { series, host, cast, characters, recordings } = explainerCast(brief);
-  const wire = await ask(
+  return task(
     brief,
     false,
     `Brief:
@@ -936,14 +999,18 @@ ${castBlock(cast, layers)}
 
 ${explainerRules(brief, host)}`,
     MotionNoteSchema,
+    (wire) => {
+      if (!wire.scenes.length) throw new WriterError("La IA devolvió el guion sin escenas. Probá de nuevo o escribí la nota de otra forma.");
+      const links = wire.scenes.map((s) => ({ from: s.from, camera: pickCamera(s.camera) }));
+      const revised = normalizeMotion({ ...wire, scenes: wire.scenes.map(({ from: _from, ...s }) => s) }, current.tone ?? brief.tone, { revising: true, cast: castIds(series) });
+      // keepOthers as in the studio: a character the person chose for a scene stays.
+      const hosted = { ...revised, scenes: settleClips(hostScenes(revised.scenes, host?.id, characters, true), recordings), tone: current.tone ?? brief.tone };
+      return mergeNote(current, hosted, links);
+    },
   );
-  if (!wire.scenes.length) throw new WriterError("La IA devolvió el guion sin escenas. Probá de nuevo o escribí la nota de otra forma.");
-  const links = wire.scenes.map((s) => ({ from: s.from, camera: pickCamera(s.camera) }));
-  const revised = normalizeMotion({ ...wire, scenes: wire.scenes.map(({ from: _from, ...s }) => s) }, current.tone ?? brief.tone, { revising: true });
-  // keepOthers as in the studio: a character the person chose for a scene stays.
-  const hosted = { ...revised, scenes: settleClips(hostScenes(revised.scenes, host?.id, characters, true), recordings), tone: current.tone ?? brief.tone };
-  return mergeNote(current, hosted, links);
 }
+export const reviseMotion = (brief: Brief, current: MotionScript, note: string, layers: number): Promise<NoteMerge> =>
+  runTask(reviseMotionTask(brief, current, note, layers));
 
 // "Traer la marca desde su web": the writer reads what the page uses and says, and proposes the brand kit.
 export function brandFromSite(facts: SiteFacts, seriesId: string): Promise<BrandSuggestion> {
@@ -1023,20 +1090,29 @@ const TONE_PACE: Record<Brief["tone"], string> = {
 
 // The quality loop: the reviewer looks at the contact sheet(s) and the app's measurements, scores six things from 1
 // to 10 and turns the three worst problems into edits of the script.
-export async function reviewMotion(
+// By copy and paste (attached: true) the contact sheets are image files the person attaches in claude.ai: the request
+// opens by asking for them, by file name, and says what to answer when they did not arrive.
+export function reviewMotionTask(
   brief: Brief,
   scenes: string,
   facts: string,
-  sheets: { format: "vertical" | "horizontal"; jpeg: string }[],
+  sheets: { format: "vertical" | "horizontal"; jpeg?: string }[],
   round: number,
   earlier: string,
-): Promise<MotionReview> {
+  attached = false,
+): WriterTask<MotionReviewWire, MotionReview> {
   const series = getSeries(brief.series);
-  return normalizeReview(
-    await ask(
+  const many = sheets.length > 1;
+  const files = sheets.map((s) => sheetFileName(s.format)).join(" and ");
+  const where = attached
+    ? `ATTACH THIS IMAGE: this request needs ${many ? "the contact sheet images" : "the contact sheet image"} the app downloaded (${files}). ${many ? "They are" : "It is"} attached to this message. If you cannot see ${many ? "them" : "it"}, do not guess and do not answer in JSON: reply only "${NO_SHEET_REPLY}".
+
+`
+    : "";
+  const t = task(
       brief,
       false,
-      `You are the motion studio's strict reviewer. ${sheets.length > 1 ? "The contact sheets above show" : "The contact sheet above shows"} one frame per beat of a motion-graphics explainer, taken 0.3 s after the beat so what entered has settled (the second and scene under each frame), at phone-thumbnail size. This is review round ${round}.
+      `${where}You are the motion studio's strict reviewer. ${attached ? (many ? `The attached contact sheets (${files}) show` : `The attached contact sheet (${files}) shows`) : many ? "The contact sheets above show" : "The contact sheet above shows"} one frame per beat of a motion-graphics explainer, taken 0.3 s after the beat so what entered has settled (the second and scene under each frame), at phone-thumbnail size. This is review round ${round}.
 
 The script as it plays:
 ${scenes}
@@ -1061,7 +1137,16 @@ Then the hard rule on what is real: only the series' "${WORKS_TODAY}" list may b
 
 Also pick the thumbnail (poster): the second of the strongest settled frame, never a "corte" frame.`,
       MotionReviewSchema,
-      sheets.map((s) => ({ label: `Contact sheet, ${s.format === "vertical" ? "9:16" : "16:9"}:`, jpeg: s.jpeg })),
-    ),
+      normalizeReview,
   );
+  const pictures = attached ? [] : sheets.flatMap((s) => (s.jpeg ? [{ label: `Contact sheet, ${s.format === "vertical" ? "9:16" : "16:9"}:`, jpeg: s.jpeg }] : []));
+  return { ...t, pictures };
 }
+export const reviewMotion = (
+  brief: Brief,
+  scenes: string,
+  facts: string,
+  sheets: { format: "vertical" | "horizontal"; jpeg: string }[],
+  round: number,
+  earlier: string,
+): Promise<MotionReview> => runTask(reviewMotionTask(brief, scenes, facts, sheets, round, earlier));

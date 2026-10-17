@@ -5,7 +5,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   conceptIssues,
-  flagBeyond,
   cutBlurOn,
   cutPush,
   elementTimes,
@@ -16,6 +15,7 @@ import {
   readingIssues,
   readingKey,
   newMotionPiece,
+  openMotionPiece,
   planCameras,
   quietGaps,
   revealTimes,
@@ -27,15 +27,24 @@ import {
   voiceFitSeconds,
   voiceOverrun,
   SCENE_SECONDS,
-  hostScenes,
 } from "../../shared/motion.ts";
 import { explainerHost } from "../../shared/series.ts";
 import { generatedVoice, noteSummary } from "../../shared/motionNote.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
-import { applyFixes, conceptsBlockRender, describeScenes, MAX_ROUNDS, passes, qualityKey, type QualityRound, type QualityState } from "../../shared/motionQuality.ts";
-import { api, type FinalJob, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
+import {
+  conceptsBlockRender,
+  describeScenes,
+  MAX_ROUNDS,
+  nextRound,
+  qualityKey,
+  takeReview,
+  type MotionReview,
+  type QualityRound,
+  type QualityState,
+} from "../../shared/motionQuality.ts";
+import { api, askPrompt, asks, type FinalJob, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
 import { encodeFrames } from "../lib/encode.ts";
-import { ensureFont, fontBytes } from "../lib/fonts.ts";
+import { brandFontsKey, ensureBrandFonts, fontBytes } from "../lib/fonts.ts";
 import { CodeDeck, codeIssues, testCode } from "../lib/codeSandbox.ts";
 import { MASCOT_ASSET, type MascotCode } from "../../shared/mascot.ts";
 import { samplesSig } from "../../shared/codeScene.ts";
@@ -49,9 +58,25 @@ import type { PuppetAsset } from "../lib/puppet.ts";
 import type { ActorAsset } from "../lib/actor.ts";
 import { drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
 import { VideoDeck, drawReady, unreadableVideos, videoSources, withOwnVideos } from "../lib/screenVideo.ts";
-import { videoAssetOf } from "../../shared/screenVideo.ts";
+import { recordingsUsed } from "../../shared/screenVideo.ts";
+import {
+  METAPHOR_BASE,
+  metaphorAsset,
+  metaphorBatch,
+  metaphorCastOf,
+  metaphorImagePrompt,
+  metaphorIssues,
+  metaphorOpusPrompt,
+  metaphorSlot,
+  metaphorVideoPrompt,
+  metaphorUploadSlot,
+  parseMetaphorReply,
+} from "../../shared/metaphor.ts";
+import { loadMetaphorParts, metaphorAssets, type MetaphorParts } from "../lib/metaphorMedia.ts";
+import { probeScreenVideo } from "../lib/videoProbe.ts";
+import type { MetaphorTools } from "./MetaphorPanel.tsx";
 import { TARGET_LUFS } from "../lib/motionAudio.ts";
-import { contactSheet, measureFacts, sheetJpeg, type SheetFormat } from "../lib/motionQuality.ts";
+import { contactSheet, measureFacts, sheetJpeg, type ManualRound, type SheetFormat } from "../lib/motionQuality.ts";
 import {
   LAYER_BASE,
   POSTER_BASE,
@@ -65,6 +90,7 @@ import {
   loadSeriesImages,
   makeWorld,
   motionBeats,
+  pieceWords,
   motionSound,
   pieceSubtitles,
   posterJpeg,
@@ -85,6 +111,7 @@ import { Notice } from "./ui.tsx";
 import { MotionChecks } from "./MotionChecks.tsx";
 import { MotionSettings } from "./MotionSettings.tsx";
 import { MotionOutputs } from "./MotionOutputs.tsx";
+import { ReviewHandoff } from "./ReviewHandoff.tsx";
 import { ExplainerToAds } from "./ExplainerToAds.tsx";
 import { MotionSceneList } from "./MotionSceneList.tsx";
 import { MotionScriptBar } from "./MotionScriptBar.tsx";
@@ -115,15 +142,20 @@ type Props = {
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 
+
 export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, demucs, autoSync, aiReady = false, onSaveStatus }: Props) {
+  // "Sin clave": no writer connected, so the writer buttons show a sample and offer copy and paste with claude.ai.
+  const noKey = !aiReady;
   const [piece, setPiece] = useState<MotionPiece>(() =>
     initial
-      ? { ...newMotionPiece(brief.format), ...initial.piece }
+      ? openMotionPiece(brief.format, initial.piece)
       : // Without a narrator the piece starts with no voice.
         { ...newMotionPiece(brief.format), ...(brief.narrator === "without" && { voice: "none" as const }) },
   );
   const [voices, setVoices] = useState<Record<string, AudioFile>>({});
   const [layers, setLayers] = useState<HTMLImageElement[]>([]);
+  // "Escenas metáfora": the pictures and clips Grok made, by asset id ("metafora:N").
+  const [metaphorParts, setMetaphorParts] = useState<Record<string, MetaphorParts>>({});
   const [track, setTrack] = useState<{ file: AudioFile; buffer: AudioBuffer } | null>(null);
   // "Storyboard": open or closed (closed by default, so its code loads only when asked for).
   const [boardOpen, setBoardOpen] = useState(false);
@@ -249,7 +281,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       const next = seconds;
       const trial = { ...script, scenes: script.scenes.map((x) => (x.id === sceneId ? { ...x, seconds: next } : x)) };
       const grid = motionBeats(trial, piece.music, piece.kickGrid);
-      const played = timeScenes(arrangeScenes(trial, grid, snap, piece.music, piece.kickGrid)).find((x) => x.id === sceneId);
+      const played = timeScenes(arrangeScenes(trial, grid, snap, piece.music, piece.kickGrid, words)).find((x) => x.id === sceneId);
       if (!played || voiceOverrun(played, v.duration) <= 0) break;
       seconds = Math.min(SCENE_SECONDS.max, Math.round((seconds + 0.25) * 1000) / 1000);
     }
@@ -266,9 +298,9 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
 
   // Brand fonts, the cast's approved images and the logo.
   useEffect(() => {
-    ensureFont(brand.displayFont);
-    ensureFont(brand.uiFont);
-  }, [brand.displayFont, brand.uiFont]);
+    ensureBrandFonts(series.id, brand);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [series.id, brandFontsKey(brand)]);
   useEffect(() => {
     let alive = true;
     loadSeriesImages(series).then(({ cast, logo, puppets, actors }) => {
@@ -286,12 +318,17 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   // A saved piece brings back its voices, layers and track.
   useEffect(() => {
     if (!projectId || !initial) return;
-    loadPieceMedia(projectId, { ...newMotionPiece(brief.format), ...initial.piece }, initial.media, initial.music)
+    loadPieceMedia(projectId, openMotionPiece(brief.format, initial.piece), initial.media, initial.music)
       .then((loaded) => {
         setVoices(Object.fromEntries(Object.entries(loaded.voices).map(([id, v]) => [id, { ...v, url: objectUrl(v.blob) }])));
         setLayers(loaded.layers);
         if (loaded.track) setTrack({ file: { url: objectUrl(loaded.track.blob), blob: loaded.track.blob, name: loaded.track.name, duration: loaded.track.duration }, buffer: loaded.track.buffer });
       })
+      .catch(() => undefined);
+    // "Escenas metáfora": the pictures the opened scenes use, loaded on their own (a slow clip never holds the voices back).
+    const opened = openMotionPiece(brief.format, initial.piece).script?.scenes ?? [];
+    loadMetaphorParts(projectId, opened, initial.media)
+      .then((parts) => setMetaphorParts((had) => ({ ...parts, ...had })))
       .catch(() => undefined);
     // Only when the piece is opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -306,17 +343,24 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     [script?.music.bpm, piece.music, piece.kickGrid, duration, Boolean(script)],
   );
   const snap = piece.snap !== false;
-  const scenes = useMemo(() => arrangeScenes(script, beats, snap, piece.music, piece.kickGrid), [script, beats, snap, piece.music, piece.kickGrid]);
+  // "Entrar con la palabra": what the voice names enters on its word (the same word times as the subtitles).
+  const words = useMemo(() => pieceWords(piece, voices), [piece.enterOnWord, piece.voice, piece.wordTimes, voices]);
+  const scenes = useMemo(
+    () => arrangeScenes(script, beats, snap, piece.music, piece.kickGrid, words),
+    [script, beats, snap, piece.music, piece.kickGrid, words],
+  );
   const snapped: MotionScript | null = script ? { ...script, scenes } : null;
   const total = scenes.reduce((n, s) => n + s.seconds, 0);
 
-  const assets: Record<string, MotionAsset> = useMemo(() => ({ ...castImages, ...layerAssets(layers) }), [castImages, layers]);
+  const metaphors = useMemo(() => metaphorAssets(metaphorParts), [metaphorParts]);
+  const assets: Record<string, MotionAsset> = useMemo(() => ({ ...castImages, ...layerAssets(layers), ...metaphors }), [castImages, layers, metaphors]);
   // "Videos de la app funcionando": one player per scene for the screens' recordings (the preview's; every capture
   // forks its own).
-  const deck = useMemo(() => new VideoDeck(videoSources(castImages)), [castImages]);
+  // "Escenas metáfora": a metaphor's Grok clip plays through the same players.
+  const deck = useMemo(() => new VideoDeck(videoSources({ ...castImages, ...metaphors })), [castImages, metaphors]);
   useEffect(() => () => deck.dispose(), [deck]);
   // "Escena de código": the preview's sandboxes (every render forks its own, strict).
-  const codeDeck = useMemo(() => new CodeDeck({ fonts: fontBytes, format: piece.format }), [piece.format]);
+  const codeDeck = useMemo(() => new CodeDeck({ fonts: (families) => fontBytes(families, series.id), format: piece.format }), [piece.format, series.id]);
   useEffect(() => () => codeDeck.dispose(), [codeDeck]);
   useEffect(() => codeDeck.setMascot(mascotCode), [codeDeck, mascotCode]);
   const usesAi = usesAiImages(scenes, series);
@@ -356,7 +400,9 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   // "Escena de código": a code scene with no code, a failed test, or a text out of the safe zone stops the render.
   const codeSig = (s: MotionScene) => samplesSig(s, piece.format, script?.tone, mascotTag);
   const openCode = codeIssues(timeScenes(scenes), piece.format, Boolean(world.disclosure), codeSig);
-  const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0 || openConcepts.length > 0 || openCode.length > 0;
+  // "Escenas metáfora": a metaphor scene with no picture from Grok yet (never a placeholder in a video).
+  const openMetaphor = metaphorIssues(scenes, (id) => Boolean(assets[id]));
+  const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0 || openConcepts.length > 0 || openCode.length > 0 || openMetaphor.length > 0;
   // The thumbnail: frame 0 of every render.
   const posterT = posterTime(scenes, piece.poster, push);
   const posterRef = useRef<HTMLCanvasElement>(null);
@@ -451,12 +497,14 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  async function work<T>(kind: NonNullable<typeof busy>, fn: () => Promise<T>): Promise<T | null> {
+  // `rethrow`: a reply pasted from claude.ai shows its error under its own box, not at the top.
+  async function work<T>(kind: NonNullable<typeof busy>, fn: () => Promise<T>, rethrow = false): Promise<T | null> {
     setError("");
     setBusy(kind);
     try {
       return await fn();
     } catch (e) {
+      if (rethrow) throw e;
       setError(message(e));
       return null;
     } finally {
@@ -464,24 +512,33 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     }
   }
 
-  async function writeScript() {
-    const result = await work("write", () => api.motion(brief, piece.durationMode === "manual" ? piece.target : null, layers.length));
+  const target = piece.durationMode === "manual" ? piece.target : null;
+  async function writeScript(reply?: string) {
+    const result = await work("write", () => api.motion(brief, target, layers.length, reply), reply !== undefined);
     if (!result) return;
     remember(`write-${Date.now()}`);
     setSelected(null);
     set({ script: result.script, dismissed: [] });
-    setNote([result.script.durationNote, result.script.note].filter(Boolean).join(" "));
+    setNote(
+      [result.demo && noKey ? "Guion de muestra. Para el tuyo, usá «Con claude.ai»." : "", result.script.durationNote, result.script.note, result.pasted ? "(Respuesta pegada de claude.ai.)" : ""]
+        .filter(Boolean)
+        .join(" "),
+    );
   }
 
   // "Nota del director": the writer changes only what the note asks (mergeNote keeps the rest: ids, hand tweaks,
   // voices). A generated voice whose line changed is taken off (kept for undo); the person's own voice stays.
-  async function applyNote() {
+  async function applyNote(reply?: string) {
     const text = directorNote.trim();
     if (!script || !text) return;
-    const result = await work("note", () => api.motionRevise(brief, script, text, layers.length));
+    const result = await work("note", () => api.motionRevise(brief, script, text, layers.length, reply), reply !== undefined);
     if (!result) return;
     if (result.demo) {
-      setNote("Modo de muestra: sin una clave de IA la nota no puede cambiar nada del guion. Cargá una clave en «Modelos» y volvé a aplicarla.");
+      setNote(
+        noKey
+          ? "Modo de muestra: sin clave la nota no cambia nada acá. Usá «Con claude.ai» al lado: copiá el prompt, pegalo en claude.ai y pegá la respuesta."
+          : "Modo de muestra: sin una clave de IA la nota no puede cambiar nada del guion. Cargá una clave en «Modelos» y volvé a aplicarla.",
+      );
       return;
     }
     const dropped = result.voiceChanged.filter((id) => voices[id] && generatedVoice(id, voices[id].name));
@@ -501,7 +558,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       script: { ...result.script, scenes: planCameras(result.script.scenes, result.script.tone) },
       voiceSlots: Object.fromEntries(Object.entries(p.voiceSlots).filter(([id]) => !dropped.includes(id))),
     }));
-    setNote([noteSummary(result, { dropped, recorded }), result.script.note].filter(Boolean).join(" "));
+    setNote([noteSummary(result, { dropped, recorded }), result.script.note, result.pasted ? "(Respuesta pegada de claude.ai.)" : ""].filter(Boolean).join(" "));
     setDirectorNote("");
   }
 
@@ -625,6 +682,88 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const reviewed = (formats: SheetFormat[]) => Boolean(quality && quality.key === keyNow && formats.every((f) => quality.formats.includes(f)));
   const reviewOk = (formats: SheetFormat[]) => reviewed(formats) && Boolean(quality!.passed || quality!.accepted);
 
+  const voiceLengths = () => Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.duration]));
+  function musicFact(of: MotionScript): string {
+    return piece.music === "synth"
+      ? `synthesized, ${of.music.mood}, ${of.music.bpm} bpm`
+      : piece.music === "track" && track
+        ? piece.kickGrid
+          ? `the person's own track, its beat grid measured on its drums stem (${piece.kickGrid.kicks.length} kicks, ${Math.round(piece.kickGrid.bpm)} bpm)`
+          : "the person's own track, with no beat grid (no drums stem yet, so the cuts are not on the beat)"
+        : "none";
+  }
+
+  // What one round looks at: the contact sheet(s) of the script as it plays now and what the app measured.
+  async function roundSheets(working: MotionScript, formats: SheetFormat[]) {
+    await ensureBrandFonts(series.id, brand);
+    const roundBeats = motionBeats(working, piece.music, piece.kickGrid);
+    const roundScenes = arrangeScenes(working, roundBeats, snap, piece.music, piece.kickGrid, words);
+    const played = { ...working, scenes: roundScenes };
+    const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), {
+      puppets,
+      actors,
+      speech,
+      cutBlur,
+      subtitles: pieceSubtitles(roundScenes, piece, voices),
+      videos: deck,
+      code: codeDeck,
+    });
+    const made = [];
+    for (const format of formats) made.push({ format, ...(await contactSheet(played, roundWorld, format)) });
+    const blobs = await Promise.all(made.map((m) => new Promise<Blob | null>((done) => m.canvas.toBlob(done, "image/jpeg", 0.85))));
+    setSheets(made.map((m, k) => ({ format: m.format, url: blobs[k] ? objectUrl(blobs[k]!) : "" })));
+    const facts = measureFacts(
+      played,
+      roundBeats,
+      musicFact(working),
+      voiceLengths(),
+      made.flatMap((m) => m.outside),
+      made.flatMap((m) => m.zoned),
+      made.flatMap((m) => m.overlaps),
+      roundWorld.brand,
+      roundWorld.cutBlur === true,
+      { wordByWord: wordByWordOn(piece), heard: heardCount, voiced: voiced.length },
+    );
+    return { scenesText: describeScenes(roundScenes), facts, made, blobs };
+  }
+
+  // One review taken into the piece (the writer's, or one pasted from claude.ai): flags, the AI's thumbnail, fixes.
+  function takeRound(working: MotionScript, review: MotionReview, round: number, formats: SheetFormat[], demo: boolean) {
+    const step = takeReview(working, review, round, formats, host, castCharacters);
+    // The AI picks the thumbnail unless the person already did.
+    let poster: MotionPiece["poster"] | undefined;
+    if (review.poster !== null && piece.poster?.by !== "vos") {
+      poster = { t: review.poster, by: "ia" };
+      const chosen = poster;
+      setPiece((p) => (p.poster?.by === "vos" ? p : { ...p, poster: chosen }));
+    }
+    if (step.script !== working) {
+      if (step.applied.length) remember(`quality-${Date.now()}`);
+      const next = step.script;
+      setPiece((p) => ({ ...p, script: next }));
+    }
+    const record: QualityRound = { round, scores: review.scores, summary: review.summary, applied: step.applied, pending: step.pending, demo };
+    return { step, poster, record };
+  }
+
+  const stateFor = (working: MotionScript, formats: SheetFormat[], passed: boolean, rounds: QualityRound[]): QualityState => {
+    const finalBeats = motionBeats(working, piece.music, piece.kickGrid);
+    return {
+      key: qualityKey(arrangeScenes(working, finalBeats, snap, piece.music, piece.kickGrid, words), working, qualityExtra),
+      formats,
+      passed,
+      accepted: false,
+      rounds,
+    };
+  };
+
+  async function keepSheets(sheets: { format: SheetFormat; blob: Blob | null }[]) {
+    if (!projectId) return;
+    for (const { format, blob } of sheets) {
+      if (blob) await api.uploadMedia(projectId, SHEET_BASE + (format === "vertical" ? 0 : 1), "image", blob).catch(() => undefined);
+    }
+  }
+
   // Runs the rounds; returns the script as it ended (with the fixes) and the result, or null on an error.
   async function runQuality(formats: SheetFormat[]): Promise<{ script: MotionScript; quality: QualityState; poster?: MotionPiece["poster"] } | null> {
     if (!script) return null;
@@ -635,111 +774,89 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     const earlier: string[] = [];
     let lastSheets: { format: SheetFormat; blob: Blob | null }[] = [];
     let poster: MotionPiece["poster"] | undefined;
-    const voiceLengths = Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.duration]));
-    const music =
-      piece.music === "synth"
-        ? `synthesized, ${script.music.mood}, ${script.music.bpm} bpm`
-        : piece.music === "track" && track
-          ? piece.kickGrid
-            ? `the person's own track, its beat grid measured on its drums stem (${piece.kickGrid.kicks.length} kicks, ${Math.round(piece.kickGrid.bpm)} bpm)`
-            : "the person's own track, with no beat grid (no drums stem yet, so the cuts are not on the beat)"
-          : "none";
     try {
-      await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
       for (let round = 1; round <= MAX_ROUNDS; round++) {
         setReviewing(`Ronda ${round} de ${MAX_ROUNDS}: armando la hoja de contactos…`);
-        const roundBeats = motionBeats(working, piece.music, piece.kickGrid);
-        const roundScenes = arrangeScenes(working, roundBeats, snap, piece.music, piece.kickGrid);
-        const played = { ...working, scenes: roundScenes };
-        const roundWorld = makeWorld(brand, assets, logo, roundBeats, piece.disclosure && usesAiImages(roundScenes, series), {
-          puppets,
-          actors,
-          speech,
-          cutBlur,
-          subtitles: pieceSubtitles(roundScenes, piece, voices),
-          videos: deck,
-          code: codeDeck,
-        });
-        const made = [];
-        for (const format of formats) made.push({ format, ...(await contactSheet(played, roundWorld, format)) });
-        const blobs = await Promise.all(made.map((m) => new Promise<Blob | null>((done) => m.canvas.toBlob(done, "image/jpeg", 0.85))));
-        setSheets(made.map((m, k) => ({ format: m.format, url: blobs[k] ? objectUrl(blobs[k]!) : "" })));
+        const { scenesText, facts, made, blobs } = await roundSheets(working, formats);
         lastSheets = made.map((m, k) => ({ format: m.format, blob: blobs[k] }));
-        const facts = measureFacts(
-          played,
-          roundBeats,
-          music,
-          voiceLengths,
-          made.flatMap((m) => m.outside),
-          made.flatMap((m) => m.zoned),
-          made.flatMap((m) => m.overlaps),
-          roundWorld.brand,
-          roundWorld.cutBlur === true,
-          { wordByWord: wordByWordOn(piece), heard: heardCount, voiced: voiced.length },
-        );
         setReviewing(`Ronda ${round} de ${MAX_ROUNDS}: la IA mira los cuadros…`);
         const { review, demo } = await api.motionReview(
           brief,
-          describeScenes(roundScenes),
+          scenesText,
           facts,
           made.map((m) => ({ format: m.format, jpeg: sheetJpeg(m.canvas) })),
           round,
           earlier.join("\n"),
         );
-        passed = passes(review.scores);
-        // What the reviewer saw beyond "Lo que existe hoy" stays on its scene until the person labels, changes or
-        // confirms it (the render waits for that).
-        const flagged = flagBeyond(working, review.beyond ?? []);
-        if (flagged !== working) {
-          working = flagged;
-          setPiece((p) => ({ ...p, script: flagged }));
-        }
-        // The AI picks the thumbnail unless the person already did.
-        if (review.poster !== null && piece.poster?.by !== "vos") {
-          poster = { t: review.poster, by: "ia" };
-          const chosen = poster;
-          setPiece((p) => (p.poster?.by === "vos" ? p : { ...p, poster: chosen }));
-        }
-        let applied: string[] = [];
-        if (!passed && round < MAX_ROUNDS) {
-          const fixed = applyFixes(working, review.fixes, formats);
-          applied = fixed.applied;
-          if (applied.length) {
-            remember(`quality-${Date.now()}`);
-            // A scene the reviewer turned into a character scene gets the series' character.
-            working = { ...fixed.script, scenes: hostScenes(fixed.script.scenes, host, castCharacters, true) };
-            const next = working;
-            setPiece((p) => ({ ...p, script: next }));
-          }
-        }
-        const pending = !passed && !applied.length ? review.fixes.map((f) => `Escena ${Math.round(f.scene)}: ${f.problem}`) : [];
-        rounds.push({ round, scores: review.scores, summary: review.summary, applied, pending, demo });
-        earlier.push(...applied);
+        const taken = takeRound(working, review, round, formats, demo);
+        working = taken.step.script;
+        passed = taken.step.passed;
+        if (taken.poster) poster = taken.poster;
+        rounds.push(taken.record);
+        earlier.push(...taken.step.applied);
         // Nothing left to change: another round would see the same thing.
-        if (passed || !applied.length) break;
+        if (passed || !taken.step.applied.length) break;
       }
       // The last contact sheets stay in the project's folder.
-      if (projectId) {
-        for (const { format, blob } of lastSheets) {
-          if (blob) await api.uploadMedia(projectId, SHEET_BASE + (format === "vertical" ? 0 : 1), "image", blob).catch(() => undefined);
-        }
-      }
+      await keepSheets(lastSheets);
     } catch (e) {
       setError(message(e));
       setReviewing("");
       return null;
     }
-    const finalBeats = motionBeats(working, piece.music, piece.kickGrid);
-    const state: QualityState = {
-      key: qualityKey(arrangeScenes(working, finalBeats, snap, piece.music, piece.kickGrid), working, qualityExtra),
-      formats,
-      passed,
-      accepted: false,
-      rounds,
-    };
+    const state = stateFor(working, formats, passed, rounds);
     setPiece((p) => ({ ...p, quality: state }));
     setReviewing("");
     return { script: working, quality: state, poster };
+  }
+
+  // ── "Sin clave": one round by hand with claude.ai ─────────────────────────────────────────────────────────
+  // The person builds the sheet, downloads it, attaches it in claude.ai with the copied prompt and pastes the reply:
+  // the same parser and the same takeReview as the writer's rounds, continuing the rounds already taken on this piece.
+  const [manual, setManual] = useState<ManualRound | null>(null);
+  async function prepareManual(formats: SheetFormat[]) {
+    if (!script) return;
+    setError("");
+    setReviewing("Armando la hoja de cuadros…");
+    try {
+      const { round, earlier } = nextRound(quality, keyNow);
+      const { scenesText, facts, made, blobs } = await roundSheets(script, formats);
+      setManual({
+        key: keyNow,
+        script,
+        round,
+        earlier,
+        formats,
+        scenesText,
+        facts,
+        sheets: made.map((m, k) => ({ format: m.format, blob: blobs[k] })),
+      });
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setReviewing("");
+    }
+  }
+  const manualAsk = (m: ManualRound) =>
+    asks.motionReview(brief, m.scenesText, m.facts, m.formats.map((format) => ({ format })), m.round, m.earlier.join("\n"));
+  async function applyManual(reply: string) {
+    const m = manual;
+    if (!m) return;
+    if (m.key !== keyNow) throw new Error("Cambiaste el explicativo después de armar la hoja. Armala de nuevo y copiá el prompt otra vez.");
+    const { review } = await api.motionReview(brief, m.scenesText, m.facts, m.formats.map((format) => ({ format })), m.round, m.earlier.join("\n"), reply);
+    const taken = takeRound(m.script, review, m.round, m.formats, false);
+    const earlierRounds = m.round > 1 && quality ? quality.rounds.slice(0, m.round - 1) : [];
+    const state = stateFor(taken.step.script, m.formats, taken.step.passed, [...earlierRounds, taken.record]);
+    setPiece((p) => ({ ...p, quality: state }));
+    await keepSheets(m.sheets);
+    setManual(null);
+    setNote(
+      taken.step.passed
+        ? "Revisión de claude.ai: todo en 8 o más."
+        : taken.step.applied.length
+          ? `Revisión de claude.ai: apliqué ${taken.step.applied.length} ${taken.step.applied.length === 1 ? "arreglo" : "arreglos"}. Armá la hoja de nuevo para la ronda ${m.round + 1}.`
+          : "Revisión de claude.ai: quedaron notas por debajo de 8 (mirá «Queda» en Control de calidad).",
+    );
   }
 
   // Before any full render: the loop, unless this exact piece already passed it (or the person chose to go ahead).
@@ -768,7 +885,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   // The scenes, beats and world for a script that may be newer than this render's state.
   function playable(next: MotionScript) {
     const b = motionBeats(next, piece.music, piece.kickGrid);
-    const sc = arrangeScenes(next, b, snap, piece.music, piece.kickGrid);
+    const sc = arrangeScenes(next, b, snap, piece.music, piece.kickGrid, words);
     const subs = pieceSubtitles(sc, piece, voices);
     return {
       played: { ...next, scenes: sc },
@@ -811,13 +928,18 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     setResults([]);
     setProgress(0);
     try {
-      await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
+      await ensureBrandFonts(series.id, brand);
       const sound = await makeSound(played, playedBeats);
       for (const [n, format] of formats.entries()) {
         const [w, h] = format === "vertical" ? [1080, 1920] : [1920, 1080];
         // A recording that cannot be read stops the render (never a still in its place in a finished video).
         const own = playedWorld.videos instanceof VideoDeck ? playedWorld.videos.fork() : null;
-        const used = new Set(played.scenes.flatMap((sc) => (sc.recording ? [videoAssetOf(sc)?.id ?? ""] : [])));
+        const missingPicture = metaphorIssues(played.scenes, (id) => Boolean(playedWorld.assets[id]));
+        if (missingPicture.length) {
+          own?.dispose();
+          throw new Error(missingPicture.map((i) => `Escena ${i.index + 1} (metáfora): ${i.problem}`).join(" "));
+        }
+        const used = recordingsUsed(played.scenes);
         const broken = own && used.size ? await own.check(used) : [];
         if (broken.length) {
           own?.dispose();
@@ -879,7 +1001,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       width: w,
       height: h,
       fps: 30,
-      brand: { bg: brand.bg, text: brand.text, accent: brand.accent, displayFont: brand.displayFont, uiFont: brand.uiFont, ...(brand.motion && { motion: brand.motion }) },
+      brand: { bg: brand.bg, text: brand.text, accent: brand.accent, displayFont: brand.displayFont, uiFont: brand.uiFont, ...(brand.motion && { motion: brand.motion }), ...(brand.fonts?.length && { fonts: brand.fonts }) },
       assets: picked.flatMap((id) => {
         const a = assets[id];
         if (!a) return [];
@@ -904,8 +1026,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     if (!s) return { problems: [{ message: "Esa escena ya no está.", fatal: true }], saved: false, texts: 0, slowest: 0 };
     const trial = { ...s, code: { source, assets: picked } };
     const sig = samplesSig(trial, codeFormat, script?.tone, mascotTag);
-    await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
-    const result = await testCode(source, trial, codeFormat, world, script?.tone, fontBytes, sig, undefined, mascotCode);
+    await ensureBrandFonts(series.id, brand);
+    const result = await testCode(source, trial, codeFormat, world, script?.tone, (families: string[]) => fontBytes(families, series.id), sig, undefined, mascotCode);
     const fatal = result.problems.find((p) => p.fatal);
     const saved = !fatal && Boolean(result.samples);
     if (saved) {
@@ -918,6 +1040,75 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     const texts = new Set((result.samples?.frames ?? []).flat().map((t) => t.text.trim())).size;
     return { problems: result.problems, saved, texts, slowest: result.slowest };
   }
+
+  // "Escenas metáfora": the picture Grok made (a still or a clip) goes into the scene's slot (600 + N) in the project,
+  // and the scene's asset names it. A new upload of the same kind replaces the last one.
+  const metaphorCast = useMemo(() => metaphorCastOf(series.cast), [series.cast]);
+  async function uploadMetaphor(sceneId: string, file: File) {
+    const scene = scriptRef.current?.scenes.find((x) => x.id === sceneId);
+    if (!scene) return;
+    await work(
+      "upload",
+      async () => {
+        const isVideo = file.type.startsWith("video/");
+        if (!isVideo && !file.type.startsWith("image/")) throw new Error("Eso no es una imagen ni un video. Subí lo que bajaste de Grok (PNG, JPG, WebP, MP4 o WebM).");
+        const held = Object.keys(metaphorParts).map((id) => ({ asset: id }));
+        const { n, clear } = metaphorUploadSlot(scene.asset, [...(scriptRef.current?.scenes ?? []), ...held], isVideo ? "clip" : "image");
+        const id = metaphorAsset(n);
+        let part: Partial<MetaphorParts>;
+        let meta: { name: string; duration: number } | undefined;
+        if (isVideo) {
+          const probed = await probeScreenVideo(file);
+          const poster = probed.poster ? await loadImage(objectUrl(probed.poster)) : null;
+          part = { clip: { url: objectUrl(file), seconds: probed.seconds, width: probed.width, height: probed.height, poster } };
+          meta = { name: file.name, duration: probed.seconds };
+        } else {
+          const still = await loadImage(objectUrl(file));
+          if (!still) throw new Error("No pude abrir esa imagen. Probá bajarla de nuevo de Grok como PNG o JPG.");
+          part = { still };
+        }
+        if (projectId) {
+          await Promise.all(clear.map((k) => api.removeMedia(projectId, METAPHOR_BASE + n, k).catch(() => undefined)));
+          await api.uploadMedia(projectId, METAPHOR_BASE + n, isVideo ? "clip" : "image", file, meta);
+        }
+        setMetaphorParts((had) => ({ ...had, [id]: { still: had[id]?.still ?? null, clip: had[id]?.clip ?? null, ...part } }));
+        if (scene.asset !== id) {
+          remember(`metafora-${sceneId}-${Date.now()}`);
+          editScenes((list) => list.map((x) => (x.id === sceneId ? { ...x, asset: id } : x)));
+        }
+      },
+      true,
+    );
+  }
+  async function removeMetaphor(sceneId: string) {
+    const scene = scriptRef.current?.scenes.find((x) => x.id === sceneId);
+    const n = metaphorSlot(scene?.asset);
+    if (!scene || n === null) return;
+    await work("upload", async () => {
+      if (projectId) await Promise.all((["image", "clip"] as const).map((k) => api.removeMedia(projectId, METAPHOR_BASE + n, k).catch(() => undefined)));
+      setMetaphorParts((had) => {
+        const { [metaphorAsset(n)]: _gone, ...rest } = had;
+        return rest;
+      });
+      remember(`metafora-${sceneId}-${Date.now()}`);
+      editScenes((list) => list.map((x) => (x.id === sceneId ? { ...x, asset: "" } : x)));
+    });
+  }
+  const metaphorTools: MetaphorTools = {
+    imagePrompt: (sc) => metaphorImagePrompt(sc.metaphor ?? { image: "", video: "", cast: [] }, { look: series.look, cast: metaphorCast }),
+    videoPrompt: (sc) => metaphorVideoPrompt(sc.metaphor ?? { image: "", video: "", cast: [] }),
+    opusPrompt: (sc) => metaphorOpusPrompt(sc, { series: series.name, problem: script?.problem ?? "", cast: metaphorCast, look: series.look }),
+    parse: (reply) => parseMetaphorReply(reply, metaphorCast.map((c) => c.id)),
+    cast: metaphorCast.map((c) => ({ id: c.id, label: `${series.cast.find((m) => m.id === c.id)?.name ?? c.id} (@${c.ref})` })),
+    has: (asset) => ({ image: Boolean(metaphorParts[asset]?.still), clip: Boolean(metaphorParts[asset]?.clip) }),
+    upload: uploadMetaphor,
+    remove: removeMetaphor,
+    batch: () =>
+      metaphorBatch(
+        timeScenes(scenes).filter((x) => x.template === "metaphor"),
+        { look: series.look, cast: metaphorCast },
+      ),
+  };
 
   const codeTools: CodeTools = {
     prompt: scenePrompt,
@@ -965,11 +1156,22 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         piece={piece}
         set={set}
         busy={busy}
-        writeScript={writeScript}
+        writeScript={() => writeScript()}
+        handoffs={
+          noKey
+            ? {
+                write: { prompt: () => askPrompt(asks.motion(brief, target, layers.length)), paste: (reply) => writeScript(reply) },
+                note: {
+                  prompt: () => (script ? askPrompt(asks.motionRevise(brief, script, directorNote.trim(), layers.length)) : Promise.reject(new Error("Todavía no hay guion."))),
+                  paste: (reply) => applyNote(reply),
+                },
+              }
+            : null
+        }
         fitToTarget={fitToTarget}
         directorNote={directorNote}
         setDirectorNote={setDirectorNote}
-        applyNote={applyNote}
+        applyNote={() => applyNote()}
       />
 
       {error && <Notice tone="error">{error}</Notice>}
@@ -1047,6 +1249,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               timeRef={timeRef}
               vertical={vertical}
               openCode={openCode}
+              openMetaphor={openMetaphor}
             />
           </div>
 
@@ -1083,6 +1286,19 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               busy={busy}
               setBusy={setBusy}
               runQuality={runQuality}
+              reviewHandoff={
+                noKey ? (
+                  <ReviewHandoff
+                    manual={manual}
+                    stale={Boolean(manual && manual.key !== keyNow)}
+                    format={piece.format}
+                    preparing={reviewing !== ""}
+                    disabled={busy !== null || Boolean(reviewing)}
+                    onPrepare={(formats) => void prepareManual(formats)}
+                    via={manual ? { prompt: () => askPrompt(manualAsk(manual)), paste: applyManual } : null}
+                  />
+                ) : null
+              }
               render={render}
               finalRender={finalRender}
               blocked={blocked}
@@ -1149,6 +1365,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           voiceAvailable={voiceAvailable}
           busy={busy}
           codeTools={codeTools}
+          metaphorTools={metaphorTools}
         />
       )}
     </section>

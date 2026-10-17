@@ -17,11 +17,10 @@ import {
 import type { Piece } from "../../shared/ads.ts";
 import { speakerDisclosure } from "../../shared/adsSpeaker.ts";
 import type { Board, Brief, Shot } from "../../shared/schema.ts";
-import type { TextStyle } from "../../shared/series.ts";
-import { renderVideo, type RenderResult, type ShotMedia } from "./render.ts";
+import { renderVideo, type DrawStyle, type RenderResult, type ShotMedia } from "./render.ts";
 import { TARGET_LUFS } from "./motionAudio.ts";
 
-export type PieceLook = { format: Brief["format"]; style: TextStyle; disclosure: string; fullFrame: boolean; headlines: boolean };
+export type PieceLook = { format: Brief["format"]; style: DrawStyle; disclosure: string; fullFrame: boolean; headlines: boolean };
 
 // One shot per piece: its line as the subtitle, its headline on top; no speaker name (one presenter, no cast).
 export function pieceShot(piece: Piece): Shot {

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
 import { clipMusicNotice, clipPrompt } from "../../shared/audio.ts";
 import { polishWords } from "../../shared/checks.ts";
 import { buildCopyPrompt } from "../../shared/prompt.ts";
@@ -221,6 +222,8 @@ type CardProps = {
   // Look at the shot's clip (or else its image) again; null when no writer can look at pictures.
   onReview: ((index: number) => void) | null;
   onRewrite: (index: number, note: string) => Promise<boolean>;
+  // Without a key: "Reescribir prompts" by copy and paste with claude.ai (the button shows the sample).
+  rewriteHandoff?: ((index: number, note: string) => Handoff) | null;
   // The series' fixed cast by id: approved images, @ references and real screens.
   library: Record<string, LibraryEntry>;
   // The tool's cap on reference images (its profile in server/tools/), or null.
@@ -381,6 +384,7 @@ function ShotCard(props: CardProps) {
     onUploadClip,
     onRemoveMedia,
     onRewrite,
+    rewriteHandoff,
     onReview,
     onSegment,
     library,
@@ -817,11 +821,26 @@ function ShotCard(props: CardProps) {
                 <>
                   <Spinner /> Reescribiendo…
                 </>
+              ) : rewriteHandoff ? (
+                "Ver un ejemplo"
               ) : (
                 "Reescribir prompts"
               )}
             </Button>
           </div>
+          {rewriteHandoff && (
+            <ClaudeHandoff
+              title="Reescribir prompts"
+              what={`la toma ${shot.index + 1}`}
+              disabled={!note.trim() || rewriting}
+              via={{
+                ...rewriteHandoff(shot.index, note.trim()),
+                paste: async (reply) => {
+                  if (await rewriteHandoff(shot.index, note.trim()).paste(reply)) setNote("");
+                },
+              }}
+            />
+          )}
         </div>
       </div>
     </li>

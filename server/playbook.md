@@ -1,123 +1,91 @@
 # Marketing playbook (operative rules)
 
-Source: `PLAYBOOK.md` in this repo (from commit `e73e803`; short-video craft and static images added 4 Oct 2026).
-This file keeps only the parts that steer writing. The research, the show's business facts and the episode log stay in `PLAYBOOK.md`.
+Source: `PLAYBOOK.md` in this repo. Only the rules that change the writing are here; the research, its evidence and sources stay there, and what the app checks in code is not repeated.
 The playbook studies how a late-night satire show builds a segment and borrows the **mechanics only**: never the show's name, clips, music, people, persona or politics.
 
 ## 1. Two jobs, one frame
 
 ### Job A: a planner for stores
-- The product is a planner strong at management: stores, shifts, inventory, tasks. It may later become a manager agent, a 3D-simulated manager, or a robot manager for a physical convenience store.
-- **Hard rule:** never describe robot, 3D or agent capabilities as shipped unless the brief says they are. Label roadmap items as roadmap; shots that show them carry the disclosure "concept" or "simulation".
-- **Lead with what the product fixes today** (orders, shifts, expiry); tease the future second. A piece about "future fantasies while ignoring current logistics" invites exactly that criticism.
+- A planner strong at management: stores, shifts, inventory, tasks. It may later become a manager agent, a 3D-simulated manager or a robot manager.
+- **Hard rule:** never describe robot, 3D or agent capabilities as shipped unless the series or the brief says they are. Roadmap is labeled roadmap; shots that show it carry the disclosure "concept" or "simulation".
+- **Lead with what the product fixes today**; tease the future second. A piece about future fantasies that ignores today's work invites exactly that criticism.
 
 ### Job B: products that bring good emotions into the home
-- People should feel good in their house. The product works by fixing a pain (mess, cold, noise, chaos, no place to rest); the payoff is the feeling of "this is my home". The user's word for it: love.
-- **Hard rule:** sell only the good. Negative emotion appears only as the pain the product removes. Never sell fear, shame or guilt as the product.
+- The product fixes a pain (mess, cold, noise, chaos, no place to rest); the payoff is the feeling of "this is my home". The user's word for it: love.
+- **Hard rule:** sell only the good. Negative emotion appears only as the pain the product removes. Never sell fear, shame or guilt.
 
 ### The frame: Negative / Touching / Good
+- **Negative:** the pain, concrete and recognizable, agitated with humor.
+- **Touching:** the sincere human moment; the irony drops.
+- **Good:** the product working, the outcome, the feeling, the CTA.
 
-| Beat | What it is | Marketing job |
-|---|---|---|
-| Negative | The pain. Concrete, specific, recognizable. | Pain point + agitation, with humor |
-| Touching | The sincere human moment. Irony drops. | Empathy, a real person's stake |
-| Good | The resolution and the feeling. | The product, the outcome, the CTA |
+Order: **Hook (negative) → Agitate (funny negative) → Turn (touching) → Resolve (good) → Button (laugh or warm line + CTA).** Skipping the Turn is the most common failure; it separates a funny ad from one people remember.
 
-Order: **Hook (negative) → Agitate (funny negative) → Turn (touching) → Resolve (good) → Button (laugh or warm line + CTA).** Skipping the Turn is the most common failure; it separates a funny ad from an ad people remember.
-
-## 2. Why it works (the parts to apply)
+## 2. How to apply it
 - **The customer is the hero; the brand is the guide.** The narrator reacts the way the viewer privately does: disbelief, exasperation, then clarity.
 - **Evidence first.** Show the real thing, let it sit, then react. The joke is a conclusion the viewer reaches with you.
-- **Curation is the product.** Pick the one detail that is relevant, important, and funny.
-- **Earned sincerity.** The funny voice that goes quiet once and means it is the one people trust.
-- **Arousal spreads.** Amusement and mild exasperation are shared; flat contentment is not.
-- **Stickiness:** Simple, Unexpected, Concrete, Credible, Emotional, Stories.
-- **Cynicism is a strong hook and a bad destination.** End on a doable action, not despair.
+- **Pick the one detail** that is relevant, important and funny.
+- **Earned sincerity:** the funny voice that goes quiet once and means it is the one people trust.
+- **Amusement spreads;** flat contentment does not.
+- **Cynicism is a strong hook and a bad destination.** End on a doable action.
 - **Customer vs. the problem**, never customer vs. a group of people.
 
-## 3. The ten moves
+## 3. The moves
+The examples show the shape of a move; they are not facts about any business.
 
 | Move | Shape | Brand translation |
 |---|---|---|
-| Clip Drop | Show the real artifact first, no setup. | Open on the real mess: the actual stockroom, the actual closet. |
-| Contradiction | "They said X. Here's them doing Y." | "Your system says 40 in stock. The shelf says 3." |
+| Clip Drop | Show the real artifact first, no setup. | Open on the real mess. |
+| Contradiction | "They said X. Here's them doing Y." | What is promised next to what really happens. Illustrative only: "The calendar says gym at 7. The alarm says snooze, for the third time." |
 | Slow Reaction | Let the absurdity breathe before the joke. | Hold on the problem for one beat before speaking. |
-| Escalator | Each beat is a bigger version of the same absurdity. | Three pains, each worse and more specific than the last. |
+| Escalator | Each beat is a bigger version of the same absurdity. | Three pains, each worse and more specific. |
 | Turn | Drop the irony; say the true thing plainly. | One honest sentence about what this costs a real person. |
 | Button | A short, sharp last line. | Final line + CTA. |
 | Curiosity Gap | The open promises a payoff the viewer needs to see. | The title states the tension, not the answer. |
-| Field Visit | Go to where the people are; let them talk. | A real store at 2 a.m.; a real living room on a bad day. |
-| Callback | Plant a line early; return to it later so it pays off. | Plant a promise in the hook; pay it off in the button. |
-| Remote Stand-up | A correspondent "on location" escalates the absurdity. | "The Manager" reports live from the store; any concept gag stays labeled as a gag. |
+| Field Visit | Go to where the people are; let them talk. | A real store at closing; a real living room on a bad day. |
+| Callback | Plant a line early; pay it off later. | Plant a promise in the hook; pay it off in the button. |
+| Remote Stand-up | A correspondent "on location" escalates the absurdity. | "The Manager" reports from the store; a concept gag stays labeled as a gag. |
 
-Also from the episode library:
-- **Bridge on an artifact, not a hard cut:** a calendar date, a number, a named thing.
-- **Occasion hook:** open on a moment the audience already feels ("first cold week", "inventory day").
-- **A number as a bridge** into the product, only if the brief gives a real, sourced number.
+Also:
+- **Bridge on an artifact, not a hard cut:** a date, a number, a named thing.
+- **Occasion hook:** open on a moment the audience already feels ("first cold week").
+- **A number as a bridge** only if the series or the brief gives a real, sourced one.
 - **Absurdity as a lens, then grounding:** escalate into the ridiculous, then snap back to the real problem.
 
 ## 4. Writing rules
-1. **Customer is the hero.** The product is the guide. Never open with the company.
-2. **Concrete beats clever.** Name the object, the number, the hour. ("Third time this week the milk expired" beats "inventory challenges".)
-3. **Punch at the problem, never the person.** Jokes target a situation, a system or a tool, never the customer's identity, intelligence or home.
+1. **Customer is the hero.** Never open with the company.
+2. **Concrete beats clever.** Name the object, the number, the hour.
+3. **Punch at the problem, never the person:** a situation, a system or a tool, never the customer's identity, intelligence or home.
 4. **One idea per piece.** If the hook needs "and also", it is two pieces.
 5. **Always include the Turn.** One sentence of real feeling.
 6. **End on action or relief,** not despair or cynicism.
-7. **No borrowed politics.** Structure, not partisan content. The brand stays out of electoral fights.
+7. **No borrowed politics.** The brand stays out of electoral fights.
 8. **Mark unverified claims `[VERIFY]`.** Never invent statistics, quotes, testimonials, case studies or ROI.
 
-### Script template (75 s)
-```
-0:00–0:05  HOOK     Real artifact + one line of tension (negative)
-0:05–0:25  AGITATE  Escalator: 3 beats, each funnier and more specific
-0:25–0:40  TURN     Plain, sincere line; a real person (touching)
-0:40–1:05  RESOLVE  The product doing the thing (good), shown on screen, not described
-1:05–1:15  BUTTON   Last-line joke or warm line + single CTA; calls back to the hook
-```
-
-### Short-video craft
-Craft rules from an open-source launch-video tool. They sit under the structure above: the frame, the Turn and `[VERIFY]` always win.
-- **Hook in the first 2 seconds:** it names the problem or shows the real artifact.
-- **Show the product in use:** entry → key action → result (open the screen, tap the thing, see the result). A stat or a headline frames the flow at most once; it never replaces it. Reuse real screens, copy and product photos; small illustrative UI text is fine, invented claims and numbers are not.
+### Short video
+- **Hook in the first 2 seconds:** name the problem or show the real artifact.
+- **Show the product in use:** entry → key action → result. A stat or headline frames it at most once, never replaces it. Real screens, copy and photos; invented claims and numbers never.
 - **Make it alive:** things arrive one by one; a simulated tap, swipe or typing beats a static slide. Say what appears, in what order, and which interaction is simulated.
-- **Every frame postable:** no abstract filler or generic motion that could belong to any video.
-- **Legible:** a line to read stays fully on screen and still for about 0.3 s per word (a sentence at least ~1.2 s, a 1–3 word label ~0.8 s). Fast in, then hold. Too much text for the time: cut words or split the scene. Lines arriving one by one on a fast beat (110+ bpm) go every other beat, or arrive quickly and stay together.
-- **Transitions:** never a crossfade between two busy layouts; old out, then new in.
-- **Sound:** one low music bed (it ducks under the voice) and a few soft effects. An effect lands as its animation starts; in a sequence, accent the first and last items, not each one. Put the 1–3 big moments (the product, the logo) on the music's strongest beats. Music only with confirmed rights.
-- **Delivery:** a share caption of 1–3 sentences, postable as is, specific to the piece and in its tone; never "excited to share" or generic SaaS language; same claim rules as the video.
-- **Voice → pacing:** dry = few scenes, one claim each, long holds, hard cuts or slow fades, very sparse sound. Warm = 4–5 scenes, soft transitions, a few gentle cues. Absurdist = more and faster scenes, hard cuts, one comic accent at a time. Never a "trailer with big claims": the scale can be big, the claims stay what exists today.
+- **Every frame postable:** no filler or generic motion.
+- **Few words on screen:** a line needs about 0.3 s per word, fully still. Too much text for the time: cut words or split the scene.
+- **Voice → pacing:** dry = few scenes, one claim each, long holds. Warm = 4–5 scenes, comfortable rhythm. Absurdist = more, faster scenes, one comic accent at a time. Never "big claims": the scale can be big, the claims stay what exists today.
+- **Share caption:** 1–3 sentences, postable as is, specific to the piece, in its tone; never "excited to share" or generic SaaS language; same claim rules.
 
 ### Static images and reference ads
-Rules from user-supplied prompt templates. They sit under the structure above: the frame, the Turn and `[VERIFY]` always win.
-- **Brand first:** read the series bible, its cast, its look and "Lo que existe hoy" before writing a concept.
-- **Tear down a reference ad before borrowing from it:**
-  - the hierarchy: layout, focal point, and what the eye reads first → last;
-  - the design: palette in hex, type style, image style (UGC, studio, lifestyle, product only, illustration, minimal), contrast and whitespace;
-  - the copy: hook, core promise, CTA;
-  - the angle: pain relief, fear or urgency, status, curiosity, ease, authority.
-- **Borrow the structure, never the ad:** keep the composition idea, the reading order and the kind of promise. Change the brand, product, words, picture and people. Never another brand's logo, images, product shots, characters or lines, and never a near-identical copy.
-- **Concept families for one image**, each the Negative → Good frame in a single frame:
-  - before/after (same place and light, one thing changed);
-  - nightmare scenario (the pain pushed to the absurd, with humor; never fear sold);
-  - comparison or us vs. them (against the problem or "the old way", never a named brand or a group of people);
-  - big benefit, reasons why, features and benefits (shipped features only, each tied to its pain);
-  - humor.
-- **Proof stays real:**
-  - an offer only with its real terms and dates;
-  - press only if it exists, with the link;
-  - a testimonial or review only from a real customer, quoted exactly, with consent. Otherwise the line is `[VERIFY]` and the piece does not ship.
-- **The Turn in a still:** one plain line, or the touching detail inside the picture.
-- **Image prompt slots, in order:** subject and action (one frozen moment) → style → light → camera and angle → composition → brand colours → how the product appears → exact text in quotes with its type style and placement → legibility (no distorted, missing or extra letters) → aspect ratio in the tool's syntax.
-- **Text on the image:** models misspell (accents and ñ most of all). Prefer a picture with clear space and no text, with the text set on top in the brand's fonts. If the model writes it, give the exact strings and check the spelling.
+- **Brand first:** read the series bible, cast, look and "Lo que existe hoy" before a concept.
+- **Tear a reference ad down before borrowing:** hierarchy (focal point, reading order), design (palette in hex, type, image style, contrast, whitespace), copy (hook, promise, CTA), angle (pain relief, fear or urgency, status, curiosity, ease, authority).
+- **Borrow the structure, never the ad:** keep the composition, the reading order and the kind of promise; change brand, product, words, picture and people. Never another brand's logo, images, product shots, characters or lines, and never a near-identical copy.
+- **Concept families,** each the Negative → Good frame in one picture: before/after (same place and light, one thing changed); nightmare scenario (the pain pushed to the absurd, never fear sold); us vs. the problem or "the old way" (never a named brand or a group of people); big benefit; reasons why (shipped features only, each tied to its pain); humor.
+- **Proof stays real:** an offer only with its real terms and dates; press only with its link; a testimonial only from a real customer, quoted exactly, with consent. Otherwise `[VERIFY]` and it does not ship. No manufactured urgency.
+- **The Turn in a still:** one plain line, or the touching detail in the picture.
+- **Image prompt slots, in order:** subject and action (one frozen moment) → style → light → camera and angle → composition → brand colours → how the product appears → text (prefer none, with clear space where the app sets it) → legibility → aspect ratio.
 
-## 5. Job A playbook
-- **Audience (hypothesis):** owner-operators and small-chain managers of convenience and corner stores; franchise ops leads.
-- **Pain hypotheses:** stockouts and overstock on the same shelf; expired product; shift gaps and call-outs, the owner covering the counter; reordering by gut feel, missed supplier cutoffs; shrinkage and age-restricted sales; "who was supposed to do that?" task drift.
-- **Narrative:** the owner is the hero; the store is the chaos; the product is the calm manager who never sleeps, "the sane person in the insane store". Never "replace your staff"; say "give your staff a manager that sees everything".
-- **Formats:** messy week vs. planned week; a ride-along at a real store; a recurring character, "The Manager"; one feature per piece, titled as a tension ("Why does the bread always run out at 6 p.m.?"); a clearly labeled roadmap teaser.
-- **Guardrails:** no fabricated metrics, testimonials or ROI; demos labeled simulation, concept or live.
+## 5. Job A
+- **Narrative:** the owner is the hero; the store is the chaos; the product is the calm manager who never sleeps. Never "replace your staff"; say "give your staff a manager that sees everything".
+- **Pains:** only what the series' "Cómo se trabaja hoy" or the brief confirms. Store pains in the research (stockouts, expiry, shift gaps, supplier cutoffs) are hypotheses, not facts.
+- **Formats:** messy week vs. planned week; a ride-along at a real store; a recurring character, "The Manager"; one feature per piece, titled as a tension; a clearly labeled roadmap teaser.
 
-## 6. Job B playbook
+## 6. Job B
 Every piece answers: what did the house feel like before, and after? The product is the bridge.
 
 | Pain | Feeling sold | Touching moment to find |
@@ -129,16 +97,15 @@ Every piece answers: what did the house feel like before, and after? The product
 | Embarrassment about the space | Pride | Hosting someone without apologizing |
 
 Copy pattern: specific pain → one funny escalation → one sincere line → the product as relief → the feeling in the last line.
-Guardrails: no shame about someone's home or family; no health, safety or sleep claims without substantiation; no invented testimonials; no manufactured urgency.
+No shame about someone's home or family; no health, safety or sleep claims without substantiation.
 
-## 7. Do and don't
-- Do reuse the techniques above.
-- Don't use any show's name, logo, clips or music, or any real host's name, voice or likeness; don't imply endorsement. Build a distinct character.
-- Don't copy another brand's ad or use its assets; borrow its structure only.
-- Don't make the brand a political actor.
-- Don't invent statistics, quotes or case studies; mark gaps `[VERIFY]`.
+## 7. Never
+- Any show's name, logo, clips or music, or any real host's or real person's name, voice or likeness; never imply endorsement. Build a distinct character.
+- Another brand's ad or assets; borrow its structure only.
+- The brand as a political actor.
+- Invented statistics, quotes or case studies; mark gaps `[VERIFY]`.
 
-## 8. Checklist (run before delivering)
+## 8. Checklist (before delivering)
 Customer is hero · concrete detail · target is the problem · Turn present · single CTA · no unverified claims · no borrowed IP.
 For video, also: hook in 2 s · the product shown in use · every line held long enough to read · poster and share caption.
 For a static image, also: one frozen moment · Negative → Good readable at a glance · exact, legible text · nothing borrowed from a reference but its structure.

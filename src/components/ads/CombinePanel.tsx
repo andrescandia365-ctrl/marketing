@@ -20,7 +20,10 @@ import {
 } from "../../../shared/ads.ts";
 import { adsFileUrl } from "../../lib/api.ts";
 import { download } from "../../lib/markdown.ts";
+import { copyChunks, copyPairs, freshCopies, type PastedCopy } from "../../../shared/adsHandoff.ts";
+import { ClaudeHandoff, type Handoff } from "../ClaudeHandoff.tsx";
 import { Button, Notice, Spinner } from "../ui.tsx";
+import { PartsHandoff } from "./PartsHandoff.tsx";
 import { LevelChip, Tag } from "./pieces.tsx";
 
 export type RenderProgress = { stage: "pieces" | "ads" | "csv" | "voices"; done: number; total: number; current: string; errors: string[] };
@@ -44,11 +47,39 @@ type Props = {
   // Approved pieces cached as webm (this browser has no H.264 encoder), and dropping them from the cache.
   webm: number;
   onDropWebm: () => Promise<void>;
+  // "Sin clave": the review and the platform texts by copy and paste with claude.ai. The pasted texts live in the
+  // studio until the run takes them; the pairs without one get sample texts.
+  reviewHandoff?: Handoff | null;
+  copiesVia?: ((ads: AdCombo[], part: number) => Handoff) | null;
+  // Keeps the platform texts' walk while another tab is open (series id).
+  walkKey: string;
+  pastedCopies?: Record<string, PastedCopy>;
 };
 
 const mins = (s: number) => (s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`);
 
-export function CombinePanel({ series, state, seconds, folder, busy, flags, reviewNote, progress, onReview, onRun, onWeeklyLimit, onRemoveBatch, onBatchCsv, onPreview, webm, onDropWebm }: Props) {
+export function CombinePanel({
+  series,
+  state,
+  seconds,
+  folder,
+  busy,
+  flags,
+  reviewNote,
+  progress,
+  onReview,
+  onRun,
+  onWeeklyLimit,
+  onRemoveBatch,
+  onBatchCsv,
+  onPreview,
+  webm,
+  onDropWebm,
+  reviewHandoff = null,
+  copiesVia = null,
+  walkKey,
+  pastedCopies = {},
+}: Props) {
   const [mode, setMode] = useState<"full" | "stage">("full");
   const [rules, setRules] = useState<CombineRules>({ sameLevel: true });
   const [winner, setWinner] = useState<{ meatId: string; ctaId: string }>({ meatId: "", ctaId: "" });
@@ -66,6 +97,9 @@ export function CombinePanel({ series, state, seconds, folder, busy, flags, revi
   const week = adsThisWeek(state.batches);
   const overLimit = week + ads.length > state.weeklyLimit;
   const policy = (flags ?? []).filter((f) => f.kind === "policy");
+  const pairs = useMemo(() => copyPairs(ads, state.hooks, state.ctas), [ads, state.hooks, state.ctas]);
+  const copyPrompts = copyChunks(pairs).length;
+  const copiesReady = Object.keys(freshCopies(pairs, pastedCopies)).length;
   const byLevel = ads.reduce<Record<number, number>>((acc, a) => ((acc[a.level] = (acc[a.level] ?? 0) + 1), acc), {});
 
   return (
@@ -145,7 +179,11 @@ export function CombinePanel({ series, state, seconds, folder, busy, flags, revi
             <li>
               Tiempo aproximado: <b className="text-ink">{mins(est.renderSeconds)}</b> en este navegador.
             </li>
-            <li>Créditos de IA: 1 pedido por cada 50 pares hook + CTA para los textos de la plataforma. Combinar es código puro.</li>
+            <li>
+              {copiesVia
+                ? `Textos de la plataforma: ${pairs.length} pares hook + CTA, ${copyPrompts} prompt${copyPrompts === 1 ? "" : "s"} para claude.ai. Combinar es código puro.`
+                : "Créditos de IA: 1 pedido por cada 50 pares hook + CTA para los textos de la plataforma. Combinar es código puro."}
+            </li>
             <li>
               Esta semana: {week} anuncios de {state.weeklyLimit}.{" "}
               <button
@@ -168,9 +206,18 @@ export function CombinePanel({ series, state, seconds, folder, busy, flags, revi
           <p className="text-sm font-semibold">Revisor</p>
           <span className="text-xs text-muted">Marca promesas que las plataformas rechazan (salud, dinero), hooks casi duplicados y meats que no encajan.</span>
           <Button variant="secondary" className="ml-auto" onClick={onReview} disabled={busy !== null}>
-            {busy === "review" ? <Spinner /> : "Revisar las piezas aprobadas"}
+            {busy === "review" ? <Spinner /> : reviewHandoff ? "Controles locales (largo y repetidos)" : "Revisar las piezas aprobadas"}
           </Button>
         </div>
+        {reviewHandoff && (
+          <ClaudeHandoff
+            className="mt-2"
+            title="Revisión de promesas, encaje y claims"
+            what="la revisión"
+            disabled={busy !== null || approved.hooks.length + approved.meats.length + approved.ctas.length === 0}
+            via={reviewHandoff}
+          />
+        )}
         {flags && (
           <div className="mt-2 space-y-1 text-xs">
             {reviewNote && <p className="text-muted">{reviewNote}</p>}
@@ -208,6 +255,27 @@ export function CombinePanel({ series, state, seconds, folder, busy, flags, revi
         </Notice>
       )}
       {policy.length > 0 && <Notice tone="error">{policy.length} pieza(s) con promesas que la plataforma suele rechazar. Arreglalas antes de renderizar, o seguí bajo tu responsabilidad.</Notice>}
+
+      {copiesVia && pairs.length > 0 && (
+        <div className="rounded-xl border border-line bg-white p-4">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <p className="text-sm font-semibold">Textos de la plataforma (principal, titular, botón)</p>
+            <span className="text-xs text-muted">
+              {copiesReady} de {pairs.length} pares listos. Los que falten salen con textos de muestra en el CSV.
+            </span>
+          </div>
+          <PartsHandoff
+            className="mt-2"
+            parts={copyPrompts}
+            what="los textos de la plataforma"
+            title="Textos de la plataforma"
+            via={(part) => copiesVia(ads, part)}
+            resetKey={pairs.map((p) => p.key).join(",")}
+            walkKey={`${walkKey}:copies`}
+            disabled={busy !== null}
+          />
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={() => onRun(ads, mode, rules)} disabled={busy !== null || ads.length === 0 || overLimit}>

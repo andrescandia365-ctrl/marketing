@@ -1,6 +1,7 @@
 import type { Problem } from "../../shared/checks.ts";
 import type { Story } from "../../shared/schema.ts";
 import { Button, Spinner } from "./ui.tsx";
+import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
 
 type Props = {
   problems: Problem[];
@@ -9,10 +10,12 @@ type Props = {
   disabled: boolean;
   onFix: () => void;
   onDismiss: (problem: Problem) => void;
+  // Without a key: "Arreglalo" by copy and paste with claude.ai (the button shows the sample).
+  handoff?: Handoff | null;
 };
 
 // The check that gates approval: every problem is fixed by the writer ("Arreglalo") or dismissed by hand.
-export function ChecksPanel({ problems, dismissed, fixing, disabled, onFix, onDismiss }: Props) {
+export function ChecksPanel({ problems, dismissed, fixing, disabled, onFix, onDismiss, handoff }: Props) {
   if (problems.length === 0) {
     return (
       <div className="rounded-xl border border-good/40 bg-good-soft p-4 text-sm">
@@ -27,16 +30,19 @@ export function ChecksPanel({ problems, dismissed, fixing, disabled, onFix, onDi
         <p className="text-sm font-semibold text-neg">
           Check · {problems.length} problema{problems.length === 1 ? "" : "s"}. Hay que resolverlos antes de aprobar.
         </p>
-        <Button onClick={onFix} disabled={disabled}>
+        <Button onClick={onFix} disabled={disabled} variant={handoff ? "secondary" : "primary"}>
           {fixing ? (
             <>
               <Spinner /> Arreglando…
             </>
+          ) : handoff ? (
+            "Ver un ejemplo"
           ) : (
             "Arreglalo"
           )}
         </Button>
       </div>
+      {handoff && <ClaudeHandoff via={handoff} title="Arreglalo" what="la nueva ronda" disabled={disabled} />}
       <ul className="space-y-2">
         {problems.map((p) => (
           <li key={p.id} className="flex items-start justify-between gap-3 rounded-lg bg-white/70 p-2.5 text-sm">

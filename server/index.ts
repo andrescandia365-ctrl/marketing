@@ -27,31 +27,38 @@ import {
   lyricElements,
   lyricIdeas,
   lyricPlates,
-  motionScript,
-  reviseMotion,
+  motionTask,
+  reviseMotionTask,
   brandFromSite,
-  proposeMenu,
   productShot,
-  reviewMotion,
+  reviewMotionTask,
   listModels,
   testModel,
   claudeEfforts,
   referenceSheet,
   reviewPicture,
   segmentEdit,
-  reviseBoard,
-  reviseStory,
-  rewriteShot,
   secondLines,
-  writeBoard,
-  writeStory,
-  hookVariants,
+  boardTask,
+  hookVariantsTask,
+  menuTask,
+  reviseBoardTask,
+  reviseStoryTask,
+  rewriteShotTask,
+  storyTask,
+  runTask,
+  taskFromPaste,
+  taskPrompt,
+  PasteError,
+  type WriterTask,
   teardownAd,
   nameScreen,
 } from "./claude.ts";
 import { readDevice, SCREEN_DEVICES } from "../shared/screenBatch.ts";
 import { normalizeReference } from "../shared/reference.ts";
 import { KimiError } from "./kimi.ts";
+import { HandoffSchema, type Handoff } from "../shared/handoff.ts";
+import { NO_SHEET_TEXT, saysNoSheet } from "../shared/motionQuality.ts";
 import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
 import { BrandWebError, bringPictures, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.ts";
 import { EMPTY_BRIEF } from "../shared/example.ts";
@@ -62,6 +69,7 @@ import { checkDemucsBin, demucsAvailable, demucsStatus, separate, speechWav, try
 import { decodeWav, fitKicks } from "../shared/clock.ts";
 import { withLevels, wordLevels, wordSpans } from "../shared/lyricAct.ts";
 import { BrandSchema, DEFAULT_BRAND, SERIES_TYPES } from "../shared/series.ts";
+import { FONT_MAX_BYTES, FONT_ROLES } from "../shared/brandFonts.ts";
 import { webPictureKinds, type WebCastPick } from "../shared/webCast.ts";
 import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, SECOND_LANGUAGES, LyricStyleSchema, alignLyrics, cleanElements, cleanIdeas } from "../shared/lyrics.ts";
 import { buildPlates, cleanPlates } from "../shared/plates.ts";
@@ -114,6 +122,9 @@ import {
 import { DEFAULT_VOICE, VoiceError, speak, voiceAvailable } from "./voice.ts";
 import {
   SeriesError,
+  addBrandFont,
+  readBrandFont,
+  removeBrandFont,
   createSeries,
   deleteSeries,
   getSeriesFields,
@@ -166,6 +177,7 @@ app.use("/api/*", (c, next) => usageScope.run({ kind: usageKind(c.req.path) }, n
 
 app.onError((error, c) => {
   if (error instanceof WriterError || error instanceof KimiError) return c.json({ error: error.message }, 502);
+  if (error instanceof PasteError) return c.json({ error: error.message }, 400);
   if (error instanceof SeriesError || error instanceof ProjectError || error instanceof RenderError || error instanceof SettingsError) {
     return c.json({ error: error.message }, 400);
   }
@@ -221,6 +233,22 @@ const TopicInput = TopicIdeaSchema.extend({ problem: z.string().default("") });
 const BoardInput = z.preprocess(fillOld, BoardWireSchema).transform(normalizeBoard);
 const demo = () => currentWriter() === null;
 
+// "Sin clave" (shared/handoff.ts): a writer route with `handoff` either returns the exact prompt for claude.ai
+// ("prompt") or reads the pasted reply ("paste") through the task's schema and post-processing, and answers as if the
+// writer had (demo false, pasted true). Without `handoff`: the writer when there is a key, else the sample.
+const HandoffField = HandoffSchema.optional();
+async function viaWriter<W, R>(
+  handoff: Handoff | undefined,
+  make: () => WriterTask<W, R>,
+  sample: () => object,
+  wrap: (result: R) => object,
+): Promise<object> {
+  if (handoff?.mode === "prompt") return taskPrompt(make());
+  if (handoff?.mode === "paste") return { ...wrap(taskFromPaste(make(), handoff.reply)), demo: false, pasted: true };
+  if (demo()) return { ...sample(), demo: true };
+  return { ...wrap(await runTask(make())), demo: false };
+}
+
 // Publicidad (Método 50-5-3): its own routes, under /api/ads/:series.
 adsRoutes(app);
 
@@ -267,6 +295,41 @@ app.put("/api/series/:id/logo", async (c) => {
   const data = Buffer.from(await c.req.arrayBuffer());
   const file = setLogo(c.req.param("id"), data, c.req.header("content-type") ?? "");
   return c.json({ file, series: listSeries() });
+});
+
+// "Fuentes propias de la marca": one font file per request as the raw body, its family, role, weight and style in the
+// query (each optional: guessed from the file's name). The type is read from the bytes; the size is capped.
+app.put("/api/series/:id/fonts", async (c) => {
+  const q = z
+    .object({
+      name: z.string().max(200).default(""),
+      family: z.string().max(120).optional(),
+      role: z.enum(FONT_ROLES).optional(),
+      weight: z.coerce.number().int().min(100, "El peso va de 100 a 900.").max(900, "El peso va de 100 a 900.").optional(),
+      style: z.enum(["normal", "italic"]).optional(),
+    })
+    .safeParse({
+      name: c.req.query("name") ?? "",
+      family: c.req.query("family") || undefined,
+      role: c.req.query("role") || undefined,
+      weight: c.req.query("weight") || undefined,
+      style: c.req.query("style") || undefined,
+    });
+  if (!q.success) return c.json({ error: checkErrorText(q.error, "Faltan datos de la fuente") }, 400);
+  if (Number(c.req.header("content-length") ?? 0) > FONT_MAX_BYTES) return c.json({ error: `La fuente pesa más de ${FONT_MAX_BYTES / 1024 / 1024} MB.` }, 413);
+  const data = Buffer.from(await c.req.arrayBuffer());
+  const font = addBrandFont(c.req.param("id"), data, { fileName: q.data.name, family: q.data.family, role: q.data.role, weight: q.data.weight, style: q.data.style });
+  return c.json({ font, series: listSeries() });
+});
+
+app.get("/api/series/:id/fonts/:file", (c) => {
+  const { data, type } = readBrandFont(c.req.param("id"), c.req.param("file"));
+  return c.body(new Uint8Array(data), 200, { "Content-Type": type, "Cache-Control": "no-cache" });
+});
+
+app.delete("/api/series/:id/fonts/:file", (c) => {
+  removeBrandFont(c.req.param("id"), c.req.param("file"));
+  return c.json({ series: listSeries() });
 });
 
 app.put("/api/series/:id/lyric-style", async (c) => {
@@ -640,27 +703,27 @@ app.post("/api/voice", async (c) => {
 
 // A motion-graphics explainer script. target: seconds, or null to let the writer choose.
 app.post("/api/motion", async (c) => {
+  const body = await c.req.json();
   const { brief, target, layers } = z
     .object({ brief: BriefSchema, target: z.number().int().min(10).max(120).nullable(), layers: z.number().int().min(0).max(12).default(0) })
-    .parse(await c.req.json());
-  if (demo()) return c.json({ script: demoMotion(brief, target), demo: true });
-  return c.json({ script: await motionScript(brief, target, layers), demo: false });
+    .parse(body);
+  const { handoff } = z.object({ handoff: HandoffField }).parse(body);
+  return c.json(await viaWriter(handoff, () => motionTask(brief, target, layers), () => ({ script: demoMotion(brief, target) }), (script) => ({ script })));
 });
 
 // "Nota del director" for an explainer: the whole script back with only what the note asks changed (mergeNote keeps
 // the rest). Sample mode changes nothing and says so.
 app.post("/api/motion/revise", async (c) => {
-  const { brief, script, note, layers } = z
+  const { brief, script, note, layers, handoff } = z
     .object({
       brief: BriefSchema,
       script: MotionScriptInput,
       note: z.string().trim().min(1, "Escribí la nota antes de aplicarla.").max(4000),
       layers: z.number().int().min(0).max(12).default(0),
+      handoff: HandoffField,
     })
     .parse(await c.req.json());
-  if (demo()) return c.json({ demo: true as const });
-  const merge = await reviseMotion(brief, script as unknown as MotionScript, note, layers);
-  return c.json({ ...merge, demo: false as const });
+  return c.json(await viaWriter(handoff, () => reviseMotionTask(brief, script as unknown as MotionScript, note, layers), () => ({}), (merge) => merge));
 });
 
 // "Escena de código" with a key: the prompt the studio builds for Opus (shared/codePrompt.ts) goes to the writer, which
@@ -1060,19 +1123,30 @@ app.post("/api/settings/test", async (c) => {
 app.get("/api/settings/usage", async (c) => c.json(await usageView()));
 
 // The motion quality loop: the reviewer scores the contact sheet(s) against the app's measurements.
+// "Sin clave": the sheets go to claude.ai as files the person attaches, so the prompt and the pasted reply need only
+// their formats; the writer needs the pictures themselves.
 app.post("/api/motion/review", async (c) => {
-  const { brief, scenes, facts, sheets, round, earlier } = z
+  const { brief, scenes, facts, sheets, round, earlier, handoff } = z
     .object({
       brief: BriefSchema,
       scenes: z.string().max(40_000),
       facts: z.string().max(10_000),
-      sheets: z.array(z.object({ format: z.enum(["vertical", "horizontal"]), jpeg: Jpeg })).min(1).max(2),
+      sheets: z.array(z.object({ format: z.enum(["vertical", "horizontal"]), jpeg: Jpeg.optional() })).min(1).max(2),
       round: z.number().int().min(1).max(10),
       earlier: z.string().max(10_000).default(""),
+      handoff: HandoffField,
     })
     .parse(await c.req.json());
-  if (demo()) return c.json({ review: demoMotionReview(round), demo: true });
-  return c.json({ review: await reviewMotion(brief, scenes, facts, sheets, round, earlier), demo: false });
+  if (!handoff && !demo() && sheets.some((s) => !s.jpeg)) return c.json({ error: "Falta la hoja de cuadros." }, 400);
+  if (handoff?.mode === "paste" && saysNoSheet(handoff.reply)) return c.json({ error: NO_SHEET_TEXT }, 400);
+  return c.json(
+    await viaWriter(
+      handoff,
+      () => reviewMotionTask(brief, scenes, facts, sheets, round, earlier, Boolean(handoff)),
+      () => ({ review: demoMotionReview(round) }),
+      (review) => ({ review }),
+    ),
+  );
 });
 
 // The final render with ffmpeg (render.mjs), and its progress.
@@ -1298,80 +1372,81 @@ app.delete("/api/series/:id", (c) => {
 });
 
 app.post("/api/menu", async (c) => {
-  const { brief } = z.object({ brief: BriefSchema }).parse(await c.req.json());
-  if (demo()) return c.json({ ...DEMO_MENU, demo: true });
-  return c.json({ ...(await proposeMenu(brief)), demo: false });
+  const { brief, handoff } = z.object({ brief: BriefSchema, handoff: HandoffField }).parse(await c.req.json());
+  return c.json(await viaWriter(handoff, () => menuTask(brief), () => DEMO_MENU, (menu) => menu));
 });
 
 app.post("/api/story", async (c) => {
-  const { brief, topics, note, projectId } = z
+  const { brief, topics, note, projectId, handoff } = z
     .object({
       brief: BriefSchema,
       topics: z.array(TopicInput).min(1).max(4),
       note: z.string().max(4000).default(""),
       projectId: z.string().max(80).default(""),
+      handoff: HandoffField,
     })
     .parse(await c.req.json());
-  if (demo()) return c.json({ story: demoStory(brief), demo: true });
-  const room = roomBrief(await listRoom(brief.series, projectId));
-  return c.json({ story: await writeStory(brief, topics, room, note), demo: false });
+  const room = handoff || !demo() ? roomBrief(await listRoom(brief.series, projectId)) : "";
+  return c.json(await viaWriter(handoff, () => storyTask(brief, topics, room, note), () => ({ story: demoStory(brief) }), (story) => ({ story })));
 });
 
 app.post("/api/story/revise", async (c) => {
-  const { brief, story, note, projectId } = z
+  const { brief, story, note, projectId, handoff } = z
     .object({
       brief: BriefSchema,
       story: StoryInput,
       note: z.string().min(1),
       projectId: z.string().max(80).default(""),
+      handoff: HandoffField,
     })
     .parse(await c.req.json());
-  if (demo()) return c.json({ story, demo: true });
-  const room = roomBrief(await listRoom(brief.series, projectId));
-  return c.json({ story: await reviseStory(brief, story, note, room), demo: false });
+  const room = handoff || !demo() ? roomBrief(await listRoom(brief.series, projectId)) : "";
+  return c.json(await viaWriter(handoff, () => reviseStoryTask(brief, story, note, room), () => ({ story }), (revised) => ({ story: revised })));
 });
 
 // Five hook variants for a story (PLAYBOOK §3), each with its move and the viewer's awareness level.
 app.post("/api/story/hooks", async (c) => {
-  const { brief, story } = z.object({ brief: BriefSchema, story: StoryInput }).parse(await c.req.json());
-  if (demo()) return c.json({ variants: demoHookVariants(story), demo: true });
-  return c.json({ variants: await hookVariants(brief, story), demo: false });
+  const { brief, story, handoff } = z.object({ brief: BriefSchema, story: StoryInput, handoff: HandoffField }).parse(await c.req.json());
+  return c.json(await viaWriter(handoff, () => hookVariantsTask(brief, story), () => ({ variants: demoHookVariants(story) }), (variants) => ({ variants })));
 });
 
 app.post("/api/board", async (c) => {
-  const { brief, story } = z.object({ brief: BriefSchema, story: StoryInput }).parse(await c.req.json());
-  if (demo()) return c.json({ board: DEMO_BOARD, demo: true });
-  return c.json({ board: await writeBoard(brief, story), demo: false });
+  const { brief, story, handoff } = z.object({ brief: BriefSchema, story: StoryInput, handoff: HandoffField }).parse(await c.req.json());
+  return c.json(await viaWriter(handoff, () => boardTask(brief, story), () => ({ board: DEMO_BOARD }), (board) => ({ board })));
 });
 
 app.post("/api/board/revise", async (c) => {
-  const { brief, story, board, note, shotNotes } = z
+  const { brief, story, board, note, shotNotes, handoff } = z
     .object({
       brief: BriefSchema,
       story: StoryInput,
       board: BoardInput,
       note: z.string(),
       shotNotes: z.array(z.object({ index: z.number().int().min(0), note: z.string().min(1) })),
+      handoff: HandoffField,
     })
     .parse(await c.req.json());
   if (!note.trim() && shotNotes.length === 0) return c.json({ error: "Escribí al menos una nota." }, 400);
-  if (demo()) return c.json({ board, demo: true });
-  return c.json({ board: await reviseBoard(brief, story, board, note, shotNotes), demo: false });
+  return c.json(
+    await viaWriter(handoff, () => reviseBoardTask(brief, story, board, note, shotNotes), () => ({ board }), (revised) => ({ board: revised })),
+  );
 });
 
 app.post("/api/shot/rewrite", async (c) => {
-  const { brief, story, board, index, note } = z
+  const { brief, story, board, index, note, handoff } = z
     .object({
       brief: BriefSchema,
       story: StoryInput,
       board: BoardInput,
       index: z.number().int().min(0),
       note: z.string().min(1),
+      handoff: HandoffField,
     })
     .parse(await c.req.json());
   if (!board.shots[index]) return c.json({ error: "Esa toma ya no existe." }, 400);
-  if (demo()) return c.json({ shot: board.shots[index], demo: true });
-  return c.json({ shot: await rewriteShot(brief, story, board, index, note), demo: false });
+  return c.json(
+    await viaWriter(handoff, () => rewriteShotTask(brief, story, board, index, note), () => ({ shot: board.shots[index] }), (shot) => ({ shot })),
+  );
 });
 
 app.post("/api/image", async (c) => {

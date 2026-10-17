@@ -13,7 +13,9 @@ import {
   type CastKind,
   type CastMember,
   type SeriesFields,
+  DEFAULT_BRAND,
 } from "../../shared/series.ts";
+import { afterFontRemoved } from "../../shared/brandFonts.ts";
 import { inDays, momentLine, upcomingMoments } from "../../shared/calendar.ts";
 import { addWebCast, webCastMember } from "../../shared/webCast.ts";
 import { SheetBuilder } from "./SheetBuilder.tsx";
@@ -239,6 +241,22 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
           const { file: logo, series } = await api.uploadLogo(id, file);
           setFields((f) => (f ? { ...f, brand: { ...f.brand, logo } } : f));
           setVersion(Date.now());
+          onLogoSaved?.(series);
+        }}
+        onFontUpload={async (file, face) => {
+          if (!id) return;
+          const { font, series } = await api.uploadBrandFont(id, file, face);
+          setFields((f) => (f ? { ...f, brand: { ...f.brand, fonts: [...(f.brand.fonts ?? []).filter((x) => x.file !== font.file), font] } } : f));
+          onLogoSaved?.(series);
+        }}
+        onFontRemove={async (file) => {
+          if (!id) return;
+          const { series } = await api.removeBrandFont(id, file);
+          setFields((f) => {
+            if (!f) return f;
+            const removed = (f.brand.fonts ?? []).filter((x) => x.file === file);
+            return { ...f, brand: afterFontRemoved({ ...f.brand, fonts: (f.brand.fonts ?? []).filter((x) => x.file !== file) }, removed, DEFAULT_BRAND) };
+          });
           onLogoSaved?.(series);
         }}
         works={works}

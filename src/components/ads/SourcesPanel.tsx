@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ANGLE_LABEL, FORMULA_LABEL, LEVEL_INFO, MEAT_FORMAT_LABEL, clipStats, pieceStats, type AdsState, type RankedHook } from "../../../shared/ads.ts";
 import { adsFileUrl } from "../../lib/api.ts";
+import { ClaudeHandoff, type Handoff } from "../ClaudeHandoff.tsx";
 import { Button, Notice, Spinner, inputClass } from "../ui.tsx";
 import { LevelChip, Tag } from "./pieces.tsx";
 
@@ -19,12 +20,31 @@ type Props = {
   onImportMetrics: (csv: string) => Promise<{ rows: number; withId: number; missing: string[] }>;
   onHookFromClip: (clipId: string) => Promise<void>;
   onOpenOffer: () => void;
+  // "Sin clave": the pasted transcript cut by claude.ai, and a catalogued clip cut again by claude.ai.
+  clipHandoff?: ((name: string, transcript: string) => Handoff) | null;
+  splitHandoff?: ((clipId: string) => Handoff) | null;
 };
 
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n)));
 
-export function SourcesPanel({ series, state, ranking, transcription, demo, busy, onUploadClip, onClipText, onRemoveClip, onImportMetrics, onHookFromClip, onOpenOffer }: Props) {
+export function SourcesPanel({
+  series,
+  state,
+  ranking,
+  transcription,
+  demo,
+  busy,
+  onUploadClip,
+  onClipText,
+  onRemoveClip,
+  onImportMetrics,
+  onHookFromClip,
+  onOpenOffer,
+  clipHandoff = null,
+  splitHandoff = null,
+}: Props) {
+  const [splitting, setSplitting] = useState<string | null>(null);
   const [pasteName, setPasteName] = useState("");
   const [paste, setPaste] = useState("");
   const [imported, setImported] = useState<{ rows: number; withId: number; missing: string[] } | null>(null);
@@ -167,7 +187,11 @@ export function SourcesPanel({ series, state, ranking, transcription, demo, busy
           <h3 className="text-sm font-semibold">Clips de anuncios previos</h3>
           <span className="text-xs text-muted">{transcription ? "Transcribe con OpenAI (whisper-1), misma clave que la voz." : "Sin OPENAI_API_KEY: pegá la transcripción a mano."}</span>
         </div>
-        {demo && <p className="mt-1 text-xs text-muted">Sin clave de IA, el catálogo se corta por oraciones y las etiquetas son de muestra.</p>}
+        {demo && (
+          <p className="mt-1 text-xs text-muted">
+            Sin clave de IA, «Catalogar el texto» corta por oraciones con etiquetas de muestra. Para que lo corte y etiquete claude.ai, usá «Con claude.ai» debajo del texto, o «Cortar con claude.ai» en un clip ya catalogado.
+          </p>
+        )}
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
             <label className={`block cursor-pointer rounded-lg border border-dashed border-line p-4 text-center text-sm hover:border-ink ${transcription ? "" : "opacity-50"}`}>
@@ -193,8 +217,23 @@ export function SourcesPanel({ series, state, ranking, transcription, demo, busy
                 setPasteName("");
               }}
             >
-              {busy === "clipText" ? <Spinner /> : "Catalogar el texto"}
+              {busy === "clipText" ? <Spinner /> : demo ? "Catalogar el texto (de muestra)" : "Catalogar el texto"}
             </Button>
+            {clipHandoff && paste.trim().length >= 10 && (
+              <ClaudeHandoff
+                title="Catalogar el texto"
+                what="el corte en hook, meat y CTA"
+                disabled={busy !== null}
+                via={{
+                  prompt: clipHandoff(pasteName, paste).prompt,
+                  paste: async (reply) => {
+                    await clipHandoff(pasteName, paste).paste(reply);
+                    setPaste("");
+                    setPasteName("");
+                  },
+                }}
+              />
+            )}
           </div>
         </div>
         {state.clips.length > 0 && (
@@ -218,11 +257,31 @@ export function SourcesPanel({ series, state, ranking, transcription, demo, busy
                       <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => onHookFromClip(clip.id)} disabled={!clip.hook}>
                         Usar su hook
                       </Button>
+                      {splitHandoff && clip.transcript.trim().length >= 10 && (
+                        <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => setSplitting(splitting === clip.id ? null : clip.id)}>
+                          {splitting === clip.id ? "Cerrar" : "Cortar con claude.ai"}
+                        </Button>
+                      )}
                       <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onRemoveClip(clip.id)}>
                         Borrar
                       </Button>
                     </span>
                   </div>
+                  {splitHandoff && splitting === clip.id && (
+                    <ClaudeHandoff
+                      className="mt-2"
+                      title="Cortar de nuevo"
+                      what="el corte en hook, meat y CTA"
+                      disabled={busy !== null}
+                      via={{
+                        prompt: splitHandoff(clip.id).prompt,
+                        paste: async (reply) => {
+                          await splitHandoff(clip.id).paste(reply);
+                          setSplitting(null);
+                        },
+                      }}
+                    />
+                  )}
                   <div className="mt-2 grid gap-2 text-xs md:grid-cols-3">
                     <p>
                       <b className="text-neg">Hook</b> <span className="text-muted">(hasta {clip.hookEndsAt.toFixed(0)} s)</span>

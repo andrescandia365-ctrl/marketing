@@ -1,4 +1,4 @@
-import { lazy, useEffect, useRef, useState } from "react";
+import { lazy, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_AUDIO, voiceModeOf, type AudioSettings } from "../shared/audio.ts";
 import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/checks.ts";
 import { SKETCH_BASE } from "../shared/prompt.ts";
@@ -27,9 +27,12 @@ import { AdsSection } from "./components/AdsSection.tsx";
 import { AppHeader, type Section } from "./components/AppHeader.tsx";
 import { useProject } from "./useProject.ts";
 import { toolsRefCap } from "../shared/castRefs.ts";
-import { ads as adsApi, api, libraryFileUrl, type ProjectSummary } from "./lib/api.ts";
+import { ads as adsApi, api, askPrompt, asks, libraryFileUrl, type ProjectSummary } from "./lib/api.ts";
+import { ClaudeHandoff } from "./components/ClaudeHandoff.tsx";
 import { pictureForReview, readImageFile } from "./lib/files.ts";
 import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from "./lib/markdown.ts";
+import { storyFonts } from "../shared/brandFonts.ts";
+import { registerBrandFonts } from "./lib/fonts.ts";
 
 // The studios, the storyboard and the panels behind a button load the first time they are opened (the video panel too,
 // from ProductionView), so the brief (the first screen) does not wait for the video, audio and 3D code.
@@ -88,8 +91,13 @@ function loadBrief(): Brief {
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+// The direction log notes a reply that came from claude.ai by copy and paste.
+const fromClaude = (result: { pasted?: boolean }) => (result.pasted ? " · respuesta pegada de claude.ai" : "");
+
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
+  // "Sin clave": no writer connected, so writer buttons show the sample and offer copy/paste with claude.ai.
+  const noKey = status !== null && !status.writer;
   const [showModels, setShowModels] = useState(false);
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [section, setSection] = useState<Section>(loadSection);
@@ -153,6 +161,14 @@ export function App() {
   const pieceTool = status?.tools.find((t) => t.id === pieceBrief.tool);
   const toolName = pieceTool?.name ?? "la herramienta";
   const pieceSeries = status?.series.find((s) => s.id === pieceBrief.series);
+  // "Fuentes propias de la marca": every series' uploaded faces are known by family before anything draws with them.
+  useEffect(() => status?.series.forEach((s) => registerBrandFonts(s.id, s.brand)), [status?.series]);
+  // The story's text style with the brand's families ("Letra de la marca"), kept stable for the storyboard's drawing.
+  const boardStyle = useMemo(
+    () => ({ ...(pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE), fonts: pieceSeries ? storyFonts(pieceSeries.brand) : undefined, series: pieceSeries?.id }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pieceSeries?.textStyle, pieceSeries?.brand.displayFont, pieceSeries?.brand.uiFont],
+  );
   const library: Record<string, LibraryEntry> = Object.fromEntries(
     (pieceSeries?.cast ?? []).map((m) => [
       m.id,
@@ -242,15 +258,19 @@ export function App() {
   }, [section]);
 
   // PLAYBOOK §3: five hook variants for the story, each with its move and the viewer's awareness level.
-  async function writeHookVariants() {
+  async function writeHookVariants(reply?: string) {
     if (!story) return;
     setError("");
     setWritingHooks(true);
     try {
-      const result = await api.storyHooks(pieceBrief, story);
+      const result = await api.storyHooks(pieceBrief, story, reply);
       setHookVariants(result.variants);
-      addLog({ text: "5 variantes de gancho", outcome: result.demo ? "de muestra (sin clave de IA)" : result.variants.map((v) => MOVE_LABEL[v.move]).join(" · ") });
+      addLog({
+        text: "5 variantes de gancho",
+        outcome: result.demo ? "de muestra (sin clave de IA)" : result.variants.map((v) => MOVE_LABEL[v.move]).join(" · ") + fromClaude(result),
+      });
     } catch (e) {
+      if (reply !== undefined) throw e;
       setError(message(e));
     } finally {
       setWritingHooks(false);
@@ -334,12 +354,14 @@ export function App() {
     setLog((l) => [...l, { ...entry, at: Date.now() - logStart.current }]);
   }
 
-  async function run<T>(kind: NonNullable<typeof busy>, work: () => Promise<T>): Promise<T | null> {
+  // `rethrow`: a reply pasted from claude.ai shows its error under its own box, not at the top.
+  async function run<T>(kind: NonNullable<typeof busy>, work: () => Promise<T>, rethrow = false): Promise<T | null> {
     setError("");
     setBusy(kind);
     try {
       return await work();
     } catch (e) {
+      if (rethrow) throw e;
       setError(message(e));
       return null;
     } finally {
@@ -468,8 +490,8 @@ export function App() {
   }
 
   // Step 1 → menu. A new piece gets its own project folder.
-  async function openMenu() {
-    const result = await run("menu", () => api.menu(brief));
+  async function openMenu(reply?: string) {
+    const result = await run("menu", () => api.menu(brief, reply), reply !== undefined);
     if (!result) return;
     const reuse = projectId && !story ? projectId : null;
     resetPiece();
@@ -494,9 +516,9 @@ export function App() {
     if (step === "story") setSeed({ id: Date.now(), text, on: !has });
   }
 
-  async function writeStory(topics: TopicIdea[]) {
+  async function writeStory(topics: TopicIdea[], reply?: string) {
     const note = roomNotes.join("\n");
-    const result = await run("story", () => api.story(pieceBrief, topics, note, projectId ?? ""));
+    const result = await run("story", () => api.story(pieceBrief, topics, note, projectId ?? "", reply), reply !== undefined);
     if (!result) return;
     setStory(result.story);
     setStoryRound(1);
@@ -506,15 +528,15 @@ export function App() {
     setDemo(result.demo);
     addLog({
       text: `Temas elegidos: ${topics.map((t) => `“${t.title}”`).join(", ")}`,
-      outcome: note ? `historia, ronda 1 · la sala: “${note.slice(0, 160)}”` : "historia, ronda 1",
+      outcome: (note ? `historia, ronda 1 · la sala: “${note.slice(0, 160)}”` : "historia, ronda 1") + fromClaude(result),
     });
     setSeed(note ? { id: Date.now(), text: note, on: true } : null);
     setStep("story");
   }
 
-  async function reviseStory(note: string, kind: "revise" | "fixStory" = "revise"): Promise<boolean> {
+  async function reviseStory(note: string, kind: "revise" | "fixStory" = "revise", reply?: string): Promise<boolean> {
     if (!story) return false;
-    const result = await run(kind, () => api.reviseStory(pieceBrief, story, note, projectId ?? ""));
+    const result = await run(kind, () => api.reviseStory(pieceBrief, story, note, projectId ?? "", reply), reply !== undefined);
     if (!result) return false;
     setSeed(null);
     setRoomNotes([]);
@@ -522,7 +544,7 @@ export function App() {
     setStoryRound((r) => r + 1);
     addLog({
       text: kind === "fixStory" ? `Historia, ronda ${storyRound}: Arreglalo (check)` : `Historia, ronda ${storyRound}: “${note}”`,
-      outcome: result.demo ? "modo de muestra: sin cambios" : `historia, ronda ${storyRound + 1}`,
+      outcome: result.demo ? "modo de muestra: sin cambios" : `historia, ronda ${storyRound + 1}${fromClaude(result)}`,
     });
     return true;
   }
@@ -533,9 +555,9 @@ export function App() {
   }
 
   // Step 3 → storyboard
-  async function makeBoard() {
+  async function makeBoard(reply?: string) {
     if (!story) return;
-    const result = await run("board", () => api.board(pieceBrief, story));
+    const result = await run("board", () => api.board(pieceBrief, story, reply), reply !== undefined);
     if (!result) return;
     setBoard(result.board);
     setSetupUndo(null);
@@ -543,7 +565,7 @@ export function App() {
     setBoardApproved(false);
     setMedia({});
     if (projectId) api.clearMedia(projectId).catch(() => undefined);
-    addLog({ text: `Historia aprobada en la ronda ${storyRound}`, outcome: "storyboard, ronda 1" });
+    addLog({ text: `Historia aprobada en la ronda ${storyRound}`, outcome: `storyboard, ronda 1${fromClaude(result)}` });
     setStep("board");
   }
 
@@ -551,9 +573,10 @@ export function App() {
     note: string,
     shotNotes: { index: number; note: string }[],
     kind: "reviseBoard" | "fixBoard" = "reviseBoard",
+    reply?: string,
   ): Promise<boolean> {
     if (!story || !board) return false;
-    const result = await run(kind, () => api.reviseBoard(pieceBrief, story, board, note, shotNotes));
+    const result = await run(kind, () => api.reviseBoard(pieceBrief, story, board, note, shotNotes, reply), reply !== undefined);
     if (!result) return false;
     setBoard(result.board);
     setSetupUndo(null);
@@ -561,7 +584,7 @@ export function App() {
     const notes = [note && `“${note}”`, ...shotNotes.map((n) => `toma ${n.index + 1}: “${n.note}”`)].filter(Boolean);
     addLog({
       text: kind === "fixBoard" ? `Storyboard, ronda ${boardRound}: Arreglalo (check)` : `Storyboard, ronda ${boardRound}: ${notes.join(" · ")}`,
-      outcome: result.demo ? "modo de muestra: sin cambios" : `storyboard, ronda ${boardRound + 1}`,
+      outcome: result.demo ? "modo de muestra: sin cambios" : `storyboard, ronda ${boardRound + 1}${fromClaude(result)}`,
     });
     return true;
   }
@@ -843,17 +866,27 @@ export function App() {
               </div>
             ) : (
               <div className="flex items-center gap-3 border-t border-line pt-5">
-                <Button onClick={openMenu} disabled={busy !== null || needsProduct}>
+                <Button onClick={() => openMenu()} disabled={busy !== null || needsProduct} variant={noKey ? "secondary" : "primary"}>
                   {busy === "menu" ? (
                     <>
                       <Spinner /> Armando el menú…
                     </>
+                  ) : noKey ? (
+                    "Ver un ejemplo"
                   ) : (
                     "Ver el menú de temas"
                   )}
                 </Button>
                 {needsProduct && (
                   <span className="text-sm text-muted">Para {currentSeries?.name}, escribí el producto del episodio.</span>
+                )}
+                {noKey && !needsProduct && (
+                  <ClaudeHandoff
+                    className="flex-1"
+                    what="el menú de temas"
+                    disabled={busy !== null}
+                    via={{ prompt: () => askPrompt(asks.menu(brief)), paste: (reply) => openMenu(reply) }}
+                  />
                 )}
               </div>
             )}
@@ -930,7 +963,15 @@ export function App() {
               questions={menu.questions}
               max={maxTopics}
               busy={busy === "story"}
-              onWrite={writeStory}
+              onWrite={(topics) => writeStory(topics)}
+              handoff={
+                noKey
+                  ? (topics) => ({
+                      prompt: () => askPrompt(asks.story(pieceBrief, topics, roomNotes.join("\n"), projectId ?? "")),
+                      paste: (reply) => writeStory(topics, reply),
+                    })
+                  : null
+              }
             />
           </section>
         )}
@@ -951,7 +992,22 @@ export function App() {
               onRevise={(note) => reviseStory(note)}
               onFix={() => reviseStory(fixNote(storyIssues.filter(open)), "fixStory")}
               onDismiss={dismiss}
-              onApprove={makeBoard}
+              onApprove={() => makeBoard()}
+              handoffs={
+                noKey
+                  ? {
+                      revise: (note) => ({
+                        prompt: () => askPrompt(asks.reviseStory(pieceBrief, story, note, projectId ?? "")),
+                        paste: (reply) => reviseStory(note, "revise", reply),
+                      }),
+                      fix: {
+                        prompt: () => askPrompt(asks.reviseStory(pieceBrief, story, fixNote(storyIssues.filter(open)), projectId ?? "")),
+                        paste: (reply) => reviseStory(fixNote(storyIssues.filter(open)), "fixStory", reply),
+                      },
+                      board: { prompt: () => askPrompt(asks.board(pieceBrief, story)), paste: (reply) => makeBoard(reply) },
+                    }
+                  : null
+              }
             />
             <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
               <Button
@@ -968,7 +1024,8 @@ export function App() {
                 variants={hookVariants}
                 current={story.title}
                 busy={writingHooks || busy !== null}
-                onWrite={writeHookVariants}
+                onWrite={() => writeHookVariants()}
+                handoff={noKey ? { prompt: () => askPrompt(asks.storyHooks(pieceBrief, story)), paste: (reply) => writeHookVariants(reply) } : null}
                 onUse={pickHookVariant}
                 onSend={sendHookVariants}
               />
@@ -993,7 +1050,7 @@ export function App() {
             dismissed={boardIssues.length - boardIssues.filter(open).length}
             look={{
               format: pieceBrief.format,
-              style: pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE,
+              style: boardStyle,
               images: shotImages,
               sketches: Object.fromEntries(board.shots.map((_, i) => [i, media[SKETCH_BASE + i]?.image])),
               castKinds: Object.fromEntries((pieceSeries?.cast ?? []).map((m) => [m.id, m.kind])),
@@ -1010,6 +1067,20 @@ export function App() {
             onSketchRemove={(index) => void removeMedia(SKETCH_BASE + index, "image")}
             onRevise={(note, shotNotes) => reviseBoard(note, shotNotes)}
             onFix={() => reviseBoard(fixNote(boardIssues.filter(open)), [], "fixBoard")}
+            handoffs={
+              noKey
+                ? {
+                    revise: (note, shotNotes) => ({
+                      prompt: () => askPrompt(asks.reviseBoard(pieceBrief, story, board, note, shotNotes)),
+                      paste: (reply) => reviseBoard(note, shotNotes, "reviseBoard", reply),
+                    }),
+                    fix: {
+                      prompt: () => askPrompt(asks.reviseBoard(pieceBrief, story, board, fixNote(boardIssues.filter(open)), [])),
+                      paste: (reply) => reviseBoard(fixNote(boardIssues.filter(open)), [], "fixBoard", reply),
+                    },
+                  }
+                : null
+            }
             onDismiss={dismiss}
             onApprove={approveBoard}
           />

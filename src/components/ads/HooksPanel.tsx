@@ -1,7 +1,11 @@
 // Step 1: 50 hooks by awareness level, covering a grid of level × angle, approved with a quick yes/no.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ANGLES, ANGLE_LABEL, BUDGETS, FORMULA_LABEL, LEVELS, LEVEL_INFO, levelsOf, wordsFor, type AdSeconds, type Hook, type PieceStatus } from "../../../shared/ads.ts";
+import { promptCount } from "../../../shared/adsHandoff.ts";
+import type { Handoff } from "../ClaudeHandoff.tsx";
 import { Button, Spinner } from "../ui.tsx";
+import { PartsHandoff } from "./PartsHandoff.tsx";
+import { rememberCount, rememberedCount, takePreset } from "../../lib/handoffWalk.ts";
 import { LevelChip, LevelPicker, Tag, WordsBadge } from "./pieces.tsx";
 
 type Props = {
@@ -17,10 +21,25 @@ type Props = {
   renderCard: (hook: Hook) => ReactNode;
   // "Que lo digan los personajes": the approved hooks' character prompts in one go.
   extra?: ReactNode;
+  // "Sin clave": the count's prompts for claude.ai (several when one reply would be too long).
+  handoff?: ((count: number) => (part: number) => Handoff) | null;
+  // The count "Generar tanda" asked for.
+  presetCount?: number;
+  // Keeps the typed count and the prompts' walk while another tab is open (series id).
+  walkKey: string;
 };
 
-export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, onStatus, renderCard, extra }: Props) {
-  const [count, setCount] = useState(50);
+export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, onStatus, renderCard, extra, handoff = null, presetCount, walkKey }: Props) {
+  const countKey = `${walkKey}:hooks-count`;
+  const [count, setCountState] = useState(() => rememberedCount(countKey, presetCount ?? 50));
+  const setCount = (n: number) => {
+    setCountState(n);
+    rememberCount(countKey, n);
+  };
+  useEffect(() => {
+    if (takePreset(countKey, presetCount)) setCount(presetCount!);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetCount, countKey]);
   const [quick, setQuick] = useState(false);
   const [filter, setFilter] = useState<"all" | PieceStatus>("all");
   const pending = hooks.filter((h) => h.status === "pending");
@@ -63,11 +82,13 @@ export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels,
             <span className="font-semibold">Cantidad</span>
             <input type="number" min={1} max={60} className="ml-2 w-20 rounded-lg border border-line px-2 py-1" value={count} onChange={(e) => setCount(Math.max(1, Math.min(60, Number(e.target.value) || 1)))} />
           </label>
-          <Button onClick={() => onGenerate(count)} disabled={busy}>
+          <Button variant={handoff ? "secondary" : "primary"} onClick={() => onGenerate(count)} disabled={busy}>
             {busy ? (
               <>
                 <Spinner /> Escribiendo hooks…
               </>
+            ) : demo ? (
+              "Ver un ejemplo"
             ) : (
               `Generar ${count} hooks`
             )}
@@ -77,7 +98,19 @@ export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels,
           </span>
         </div>
         {note && <p className="mt-2 text-xs text-muted">{note}</p>}
-        {demo && <p className="mt-2 text-xs text-muted">Sin clave de IA, los hooks son de muestra.</p>}
+        {demo && <p className="mt-2 text-xs text-muted">Sin clave de IA, «Ver un ejemplo» trae hooks de muestra. Los de verdad, con claude.ai:</p>}
+        {handoff && (
+          <PartsHandoff
+            className="mt-2"
+            parts={promptCount("hook", count)}
+            what="los hooks"
+            title={`${count} hooks`}
+            via={handoff(count)}
+            resetKey={`${count}-${levels.join(",")}-${seconds}`}
+            walkKey={`${walkKey}:hooks`}
+            disabled={busy}
+          />
+        )}
       </div>
 
       {hooks.length > 0 && (

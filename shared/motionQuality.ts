@@ -1,9 +1,10 @@
 // The quality loop before any full render (the studio's rule): a contact sheet with one frame per beat, the AI scores
 // six things from 1 to 10, the three worst problems are fixed as edits to the script, and it repeats until every score
 // is 8 or more, up to a set number of rounds.
+import { isMetaphorAsset } from "./metaphor.ts";
 import { clipText, videoAssetOf } from "./screenVideo.ts";
 import { z } from "zod";
-import { DISCLOSURE_TAG, MOTION_TEMPLATES, MOTION_TEMPLATE_LABEL, beyondNow, conceptIssues, labelled, planCameras, sceneElements, timeScenes, tweakScene, type MotionScene, type MotionScript, type Spot } from "./motion.ts";
+import { DISCLOSURE_TAG, MOTION_TEMPLATES, MOTION_TEMPLATE_LABEL, beyondNow, conceptIssues, flagBeyond, hostScenes, labelled, planCameras, sceneElements, timeScenes, tweakScene, type MotionScene, type MotionScript, type Spot } from "./motion.ts";
 
 export const CRITERIA = ["hook", "readability", "motion", "variety", "brand", "sync"] as const;
 export type Criterion = (typeof CRITERIA)[number];
@@ -87,6 +88,45 @@ export function normalizeReview(wire: MotionReviewWire): MotionReview {
 
 export const passes = (scores: Scores) => CRITERIA.every((c) => scores[c].score >= PASS);
 
+// "Sin clave": the contact sheet goes to claude.ai as a file the person attaches, named so the prompt can ask for it.
+export const sheetFileName = (format: "vertical" | "horizontal") => `hoja-de-cuadros-${format === "vertical" ? "9x16" : "16x9"}.jpg`;
+// What the copied prompt asks claude.ai to answer when the image did not arrive (the app recognises it).
+export const NO_SHEET_REPLY = "Falta la hoja de cuadros";
+export const NO_SHEET_TEXT =
+  "claude.ai dice que no le llegó la hoja de cuadros. Descargala, adjuntala en el mismo mensaje que el prompt y mandalo de nuevo.";
+export const saysNoSheet = (reply: string) => reply.toLowerCase().includes(NO_SHEET_REPLY.toLowerCase()) && !reply.includes('"scores"');
+
+// One review round taken into the script, the same with the writer in the loop or with a reply pasted from
+// claude.ai: the scenes it flagged beyond "Lo que existe hoy" are marked, and when it did not pass and there is a
+// round left its fixes are applied (a scene the fixes turned into a character scene gets the series' host).
+export type ReviewStep = { script: MotionScript; flagged: boolean; applied: string[]; pending: string[]; passed: boolean };
+export function takeReview(
+  working: MotionScript,
+  review: MotionReview,
+  round: number,
+  formats: ("vertical" | "horizontal")[],
+  host: string | null,
+  characters: readonly string[],
+): ReviewStep {
+  const passed = passes(review.scores);
+  let script = flagBeyond(working, review.beyond ?? []);
+  const flagged = script !== working;
+  let applied: string[] = [];
+  if (!passed && round < MAX_ROUNDS) {
+    const fixed = applyFixes(script, review.fixes, formats);
+    applied = fixed.applied;
+    if (applied.length) script = { ...fixed.script, scenes: hostScenes(fixed.script.scenes, host, [...characters], true) };
+  }
+  const pending = !passed && !applied.length ? review.fixes.map((f) => `Escena ${Math.round(f.scene)}: ${f.problem}`) : [];
+  return { script, flagged, applied, pending, passed };
+}
+
+// The rounds already taken on this very piece (the review matches it as it is now), so a pasted round continues them.
+export function nextRound(quality: QualityState | null, keyNow: string): { round: number; earlier: string[] } {
+  if (!quality || quality.key !== keyNow || quality.passed || quality.rounds.length >= MAX_ROUNDS) return { round: 1, earlier: [] };
+  return { round: quality.rounds.length + 1, earlier: quality.rounds.flatMap((r) => r.applied) };
+}
+
 // Why a reviewed script still may not render: a scene flagged beyond "Lo que existe hoy" (by the writer or by this very
 // review) with no CONCEPTO / SIMULACIÓN label and not confirmed. "" when nothing stops it.
 export function conceptsBlockRender(script: MotionScript, ok: readonly string[] = []): string {
@@ -153,7 +193,12 @@ export function describeScenes(scenes: MotionScene[]): string {
       // "Escena de código": the person's own animation code paints the whole scene.
       const code = s.template === "code" ? ", a code animation the person pasted (it paints the whole frame itself; its title, text and items are not drawn by the app, so never propose fixes to them, only describe what looks wrong)" : "";
       const played = s.recording && videoAssetOf(s) ? `, its real screen plays the app's screen recording (stretch ${clipText(s.recording)} s of the recording, muted)` : "";
-      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}${entry}${reveal}${camera}${label}${flag}${played}${code}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
+      // "Escenas metáfora": the picture is made in Grok and uploaded by the person; fixes go to the line, never the picture.
+      const metaphor =
+        s.template === "metaphor"
+          ? `, a metaphor picture made with Grok and uploaded by the person (${isMetaphorAsset(s.asset) ? "uploaded" : "not uploaded yet: the sheet shows a placeholder, do not grade it"}; what it shows: "${s.metaphor?.image ?? ""}"); the app sets the title as its line`
+          : "";
+      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}${entry}${reveal}${camera}${label}${flag}${played}${code}${metaphor}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
     })
     .join("\n");
 }

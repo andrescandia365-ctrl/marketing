@@ -2,6 +2,7 @@
 // Spanish note for the person, then the technical brief in English (the contract and a working example, the scene's
 // words and timing, the brand, the pictures, the motion vocabulary mapped to emotions, and the house rules with this
 // scene's own reading times). With an AI key the same prompt goes to the writer ("Que la IA escriba la animación").
+import { resolveBrandFont, type BrandFont } from "./brandFonts.ts";
 import { CODE_CONTRACT, CODE_EXAMPLE, CODE_FRAME_MS } from "./codeScene.ts";
 import { mascotForScenePrompt } from "./mascot.ts";
 import { READ_LETTERS_PER_SECOND, readingNeed, type MotionTone } from "./motion.ts";
@@ -47,7 +48,7 @@ export type CodePromptInput = {
   width: number;
   height: number;
   fps: number;
-  brand: { bg: string; text: string; accent: string; displayFont: string; uiFont: string; motion?: string };
+  brand: { bg: string; text: string; accent: string; displayFont: string; uiFont: string; motion?: string; fonts?: BrandFont[] };
   // The pictures attached to the scene, by the name the code reads them with.
   assets: { name: string; kind: string; what: string; width: number; height: number }[];
   words: { text: string; start: number; end: number }[];
@@ -111,7 +112,7 @@ export function codePrompt(o: CodePromptInput): string {
     "",
     "BRAND (the only colours and fonts)",
     `- background ${o.brand.bg}, text ${o.brand.text}, accent ${o.brand.accent} (one accent: use it for one thing at a time)`,
-    `- display font "${o.brand.displayFont}", UI font "${o.brand.uiFont}"`,
+    `- display font "${o.brand.displayFont}"${fontWeights(o.brand, o.brand.displayFont)}, UI font "${o.brand.uiFont}"${fontWeights(o.brand, o.brand.uiFont)}`,
     ...(o.brand.motion ? [`- how the brand moves: ${o.brand.motion}`] : []),
     "",
     ...(o.mascot ? [...mascotForScenePrompt(o.mascot), ""] : []),
@@ -136,4 +137,12 @@ export function codePrompt(o: CodePromptInput): string {
     "",
     "Reply with the one ```js block that defines draw(ctx, t, info).",
   ].join("\n");
+}
+
+// "Fuentes propias de la marca": an uploaded family has only the weights the brand uploaded; the code should use those.
+export function fontWeights(brand: { fonts?: BrandFont[] }, family: string): string {
+  const source = resolveBrandFont(brand, family);
+  if (source.kind !== "file") return "";
+  const weights = [...new Set(source.faces.filter((f) => f.style === "normal").map((f) => f.weight))].sort((a, b) => a - b);
+  return weights.length ? ` (the brand's own file: weights ${weights.join(", ")} only)` : "";
 }

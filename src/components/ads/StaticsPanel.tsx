@@ -38,7 +38,7 @@ import {
 import { storeZip } from "../../../shared/storeZip.ts";
 import { ads as adsApi, adsFileUrl, api } from "../../lib/api.ts";
 import { copyText } from "../../lib/files.ts";
-import { ensureFont, fontLoaded } from "../../lib/fonts.ts";
+import { brandFontsKey, ensureBrandFonts } from "../../lib/fonts.ts";
 import { download } from "../../lib/markdown.ts";
 import { canvasBlob, drawStill, layoutOnly, previewKey } from "../../lib/stillDraw.ts";
 import { Button, Field, Notice, Segmented, Spinner, inputClass } from "../ui.tsx";
@@ -97,13 +97,14 @@ export function StaticsPanel({ series, state, tools, flags, folder, onState }: P
 
   useEffect(() => {
     let alive = true;
-    Promise.all([ensureFont(series.brand.displayFont), ensureFont(series.brand.uiFont)]).then(() => {
-      if (alive) setFontsReady(fontLoaded(series.brand.displayFont) && fontLoaded(series.brand.uiFont));
+    ensureBrandFonts(series.id, series.brand).then((missing) => {
+      if (alive) setFontsReady(!missing.length);
     });
     return () => {
       alive = false;
     };
-  }, [series.brand.displayFont, series.brand.uiFont]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [series.id, brandFontsKey(series.brand)]);
 
   // The saved pictures, read back from estaticos/.
   useEffect(() => {

@@ -15,10 +15,11 @@ import { ProductPanel } from "./ProductPanel.tsx";
 import { CopyButton, DirectionLog, ScriptView, StoryNotes, Timeline, type LibraryEntry } from "./ScriptView.tsx";
 import { SetupsPanel, type SetupIdentityResult } from "./SetupsPanel.tsx";
 import { Button, Lazy, Notice, PieceTitle, Spinner } from "./ui.tsx";
-import { api } from "../lib/api.ts";
+import { api, askPrompt, asks } from "../lib/api.ts";
 import { download, pieceToMarkdown, slug, type LogEntry } from "../lib/markdown.ts";
 import type { ShotMedia } from "../lib/render.ts";
 import type { ProjectFiles } from "../useProject.ts";
+import { storyFonts } from "../../shared/brandFonts.ts";
 
 const VideoPanel = lazy(() => import("./VideoPanel.tsx").then((m) => ({ default: m.VideoPanel })));
 
@@ -131,18 +132,20 @@ export function ProductionView({
     setAudio((a) => ({ ...a, characters: { ...a.characters, [id]: voice } }));
   }
 
-  async function rewriteShot(index: number, note: string): Promise<boolean> {
+  // `reply`: the answer pasted from claude.ai ("Sin clave"); its error shows under its own box.
+  async function rewriteShot(index: number, note: string, reply?: string): Promise<boolean> {
     if (!story || !board) return false;
     try {
-      const result = await api.rewriteShot(pieceBrief, story, board, index, note);
+      const result = await api.rewriteShot(pieceBrief, story, board, index, note, reply);
       setBoard((b) => (b ? { ...b, shots: b.shots.map((old, i) => (i === index ? result.shot : old)) } : b));
       addLog({
         shot: index,
         text: `“${note}”`,
-        outcome: result.demo ? "modo de muestra: sin cambios (falta la clave de la IA)" : "toma reescrita",
+        outcome: result.demo ? "modo de muestra: sin cambios (falta la clave de la IA)" : result.pasted ? "toma reescrita · respuesta pegada de claude.ai" : "toma reescrita",
       });
       return true;
     } catch (e) {
+      if (reply !== undefined) throw e;
       addLog({ shot: index, text: `“${note}”`, outcome: `no se pudo: ${message(e)}` });
       return false;
     }
@@ -420,7 +423,15 @@ export function ProductionView({
           onUploadImage={uploadImage}
           onUploadClip={uploadClip}
           onRemoveMedia={removeMedia}
-          onRewrite={rewriteShot}
+          onRewrite={(index, note) => rewriteShot(index, note)}
+          rewriteHandoff={
+            status && !status.writer
+              ? (index, note) => ({
+                  prompt: () => askPrompt(asks.rewriteShot(pieceBrief, story, board, index, note)),
+                  paste: (reply) => rewriteShot(index, note, reply),
+                })
+              : null
+          }
           strictLook={pieceSeries ? hasLook(pieceSeries.look) : false}
           onSegment={async (index, note) => {
             const result = await api.segmentEdit(pieceBrief, board.shots[index], note);
@@ -470,6 +481,8 @@ export function ProductionView({
           watermarked={pieceBrief.tool === "grok-imagine"}
           seriesName={pieceSeries?.name ?? ""}
           seriesStyle={pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE}
+          brandFonts={pieceSeries ? { ...storyFonts(pieceSeries.brand), series: pieceSeries.id } : undefined}
+          ownFonts={[...new Set((pieceSeries?.brand.fonts ?? []).map((f) => f.family))]}
           onSaveStyle={saveStyle}
           onRendered={keepVideo}
           audio={audio}

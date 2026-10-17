@@ -6,6 +6,7 @@
 import { cutPush, timeScenes, type MotionScript, type TimedScene } from "../../shared/motion.ts";
 import { needsSeek, videoPlan, type VideoNeed } from "../../shared/screenVideo.ts";
 import type { MotionAsset, MotionWorld, VideoFrames } from "./motion.ts";
+import { isMetaphorAsset } from "../../shared/metaphor.ts";
 
 // What the deck needs of a <video> (a test passes a fake one).
 export type VideoLike = {
@@ -258,6 +259,15 @@ export function latestOnly() {
 
 // What a render says when a recording cannot be read in this browser, naming the screens.
 export function unreadableVideos(assets: string[], series: { cast: { id: string; name: string }[] }): string {
-  const names = assets.map((a) => `«${series.cast.find((m) => m.id === a)?.name ?? a}»`).join(", ");
-  return `Este navegador no pudo leer el video de ${names}, así que el render se frena para no salir con la imagen fija. Volvé a subirlo como MP4 (H.264) o WebM en Editar serie, o renderizá con Google Chrome.`;
+  // "Escenas metáfora": a metaphor's clip lives in the scene, not in the series.
+  const clips = assets.filter((a) => isMetaphorAsset(a));
+  const screens = assets.filter((a) => !isMetaphorAsset(a));
+  const parts: string[] = [];
+  if (screens.length) {
+    const names = screens.map((a) => `«${series.cast.find((m) => m.id === a)?.name ?? a}»`).join(", ");
+    parts.push(`Este navegador no pudo leer el video de ${names}, así que el render se frena para no salir con la imagen fija. Volvé a subirlo como MP4 (H.264) o WebM en Editar serie, o renderizá con Google Chrome.`);
+  }
+  if (clips.length)
+    parts.push(`Este navegador no pudo leer el clip de ${clips.length === 1 ? "una metáfora" : `${clips.length} metáforas`}, así que el render se frena. Volvé a subirlo como MP4 (H.264) o WebM en su escena, o sacalo y dejá la imagen.`);
+  return parts.join(" ");
 }

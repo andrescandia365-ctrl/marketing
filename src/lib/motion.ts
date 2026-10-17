@@ -33,7 +33,8 @@ import {
 import { BUTTONS_FROM, PHONE_SAFE, isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import { stepDownColour, type Brand, type BrandMotion } from "../../shared/series.ts";
 import { cueAt, litWord, type SubtitleCue } from "../../shared/subtitles.ts";
-import { videoAssetOf } from "../../shared/screenVideo.ts";
+import { sceneClip, videoAssetOf } from "../../shared/screenVideo.ts";
+import { metaphorLayout, metaphorSettle, placeholderLines, type SceneMetaphor } from "../../shared/metaphor.ts";
 import { WORLD_DEPTH, busyClear, worldOf, worldPalette, worldShapes, worldStepDown, type WorldPlace } from "../../shared/world.ts";
 
 // screen: a real screenshot of the app (shown inside a phone or laptop). video: the screen's recording ("Videos de la
@@ -98,7 +99,7 @@ export type MotionWorld = {
 export function assetOf(world: MotionWorld, s: Pick<MotionScene, "id" | "template" | "asset" | "assetB" | "recording">, key: "media" | "prop"): MotionAsset | undefined {
   const id = key === "prop" ? s.assetB : s.asset;
   const base = id ? world.assets[id] : undefined;
-  if (!base?.video || !s.recording || !playsRecording(s, key)) return base;
+  if (!base?.video || !sceneClip(s) || !playsRecording(s, key)) return base;
   const sized = { ...base, image: base.video.poster ?? base.image, width: base.video.width, height: base.video.height };
   const frame = world.videos?.frame(s.id);
   if (frame) return { ...sized, image: frame };
@@ -418,6 +419,37 @@ function drawImage(f: Frame, asset: MotionAsset | undefined, cx: number, cy: num
   f.ctx.drawImage(asset.image, cx - s.w / 2, cy - s.h / 2, s.w, s.h);
   if (asset.note) pictureNote(f, asset.note, cx - s.w / 2, cy - s.h / 2, s.w, s.h);
   return { x: cx - s.w / 2, y: cy - s.h / 2, w: s.w, h: s.h };
+}
+
+// "Escenas metáfora" before its picture is uploaded: a dashed square in the brand's colours that says what is missing
+// and shows the start of the prompt, so nobody takes it for the picture.
+function metaphorPlaceholder(f: Frame, b: Box, m: SceneMetaphor | undefined) {
+  const { ctx, unit } = f;
+  ctx.save();
+  ctx.fillStyle = hexA(f.world.brand.text, 0.07);
+  roundRect(ctx, b.x, b.y, b.w, b.h, unit * 0.03);
+  ctx.fill();
+  ctx.setLineDash?.([unit * 0.02, unit * 0.014]);
+  ctx.strokeStyle = hexA(f.world.brand.accent, 0.8);
+  ctx.lineWidth = unit * 0.006;
+  ctx.stroke();
+  ctx.setLineDash?.([]);
+  const [head, ...rest] = placeholderLines(m);
+  const pad = b.w * 0.08;
+  let y = b.y + pad + unit * 0.05;
+  ctx.textAlign = "left";
+  ctx.font = ui(f, unit * 0.04, 700);
+  ctx.fillStyle = f.world.brand.accent;
+  ctx.fillText(head, b.x + pad, y);
+  y += unit * 0.065;
+  ctx.font = ui(f, unit * 0.028);
+  ctx.fillStyle = hexA(f.world.brand.text, 0.7);
+  for (const line of rest.flatMap((r) => wrap(ctx, r, b.w - pad * 2))) {
+    if (y > b.y + b.h - pad) break;
+    ctx.fillText(line, b.x + pad, y);
+    y += unit * 0.038;
+  }
+  ctx.restore();
 }
 
 // The background: the brand's flat colour and one large accent form that drifts on seeded noise and breathes with
@@ -1086,6 +1118,37 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
         }
         return { x: 0, y: 0, w, h };
       });
+      break;
+    }
+    case "metaphor": {
+      // "Escenas metáfora": the picture Grok made, whole in its square (its watermark never cut), settling in; its line
+      // under it on 9:16, beside it on 16:9, in the brand's type. No picture yet: the placeholder with the prompt.
+      // The words as they really wrap at a size, so the picture leaves them room above the subtitle floor.
+      const lines = (kind: "title" | "text", size: number, max: number) => {
+        ctx.save();
+        ctx.font = kind === "title" ? display(f, size) : ui(f, size);
+        const n = wrap(ctx, kind === "title" ? s.title : s.text, max).length;
+        ctx.restore();
+        return n;
+      };
+      const L = metaphorLayout(w, h, { top: topSafe(0, 0) + unit * 0.02, floor, hasText: Boolean(s.text.trim()), lines });
+      const { pic } = L;
+      const pcx = pic.x + pic.w / 2;
+      const pcy = pic.y + pic.h / 2;
+      const settle = metaphorSettle(lt, at("media"), s.seconds, land);
+      put("media", pcx, pcy, () => {
+        ctx.globalAlpha *= settle.alpha;
+        ctx.translate(pcx, pcy);
+        ctx.scale(settle.scale, settle.scale);
+        ctx.translate(-pcx, -pcy);
+        if (!asset) {
+          metaphorPlaceholder(f, pic, s.metaphor);
+          return pic;
+        }
+        return drawImage(f, asset, pcx, pcy, pic.w, pic.h, missing);
+      });
+      const hTitle = title(L.titleX, L.titleY, L.titleSize, L.titleMax);
+      text(L.titleX, L.titleY + hTitle + unit * 0.01, L.textSize, L.titleMax, outCubic(span(lt, at("text"), 0.5)));
       break;
     }
     case "hook": {
@@ -1907,6 +1970,7 @@ export function anchorOf(scene: TimedScene, w: number, h: number): { x: number; 
     product: vertical ? [0.5, 0.47] : [0.5, 0.55],
     stat: vertical ? [0.4, 0.45] : [0.4, 0.48],
     logo: vertical ? [0.5, 0.42] : [0.5, 0.36],
+    metaphor: vertical ? [0.5, 0.38] : [0.3, 0.5],
     code: [0.5, 0.5],
   };
   const [fx, fy] = P[scene.template];

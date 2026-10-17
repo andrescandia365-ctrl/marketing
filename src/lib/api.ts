@@ -1,4 +1,5 @@
 import type { MascotMeta } from "../../shared/mascot.ts";
+import type { PromptOnly } from "../../shared/handoff.ts";
 import type {
   Board,
   BrandFromWeb,
@@ -29,7 +30,9 @@ import type { RoomCard } from "../../shared/room.ts";
 import type { Reference } from "../../shared/reference.ts";
 import type { ScreenDevice } from "../../shared/screenBatch.ts";
 import type { ClipFit, ExplainerKind, ExplainerVideo } from "../../shared/adsFromExplainer.ts";
+import type { PastedCopy } from "../../shared/adsHandoff.ts";
 import type { AdCombo, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceSpeaker, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
+import type { BrandFont } from "../../shared/brandFonts.ts";
 
 // Demucs on this computer (Modelos → Demucs).
 export type DemucsStatus = { ready: boolean; command: string; model: string; songs: number; envBin: boolean };
@@ -89,7 +92,62 @@ async function call<T>(path: string, body?: unknown, method?: "PUT" | "PATCH" | 
   return data as T;
 }
 
-type Demo = { demo: boolean };
+type Demo = { demo: boolean; pasted?: boolean };
+
+// "Sin clave" (shared/handoff.ts): a writer request as data, so the same request can run on the writer, give the
+// prompt for claude.ai, or read a reply pasted from there.
+export type WriterAsk<T> = { path: string; body: Record<string, unknown>; result?: T };
+const writerAsk = <T>(path: string, body: Record<string, unknown>): WriterAsk<T> => ({ path, body });
+export const asks = {
+  menu: (brief: Brief) => writerAsk<Menu & Demo>("/api/menu", { brief }),
+  story: (brief: Brief, topics: TopicIdea[], note = "", projectId = "") =>
+    writerAsk<{ story: Story } & Demo>("/api/story", { brief, topics, note, projectId }),
+  reviseStory: (brief: Brief, story: Story, note: string, projectId = "") =>
+    writerAsk<{ story: Story } & Demo>("/api/story/revise", { brief, story, note, projectId }),
+  board: (brief: Brief, story: Story) => writerAsk<{ board: Board } & Demo>("/api/board", { brief, story }),
+  storyHooks: (brief: Brief, story: Story) => writerAsk<{ variants: HookVariant[] } & Demo>("/api/story/hooks", { brief, story }),
+  reviseBoard: (brief: Brief, story: Story, board: Board, note: string, shotNotes: { index: number; note: string }[]) =>
+    writerAsk<{ board: Board } & Demo>("/api/board/revise", { brief, story, board, note, shotNotes }),
+  rewriteShot: (brief: Brief, story: Story, board: Board, index: number, note: string) =>
+    writerAsk<{ shot: Shot } & Demo>("/api/shot/rewrite", { brief, story, board, index, note }),
+  // Explainers: the script, the director's note (sample mode: { demo: true }, nothing changes) and one review round.
+  // By copy and paste the review's contact sheets are attached in claude.ai, so only their formats go.
+  motion: (brief: Brief, target: number | null, layers: number) =>
+    writerAsk<{ script: MotionScript } & Demo>("/api/motion", { brief, target, layers }),
+  motionRevise: (brief: Brief, script: MotionScript, note: string, layers: number) =>
+    writerAsk<{ demo: true } | (NoteMerge & { demo: false; pasted?: boolean })>("/api/motion/revise", { brief, script, note, layers }),
+  motionReview: (
+    brief: Brief,
+    scenes: string,
+    facts: string,
+    sheets: { format: "vertical" | "horizontal"; jpeg?: string }[],
+    round: number,
+    earlier: string,
+  ) => writerAsk<{ review: MotionReview } & Demo>("/api/motion/review", { brief, scenes, facts, sheets, round, earlier }),
+};
+// Runs the request: on the writer (or the sample), or with `reply` as the answer pasted from claude.ai.
+export const sendAsk = <T>(ask: WriterAsk<T>, reply?: string) =>
+  call<T>(ask.path, reply === undefined ? ask.body : { ...ask.body, handoff: { mode: "paste", reply } });
+// The exact text to paste into claude.ai for this request.
+export const askPrompt = (ask: WriterAsk<unknown>) => call<PromptOnly>(ask.path, { ...ask.body, handoff: { mode: "prompt" } });
+
+// Publicidad's writer requests, for copy and paste with claude.ai ("Sin clave", shared/adsHandoff.ts). `part` is which
+// prompt of a request split in several; the prompt's answer says how many there are.
+type Parted = { part?: number; parts?: number };
+export type PartPrompt = PromptOnly & Parted & { keys?: string[] };
+type PieceBody = { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; part: number };
+export const adsAsks = {
+  hooks: (series: string, body: PieceBody) => writerAsk<{ state: AdsState; hooks: Hook[]; note: string } & Demo & Parted>(`/api/ads/${enc(series)}/hooks`, body),
+  meats: (series: string, body: PieceBody & { formats: MeatFormat[] }) =>
+    writerAsk<{ state: AdsState; meats: Meat[]; note: string } & Demo & Parted>(`/api/ads/${enc(series)}/meats`, body),
+  ctas: (series: string, body: PieceBody) => writerAsk<{ state: AdsState; ctas: Cta[]; note: string } & Demo & Parted>(`/api/ads/${enc(series)}/ctas`, body),
+  clipText: (series: string, name: string, transcript: string) =>
+    writerAsk<{ state: AdsState; clip: ClipRecord } & Demo>(`/api/ads/${enc(series)}/clips/text`, { name, transcript }),
+  clipSplit: (series: string, clipId: string) => writerAsk<{ state: AdsState; clip: ClipRecord } & Demo>(`/api/ads/${enc(series)}/clips/${enc(clipId)}/split`, {}),
+  review: (series: string) => writerAsk<{ flags: ReviewFlag[]; note: string } & Demo>(`/api/ads/${enc(series)}/review`, {}),
+  copies: (series: string, ads: AdCombo[], part: number) =>
+    writerAsk<{ copies: Record<string, PastedCopy>; keys: string[] } & Parted>(`/api/ads/${enc(series)}/copies`, { ads, part }),
+};
 
 export type AdsView = { state: AdsState; transcription: boolean; folder: string; ranking: RankedHook[] };
 export const adsFileUrl = (series: string, file: string) => `/api/ads/${enc(series)}/files/${file.split("/").map(enc).join("/")}`;
@@ -148,7 +206,7 @@ export const ads = {
   ) => call<{ state: AdsState; pieceId: string; fit: ClipFit }>(`/api/ads/${enc(series)}/pieces/from-explainer`, body),
   dropRender: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, undefined, "DELETE"),
   uploadRender: (series: string, id: string, video: Blob) => upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, video, video.type),
-  createBatch: (series: string, body: { seconds: number; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[] }) =>
+  createBatch: (series: string, body: { seconds: number; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[]; copies?: Record<string, PastedCopy> }) =>
     call<{ state: AdsState; batch: Batch } & Demo>(`/api/ads/${enc(series)}/batches`, body),
   uploadAd: (series: string, batch: string, adId: string, video: Blob) =>
     upload<{ file: string }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/ads/${enc(adId)}`, video, video.type),
@@ -168,19 +226,19 @@ export const ads = {
 
 export const api = {
   status: () => call<Status>("/api/status"),
-  menu: (brief: Brief) => call<Menu & Demo>("/api/menu", { brief }),
+  menu: (brief: Brief, reply?: string) => sendAsk(asks.menu(brief), reply),
   room: (series: string, except = "") =>
     call<{ cards: RoomCard[] }>(`/api/room?series=${encodeURIComponent(series)}&except=${encodeURIComponent(except)}`),
-  story: (brief: Brief, topics: TopicIdea[], note = "", projectId = "") =>
-    call<{ story: Story } & Demo>("/api/story", { brief, topics, note, projectId }),
-  reviseStory: (brief: Brief, story: Story, note: string, projectId = "") =>
-    call<{ story: Story } & Demo>("/api/story/revise", { brief, story, note, projectId }),
-  board: (brief: Brief, story: Story) => call<{ board: Board } & Demo>("/api/board", { brief, story }),
-  storyHooks: (brief: Brief, story: Story) => call<{ variants: HookVariant[] } & Demo>("/api/story/hooks", { brief, story }),
-  reviseBoard: (brief: Brief, story: Story, board: Board, note: string, shotNotes: { index: number; note: string }[]) =>
-    call<{ board: Board } & Demo>("/api/board/revise", { brief, story, board, note, shotNotes }),
-  rewriteShot: (brief: Brief, story: Story, board: Board, index: number, note: string) =>
-    call<{ shot: Shot } & Demo>("/api/shot/rewrite", { brief, story, board, index, note }),
+  story: (brief: Brief, topics: TopicIdea[], note = "", projectId = "", reply?: string) =>
+    sendAsk(asks.story(brief, topics, note, projectId), reply),
+  reviseStory: (brief: Brief, story: Story, note: string, projectId = "", reply?: string) =>
+    sendAsk(asks.reviseStory(brief, story, note, projectId), reply),
+  board: (brief: Brief, story: Story, reply?: string) => sendAsk(asks.board(brief, story), reply),
+  storyHooks: (brief: Brief, story: Story, reply?: string) => sendAsk(asks.storyHooks(brief, story), reply),
+  reviseBoard: (brief: Brief, story: Story, board: Board, note: string, shotNotes: { index: number; note: string }[], reply?: string) =>
+    sendAsk(asks.reviseBoard(brief, story, board, note, shotNotes), reply),
+  rewriteShot: (brief: Brief, story: Story, board: Board, index: number, note: string, reply?: string) =>
+    sendAsk(asks.rewriteShot(brief, story, board, index, note), reply),
   image: (provider: string, prompt: string, style: string, aspect: Brief["format"], beat: string, look = "") =>
     call<{ dataUrl: string }>("/api/image", { provider, prompt, style, aspect, beat, look }),
   seriesFields: (id: string) => call<{ fields: SeriesFields }>(`/api/series/${encodeURIComponent(id)}`),
@@ -305,10 +363,11 @@ export const api = {
     brief: Brief,
     scenes: string,
     facts: string,
-    sheets: { format: "vertical" | "horizontal"; jpeg: string }[],
+    sheets: { format: "vertical" | "horizontal"; jpeg?: string }[],
     round: number,
     earlier: string,
-  ) => call<{ review: MotionReview } & Demo>("/api/motion/review", { brief, scenes, facts, sheets, round, earlier }),
+    reply?: string,
+  ) => sendAsk(asks.motionReview(brief, scenes, facts, sheets, round, earlier), reply),
   startFinal: (id: string, formats: ("vertical" | "horizontal")[], origin: string) =>
     call<{ job: FinalJob }>(`/api/projects/${enc(id)}/final`, { formats, origin }),
   finalJob: (job: string) => call<{ job: FinalJob }>(`/api/final/${enc(job)}`),
@@ -337,6 +396,13 @@ export const api = {
   efforts: (model: string) => call<{ efforts: string[] }>(`/api/settings/efforts?model=${enc(model)}`),
   testModel: (provider: string, model: string, vision: boolean) => call<{ result: string }>("/api/settings/test", { provider, model, vision }),
   usage: () => call<{ entries: UsageEntry[]; averages: KindAverage[] }>("/api/settings/usage"),
+  // "Fuentes propias de la marca": one font file per call; family, role, weight and style are optional (guessed).
+  uploadBrandFont: (seriesId: string, file: File, face: { family?: string; role?: string; weight?: number; style?: string }) => {
+    const q = new URLSearchParams({ name: file.name });
+    for (const [k, v] of Object.entries(face)) if (v !== undefined && v !== "") q.set(k, String(v));
+    return upload<{ font: BrandFont; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/fonts?${q}`, file, "application/octet-stream");
+  },
+  removeBrandFont: (seriesId: string, file: string) => call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/fonts/${enc(file)}`, undefined, "DELETE"),
   uploadLogo: (seriesId: string, image: Blob) =>
     upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/logo`, image, image.type),
   saveLyricStyle: (id: string, lyricStyle: LyricStyle) =>
@@ -438,8 +504,7 @@ export const api = {
       mood: style.mood,
       format,
     }),
-  motion: (brief: Brief, target: number | null, layers: number) =>
-    call<{ script: MotionScript } & Demo>("/api/motion", { brief, target, layers }),
+  motion: (brief: Brief, target: number | null, layers: number, reply?: string) => sendAsk(asks.motion(brief, target, layers), reply),
   // "Nota del director": sample mode (no AI key) changes nothing.
   // "Que la IA escriba la animación": the same prompt the person copies for Opus, sent to the writer.
   // "Mascota en código": the series' mascot (null: none), saving it after the sandbox test, removing it, and the
@@ -450,8 +515,8 @@ export const api = {
   deleteMascot: (seriesId: string) => call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/mascot`, undefined, "DELETE"),
   mascotCode: (prompt: string) => call<{ demo: true } | { demo: false; code: string; name: string; description: string }>("/api/mascot/code", { prompt }),
   sceneCode: (prompt: string) => call<{ demo: true } | { demo: false; code: string; note: string }>("/api/motion/code", { prompt }),
-  motionRevise: (brief: Brief, script: MotionScript, note: string, layers: number) =>
-    call<({ demo: true } | (NoteMerge & { demo: false }))>("/api/motion/revise", { brief, script, note, layers }),
+  motionRevise: (brief: Brief, script: MotionScript, note: string, layers: number, reply?: string) =>
+    sendAsk(asks.motionRevise(brief, script, note, layers), reply),
   sheet: (series: string, template: SheetTemplate, details: Record<string, string>, age: number) =>
     call<Sheet & Demo>("/api/sheet", { series, template, details, age }),
   productShot: (brief: Brief) => call<ProductShot & Demo>("/api/product-shot", { brief }),

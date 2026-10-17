@@ -2,6 +2,8 @@
 // The writer reads the Markdown; the app edits the fields. Sections with an unknown heading are kept in `other`.
 import { z } from "zod";
 import { DEFAULT_LYRIC_STYLE, LyricStyleSchema } from "./lyrics.ts";
+import { BRAND_FONT_MAX, BrandFontSchema, FAMILY } from "./brandFonts.ts";
+import { HEADLINE_POSITIONS, SUBTITLE_POSITIONS } from "./storyText.ts";
 import { MascotMetaSchema, mascotLine, readMascotLine } from "./mascot.ts";
 import { MAX_REFERENCES, REFERENCES, REFERENCES_HEADING, ReferenceSchema, markdownToReferences, referencesToMarkdown } from "./reference.ts";
 
@@ -15,6 +17,16 @@ export const TextStyleSchema = z.object({
   // What keeps the text readable on any picture.
   backing: z.enum(["shadow", "outline", "box"]),
   backingColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  // The type of the story's headline and subtitles: the app's (IBM Plex Sans) or the brand's (titles in its display
+  // font, lines in its UI font; Google Fonts or its own files, shared/brandFonts.ts).
+  // "other": one family by name, a Google Font from STORY_FONTS (shared/storyText.ts) or one the series uploaded.
+  font: z.enum(["app", "brand", "other"]).default("app"),
+  fontFamily: z.union([z.literal(""), z.string().regex(FAMILY)]).default(""),
+  // The speaker's name: tinted by role (Bueno / Malo / persona / narrador, as before) or one colour.
+  nameColor: z.union([z.literal("role"), z.string().regex(/^#[0-9a-fA-F]{6}$/)]).default("role"),
+  // Where the text sits (shared/storyText.ts), always inside the 9:16 safe zone; the subtitle never over the headline.
+  subtitlePosition: z.enum(SUBTITLE_POSITIONS).default("bottom"),
+  headlinePosition: z.enum(HEADLINE_POSITIONS).default("top"),
 });
 export type TextStyle = z.infer<typeof TextStyleSchema>;
 
@@ -25,6 +37,11 @@ export const DEFAULT_TEXT_STYLE: TextStyle = {
   headlineColor: "#ffffff",
   backing: "shadow",
   backingColor: "#000000",
+  font: "app",
+  fontFamily: "",
+  nameColor: "role",
+  subtitlePosition: "bottom",
+  headlinePosition: "top",
 };
 
 // The series' look, written as flaws, not "cinematic": what camera, its flash, the grain, how focus behaves and where
@@ -67,7 +84,7 @@ export const LOOK_PRESETS: Record<"phone" | "digicam", { label: string; look: Se
 export const hasLook = (look: SeriesLook) => Object.values(look).some((v) => v.trim());
 
 // The brand kit for motion graphics: logo, one background, one text colour, ONE accent, one display face for titles
-// and one UI face for everything else. Fonts come from Google Fonts.
+// and one UI face for everything else. Fonts come from Google Fonts or from files the series uploads (brandFonts.ts).
 export const DISPLAY_FONTS = ["Space Grotesk", "Archivo Black", "Bricolage Grotesque", "Syne", "DM Serif Display", "Fraunces", "Bebas Neue"] as const;
 export const UI_FONTS = ["Inter", "IBM Plex Sans", "DM Sans", "Work Sans", "Manrope"] as const;
 // How the brand moves: how things land and whether pictures breathe once they are in. Text never moves while it is
@@ -90,6 +107,9 @@ export const BrandSchema = z.object({
   // File name in the series library ("" until uploaded).
   logo: z.string().max(120),
   motion: z.enum(BRAND_MOTIONS).default("even"),
+  // "Fuentes propias de la marca" (shared/brandFonts.ts): uploaded faces in biblioteca/<series>/fuentes/. displayFont
+  // or uiFont naming one of their families loads it from its files; any other name comes from Google Fonts.
+  fonts: z.array(BrandFontSchema).max(BRAND_FONT_MAX).default([]),
 });
 export type Brand = z.infer<typeof BrandSchema>;
 export const DEFAULT_BRAND: Brand = {
@@ -100,6 +120,7 @@ export const DEFAULT_BRAND: Brand = {
   uiFont: "Inter",
   logo: "",
   motion: "even",
+  fonts: [],
 };
 
 // ── Brand contrast (WCAG 2) ───────────────────────────────────────────────────────────

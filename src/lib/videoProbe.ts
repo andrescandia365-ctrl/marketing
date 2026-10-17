@@ -11,6 +11,16 @@ export type ProbedVideo = { seconds: number; width: number; height: number; post
 export async function probeScreenVideo(file: File): Promise<ProbedVideo> {
   if (file.size > SCREEN_VIDEO_MAX_BYTES) throw new Error(`El video pesa más de ${SCREEN_VIDEO_MAX_BYTES / 1024 / 1024} MB: acortalo o bajale la calidad.`);
   const url = URL.createObjectURL(file);
+  try {
+    return await probeVideoUrl(url);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// The same for a video already at an address (a metaphor's clip in the project folder). `at`: the poster's second
+// (default posterSecond; 0 for a clip whose first frame is the picture it was made from).
+export async function probeVideoUrl(url: string, at?: number): Promise<ProbedVideo> {
   const v = document.createElement("video");
   v.muted = true;
   v.playsInline = true;
@@ -28,7 +38,7 @@ export async function probeScreenVideo(file: File): Promise<ProbedVideo> {
     if (!(await meta) || !v.videoWidth || !v.videoHeight || !Number.isFinite(v.duration) || v.duration <= 0) throw new Error(unreadable);
     const seconds = Math.round(v.duration * 1000) / 1000;
     const seeked = once("seeked", 10000);
-    v.currentTime = posterSecond(seconds);
+    v.currentTime = at ?? posterSecond(seconds);
     let poster: Blob | null = null;
     if (await seeked) {
       const canvas = document.createElement("canvas");
@@ -41,6 +51,5 @@ export async function probeScreenVideo(file: File): Promise<ProbedVideo> {
   } finally {
     v.removeAttribute("src");
     v.load();
-    URL.revokeObjectURL(url);
   }
 }

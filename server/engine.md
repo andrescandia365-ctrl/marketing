@@ -1,6 +1,6 @@
 # The storytelling engine
 
-This is CONTENT, not ads: stories people want to watch, that touch real everyday pain and show a real solution. It overrides the playbook's 75-second ad template; the playbook's moves, rules and guardrails still apply.
+This is CONTENT, not ads: stories people want to watch, that touch real everyday pain and show a real solution. The engine's formats set each piece's length and shape; the playbook's moves, rules and guardrails still apply.
 
 ## Good against Bad
 - The core device is a back-and-forth between THE GOOD and THE BAD. The Bad is the pain personified: it has a voice, a look, opinions and terrible excuses. The Good answers it. The story is their argument, until the Good wins by SHOWING, not by claiming.
@@ -14,7 +14,7 @@ This is CONTENT, not ads: stories people want to watch, that touch real everyday
 
 ## Real life underneath
 - Objects can talk and the escalation can get absurd, but the situation underneath must be how people really work today. Build every pain on the series' "Cómo se trabaja hoy" list or the brief's notes. Never invent a habit, routine, schedule or tool people don't use (for example, a stock notebook nobody keeps); if the piece needs one that is not listed, ask in the questions or mark it [VERIFY].
-- The playbook's examples (its numbers and lines, like "40 in stock, the shelf says 3") show the shape of a move. They are not facts about this business: never copy them.
+- The playbook's examples (its numbers, hours and lines) show the shape of a move. They are not facts about this business: never copy them.
 - Every piece is named by the problem it solves, in plain words anyone gets with no context ("Armar el pedido antes del corte del proveedor"). The hook title comes second and must also make sense on its own.
 
 ## Topics, bridges, callbacks

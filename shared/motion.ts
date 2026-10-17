@@ -7,8 +7,9 @@ import type { QualityState } from "./motionQuality.ts";
 import { pickWorld, type SceneWorld, type WorldPlace } from "./world.ts";
 import { pickClip, type ScreenClip } from "./screenVideo.ts";
 import { codeHolds, codeReveals, codeTexts, type SceneCode } from "./codeScene.ts";
+import { isMetaphorAsset, pickMetaphor, type SceneMetaphor } from "./metaphor.ts";
 
-export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "contradiction", "notify", "flow", "slots", "product", "stat", "logo", "code"] as const;
+export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "contradiction", "notify", "flow", "slots", "metaphor", "product", "stat", "logo", "code"] as const;
 export type MotionTemplate = (typeof MOTION_TEMPLATES)[number];
 export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   hook: "Gancho: palabras que entran",
@@ -23,6 +24,7 @@ export const MOTION_TEMPLATE_LABEL: Record<MotionTemplate, string> = {
   notify: "Avisos: notificaciones que llegan",
   flow: "Flujo: de un origen a varios lados",
   slots: "Casilleros: se llenan escena a escena",
+  metaphor: "Metáfora: una imagen de Grok que explica la idea",
   product: "Producto con precio u oferta",
   stat: "Número grande",
   logo: "Cierre con logo",
@@ -105,7 +107,7 @@ const SceneWire = z.object({
   template: z
     .string()
     .describe(
-      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), type (the product in use: a field where the title is typed letter by letter with key sounds, a button is tapped, then the text appears as the result), character (a cast character marked as a 3D puppet talks the voice line with its mouth moving and makes a gesture; it can point at or present a real screen or the product given in assetB), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), contradiction (the Contradiction move: what the system, the label or the habit says, then what really happens, and the first gets struck through; no image needed), notify (notifications arrive one by one as cards, each with a short title and body: the messages, alerts or reminders the person gets), flow (one source fans out to several places: the lines draw in one by one, each ending in its label; the title is the source), slots (the open loop on screen: a row of empty boxes named in the first slots scene; each later slots scene fills the next box, and the ones filled before stay filled), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene), code (an animation the person pasted as code: never choose it for a new scene; keep a code scene's template, title, text and voice as they are unless asked).",
+      "One of: hook (kinetic title, the first scene), screen (a real screen of the app in a phone or laptop), zoom (zoom into one feature of a real screen and ring it), type (the product in use: a field where the title is typed letter by letter with key sounds, a button is tapped, then the text appears as the result), character (a cast character marked as a 3D puppet talks the voice line with its mouth moving and makes a gesture; it can point at or present a real screen or the product given in assetB), callouts (labels pointing at parts of the product or screen), steps (numbered steps), beforeAfter (two images with a moving divider), contradiction (the Contradiction move: what the system, the label or the habit says, then what really happens, and the first gets struck through; no image needed), notify (notifications arrive one by one as cards, each with a short title and body: the messages, alerts or reminders the person gets), flow (one source fans out to several places: the lines draw in one by one, each ending in its label; the title is the source), slots (the open loop on screen: a row of empty boxes named in the first slots scene; each later slots scene fills the next box, and the ones filled before stay filled), metaphor (one simple picture made with Grok that explains an abstract idea as a metaphor, e.g. the order as a pile of boxes about to fall, with the title as its short line under or beside it; write the picture in imagePrompt), product (the product cut-out with its price or offer), stat (one big number that counts up), logo (the brand's logo and a soft call to action, the last scene), code (an animation the person pasted as code: never choose it for a new scene; keep a code scene's template, title, text and voice as they are unless asked).",
     ),
   seconds: z.number().describe("2 to 8 seconds; long enough for the voice line at about 2.5 words per second."),
   title: z.string().describe("Up to 6 words, readable on a phone. For stat: starts with the number (e.g. '3 minutos'). For flow: the source, up to 3 words."),
@@ -158,6 +160,17 @@ const SceneWire = z.object({
     .describe(
       "Only when the scene shows a real screen that has a screen recording (hook, screen, zoom, callouts: asset; character: assetB): the stretch of the recording to play inside the device, as 'from-to' seconds of the recording (e.g. '2-7'; 'fin' for its end), optionally ' x1.5' to speed it up or ' en bucle' to loop it. It plays muted. Empty: the still screenshot.",
     ),
+  imagePrompt: z
+    .string()
+    .optional()
+    .describe(
+      "metaphor only, in English: the one frozen moment Grok draws, 30 to 70 words (subject, action, place, light, framing): one subject and one idea a phone viewer gets in a second, concrete objects, a plain background. Never text, letters, numbers, logos, real people or known characters in it (the app sets the line). A cast member that appears is named by its id and listed in cast. The app adds the series look and the square frame. Else empty.",
+    ),
+  videoPrompt: z
+    .string()
+    .optional()
+    .describe("metaphor only, in English, optional: how the still moves when animated (25 to 50 words: one action, one slow camera move or locked camera; the boxes slowly tip over). Empty: a still picture."),
+  cast: z.string().optional().describe("metaphor only: the cast ids that appear in the picture, comma separated (each is called by its @reference in Grok), or empty."),
 });
 
 export const MotionScriptSchema = z.object({
@@ -200,7 +213,10 @@ export const MotionNoteSchema = MotionScriptSchema.extend({
 export type Spot = { dx?: number; dy?: number; scale?: number };
 export type Tweak = { at?: number; v?: Spot; h?: Spot };
 
-export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture" | "entry" | "reveal" | "camera" | "disclosure" | "beyondToday" | "world" | "clip"> & {
+export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture" | "entry" | "reveal" | "camera" | "disclosure" | "beyondToday" | "world" | "clip" | "imagePrompt" | "videoPrompt" | "cast"> & {
+  // "Escenas metáfora" (template "metaphor", shared/metaphor.ts): what Grok draws and how it moves, and the cast in it.
+  // The uploaded picture is the scene's asset ("metafora:N"). Other templates have none.
+  metaphor?: SceneMetaphor;
   id: string;
   template: MotionTemplate;
   // "Videos de la app funcionando": the stretch of its real screen's recording the scene plays (shared/screenVideo.ts).
@@ -233,8 +249,11 @@ export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture"
   // By element key (see sceneElements). Empty or missing: the template's own timing and layout.
   tweaks?: Record<string, Tweak>;
   // Only on the arranged copy (snapElements), never saved: an element's template time moved onto a beat. A hand-set
-  // `at` always wins over it.
+  // `at` and the word that names it (onWord) win over it.
   onBeat?: Record<string, number>;
+  // Only on the arranged copy (enterOnWords, shared/wordEntry.ts), never saved: "Entrar con la palabra", the element
+  // enters when the voice says the word that names it. A hand-set `at` wins over it; it wins over the beat.
+  onWord?: Record<string, number>;
 };
 export type MotionScript = Omit<z.infer<typeof MotionScriptSchema>, "scenes" | "music" | "caption" | "world"> & {
   scenes: MotionScene[];
@@ -359,7 +378,7 @@ export function pickCamera(value: string | undefined): MotionCamera | undefined 
 // slow moves the camera has always made when the person picks one), and zoom, which makes its own move.
 const HOLD_SCENES: readonly MotionTemplate[] = ["code", "zoom", "type", "steps", "contradiction", "notify", "flow", "slots", "stat", "logo"];
 // Where the writer's camera pushes in when it gives none: the product and the real screen.
-const PUSH_IN: readonly MotionTemplate[] = ["product", "screen"];
+const PUSH_IN: readonly MotionTemplate[] = ["product", "screen", "metaphor"];
 // Another move when the same one would come three scenes in a row, in order of preference.
 const OTHER_CAMERA: Record<Exclude<MotionCamera, "hold">, MotionCamera[]> = {
   push: ["drift", "pull", "pan"],
@@ -372,7 +391,8 @@ const OTHER_CAMERA: Record<Exclude<MotionCamera, "hold">, MotionCamera[]> = {
 // beforeAfter) only move in depth, never slide across. A dry piece mostly holds, with a slow push.
 export function cameraFits(scene: Pick<MotionScene, "template" | "asset">, tone?: MotionTone): readonly MotionCamera[] {
   if (HOLD_SCENES.includes(scene.template) || (scene.template === "hook" && !scene.asset)) return ["hold"];
-  const fits: readonly MotionCamera[] = scene.template === "callouts" || scene.template === "beforeAfter" ? ["hold", "push", "pull"] : MOTION_CAMERAS;
+  // A metaphor holds its line beside the picture: the camera only moves in depth.
+  const fits: readonly MotionCamera[] = scene.template === "callouts" || scene.template === "beforeAfter" || scene.template === "metaphor" ? ["hold", "push", "pull"] : MOTION_CAMERAS;
   return tone === "dry" ? fits.filter((c) => c === "hold" || c === "push") : fits;
 }
 
@@ -425,6 +445,7 @@ export function pickTemplate(value: string): MotionTemplate {
   if (/notif|aviso|alert/.test(v)) return "notify";
   if (/slot|casill|checkbox|boxes/.test(v)) return "slots";
   if (/flow|flujo|fan.?out|channel|canal/.test(v)) return "flow";
+  if (/metaf|metáf/.test(v)) return "metaphor";
   return MOTION_TEMPLATES.find((t) => v.includes(t.toLowerCase())) ?? "screen";
 }
 
@@ -512,7 +533,7 @@ export function slotsPlan(scenes: Pick<MotionScene, "template" | "items">[], ind
 // The writer's script as the app plays it. `tone` (the brief's) only decides the cameras the writer chose (planCameras).
 // `revising` (a director's note): the writer echoes the current script, so a later slots scene with names is the
 // person's own second row and keeps them.
-export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?: MotionTone, opts: { revising?: boolean } = {}): MotionScript {
+export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?: MotionTone, opts: { revising?: boolean; cast?: readonly string[] } = {}): MotionScript {
   const pick = <T extends string>(value: string, list: readonly T[], fallback: T): T =>
     list.find((v) => value.toLowerCase().replace(/[^a-z]/g, "") === v.toLowerCase()) ??
     list.find((v) => value.toLowerCase().includes(v.toLowerCase())) ??
@@ -532,8 +553,14 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?:
     ...rest,
     ...(pieceWorld && { world: pieceWorld }),
     scenes: planCameras(
-      wire.scenes.map(({ disclosure, beyondToday, world, clip, ...s }, i) => withBeyond({
+      wire.scenes.map(({ disclosure, beyondToday, world, clip, imagePrompt, videoPrompt, cast, ...s }, i) => withBeyond({
         ...s,
+        // "Escenas metáfora": the picture to make with Grok. The asset is only ever the uploaded picture (metafora:N);
+        // a cast id the writer put there joins the picture's cast.
+        ...(pickTemplate(s.template) === "metaphor" && {
+          metaphor: pickMetaphor(imagePrompt, videoPrompt, [cast ?? "", isMetaphorAsset(s.asset) ? "" : s.asset].join(","), opts.cast),
+          asset: isMetaphorAsset(s.asset) ? s.asset : "",
+        }),
         ...(pickClip(clip) && { recording: pickClip(clip) }),
         ...(sceneWorld(world) && { world: sceneWorld(world) }),
         id: sceneId(),
@@ -571,8 +598,11 @@ export type TimedScene = MotionScene & { index: number; start: number; end: numb
 export type BeyondFlag = { what: string; by: "ia" | "revisor"; sig: string };
 
 // A fingerprint of what a scene shows and says: its template, words, pictures and voice (not its timing or place).
-export function showsSig(scene: Pick<MotionScene, "template" | "title" | "text" | "items" | "asset" | "assetB" | "voice">): string {
-  const text = JSON.stringify([scene.template, scene.title.trim(), scene.text.trim(), scene.items.map((i) => i.trim()), scene.asset, scene.assetB, scene.voice.trim()]);
+// A metaphor's uploaded picture is not what it shows (its written moment is): uploading it keeps the flag.
+export function showsSig(scene: Pick<MotionScene, "template" | "title" | "text" | "items" | "asset" | "assetB" | "voice"> & { metaphor?: SceneMetaphor }): string {
+  const asset = isMetaphorAsset(scene.asset) ? "" : scene.asset;
+  const moment = scene.template === "metaphor" ? [(scene.metaphor?.image ?? "").trim()] : [];
+  const text = JSON.stringify([scene.template, scene.title.trim(), scene.text.trim(), scene.items.map((i) => i.trim()), asset, scene.assetB, scene.voice.trim(), ...moment]);
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);
@@ -703,8 +733,9 @@ function snapWith(scenes: MotionScene[], beats: number[], strong: number[], bigC
 export const ELEMENT_SNAP = 0.1;
 
 // Moves each element's template time onto the nearest beat when one is within ELEMENT_SNAP, so an entrance, its
-// sound and every check read the same second. Hand-set times (tweaks) stay where the person put them; the voice is
-// never moved, and what enters with the cut stays with it. Returns scenes with `onBeat` (never saved).
+// sound and every check read the same second. Hand-set times (tweaks) stay where the person put them, an element that
+// enters on its word (onWord) stays on the word; the voice is never moved, and what enters with the cut stays with
+// it. Returns scenes with `onBeat` (never saved).
 export function snapElements(scenes: MotionScene[], beats: number[], within = ELEMENT_SNAP): MotionScene[] {
   if (beats.length < 2) return scenes;
   return timeScenes(scenes).map(({ index: _index, start, end: _end, ...scene }) => {
@@ -713,7 +744,7 @@ export function snapElements(scenes: MotionScene[], beats: number[], within = EL
     // One at a time, in order: some template times follow others (the typed text's button and result).
     for (;;) {
       const next = sceneElements({ ...scene, onBeat })
-        .filter((e) => !decided.has(e.key) && e.lane !== "voice" && scene.tweaks?.[e.key]?.at === undefined)
+        .filter((e) => !decided.has(e.key) && e.lane !== "voice" && scene.tweaks?.[e.key]?.at === undefined && scene.onWord?.[e.key] === undefined)
         .sort((a, b) => a.at - b.at)[0];
       if (!next) break;
       decided.add(next.key);
@@ -756,11 +787,18 @@ const MEDIA_LABEL: Record<MotionTemplate, string> = {
   notify: "Imagen",
   flow: "Imagen",
   slots: "Casilleros",
+  metaphor: "Imagen",
   product: "Producto",
   stat: "Imagen",
   logo: "Logo",
   code: "Animación",
 };
+
+// Where an element was put, if anywhere: by hand (tweaks), on the word that names it (onWord), on a beat (onBeat), in
+// that order. Undefined: the template's own time.
+export function placedAt(scene: Pick<MotionScene, "tweaks" | "onWord" | "onBeat">, key: string): number | undefined {
+  return scene.tweaks?.[key]?.at ?? scene.onWord?.[key] ?? scene.onBeat?.[key];
+}
 
 // Every element of a scene with the second it enters (the template's timing, or the person's), only the ones that
 // show something: an empty title or text is not an element.
@@ -815,7 +853,7 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
       // The first is fully in at 0.85 s; the second follows once it has had time to be read. The strike follows the
       // second wherever it was put (by hand or on a beat), so nothing is struck before what contradicts it is there.
       const real = 0.85 + Math.min(1.2, Math.max(0.6, (d - 1.2) / 3));
-      const realAt = scene.tweaks?.item1?.at ?? scene.onBeat?.item1 ?? real;
+      const realAt = placedAt(scene, "item1") ?? real;
       if (scene.items[0]) add("item0", `Lo que dicen: ${scene.items[0]}`, "items", 0.35);
       if (scene.items[1]) add("item1", `Lo que pasa: ${scene.items[1]}`, "items", real);
       if (scene.items[0] && scene.items[1]) add("strike", "Tachado", "moves", realAt + 0.7, false);
@@ -855,7 +893,7 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
     }
     case "type": {
       add("media", media, "media", 0);
-      const typed = (scene.tweaks?.title?.at ?? scene.onBeat?.title ?? 0.35) + typingSeconds(title);
+      const typed = (placedAt(scene, "title") ?? 0.35) + typingSeconds(title);
       if (title) add("title", "Texto tipeado", "title", 0.35);
       if (scene.items[1]) add("tag", "Botón", "tag", typed + 0.15);
       if (text) add("text", "Resultado", "text", typed + 0.6);
@@ -875,11 +913,17 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
       break;
     case "stat": {
       // The supporting line waits for the number to stop counting.
-      const counted = (scene.tweaks?.title?.at ?? scene.onBeat?.title ?? 0) + STAT_COUNT + 0.1;
+      const counted = (placedAt(scene, "title") ?? 0) + STAT_COUNT + 0.1;
       if (title) add("title", "Número", "title", 0);
       if (text) add("text", "Texto", "text", title ? counted : 0.8);
       break;
     }
+    case "metaphor":
+      // The picture settles in, then its line rises under it (or beside it), then the supporting text.
+      add("media", media, "media", 0);
+      if (title) add("title", "Línea", "title", 0.45);
+      if (text) add("text", "Texto", "text", 0.9);
+      break;
     case "code":
       // The animation is one element: what it draws and when comes from its sampled texts (codeHolds).
       add("media", media, "media", 0);
@@ -892,7 +936,7 @@ export function sceneElements(scene: MotionScene): SceneElement[] {
   }
   if (scene.voice.trim()) add("voice", "Voz", "voice", 0.25, false);
   const latest = Math.max(0, d - 0.3);
-  return list.map((e) => ({ ...e, at: Math.min(latest, Math.max(0, scene.tweaks?.[e.key]?.at ?? scene.onBeat?.[e.key] ?? defaults[e.key])) }));
+  return list.map((e) => ({ ...e, at: Math.min(latest, Math.max(0, placedAt(scene, e.key) ?? defaults[e.key])) }));
 }
 
 // How long the stat template's number counts up.
@@ -1256,6 +1300,9 @@ export type MotionPiece = {
   // "Palabra por palabra": the subtitle lights the word being said (subtitleCues). On by default; a piece saved before
   // it existed has none and counts as on (wordByWordOn).
   wordByWord?: boolean;
+  // "Entrar con la palabra": an element whose words the voice says enters on that word (enterOnWords). On for new
+  // pieces; a piece saved before it existed has none and stays off, so it does not change (enterOnWordOn).
+  enterOnWord?: boolean;
   // Word times heard in each scene's voice file (whisper-1, aligned to the written words), by scene id. Without them,
   // or once the line or the file changed, the times are estimated (sceneWordTimes).
   wordTimes?: Record<string, HeardWordTimes>;
@@ -1282,7 +1329,14 @@ export function newMotionPiece(format: "vertical" | "horizontal"): MotionPiece {
     conceptsOk: [],
     cutBlur: true,
     wordByWord: true,
+    enterOnWord: true,
   };
+}
+
+// A saved piece as the studio and the render page open it: the defaults under what was saved. A switch that starts on
+// for new pieces but must stay off for older ones ("Entrar con la palabra") is off unless the piece saved it on.
+export function openMotionPiece(format: "vertical" | "horizontal", saved: Partial<MotionPiece>): MotionPiece {
+  return { ...newMotionPiece(format), ...saved, enterOnWord: saved.enterOnWord === true };
 }
 
 export const DURATIONS = [15, 30, 45, 60, 90] as const;

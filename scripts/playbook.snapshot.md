@@ -1,6 +1,6 @@
 <!-- Generado por `npm run playbook -- --write`. No se edita a mano. -->
 <!-- Las secciones de PLAYBOOK.md que resume server/playbook.md, tal como estaban la última vez que se pusieron al día. -->
-<!-- playbook.md: d9862f59804e1e27 -->
+<!-- playbook.md: 1fcf01be9bb532ad -->
 
 ## 1. The two jobs this file serves
 
@@ -69,7 +69,7 @@ These are my labels for recurring moves, derived from the sources above. Test th
 | Move | Shape | Brand translation |
 |---|---|---|
 | **The Clip Drop** | Show the real artifact first, no setup. | Open on the real mess: the actual stockroom, the actual closet. |
-| **The Contradiction** | "They said X. Here's them doing Y." | "Your system says 40 in stock. The shelf says 3." |
+| **The Contradiction** | "They said X. Here's them doing Y." | Put what is promised next to what really happens. *Illustrative only, not a fact about any brand:* "The calendar says gym at 7. The alarm says snooze, for the third time." |
 | **The Slow Reaction** | Let the absurdity breathe before the joke. | Hold on the problem for one beat before speaking. |
 | **The Escalator** | Each beat is a bigger version of the same absurdity. | List 3 pains, each worse and more specific than the last. |
 | **The Turn** | Drop the irony; say the true thing plainly. | The *touching* beat: one honest sentence about what this costs a real person. |

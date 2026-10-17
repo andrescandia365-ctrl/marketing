@@ -40,7 +40,7 @@ export const CODE_CONTRACT = `CONTRACT (the app runs your code exactly like this
      format,                   // "vertical" or "horizontal"
      duration,                 // seconds this scene lasts
      fps,                      // 30
-     brand: { bg, text, accent, displayFont, uiFont },   // colours as "#rrggbb", Google Fonts family names
+     brand: { bg, text, accent, displayFont, uiFont },   // colours as "#rrggbb", font family names
      tone,                     // "dry", "warm" or "absurdist"
      voice,                    // what the narrator says during this scene ("" if nothing)
      words,                    // [{ text, start, end }] seconds inside the scene when each word is said ([] if unknown)
@@ -52,8 +52,8 @@ export const CODE_CONTRACT = `CONTRACT (the app runs your code exactly like this
      mascot                    // the series' mascot { name, description, unit, draw(ctx, t, pose) }, or null if it has
                                // none: to show the character call info.mascot.draw (also drawMascot), never redraw it
    }
-8. Fonts: ctx.font = \`700 120px "\${info.brand.displayFont}"\` (weights 400, 500, 600 and 700 of both brand fonts are
-   loaded). Colours only from info.brand.
+8. Fonts: ctx.font = \`700 120px "\${info.brand.displayFont}"\` (both brand fonts are loaded: weights 400 to 700 from
+   Google Fonts, or the weights the brand uploaded). Colours only from info.brand.
 9. Do not draw subtitles, the voice's words as a caption, the AI notice or the CONCEPTO label: the app draws them on top.`;
 
 // A tiny example that follows the contract (the prompt shows it; the tests run it).
