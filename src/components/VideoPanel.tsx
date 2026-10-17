@@ -21,7 +21,7 @@ type Props = {
   seriesName: string;
   seriesStyle: TextStyle;
   // The series' two brand families, for "Letra de la marca" (TextStyle.font).
-  brandFonts?: { display: string; ui: string };
+  brandFonts?: { display: string; ui: string; series?: string };
   // Families the series uploaded (Editar serie → Marca), offered first in "Otra letra".
   ownFonts?: string[];
   onSaveStyle: (style: TextStyle) => Promise<void>;
@@ -112,9 +112,9 @@ export function VideoPanel({
   const disclosureText = showDisclosure ? disclosure : "";
   const styleChanged = JSON.stringify(style) !== JSON.stringify(seriesStyle);
   const drawStyle = useMemo(
-    () => ({ ...style, fonts: brandFonts && { display: brandFonts.display, ui: brandFonts.ui } }),
+    () => ({ ...style, fonts: brandFonts && { display: brandFonts.display, ui: brandFonts.ui }, series: brandFonts?.series }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [style, brandFonts?.display, brandFonts?.ui],
+    [style, brandFonts?.display, brandFonts?.ui, brandFonts?.series],
   );
 
   useEffect(() => {

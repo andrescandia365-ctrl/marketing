@@ -29,7 +29,7 @@ export function BrandFontsBox({
   useEffect(() => {
     if (!seriesId) return;
     registerBrandFonts(seriesId, brand);
-    for (const family of new Set(fonts.map((f) => f.family))) ensureFont(family);
+    for (const family of new Set(fonts.map((f) => f.family))) ensureFont(family, seriesId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seriesId, key]);
 

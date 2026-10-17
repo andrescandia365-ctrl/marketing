@@ -5,6 +5,7 @@ import { promptCount } from "../../../shared/adsHandoff.ts";
 import type { Handoff } from "../ClaudeHandoff.tsx";
 import { Button, Spinner } from "../ui.tsx";
 import { PartsHandoff } from "./PartsHandoff.tsx";
+import { rememberCount, rememberedCount, takePreset } from "../../lib/handoffWalk.ts";
 import { LevelChip, LevelPicker, Tag, WordsBadge } from "./pieces.tsx";
 
 type Props = {
@@ -24,13 +25,21 @@ type Props = {
   handoff?: ((count: number) => (part: number) => Handoff) | null;
   // The count "Generar tanda" asked for.
   presetCount?: number;
+  // Keeps the typed count and the prompts' walk while another tab is open (series id).
+  walkKey: string;
 };
 
-export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, onStatus, renderCard, extra, handoff = null, presetCount }: Props) {
-  const [count, setCount] = useState(presetCount ?? 50);
+export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, onStatus, renderCard, extra, handoff = null, presetCount, walkKey }: Props) {
+  const countKey = `${walkKey}:hooks-count`;
+  const [count, setCountState] = useState(() => rememberedCount(countKey, presetCount ?? 50));
+  const setCount = (n: number) => {
+    setCountState(n);
+    rememberCount(countKey, n);
+  };
   useEffect(() => {
-    if (presetCount) setCount(presetCount);
-  }, [presetCount]);
+    if (takePreset(countKey, presetCount)) setCount(presetCount!);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetCount, countKey]);
   const [quick, setQuick] = useState(false);
   const [filter, setFilter] = useState<"all" | PieceStatus>("all");
   const pending = hooks.filter((h) => h.status === "pending");
@@ -98,6 +107,7 @@ export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels,
             title={`${count} hooks`}
             via={handoff(count)}
             resetKey={`${count}-${levels.join(",")}-${seconds}`}
+            walkKey={`${walkKey}:hooks`}
             disabled={busy}
           />
         )}

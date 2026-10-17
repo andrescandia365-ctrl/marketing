@@ -10,7 +10,7 @@ import {
   currentRender,
   offerFilled,
   type AdCombo,
-  type AdCopy,
+  copyKey,
   type AdSeconds,
   type AdsState,
   type CombineRules,
@@ -30,6 +30,7 @@ import type { Handoff } from "../ClaudeHandoff.tsx";
 import { concatPieces, renderAdWhole, renderPiece, type PieceLook, type PieceMedia } from "../../lib/adsRender.ts";
 import { blobToDataUrl, readImageFile } from "../../lib/files.ts";
 import type { AdSeed, ExplainerKind } from "../../../shared/adsFromExplainer.ts";
+import type { PastedCopy } from "../../../shared/adsHandoff.ts";
 import { audioDuration } from "../Audio.tsx";
 import { Button, Lazy, Notice, Segmented, Spinner } from "../ui.tsx";
 import { BatchWizard, type Wizard } from "./BatchWizard.tsx";
@@ -112,7 +113,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   const [fields, setFields] = useState<{ worksToday: string[]; audience: string; what: string } | null>(null);
   // "Sin clave": the platform texts pasted from claude.ai (by pair key) until a run takes them, and the counts
   // "Generar tanda" asked for, which the tabs' copy-and-paste boxes start from.
-  const [pastedCopies, setPastedCopies] = useState<Record<string, AdCopy>>({});
+  const [pastedCopies, setPastedCopies] = useState<Record<string, PastedCopy>>({});
   const [preset, setPreset] = useState<{ hooks?: number; meats?: number; ctas?: number }>({});
   useEffect(() => {
     setPastedCopies({});
@@ -491,7 +492,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   }
 
   // ── The run: pieces once (cached), then the ads cut from them ─────────────────
-  const look = (): PieceLook => ({ format: settings.format, style: { ...series.textStyle, fonts: storyFonts(series.brand) }, disclosure: "Imágenes ilustrativas", fullFrame: true, headlines: true });
+  const look = (): PieceLook => ({ format: settings.format, style: { ...series.textStyle, fonts: storyFonts(series.brand), series: series.id }, disclosure: "Imágenes ilustrativas", fullFrame: true, headlines: true });
   // An explainer's clip plays from its in point and carries its own words (nothing drawn on top).
   // A character's clip ("Que lo diga un personaje") plays from the speaker's in point, muted when the piece's own voice
   // says the line instead.
@@ -585,6 +586,9 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
         ...(Object.keys(pastedCopies).length > 0 && { copies: pastedCopies }),
       });
       setState(created.state);
+      // The run took its pasted texts (the server keeps only those still written for the pair's current text).
+      const used = new Set(combos.map((a) => copyKey(a.hookId, a.ctaId)));
+      setPastedCopies((prev) => Object.fromEntries(Object.entries(prev).filter(([key]) => !used.has(key))));
       const batch = created.batch;
       let current = created.state;
       const pieceIds = [...new Set(combos.flatMap((a) => [a.hookId, a.meatId, a.ctaId]))];
@@ -810,6 +814,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           extra={<SpeakerBatch pieces={state.hooks} series={series} format={settings.format} label="hooks" />}
           handoff={handoffs?.hooks ?? null}
           presetCount={preset.hooks}
+          walkKey={series.id}
         />
       )}
       {tab === "meats" && (
@@ -830,6 +835,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           extra={<SpeakerBatch pieces={state.meats} series={series} format={settings.format} label="meats" />}
           handoff={handoffs?.meats ?? null}
           presetCount={preset.meats}
+          walkKey={series.id}
         />
       )}
       {tab === "ctas" && (
@@ -850,6 +856,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           extra={<SpeakerBatch pieces={state.ctas} series={series} format={settings.format} label="ctas" />}
           handoff={handoffs?.ctas ?? null}
           presetCount={preset.ctas}
+          walkKey={series.id}
         />
       )}
       {tab === "combine" && (
@@ -881,6 +888,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           onBatchCsv={async (id) => (await adsApi.batchCsv(series.id, id)).csv}
           reviewHandoff={handoffs?.review ?? null}
           copiesVia={handoffs?.copies ?? null}
+          walkKey={series.id}
           pastedCopies={pastedCopies}
         />
       )}

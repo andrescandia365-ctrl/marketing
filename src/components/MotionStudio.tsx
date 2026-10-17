@@ -69,7 +69,7 @@ import {
   metaphorOpusPrompt,
   metaphorSlot,
   metaphorVideoPrompt,
-  nextMetaphorSlot,
+  metaphorUploadSlot,
   parseMetaphorReply,
 } from "../../shared/metaphor.ts";
 import { loadMetaphorParts, metaphorAssets, type MetaphorParts } from "../lib/metaphorMedia.ts";
@@ -360,7 +360,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const deck = useMemo(() => new VideoDeck(videoSources({ ...castImages, ...metaphors })), [castImages, metaphors]);
   useEffect(() => () => deck.dispose(), [deck]);
   // "Escena de código": the preview's sandboxes (every render forks its own, strict).
-  const codeDeck = useMemo(() => new CodeDeck({ fonts: fontBytes, format: piece.format }), [piece.format]);
+  const codeDeck = useMemo(() => new CodeDeck({ fonts: (families) => fontBytes(families, series.id), format: piece.format }), [piece.format, series.id]);
   useEffect(() => () => codeDeck.dispose(), [codeDeck]);
   useEffect(() => codeDeck.setMascot(mascotCode), [codeDeck, mascotCode]);
   const usesAi = usesAiImages(scenes, series);
@@ -1027,7 +1027,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     const trial = { ...s, code: { source, assets: picked } };
     const sig = samplesSig(trial, codeFormat, script?.tone, mascotTag);
     await ensureBrandFonts(series.id, brand);
-    const result = await testCode(source, trial, codeFormat, world, script?.tone, fontBytes, sig, undefined, mascotCode);
+    const result = await testCode(source, trial, codeFormat, world, script?.tone, (families: string[]) => fontBytes(families, series.id), sig, undefined, mascotCode);
     const fatal = result.problems.find((p) => p.fatal);
     const saved = !fatal && Boolean(result.samples);
     if (saved) {
@@ -1053,7 +1053,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         const isVideo = file.type.startsWith("video/");
         if (!isVideo && !file.type.startsWith("image/")) throw new Error("Eso no es una imagen ni un video. Subí lo que bajaste de Grok (PNG, JPG, WebP, MP4 o WebM).");
         const held = Object.keys(metaphorParts).map((id) => ({ asset: id }));
-        const n = metaphorSlot(scene.asset) ?? nextMetaphorSlot([...(scriptRef.current?.scenes ?? []), ...held]);
+        const { n, clear } = metaphorUploadSlot(scene.asset, [...(scriptRef.current?.scenes ?? []), ...held], isVideo ? "clip" : "image");
         const id = metaphorAsset(n);
         let part: Partial<MetaphorParts>;
         let meta: { name: string; duration: number } | undefined;
@@ -1067,7 +1067,10 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           if (!still) throw new Error("No pude abrir esa imagen. Probá bajarla de nuevo de Grok como PNG o JPG.");
           part = { still };
         }
-        if (projectId) await api.uploadMedia(projectId, METAPHOR_BASE + n, isVideo ? "clip" : "image", file, meta);
+        if (projectId) {
+          await Promise.all(clear.map((k) => api.removeMedia(projectId, METAPHOR_BASE + n, k).catch(() => undefined)));
+          await api.uploadMedia(projectId, METAPHOR_BASE + n, isVideo ? "clip" : "image", file, meta);
+        }
         setMetaphorParts((had) => ({ ...had, [id]: { still: had[id]?.still ?? null, clip: had[id]?.clip ?? null, ...part } }));
         if (scene.asset !== id) {
           remember(`metafora-${sceneId}-${Date.now()}`);

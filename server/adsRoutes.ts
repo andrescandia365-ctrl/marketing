@@ -5,7 +5,6 @@ import { z } from "zod";
 import {
   AD_SECONDS,
   AdComboSchema,
-  AdCopySchema,
   CombineRulesSchema,
   LEVEL_INFO,
   MEAT_FORMATS,
@@ -35,7 +34,7 @@ import {
 import { campaignCsv, defaultStatic, staticBelongs, staticsCsv } from "../shared/adsStatic.ts";
 import { currentWriter, taskFromPaste, taskPrompt } from "./claude.ts";
 import { HandoffSchema } from "../shared/handoff.ts";
-import { copiesFromWire, copyChunks, copyPairs, countParts, hookParts, partOf, type PromptPart } from "../shared/adsHandoff.ts";
+import { PastedCopySchema, copiesFromWire, copyChunks, copyPairs, countParts, freshCopies, withSigs, hookParts, partOf, type PromptPart } from "../shared/adsHandoff.ts";
 import {
   ADS_DIR,
   AdsError,
@@ -581,7 +580,8 @@ export function adsRoutes(app: Hono) {
         rules: CombineRulesSchema,
         ads: z.array(AdComboSchema).min(1).max(1000),
         // The platform texts already pasted from claude.ai ("Sin clave"), by pair key; the rest are written here.
-        copies: z.record(z.string(), AdCopySchema).optional(),
+        // Each carries the sig of the hook + CTA text it was written for; a stale one is written again.
+        copies: z.record(z.string(), PastedCopySchema).optional(),
       })
       .parse(await c.req.json());
     const state0 = await loadAds(id);
@@ -591,8 +591,7 @@ export function adsRoutes(app: Hono) {
       throw new AdsError(`Esta tanda (${ads.length}) pasa el límite semanal: ya van ${week} de ${state0.weeklyLimit}. Subí el límite o achicá la tanda.`);
     }
     const pairs = copyPairs(ads, state0.hooks, state0.ctas);
-    const copies: Batch["copies"] = {};
-    for (const p of pairs) if (pasted?.[p.key]) copies[p.key] = pasted[p.key];
+    const copies: Batch["copies"] = freshCopies(pairs, pasted);
     for (const chunk of copyChunks(
       pairs.filter((p) => !copies[p.key]),
       COPIES_PER_CALL,
@@ -633,7 +632,7 @@ export function adsRoutes(app: Hono) {
     const info = { part: at + 1, parts: chunks.length, keys: chunk.map((p) => p.key) };
     const make = () => copiesTask(id, state0.offer, chunk);
     if (handoff.mode === "prompt") return c.json({ ...taskPrompt(make()), ...info });
-    const copies = copiesFromWire(taskFromPaste(make(), handoff.reply), info.keys);
+    const copies = withSigs(copiesFromWire(taskFromPaste(make(), handoff.reply), info.keys), chunk);
     if (!Object.keys(copies).length) throw new AdsError("La respuesta no trae textos para estos pares: fijate que cada uno tenga su «key» (por ejemplo H1-C1) tal como venía en el prompt.");
     return c.json({ copies, ...info, pasted: true });
   });

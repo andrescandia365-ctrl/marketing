@@ -111,3 +111,15 @@ test("the prompt's size is said plainly, and a very long one says so", () => {
   assert.match(promptSizeText(52_000), /^Es largo \(52 mil caracteres\)/);
   assert.match(promptSizeText(200_000), /^Es muy largo/);
 });
+
+test("a one-key reply with a bad field names the field, not the unwrapped array's root", () => {
+  const schema = z.object({ variants: z.array(z.object({ title: z.string(), move: z.string(), level: z.number() })) });
+  const text = replyErrorText(readReply('{"variants":[{"title":"x"}]}', schema)) ?? "";
+  assert.match(text, /variants/);
+  assert.doesNotMatch(text, /el pedido tendría que ser un grupo de datos/);
+});
+
+test("an unclosed '{' in the prose before the object does not hide it", async () => {
+  const { jsonObjects } = await import("../shared/handoff.ts");
+  assert.deepEqual(jsonObjects('Aquí está el objeto (empieza con {):\n```json\n{"a":1}\n```'), [{ a: 1 }]);
+});

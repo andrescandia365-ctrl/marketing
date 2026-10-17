@@ -13,7 +13,6 @@ import {
   renderedPieces,
   varyHook,
   type AdCombo,
-  type AdCopy,
   type AdSeconds,
   type AdsState,
   type CombineRules,
@@ -21,7 +20,7 @@ import {
 } from "../../../shared/ads.ts";
 import { adsFileUrl } from "../../lib/api.ts";
 import { download } from "../../lib/markdown.ts";
-import { copyChunks, copyPairs } from "../../../shared/adsHandoff.ts";
+import { copyChunks, copyPairs, freshCopies, type PastedCopy } from "../../../shared/adsHandoff.ts";
 import { ClaudeHandoff, type Handoff } from "../ClaudeHandoff.tsx";
 import { Button, Notice, Spinner } from "../ui.tsx";
 import { PartsHandoff } from "./PartsHandoff.tsx";
@@ -52,7 +51,9 @@ type Props = {
   // studio until the run takes them; the pairs without one get sample texts.
   reviewHandoff?: Handoff | null;
   copiesVia?: ((ads: AdCombo[], part: number) => Handoff) | null;
-  pastedCopies?: Record<string, AdCopy>;
+  // Keeps the platform texts' walk while another tab is open (series id).
+  walkKey: string;
+  pastedCopies?: Record<string, PastedCopy>;
 };
 
 const mins = (s: number) => (s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`);
@@ -76,6 +77,7 @@ export function CombinePanel({
   onDropWebm,
   reviewHandoff = null,
   copiesVia = null,
+  walkKey,
   pastedCopies = {},
 }: Props) {
   const [mode, setMode] = useState<"full" | "stage">("full");
@@ -97,7 +99,7 @@ export function CombinePanel({
   const policy = (flags ?? []).filter((f) => f.kind === "policy");
   const pairs = useMemo(() => copyPairs(ads, state.hooks, state.ctas), [ads, state.hooks, state.ctas]);
   const copyPrompts = copyChunks(pairs).length;
-  const copiesReady = pairs.filter((p) => pastedCopies[p.key]).length;
+  const copiesReady = Object.keys(freshCopies(pairs, pastedCopies)).length;
   const byLevel = ads.reduce<Record<number, number>>((acc, a) => ((acc[a.level] = (acc[a.level] ?? 0) + 1), acc), {});
 
   return (
@@ -269,6 +271,7 @@ export function CombinePanel({
             title="Textos de la plataforma"
             via={(part) => copiesVia(ads, part)}
             resetKey={pairs.map((p) => p.key).join(",")}
+            walkKey={`${walkKey}:copies`}
             disabled={busy !== null}
           />
         </div>

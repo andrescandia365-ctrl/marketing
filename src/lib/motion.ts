@@ -1123,7 +1123,15 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
     case "metaphor": {
       // "Escenas metáfora": the picture Grok made, whole in its square (its watermark never cut), settling in; its line
       // under it on 9:16, beside it on 16:9, in the brand's type. No picture yet: the placeholder with the prompt.
-      const L = metaphorLayout(w, h, { top: topSafe(0, 0) + unit * 0.02, floor, hasText: Boolean(s.text.trim()) });
+      // The words as they really wrap at a size, so the picture leaves them room above the subtitle floor.
+      const lines = (kind: "title" | "text", size: number, max: number) => {
+        ctx.save();
+        ctx.font = kind === "title" ? display(f, size) : ui(f, size);
+        const n = wrap(ctx, kind === "title" ? s.title : s.text, max).length;
+        ctx.restore();
+        return n;
+      };
+      const L = metaphorLayout(w, h, { top: topSafe(0, 0) + unit * 0.02, floor, hasText: Boolean(s.text.trim()), lines });
       const { pic } = L;
       const pcx = pic.x + pic.w / 2;
       const pcy = pic.y + pic.h / 2;

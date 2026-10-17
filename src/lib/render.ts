@@ -32,7 +32,8 @@ const FADE = 0.35;
 const SAMPLE_RATE = 48000;
 const FONT = `"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif`;
 // The story's text style with the brand's two families when it uses them (storyFonts in shared/brandFonts.ts).
-export type DrawStyle = TextStyle & { fonts?: { display: string; ui: string } };
+// `series`: whose uploaded families the names resolve to (src/lib/fonts.ts); without it they come from Google Fonts.
+export type DrawStyle = TextStyle & { fonts?: { display: string; ui: string }; series?: string };
 // The family the story's text uses for a face: the brand's display/UI font, one picked by name, or the app's.
 export const storyFamily = (style: DrawStyle, face: "display" | "ui"): string | undefined =>
   style.font === "brand" ? style.fonts?.[face] : style.font === "other" && style.fontFamily ? style.fontFamily : undefined;
@@ -44,11 +45,11 @@ const stack = (style: DrawStyle, face: "display" | "ui") => {
 export async function loadStoryFonts(style: DrawStyle, weights: string[]) {
   const families = ["IBM Plex Sans"];
   if (style.font === "brand" && style.fonts) {
-    await Promise.all([ensureFont(style.fonts.display), ensureFont(style.fonts.ui)]);
+    await Promise.all([ensureFont(style.fonts.display, style.series), ensureFont(style.fonts.ui, style.series)]);
     families.push(style.fonts.display, style.fonts.ui);
   }
   if (style.font === "other" && style.fontFamily) {
-    await ensureFont(style.fontFamily);
+    await ensureFont(style.fontFamily, style.series);
     families.push(style.fontFamily);
   }
   await Promise.all([...new Set(families)].flatMap((f) => weights.map((weight) => document.fonts?.load(`${weight} 48px "${f}"`).catch(() => []))));

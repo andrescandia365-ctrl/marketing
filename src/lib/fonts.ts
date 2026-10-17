@@ -10,28 +10,36 @@ const loading = new Map<string, Promise<void>>();
 const WAIT = 8000;
 
 type OwnFace = { url: string; weight: number; style: "normal" | "italic" };
-// Uploaded families by lower-case name: the faces to load and where they are served.
-const own = new Map<string, { family: string; faces: OwnFace[] }>();
+type OwnEntry = { family: string; faces: OwnFace[] };
+// Uploaded families by series, then by lower-case name: the faces to load and where they are served. A family name
+// resolves to uploaded files only inside the series that uploaded it; any other series gets Google Fonts.
+const own = new Map<string, Map<string, OwnEntry>>();
 const key = (family: string) => family.replace(/["']/g, "").trim().toLowerCase();
 
-// The series' uploaded faces, so ensureFont and fontBytes find them by family name. A family registered again (the
-// series changed its files) replaces what it had.
+// The series' uploaded faces, so ensureFont and fontBytes find them by series and family name. Registering a series
+// again replaces its whole set (a family it removed drops out).
 export function registerBrandFonts(seriesId: string, brand: { fonts?: BrandFont[] }) {
-  const families = new Map<string, { family: string; faces: OwnFace[] }>();
+  const families = new Map<string, OwnEntry>();
   for (const f of brand.fonts ?? []) {
     const k = key(f.family);
     const entry = families.get(k) ?? { family: f.family, faces: [] };
     entry.faces.push({ url: brandFontUrl(seriesId, f.file), weight: f.weight, style: f.style });
     families.set(k, entry);
   }
-  for (const [k, entry] of families) own.set(k, entry);
+  own.set(seriesId, families);
+}
+
+// The uploaded family of this series by that name, or null (a Google Fonts family, or no series given).
+export function ownFamily(seriesId: string | undefined, family: string): OwnEntry | null {
+  if (!seriesId) return null;
+  return own.get(seriesId)?.get(key(family)) ?? null;
 }
 
 // The brand's two families, its uploaded files registered first; resolves with the families that did not load.
 export async function ensureBrandFonts(seriesId: string, brand: { displayFont: string; uiFont: string; fonts?: BrandFont[] }): Promise<string[]> {
   registerBrandFonts(seriesId, brand);
   const sources = brandFontSources(brand);
-  await Promise.all(sources.map((s) => ensureFont(s.family)));
+  await Promise.all(sources.map((s) => ensureFont(s.family, seriesId)));
   return sources.map((s) => s.family).filter((f) => !fontLoaded(f));
 }
 
@@ -56,8 +64,22 @@ function faceBytes(url: string): Promise<ArrayBuffer | null> {
   return got;
 }
 
-function ensureOwnFont(entry: { family: string; faces: OwnFace[] }): Promise<void> {
+// The uploaded faces in the page, by family key: document.fonts matches by name, so only one series' files for a name
+// may be there at a time, and none while a series draws that name from Google Fonts.
+const added = new Map<string, { id: string; faces: FontFace[] }>();
+function evictOwn(familyKey: string, keep?: string) {
+  const had = added.get(familyKey);
+  if (!had || had.id === keep) return;
+  for (const face of had.faces) document.fonts.delete(face);
+  loading.delete(had.id);
+  added.delete(familyKey);
+}
+
+function ensureOwnFont(entry: OwnEntry): Promise<void> {
   const id = `file:${entry.family}:${entry.faces.map((f) => `${f.url}@${f.weight}${f.style}`).join(",")}`;
+  const k = key(entry.family);
+  evictOwn(k, id);
+  if (!added.has(k)) added.set(k, { id, faces: [] });
   let done = loading.get(id);
   if (!done) {
     done = Promise.race([
@@ -67,6 +89,10 @@ function ensureOwnFont(entry: { family: string; faces: OwnFace[] }): Promise<voi
           if (!data) return;
           const face = new FontFace(entry.family, data.slice(0), { weight: String(f.weight), style: f.style });
           await face.load();
+          const mine = added.get(k);
+          // Another series took this name while the file loaded: this face stays out.
+          if (mine?.id !== id) return;
+          mine.faces.push(face);
           document.fonts.add(face);
         }),
       ).then(
@@ -83,10 +109,13 @@ function ensureOwnFont(entry: { family: string; faces: OwnFace[] }): Promise<voi
   return done;
 }
 
-export function ensureFont(family: string): Promise<void> {
+// `seriesId`: the series whose uploaded families count; without it (or for a family it did not upload) the family
+// comes from Google Fonts, and another series' uploaded faces of that name leave the page.
+export function ensureFont(family: string, seriesId?: string): Promise<void> {
   if (!family || typeof document === "undefined") return Promise.resolve();
-  const mine = own.get(key(family));
+  const mine = ownFamily(seriesId, family);
   if (mine) return ensureOwnFont(mine);
+  evictOwn(key(family));
   let done = loading.get(family);
   if (!done) {
     const link = document.createElement("link");
@@ -125,10 +154,10 @@ export function fontLoaded(family: string): boolean {
 // the latin faces of weights 400 to 700 of each family, read from the same stylesheet. A family that cannot be fetched
 // is left out (the sandbox then draws in a fallback face and the test says so). Fetched once per family.
 const bytes = new Map<string, Promise<{ family: string; weight: string; data: ArrayBuffer }[]>>();
-export function fontBytes(families: string[]): Promise<{ family: string; weight: string; data: ArrayBuffer }[]> {
+export function fontBytes(families: string[], seriesId?: string): Promise<{ family: string; weight: string; data: ArrayBuffer }[]> {
   const one = (family: string): Promise<{ family: string; weight: string; data: ArrayBuffer }[]> => {
     // An uploaded family: its own files (the upright faces; the sandbox takes one face per weight).
-    const mine = own.get(key(family));
+    const mine = ownFamily(seriesId, family);
     if (mine)
       return Promise.all(
         mine.faces

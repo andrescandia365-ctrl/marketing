@@ -157,3 +157,42 @@ test("on for new pieces, off for pieces saved before it existed", () => {
   assert.equal(pieceWords({ ...piece, enterOnWord: false }, {}), null);
   assert.equal(pieceWords({ ...piece, voice: "none" }, {}), null);
 });
+
+test("a word entrance that shortens a still stretch already there is kept", () => {
+  const steps: MotionScene = {
+    ...blankScene("steps"),
+    id: "s",
+    seconds: 12,
+    asset: "",
+    title: "Tres pasos",
+    items: ["Abrir", "Elegir", "Confirmar"],
+    voice: "Abrís, elegís y después tocás confirmar.",
+  };
+  const words = { voiceSeconds: { s: 4 } };
+  const moved = enterOnWords([steps], words);
+  const at = moved[0].onWord?.item2;
+  assert.ok(at !== undefined, "the word was found");
+  const plainGap = Math.max(...quietGaps([steps], 0).map((g) => g.to - g.from));
+  const wordGap = Math.max(...quietGaps(moved, 0).map((g) => g.to - g.from));
+  assert.ok(wordGap < plainGap, "the stretch gets shorter");
+  assert.equal(readableOnWords(moved, 0)[0].onWord?.item2, at);
+});
+
+test("a word entrance that makes a line already short on screen shorter is given up", () => {
+  const hook: MotionScene = {
+    ...blankScene("hook"),
+    id: "h",
+    seconds: 2.4,
+    asset: "x",
+    title: "Se vencieron otra vez todos los yogures de la heladera",
+    voice: "Mirá la heladera: se vencieron otra vez",
+  };
+  const next: MotionScene = { ...blankScene("hook"), id: "n", seconds: 3, asset: "x", title: "Pedí a tiempo", voice: "" };
+  const words = { voiceSeconds: { h: 2.2 } };
+  const moved = enterOnWords([hook, next], words);
+  assert.ok(moved[0].onWord?.title !== undefined, "the word was found");
+  const has = (scenes: MotionScene[]) => readingIssues(scenes, 0.38).find((r) => r.index === 0 && r.key === "title")?.has ?? Infinity;
+  const plain = has([hook, next]);
+  const kept = readableOnWords(moved, 0.38);
+  assert.ok(has(kept) >= plain - 1e-3, `the title had ${plain} s and now has ${has(kept)} s`);
+});

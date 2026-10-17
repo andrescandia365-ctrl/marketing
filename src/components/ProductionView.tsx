@@ -481,7 +481,7 @@ export function ProductionView({
           watermarked={pieceBrief.tool === "grok-imagine"}
           seriesName={pieceSeries?.name ?? ""}
           seriesStyle={pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE}
-          brandFonts={pieceSeries ? storyFonts(pieceSeries.brand) : undefined}
+          brandFonts={pieceSeries ? { ...storyFonts(pieceSeries.brand), series: pieceSeries.id } : undefined}
           ownFonts={[...new Set((pieceSeries?.brand.fonts ?? []).map((f) => f.family))]}
           onSaveStyle={saveStyle}
           onRendered={keepVideo}

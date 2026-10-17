@@ -2,7 +2,8 @@
 // request whose reply would be too long for one answer is split into several prompts. The person copies prompt 1,
 // pastes its reply, then prompt 2 (built after the first reply was saved, so it never repeats it), and so on.
 // Pure helpers shared by the server routes and the studio, so both count the same prompts.
-import { copyKey, type AdCombo, type AdCopy, type CopiesWire, type Cta, type Hook, type Level } from "./ads.ts";
+import { z } from "zod";
+import { AdCopySchema, copyKey, type AdCombo, type AdCopy, type CopiesWire, type Cta, type Hook, type Level } from "./ads.ts";
 
 // How many items one pasted reply carries. Each hook, meat or CTA brings its words plus an image and a video prompt
 // (about 700-1100 characters of JSON), each platform text about 400: these keep a reply around 15 thousand
@@ -90,6 +91,29 @@ export function copyChunks(pairs: CopyPair[], per: number = PASTE_PER_PROMPT.cop
   for (const size of sizes) {
     out.push(pairs.slice(at, at + size));
     at += size;
+  }
+  return out;
+}
+
+// What a pair's texts were written for: its hook and CTA text. A pasted text whose pair changed since is stale.
+export const pairSig = (p: Pick<CopyPair, "hook" | "cta">): string => JSON.stringify([p.hook, p.cta]);
+
+// A pasted text carries the sig of the pair it was written for.
+export const PastedCopySchema = AdCopySchema.extend({ sig: z.string().max(20000) });
+export type PastedCopy = z.infer<typeof PastedCopySchema>;
+
+export function withSigs(copies: Record<string, AdCopy>, pairs: CopyPair[]): Record<string, PastedCopy> {
+  const out: Record<string, PastedCopy> = {};
+  for (const p of pairs) if (copies[p.key]) out[p.key] = { ...copies[p.key], sig: pairSig(p) };
+  return out;
+}
+
+// The pasted texts a run can use: only those whose pair still has the hook and CTA text they were written for.
+export function freshCopies(pairs: CopyPair[], pasted: Record<string, PastedCopy> | undefined): Record<string, AdCopy> {
+  const out: Record<string, AdCopy> = {};
+  for (const p of pairs) {
+    const copy = pasted?.[p.key];
+    if (copy && copy.sig === pairSig(p)) out[p.key] = { primary: copy.primary, headline: copy.headline, button: copy.button };
   }
   return out;
 }

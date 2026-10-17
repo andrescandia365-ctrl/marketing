@@ -99,7 +99,7 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
         videos: deck,
         // "Escena de código": each code scene in its own sandbox; one that fails stops the render.
         // "Mascota en código": the series' mascot goes into every code scene's sandbox and draws the character scenes it hosts.
-        code: new CodeDeck({ fonts: fontBytes, format, strict: true, mascot }),
+        code: new CodeDeck({ fonts: (families) => fontBytes(families, series.id), format, strict: true, mascot }),
       });
       const failing = await (world.code as CodeDeck).check(snapped, world, { w, h });
       if (failing.length) throw new Error(failing.map((f) => `Escena ${f.index + 1} (código): ${f.problem}`).join(" "));

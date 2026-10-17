@@ -183,3 +183,16 @@ test("review and transcript split by paste use the writer's schema", () => {
   assert.equal(clip.hookEndsAt, 4);
   assert.equal(clip.cta, "Probalo hoy.");
 });
+
+test("pasted platform texts count only while their hook and CTA text are the ones they were written for", async () => {
+  const { freshCopies, withSigs } = await import("../shared/adsHandoff.ts");
+  const ctas = [cta("C1", "Probalo hoy")];
+  const before = copyPairs([{ hookId: "H1", ctaId: "C1" }], [hook("H1", "Se venció la leche")], ctas);
+  const pasted = withSigs({ "H1-C1": { primary: "Leche", headline: "Pedí a tiempo", button: "Más información" } }, before);
+  assert.deepEqual(Object.keys(freshCopies(before, pasted)), ["H1-C1"]);
+  assert.equal("sig" in freshCopies(before, pasted)["H1-C1"], false);
+  // The hook was edited after the paste: its texts describe the old hook and are not used.
+  const after = copyPairs([{ hookId: "H1", ctaId: "C1" }], [hook("H1", "Faltó pan a las 6")], ctas);
+  assert.deepEqual(freshCopies(after, pasted), {});
+  assert.deepEqual(freshCopies(after, undefined), {});
+});

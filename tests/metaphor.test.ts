@@ -362,3 +362,54 @@ test("pieza.md and the storyboard line say what Grok draws and whether the pictu
   assert.ok(md.includes("- **Cómo se mueve (clip):** The top box slowly tips over"));
   assert.deepEqual(pickMetaphor(undefined, undefined, undefined), { image: "", video: "", cast: [] });
 });
+
+test("a saved metaphor clip is fetched whole and played from a blob URL (the project-files route has no byte ranges)", async () => {
+  const { loadMetaphorParts } = await import("../src/lib/metaphorMedia.ts");
+  const { METAPHOR_BASE } = await import("../shared/metaphor.ts");
+  const fetched: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    fetched.push(String(input));
+    return new Response(new Blob([new Uint8Array([0, 0, 0, 24])], { type: "video/mp4" }));
+  }) as typeof fetch;
+  try {
+    const media = { [METAPHOR_BASE]: { clip: { file: "metafora-00-clip.mp4" } } } as unknown as Parameters<typeof loadMetaphorParts>[2];
+    await loadMetaphorParts("p1", [{ asset: "metafora:0" }], media);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.ok(fetched.some((u) => u.includes("metafora-00-clip.mp4")), `fetched: ${fetched.join(", ")}`);
+});
+
+test("an upload into a fresh metaphor slot clears what a deleted scene left there; the scene's own slot keeps its other part", async () => {
+  const { metaphorUploadSlot } = await import("../shared/metaphor.ts");
+  // The scene that had slot 0 was deleted: its picture and clip are still saved there, and a new scene gets slot 0.
+  assert.deepEqual(metaphorUploadSlot("inicio", [{ asset: "inicio" }], "image"), { n: 0, clear: ["clip"] });
+  assert.deepEqual(metaphorUploadSlot("inicio", [{ asset: "metafora:0" }], "clip"), { n: 1, clear: ["image"] });
+  // The scene's own slot: a new still keeps the clip it already has.
+  assert.deepEqual(metaphorUploadSlot("metafora:2", [{ asset: "metafora:2" }], "image"), { n: 2, clear: [] });
+});
+
+test("on 9:16 the picture leaves room for the title and text as they really wrap, so the words end above the subtitle floor", () => {
+  const [w, h] = [1080, 1920];
+  const floor = floorOf({ voice: "una línea" }, w, h, true);
+  const top = h * 0.12;
+  const unit = Math.min(w, h);
+  // The last baseline of the text plus its descent, as drawScene places them (title at titleY, text under it).
+  const bottom = (L: ReturnType<typeof metaphorLayout>, titleLines: number, textLines: number) =>
+    textLines
+      ? L.titleY + titleLines * 1.02 * L.titleSize + unit * 0.01 + (textLines - 1) * 1.3 * L.textSize + 0.3 * L.textSize
+      : L.titleY + (titleLines - 1) * 1.02 * L.titleSize + 0.3 * L.titleSize;
+  const plain = metaphorLayout(w, h, { top, floor, hasText: true });
+  assert.ok(bottom(plain, 2, 2) <= floor + 0.5, `two and two lines end at ${bottom(plain, 2, 2)}, floor ${floor}`);
+  for (const [titleLines, textLines] of [
+    [3, 2],
+    [4, 3],
+    [6, 4],
+    [3, 0],
+  ]) {
+    const L = metaphorLayout(w, h, { top, floor, hasText: textLines > 0, lines: (kind) => (kind === "title" ? titleLines : textLines) });
+    assert.ok(bottom(L, titleLines, textLines) <= floor + 0.5, `${titleLines}+${textLines} lines end at ${bottom(L, titleLines, textLines)}, floor ${floor}`);
+    assert.ok(L.pic.w >= unit * 0.2 - 0.5);
+  }
+});

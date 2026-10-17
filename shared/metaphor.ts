@@ -34,6 +34,15 @@ export function nextMetaphorSlot(scenes: { asset: string }[]): number {
   return Math.min(METAPHOR_MAX, used.length ? Math.max(...used) + 1 : 0);
 }
 
+// Where an upload for a scene goes: its own slot, or the next free one. A fresh slot may still hold the picture and
+// clip of a scene that was deleted (deleting a scene keeps its media, so undo can bring it back): the part not being
+// uploaded is cleared too, or the render would play the old scene's clip under the new still.
+export function metaphorUploadSlot(sceneAsset: string, scenes: { asset: string }[], kind: "image" | "clip"): { n: number; clear: ("image" | "clip")[] } {
+  const own = metaphorSlot(sceneAsset);
+  if (own !== null) return { n: own, clear: [] };
+  return { n: nextMetaphorSlot(scenes), clear: [kind === "image" ? "clip" : "image"] };
+}
+
 // The project file of an uploaded picture or clip: metafora-01-imagen.png, metafora-01-clip.mp4 (slot 600 → 01).
 export const isMetaphorSlot = (index: number) => Number.isInteger(index) && index >= METAPHOR_BASE && index <= METAPHOR_BASE + METAPHOR_MAX;
 export const metaphorFileBase = (index: number, kind: "image" | "clip") => `metafora-${String(index - METAPHOR_BASE + 1).padStart(2, "0")}-${kind === "image" ? "imagen" : "clip"}`;
@@ -179,20 +188,37 @@ export type MetaphorLayout = { pic: MetaphorBox; titleX: number; titleY: number;
 // Where the picture and the line go in a w×h frame: `top` is the highest the picture may start (below the platforms'
 // top bar or the CONCEPTO label), `floor` the lowest the words may end (above the subtitle). 9:16 (and any frame taller
 // than wide): the square picture on top, as wide as fits, the line under it. 16:9: the picture on the left, the line
-// beside it. The picture never runs above `top`, and on a tall frame the line (two title lines and two of text) ends
-// above `floor`. The picture box is square; the uploaded picture fits inside it whole.
-export function metaphorLayout(w: number, h: number, opts: { top: number; floor: number; hasText: boolean }): MetaphorLayout {
+// beside it. The picture never runs above `top`, and on a tall frame the words end above `floor` as they really wrap:
+// `lines` says how many lines the title and the text take at a size and width (the engine measures them; without it,
+// two of each). The block under the picture is what drawScene draws: the gap, the title's first baseline, its lines,
+// the text's first baseline under them, its lines and their descent. When even the smallest picture leaves too little
+// room, the type shrinks (to 60 % at most). The picture box is square; the uploaded picture fits inside it whole.
+export function metaphorLayout(
+  w: number,
+  h: number,
+  opts: { top: number; floor: number; hasText: boolean; lines?: (kind: "title" | "text", size: number, max: number) => number },
+): MetaphorLayout {
   const unit = Math.min(w, h);
   const m = unit * 0.08;
   const vertical = h > w;
   const titleSize = unit * (vertical ? 0.085 : 0.075);
   const textSize = unit * 0.042;
   if (vertical) {
-    const words = titleSize * 1.02 * 2 + (opts.hasText ? textSize * 1.3 * 2 + unit * 0.03 : 0) + unit * 0.05;
     const top = Math.max(opts.top, m * 0.5);
-    const side = Math.max(unit * 0.2, Math.min(w - m * 2, opts.floor - top - words));
+    const titleMax = w - m * 2;
+    const words = (ts: number, xs: number) => {
+      const tl = Math.max(1, opts.lines?.("title", ts, titleMax) ?? 2);
+      const xl = opts.hasText ? Math.max(1, opts.lines?.("text", xs, titleMax) ?? 2) : 0;
+      const block = unit * 0.05 + ts * 0.95;
+      return xl ? block + tl * 1.02 * ts + unit * 0.01 + (xl - 1) * 1.3 * xs + 0.3 * xs : block + (tl - 1) * 1.02 * ts + 0.3 * ts;
+    };
+    let scale = 1;
+    while (scale > 0.6 + 1e-9 && opts.floor - top - words(titleSize * scale, textSize * scale) < unit * 0.2) scale -= 0.05;
+    const ts = titleSize * scale;
+    const xs = textSize * scale;
+    const side = Math.max(unit * 0.2, Math.min(w - m * 2, opts.floor - top - words(ts, xs)));
     const pic = { x: (w - side) / 2, y: top, w: side, h: side };
-    return { pic, titleX: m, titleY: pic.y + side + unit * 0.05 + titleSize * 0.95, titleMax: w - m * 2, titleSize, textSize };
+    return { pic, titleX: m, titleY: pic.y + side + unit * 0.05 + ts * 0.95, titleMax, titleSize: ts, textSize: xs };
   }
   const top = Math.max(opts.top, m);
   const side = Math.max(unit * 0.2, Math.min(w * 0.45, Math.min(h, opts.floor) - top - m));

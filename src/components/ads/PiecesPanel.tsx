@@ -18,6 +18,7 @@ import { promptCount } from "../../../shared/adsHandoff.ts";
 import type { Handoff } from "../ClaudeHandoff.tsx";
 import { Button, Notice, Spinner } from "../ui.tsx";
 import { PartsHandoff } from "./PartsHandoff.tsx";
+import { rememberCount, rememberedCount, takePreset } from "../../lib/handoffWalk.ts";
 import { LevelPicker } from "./pieces.tsx";
 
 type Props<T extends Meat | Cta> = {
@@ -37,16 +38,24 @@ type Props<T extends Meat | Cta> = {
   // "Sin clave": the prompts for claude.ai for this count (and, for meats, these formats).
   handoff?: ((count: number, formats: MeatFormat[]) => (part: number) => Handoff) | null;
   presetCount?: number;
+  // Keeps the typed count and the prompts' walk while another tab is open (series id).
+  walkKey: string;
 };
 
-export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, renderCard, extra, handoff = null, presetCount }: Props<T>) {
+export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, renderCard, extra, handoff = null, presetCount, walkKey }: Props<T>) {
   const isMeat = kind === "meat";
   const chosen = levelsOf(levels);
   const recipe = [...new Set(chosen.flatMap((l) => LEVEL_INFO[l].meats))];
-  const [count, setCount] = useState(presetCount ?? (isMeat ? 4 : 2));
+  const countKey = `${walkKey}:${kind}-count`;
+  const [count, setCountState] = useState(() => rememberedCount(countKey, presetCount ?? (isMeat ? 4 : 2)));
+  const setCount = (n: number) => {
+    setCountState(n);
+    rememberCount(countKey, n);
+  };
   useEffect(() => {
-    if (presetCount) setCount(Math.min(isMeat ? 8 : 5, presetCount));
-  }, [presetCount, isMeat]);
+    if (takePreset(countKey, presetCount)) setCount(Math.min(isMeat ? 8 : 5, presetCount!));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetCount, isMeat, countKey]);
   const [formats, setFormats] = useState<MeatFormat[]>([]);
   const budget = BUDGETS[seconds];
   const pieceSeconds = isMeat ? budget.meat : budget.cta;
@@ -133,6 +142,7 @@ export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels,
             title={`${count} ${isMeat ? "meats" : "CTAs"}`}
             via={handoff(count, isMeat ? useFormats : [])}
             resetKey={`${count}-${levels.join(",")}-${seconds}-${isMeat ? useFormats.join(",") : ""}`}
+            walkKey={`${walkKey}:${kind}`}
             disabled={busy}
           />
         )}

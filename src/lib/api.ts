@@ -30,7 +30,8 @@ import type { RoomCard } from "../../shared/room.ts";
 import type { Reference } from "../../shared/reference.ts";
 import type { ScreenDevice } from "../../shared/screenBatch.ts";
 import type { ClipFit, ExplainerKind, ExplainerVideo } from "../../shared/adsFromExplainer.ts";
-import type { AdCombo, AdCopy, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceSpeaker, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
+import type { PastedCopy } from "../../shared/adsHandoff.ts";
+import type { AdCombo, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceSpeaker, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 import type { BrandFont } from "../../shared/brandFonts.ts";
 
 // Demucs on this computer (Modelos → Demucs).
@@ -145,7 +146,7 @@ export const adsAsks = {
   clipSplit: (series: string, clipId: string) => writerAsk<{ state: AdsState; clip: ClipRecord } & Demo>(`/api/ads/${enc(series)}/clips/${enc(clipId)}/split`, {}),
   review: (series: string) => writerAsk<{ flags: ReviewFlag[]; note: string } & Demo>(`/api/ads/${enc(series)}/review`, {}),
   copies: (series: string, ads: AdCombo[], part: number) =>
-    writerAsk<{ copies: Record<string, AdCopy>; keys: string[] } & Parted>(`/api/ads/${enc(series)}/copies`, { ads, part }),
+    writerAsk<{ copies: Record<string, PastedCopy>; keys: string[] } & Parted>(`/api/ads/${enc(series)}/copies`, { ads, part }),
 };
 
 export type AdsView = { state: AdsState; transcription: boolean; folder: string; ranking: RankedHook[] };
@@ -205,7 +206,7 @@ export const ads = {
   ) => call<{ state: AdsState; pieceId: string; fit: ClipFit }>(`/api/ads/${enc(series)}/pieces/from-explainer`, body),
   dropRender: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, undefined, "DELETE"),
   uploadRender: (series: string, id: string, video: Blob) => upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, video, video.type),
-  createBatch: (series: string, body: { seconds: number; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[]; copies?: Record<string, AdCopy> }) =>
+  createBatch: (series: string, body: { seconds: number; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[]; copies?: Record<string, PastedCopy> }) =>
     call<{ state: AdsState; batch: Batch } & Demo>(`/api/ads/${enc(series)}/batches`, body),
   uploadAd: (series: string, batch: string, adId: string, video: Blob) =>
     upload<{ file: string }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/ads/${enc(adId)}`, video, video.type),

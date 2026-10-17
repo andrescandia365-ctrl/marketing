@@ -142,23 +142,43 @@ export function enterOnWords(scenes: MotionScene[], input: WordEntryInput): Moti
   });
 }
 
-// Issues by scene index: the lines too briefly on screen to read (by element key) and the still stretches.
-function sceneTrouble(scenes: MotionScene[], push: number): Map<number, string[]> {
-  const out = new Map<number, string[]>();
-  const add = (i: number, what: string) => out.set(i, [...(out.get(i) ?? []), what]);
-  for (const r of readingIssues(scenes, push)) add(r.index, r.key);
+// Trouble by scene index: the lines too briefly on screen to read (element key → seconds it has) and the still
+// stretches.
+type Trouble = { reading: Map<string, number>; gaps: { from: number; to: number }[] };
+function sceneTrouble(scenes: MotionScene[], push: number): Map<number, Trouble> {
+  const out = new Map<number, Trouble>();
+  const at = (i: number) => out.get(i) ?? (out.set(i, { reading: new Map(), gaps: [] }), out.get(i)!);
+  for (const r of readingIssues(scenes, push)) {
+    const reading = at(r.index).reading;
+    reading.set(r.key, Math.min(reading.get(r.key) ?? Infinity, r.has));
+  }
   const timed = timeScenes(scenes);
   for (const g of quietGaps(scenes, push)) {
     const s = timed.find((x) => g.from >= x.start - 1e-6 && g.from < x.end) ?? timed.at(-1);
-    if (s) add(s.index, `gap:${Math.round(g.from * 1000)}`);
+    if (s) at(s.index).gaps.push(g);
+  }
+  return out;
+}
+
+// What is worse than without words: a line short on screen that was not, or is shorter now; a still stretch that no
+// stretch of the plain arrangement covered as long (a gap whose start only moved, getting shorter, is not new).
+function worse(now: Trouble, before: Trouble | undefined): string[] {
+  const out: string[] = [];
+  for (const [key, has] of now.reading) {
+    const had = before?.reading.get(key);
+    if (had === undefined || has < had - 1e-3) out.push(key);
+  }
+  for (const g of now.gaps) {
+    const covered = (before?.gaps ?? []).some((b) => b.from < g.to && g.from < b.to && b.to - b.from >= g.to - g.from - 1e-3);
+    if (!covered) out.push(`gap:${Math.round(g.from * 1000)}`);
   }
   return out;
 }
 
 // The word never costs reading time. `said`: the scenes with their words (enterOnWords); `arrange`: the rest of the
 // arrangement (the beat snap of the other elements). Where the arranged result has a reading or still-gap problem the
-// same scenes without words did not have, that scene's word entrances are given up, the one the problem names first,
-// else its latest, until nothing new is wrong. Returns the arranged scenes.
+// same scenes without words did not have, or had less of (`worse`), that scene's word entrances are given up, the
+// one the problem names first, else its latest, until nothing new is wrong. Returns the arranged scenes.
 export function readableOnWords(
   said: MotionScene[],
   push: number,
@@ -170,7 +190,7 @@ export function readableOnWords(
   for (let round = 0; round < 64; round++) {
     const arranged = arrange(current);
     const fresh = [...sceneTrouble(arranged, push)]
-      .map(([i, list]) => [i, list.filter((what) => !(before.get(i) ?? []).includes(what))] as const)
+      .map(([i, now]) => [i, worse(now, before.get(i))] as const)
       .filter(([i, list]) => list.length && current[i]?.onWord);
     if (!fresh.length) return arranged;
     current = current.map((s, i) => {

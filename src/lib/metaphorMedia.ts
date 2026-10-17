@@ -27,6 +27,14 @@ export async function loadMetaphorClip(url: string): Promise<MetaphorClip> {
   return { url, seconds: probed.seconds, width: probed.width, height: probed.height, poster };
 }
 
+// A saved clip as a blob URL. The project-files route answers whole files with no byte ranges, and a <video> played
+// from such a source can only seek to 0: every exact capture and the final render would show its first frame.
+async function savedClipUrl(projectId: string, file: string): Promise<string> {
+  const res = await fetch(projectFileUrl(projectId, file));
+  if (!res.ok) throw new Error(file);
+  return URL.createObjectURL(await res.blob());
+}
+
 // What one metaphor slot holds: the still and the clip Grok made (either may be missing).
 export type MetaphorParts = { still: HTMLImageElement | null; clip: MetaphorClip | null };
 
@@ -40,7 +48,9 @@ export async function loadMetaphorParts(projectId: string, scenes: readonly { as
       const rec = media[METAPHOR_BASE + n];
       if (!rec) return;
       const still = rec.image ? await loadImage(projectFileUrl(projectId, rec.image)) : null;
-      const clip = rec.clip ? await loadMetaphorClip(projectFileUrl(projectId, rec.clip.file)).catch(() => null) : null;
+      const clip = rec.clip ? await savedClipUrl(projectId, rec.clip.file)
+            .then(loadMetaphorClip)
+            .catch(() => null) : null;
       if (still || clip) out[metaphorAsset(n)] = { still, clip };
     }),
   );

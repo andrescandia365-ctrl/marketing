@@ -121,7 +121,11 @@ export function jsonObjects(text: string): unknown[] {
         break;
       }
     }
-    if (end < 0) break;
+    if (end < 0) {
+      // This brace never closes (it sits in prose): try the next one.
+      i = text.indexOf("{", i + 1);
+      continue;
+    }
     const parsed = parseLoose(text.slice(i, end + 1));
     if (parsed.ok) {
       found.push(parsed.value);
@@ -144,6 +148,14 @@ export function candidates(value: unknown): unknown[] {
   return out;
 }
 
+// An error that only says the root has the wrong type (an unwrapped value that is not even an object) is further from
+// passing than one that gets past the root, however few issues it has.
+const rootOnly = (error: z.ZodError) => error.issues.every((issue) => issue.path.length === 0);
+function closer(a: z.ZodError, b: z.ZodError): boolean {
+  if (rootOnly(a) !== rootOnly(b)) return !rootOnly(a);
+  return a.issues.length < b.issues.length;
+}
+
 export type ReadReply<T> = { ok: true; value: T } | { ok: false; error: z.ZodError | null };
 
 // The first object (or what it wraps) that passes the schema. When none does, the error of the candidate closest to
@@ -155,7 +167,7 @@ export function readReply<T>(text: string, schema: z.ZodType<T>): ReadReply<T> {
     for (const candidate of candidates(object)) {
       const result = schema.safeParse(candidate);
       if (result.success) return { ok: true, value: result.data };
-      if (!best || result.error.issues.length < best.issues.length) best = result.error;
+      if (!best || closer(result.error, best)) best = result.error;
     }
   }
   return { ok: false, error: best };

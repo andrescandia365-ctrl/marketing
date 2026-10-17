@@ -165,7 +165,7 @@ export function App() {
   useEffect(() => status?.series.forEach((s) => registerBrandFonts(s.id, s.brand)), [status?.series]);
   // The story's text style with the brand's families ("Letra de la marca"), kept stable for the storyboard's drawing.
   const boardStyle = useMemo(
-    () => ({ ...(pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE), fonts: pieceSeries ? storyFonts(pieceSeries.brand) : undefined }),
+    () => ({ ...(pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE), fonts: pieceSeries ? storyFonts(pieceSeries.brand) : undefined, series: pieceSeries?.id }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [pieceSeries?.textStyle, pieceSeries?.brand.displayFont, pieceSeries?.brand.uiFont],
   );
