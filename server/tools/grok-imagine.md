@@ -26,6 +26,8 @@ Tags: **[DOCS]** in xAI's docs · **[NOT SURE]** not confirmed, don't rely on it
 - [TESTED] A clip can take an initial, a middle and a final image (the middle icon in the clip bar is the middle frame), so one clip can move from one state to another. Own uploaded images work as frames; frames should share the shape (9:16) and similar light.
 - [TESTED] Editing tools on a generated image: Segmentos (every object separated and editable on its own, "Descargar todo"), Eliminar fondo (remove background), Relación de aspecto, Crear video. Never use them to cover or remove the watermark.
 - [TESTED] The video editor defaults to 720p and 10 s.
+- [TESTED] Audio panel: sample voices (Ara, Eve, Leo, Rex, Sal and more) and the person's own audio, uploaded or recorded, can be used in videos (for example, a character's voice).
+- [TESTED] The audio alone cannot be downloaded from Grok. A voice wanted as its own file (for the app's mix or subtitles) is made outside Grok or recorded by the person.
 
 ## How to write prompts
 

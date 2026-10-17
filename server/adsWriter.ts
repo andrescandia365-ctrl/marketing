@@ -44,7 +44,7 @@ import { getTool } from "./tools.ts";
 const METHOD = readFileSync(new URL("./ads.md", import.meta.url), "utf8");
 const PLAYBOOK = readFileSync(new URL("./playbook.md", import.meta.url), "utf8");
 
-const SYSTEM = `You write paid ads for brands in Argentina, by the 50-5-3 method below: pieces (hooks, meats, CTAs) that code combines into hundreds of ads. The playbook after it is the house's research: its writing rules and guardrails apply (the customer is the hero, concrete beats clever, punch at the problem, no invented claims, [VERIFY] on anything unconfirmed, no borrowed IP, no politics); its story template does not.
+const SYSTEM = `You write paid ads for brands in Argentina, by the 50-5-3 method below: pieces (hooks, meats, CTAs) that code combines into hundreds of ads. The playbook after it holds the house's rules: its writing rules and guardrails apply (the customer is the hero, concrete beats clever, punch at the problem, no invented claims, [VERIFY] on anything unconfirmed, no borrowed IP, no politics); its story shape (Negative, Turn, Good) guides each piece, the method sets the lengths.
 
 ${METHOD}
 
