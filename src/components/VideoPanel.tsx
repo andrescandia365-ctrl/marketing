@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CLIP_LEVEL_GAIN, type AudioSettings } from "../../shared/audio.ts";
 import type { Board, Brief, Story } from "../../shared/schema.ts";
 import type { TextStyle } from "../../shared/series.ts";
@@ -19,6 +19,8 @@ type Props = {
   watermarked: boolean;
   seriesName: string;
   seriesStyle: TextStyle;
+  // The series' two brand families, for "Letra de la marca" (TextStyle.font).
+  brandFonts?: { display: string; ui: string };
   onSaveStyle: (style: TextStyle) => Promise<void>;
   // Called with each finished video so it can be saved into the project folder.
   onRendered: (video: Blob) => Promise<string | null>;
@@ -67,6 +69,7 @@ export function VideoPanel({
   watermarked,
   seriesName,
   seriesStyle,
+  brandFonts,
   onSaveStyle,
   onRendered,
   audio,
@@ -104,6 +107,11 @@ export function VideoPanel({
   const speakers = Object.fromEntries(story.characters.map((c) => [c.id, { name: c.name, role: c.role }]));
   const disclosureText = showDisclosure ? disclosure : "";
   const styleChanged = JSON.stringify(style) !== JSON.stringify(seriesStyle);
+  const drawStyle = useMemo(
+    () => ({ ...style, fonts: brandFonts && { display: brandFonts.display, ui: brandFonts.ui } }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [style, brandFonts?.display, brandFonts?.ui],
+  );
 
   useEffect(() => {
     if (!preview.current) return;
@@ -111,11 +119,11 @@ export function VideoPanel({
       preview.current,
       board,
       media,
-      { format: brief.format, disclosure: disclosureText, fullFrame, headlines, style, speakers },
+      { format: brief.format, disclosure: disclosureText, fullFrame, headlines, style: drawStyle, speakers },
       Math.min(previewShot, board.shots.length - 1),
     ).catch(() => undefined);
     // speakers is rebuilt on every render from story, so story stands in for it.
-  }, [board, media, brief.format, disclosureText, fullFrame, headlines, style, story, previewShot]);
+  }, [board, media, brief.format, disclosureText, fullFrame, headlines, drawStyle, story, previewShot]);
 
   const setStyleKey = <K extends keyof TextStyle>(key: K, value: TextStyle[K]) => {
     setStyle((s) => ({ ...s, [key]: value }));
@@ -149,7 +157,7 @@ export function VideoPanel({
           clipGain: Object.fromEntries(Object.entries(audio.clipLevel ?? {}).map(([i, level]) => [i, CLIP_LEVEL_GAIN[level]])),
           speakers,
           headlines,
-          style,
+          style: drawStyle,
           spoken,
           music: music?.blob,
           musicVolume: audio.musicVolume,
@@ -215,6 +223,21 @@ export function VideoPanel({
             <Swatch label="Headline" value={style.headlineColor} onChange={(v) => setStyleKey("headlineColor", v)} />
             <Swatch label="Fondo / borde" value={style.backingColor} onChange={(v) => setStyleKey("backingColor", v)} />
           </div>
+          {brandFonts && (
+            <div className="space-y-1">
+              <span className="text-xs font-semibold">Letra</span>
+              <div>
+                <Segmented
+                  value={style.font ?? "app"}
+                  onChange={(v) => setStyleKey("font", v)}
+                  options={[
+                    { value: "app", label: "La de la app" },
+                    { value: "brand", label: `La de la marca (${brandFonts.display === brandFonts.ui ? brandFonts.display : `${brandFonts.display} y ${brandFonts.ui}`})` },
+                  ]}
+                />
+              </div>
+            </div>
+          )}
           <div className="space-y-1">
             <span className="text-xs font-semibold">Para que se lea</span>
             <div>

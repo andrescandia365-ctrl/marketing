@@ -2,9 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { actionWords, runnerLandings, type Problem } from "../../shared/checks.ts";
 import { sketchPrompt } from "../../shared/prompt.ts";
 import type { Board, Brief, Story } from "../../shared/schema.ts";
-import type { TextStyle } from "../../shared/series.ts";
 import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
-import { drawShot, loadImage, type Speaker } from "../lib/render.ts";
+import { drawShot, loadImage, loadStoryFonts, type DrawStyle, type Speaker } from "../lib/render.ts";
 import { sketchSetups, type SketchSetup } from "../lib/sketch.ts";
 import { copyText } from "../lib/files.ts";
 import { ChecksPanel } from "./Checks.tsx";
@@ -38,7 +37,7 @@ export { ActionWarning, BEAT_EDGE };
 
 type Look = {
   format: Brief["format"];
-  style: TextStyle;
+  style: DrawStyle;
   images: Record<number, string | undefined>;
   // The drawn storyboard: sketches made with an image tool, by shot, and the kind of each cast member (to draw it).
   sketches: Record<number, string | undefined>;
@@ -128,7 +127,7 @@ function ShotFrame({
     const draw = () => drawShot(ctx, shot, image, speakers, t, { disclosure: "", fullFrame: false, headlines: true, style: look.style, sketch });
     draw();
     // Canvas text needs the web font; draw again once it is there.
-    document.fonts?.load(`600 24px "IBM Plex Sans"`).then(draw, () => undefined);
+    loadStoryFonts(look.style, ["600", "700"]).then(draw, () => undefined);
   }, [shot, image, sketch, speakers, look.format, look.style]);
   return (
     <canvas

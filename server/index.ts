@@ -69,6 +69,7 @@ import { checkDemucsBin, demucsAvailable, demucsStatus, separate, speechWav, try
 import { decodeWav, fitKicks } from "../shared/clock.ts";
 import { withLevels, wordLevels, wordSpans } from "../shared/lyricAct.ts";
 import { BrandSchema, DEFAULT_BRAND, SERIES_TYPES } from "../shared/series.ts";
+import { FONT_MAX_BYTES, FONT_ROLES } from "../shared/brandFonts.ts";
 import { webPictureKinds, type WebCastPick } from "../shared/webCast.ts";
 import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, SECOND_LANGUAGES, LyricStyleSchema, alignLyrics, cleanElements, cleanIdeas } from "../shared/lyrics.ts";
 import { buildPlates, cleanPlates } from "../shared/plates.ts";
@@ -121,6 +122,9 @@ import {
 import { DEFAULT_VOICE, VoiceError, speak, voiceAvailable } from "./voice.ts";
 import {
   SeriesError,
+  addBrandFont,
+  readBrandFont,
+  removeBrandFont,
   createSeries,
   deleteSeries,
   getSeriesFields,
@@ -291,6 +295,41 @@ app.put("/api/series/:id/logo", async (c) => {
   const data = Buffer.from(await c.req.arrayBuffer());
   const file = setLogo(c.req.param("id"), data, c.req.header("content-type") ?? "");
   return c.json({ file, series: listSeries() });
+});
+
+// "Fuentes propias de la marca": one font file per request as the raw body, its family, role, weight and style in the
+// query (each optional: guessed from the file's name). The type is read from the bytes; the size is capped.
+app.put("/api/series/:id/fonts", async (c) => {
+  const q = z
+    .object({
+      name: z.string().max(200).default(""),
+      family: z.string().max(120).optional(),
+      role: z.enum(FONT_ROLES).optional(),
+      weight: z.coerce.number().int().min(100, "El peso va de 100 a 900.").max(900, "El peso va de 100 a 900.").optional(),
+      style: z.enum(["normal", "italic"]).optional(),
+    })
+    .safeParse({
+      name: c.req.query("name") ?? "",
+      family: c.req.query("family") || undefined,
+      role: c.req.query("role") || undefined,
+      weight: c.req.query("weight") || undefined,
+      style: c.req.query("style") || undefined,
+    });
+  if (!q.success) return c.json({ error: checkErrorText(q.error, "Faltan datos de la fuente") }, 400);
+  if (Number(c.req.header("content-length") ?? 0) > FONT_MAX_BYTES) return c.json({ error: `La fuente pesa más de ${FONT_MAX_BYTES / 1024 / 1024} MB.` }, 413);
+  const data = Buffer.from(await c.req.arrayBuffer());
+  const font = addBrandFont(c.req.param("id"), data, { fileName: q.data.name, family: q.data.family, role: q.data.role, weight: q.data.weight, style: q.data.style });
+  return c.json({ font, series: listSeries() });
+});
+
+app.get("/api/series/:id/fonts/:file", (c) => {
+  const { data, type } = readBrandFont(c.req.param("id"), c.req.param("file"));
+  return c.body(new Uint8Array(data), 200, { "Content-Type": type, "Cache-Control": "no-cache" });
+});
+
+app.delete("/api/series/:id/fonts/:file", (c) => {
+  removeBrandFont(c.req.param("id"), c.req.param("file"));
+  return c.json({ series: listSeries() });
 });
 
 app.put("/api/series/:id/lyric-style", async (c) => {

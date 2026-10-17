@@ -22,6 +22,7 @@ import type { Board, Brief, Role } from "../../shared/schema.ts";
 import { isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import { PIECE_MAX_BOOST_DB, normalizeLoudness, normalizeSegments } from "./motionAudio.ts";
 import type { TextStyle } from "../../shared/series.ts";
+import { ensureFont } from "./fonts.ts";
 import { timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 import { drawSketch, type SketchSetup } from "./sketch.ts";
 
@@ -29,6 +30,21 @@ const FPS = 30;
 const FADE = 0.35;
 const SAMPLE_RATE = 48000;
 const FONT = `"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif`;
+// The story's text style with the brand's two families when it uses them (storyFonts in shared/brandFonts.ts).
+export type DrawStyle = TextStyle & { fonts?: { display: string; ui: string } };
+const stack = (style: DrawStyle, face: "display" | "ui") => {
+  const family = style.font === "brand" ? style.fonts?.[face] : undefined;
+  return family ? `"${family}", ${FONT}` : FONT;
+};
+// Loads the faces the story's text uses (the app's, and the brand's when the style asks for them).
+export async function loadStoryFonts(style: DrawStyle, weights: string[]) {
+  const families = ["IBM Plex Sans"];
+  if (style.font === "brand" && style.fonts) {
+    await Promise.all([ensureFont(style.fonts.display), ensureFont(style.fonts.ui)]);
+    families.push(style.fonts.display, style.fonts.ui);
+  }
+  await Promise.all([...new Set(families)].flatMap((f) => weights.map((weight) => document.fonts?.load(`${weight} 48px "${f}"`).catch(() => []))));
+}
 
 const BEAT_COLORS = {
   negative: ["#2a1410", "#8a2a12"],
@@ -61,7 +77,7 @@ export type RenderOptions = {
   speakers: Record<string, Speaker>;
   // The headline at the top of each shot (the shot's onScreenText). Off hides it in the whole video.
   headlines: boolean;
-  style: TextStyle;
+  style: DrawStyle;
   // Shots where someone is heard speaking (a voice file or Grok's own), so the music ducks under them.
   spoken: boolean[];
   music?: Blob;
@@ -124,9 +140,10 @@ function drawText(
   maxWidth: number,
   weight: number,
   color: string,
-  style: TextStyle,
+  style: DrawStyle,
+  face: "display" | "ui" = "ui",
 ): number {
-  ctx.font = `${weight} ${size}px ${FONT}`;
+  ctx.font = `${weight} ${size}px ${stack(style, face)}`;
   const lineHeight = size * 1.18;
   const lines = wrapLines(ctx, text, maxWidth);
   const height = lines.length * lineHeight;
@@ -239,7 +256,7 @@ function drawOverlay(
   if (options.headlines && shot.onScreenText) {
     const size = unit * 0.075 * (style.headlineSize / 100);
     const top = phone ? safe.y + unit * (labelled ? 0.1 : 0.03) : h * 0.08;
-    drawText(ctx, shot.onScreenText, phone ? cx : w / 2, top, size, phone ? safe.w * 0.98 : w * 0.86, 700, style.headlineColor, style);
+    drawText(ctx, shot.onScreenText, phone ? cx : w / 2, top, size, phone ? safe.w * 0.98 : w * 0.86, 700, style.headlineColor, style, "display");
   }
 
   if (labelled) {
@@ -264,7 +281,7 @@ function drawOverlay(
   // The subtitle block sits low but grows upward when large type wraps to more lines.
   const subtitle = beat ? beat.line : shot.timeline?.length ? "" : subtitleAt(shot, t);
   const subSize = unit * 0.045 * (style.subtitleSize / 100);
-  ctx.font = `600 ${subSize}px ${FONT}`;
+  ctx.font = `600 ${subSize}px ${stack(style, "ui")}`;
   const subHeight = subtitle ? wrapLines(ctx, subtitle, textWidth).length * subSize * 1.18 : 0;
   const floor = phone ? safe.y + safe.h - unit * (disclosure ? 0.06 : 0.01) : h - unit * (disclosure ? 0.13 : 0.08);
   const subtitleTop = Math.min(h * 0.8, floor - subHeight);
@@ -323,7 +340,7 @@ export async function renderPreview(
   canvas.height = h;
   const ctx = canvas.getContext("2d")!;
   const img = await loadImage(media[shot.index]?.image);
-  await document.fonts?.load(`600 24px "IBM Plex Sans"`).catch(() => []);
+  await loadStoryFonts(options.style, ["600", "700"]).catch(() => undefined);
   const mid = (shot.start + shot.end) / 2;
   paintStill(ctx, img, shot, mid, options.fullFrame);
   drawOverlay(ctx, shot, options.speakers, mid, options);
@@ -505,9 +522,7 @@ export async function renderVideo(
   }
   const stills = await Promise.all(shots.map((s) => loadImage(media[s.index]?.image)));
   // Canvas text only uses a web font once it has loaded; without this the first frames fall back.
-  await Promise.all(
-    ["500", "600", "700"].map((weight) => document.fonts?.load(`${weight} 48px "IBM Plex Sans"`).catch(() => [])),
-  );
+  await loadStoryFonts(options.style, ["500", "600", "700"]).catch(() => undefined);
 
   let sound: AudioBuffer | null = null;
   const hasAudio = shots.some((s) => media[s.index]?.voice || media[s.index]?.sfx || (options.keepSound && media[s.index]?.clip));

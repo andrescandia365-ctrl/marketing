@@ -41,6 +41,7 @@ import { PieceCard, type PieceMediaState } from "./pieces.tsx";
 import { SourcesPanel } from "./SourcesPanel.tsx";
 import { SpeakerBatch } from "./SpeakerBatch.tsx";
 import { SpeakerPanel } from "./SpeakerPanel.tsx";
+import { storyFonts } from "../../../shared/brandFonts.ts";
 
 // "Estáticos de la tanda" downloads only when opened (it brings the still renderer).
 const StaticsPanel = lazy(() => import("./StaticsPanel.tsx").then((m) => ({ default: m.StaticsPanel })));
@@ -490,7 +491,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   }
 
   // ── The run: pieces once (cached), then the ads cut from them ─────────────────
-  const look = (): PieceLook => ({ format: settings.format, style: series.textStyle, disclosure: "Imágenes ilustrativas", fullFrame: true, headlines: true });
+  const look = (): PieceLook => ({ format: settings.format, style: { ...series.textStyle, fonts: storyFonts(series.brand) }, disclosure: "Imágenes ilustrativas", fullFrame: true, headlines: true });
   // An explainer's clip plays from its in point and carries its own words (nothing drawn on top).
   // A character's clip ("Que lo diga un personaje") plays from the speaker's in point, muted when the piece's own voice
   // says the line instead.

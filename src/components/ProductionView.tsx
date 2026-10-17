@@ -19,6 +19,7 @@ import { api, askPrompt, asks } from "../lib/api.ts";
 import { download, pieceToMarkdown, slug, type LogEntry } from "../lib/markdown.ts";
 import type { ShotMedia } from "../lib/render.ts";
 import type { ProjectFiles } from "../useProject.ts";
+import { storyFonts } from "../../shared/brandFonts.ts";
 
 const VideoPanel = lazy(() => import("./VideoPanel.tsx").then((m) => ({ default: m.VideoPanel })));
 
@@ -480,6 +481,7 @@ export function ProductionView({
           watermarked={pieceBrief.tool === "grok-imagine"}
           seriesName={pieceSeries?.name ?? ""}
           seriesStyle={pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE}
+          brandFonts={pieceSeries ? storyFonts(pieceSeries.brand) : undefined}
           onSaveStyle={saveStyle}
           onRendered={keepVideo}
           audio={audio}

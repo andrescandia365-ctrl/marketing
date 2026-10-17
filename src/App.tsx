@@ -1,4 +1,4 @@
-import { lazy, useEffect, useRef, useState } from "react";
+import { lazy, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_AUDIO, voiceModeOf, type AudioSettings } from "../shared/audio.ts";
 import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/checks.ts";
 import { SKETCH_BASE } from "../shared/prompt.ts";
@@ -31,6 +31,8 @@ import { ads as adsApi, api, askPrompt, asks, libraryFileUrl, type ProjectSummar
 import { ClaudeHandoff } from "./components/ClaudeHandoff.tsx";
 import { pictureForReview, readImageFile } from "./lib/files.ts";
 import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from "./lib/markdown.ts";
+import { storyFonts } from "../shared/brandFonts.ts";
+import { registerBrandFonts } from "./lib/fonts.ts";
 
 // The studios, the storyboard and the panels behind a button load the first time they are opened (the video panel too,
 // from ProductionView), so the brief (the first screen) does not wait for the video, audio and 3D code.
@@ -159,6 +161,14 @@ export function App() {
   const pieceTool = status?.tools.find((t) => t.id === pieceBrief.tool);
   const toolName = pieceTool?.name ?? "la herramienta";
   const pieceSeries = status?.series.find((s) => s.id === pieceBrief.series);
+  // "Fuentes propias de la marca": every series' uploaded faces are known by family before anything draws with them.
+  useEffect(() => status?.series.forEach((s) => registerBrandFonts(s.id, s.brand)), [status?.series]);
+  // The story's text style with the brand's families ("Letra de la marca"), kept stable for the storyboard's drawing.
+  const boardStyle = useMemo(
+    () => ({ ...(pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE), fonts: pieceSeries ? storyFonts(pieceSeries.brand) : undefined }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pieceSeries?.textStyle, pieceSeries?.brand.displayFont, pieceSeries?.brand.uiFont],
+  );
   const library: Record<string, LibraryEntry> = Object.fromEntries(
     (pieceSeries?.cast ?? []).map((m) => [
       m.id,
@@ -1040,7 +1050,7 @@ export function App() {
             dismissed={boardIssues.length - boardIssues.filter(open).length}
             look={{
               format: pieceBrief.format,
-              style: pieceSeries?.textStyle ?? DEFAULT_TEXT_STYLE,
+              style: boardStyle,
               images: shotImages,
               sketches: Object.fromEntries(board.shots.map((_, i) => [i, media[SKETCH_BASE + i]?.image])),
               castKinds: Object.fromEntries((pieceSeries?.cast ?? []).map((m) => [m.id, m.kind])),

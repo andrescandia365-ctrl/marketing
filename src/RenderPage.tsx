@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { cutBlurOn, cutPush, openMotionPiece, posterTime, type MotionPiece } from "../shared/motion.ts";
 import type { Brief } from "../shared/schema.ts";
 import { api } from "./lib/api.ts";
-import { ensureFont, fontBytes, fontLoaded } from "./lib/fonts.ts";
+import { ensureBrandFonts, fontBytes, fontLoaded } from "./lib/fonts.ts";
+import { missingFontText } from "../shared/brandFonts.ts";
 import { CodeDeck } from "./lib/codeSandbox.ts";
 import { drawMotionFrame, scriptDuration } from "./lib/motion.ts";
 import { toWav } from "./lib/motionAudio.ts";
@@ -59,14 +60,12 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       const piece: MotionPiece = openMotionPiece(st.pieceBrief.format, st.motion);
       const series = status.series.find((s) => s.id === st.pieceBrief!.series);
       if (!series) throw new Error(`No existe la serie "${st.pieceBrief.series}".`);
-      await Promise.all([ensureFont(series.brand.displayFont), ensureFont(series.brand.uiFont)]);
+      // "Fuentes propias de la marca": an uploaded family loads from the series' files, any other from Google Fonts.
+      await ensureBrandFonts(series.id, series.brand);
       await document.fonts.ready;
       // The final render never goes out in a fallback face: it stops and says which font did not load.
       const missing = [...new Set([series.brand.displayFont, series.brand.uiFont])].filter((family) => !fontLoaded(family));
-      if (missing.length)
-        throw new Error(
-          `No cargó la fuente ${missing.map((f) => `«${f}»`).join(" ni ")} de la marca, así que el render se frena para no salir con otra letra. Revisá la conexión a internet, o elegí otra fuente en Editar serie.`,
-        );
+      if (missing.length) throw new Error(missingFontText(missing, series.brand));
       const [images, media, saved] = await Promise.all([
         loadSeriesImages(series),
         loadPieceMedia(projectId, piece, project.media, project.music),

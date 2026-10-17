@@ -44,7 +44,7 @@ import {
 } from "../../shared/motionQuality.ts";
 import { api, askPrompt, asks, type FinalJob, type MediaFileRecord, type MediaRecord } from "../lib/api.ts";
 import { encodeFrames } from "../lib/encode.ts";
-import { ensureFont, fontBytes } from "../lib/fonts.ts";
+import { brandFontsKey, ensureBrandFonts, fontBytes } from "../lib/fonts.ts";
 import { CodeDeck, codeIssues, testCode } from "../lib/codeSandbox.ts";
 import { MASCOT_ASSET, type MascotCode } from "../../shared/mascot.ts";
 import { samplesSig } from "../../shared/codeScene.ts";
@@ -298,9 +298,9 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
 
   // Brand fonts, the cast's approved images and the logo.
   useEffect(() => {
-    ensureFont(brand.displayFont);
-    ensureFont(brand.uiFont);
-  }, [brand.displayFont, brand.uiFont]);
+    ensureBrandFonts(series.id, brand);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [series.id, brandFontsKey(brand)]);
   useEffect(() => {
     let alive = true;
     loadSeriesImages(series).then(({ cast, logo, puppets, actors }) => {
@@ -695,7 +695,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
 
   // What one round looks at: the contact sheet(s) of the script as it plays now and what the app measured.
   async function roundSheets(working: MotionScript, formats: SheetFormat[]) {
-    await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
+    await ensureBrandFonts(series.id, brand);
     const roundBeats = motionBeats(working, piece.music, piece.kickGrid);
     const roundScenes = arrangeScenes(working, roundBeats, snap, piece.music, piece.kickGrid, words);
     const played = { ...working, scenes: roundScenes };
@@ -928,7 +928,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     setResults([]);
     setProgress(0);
     try {
-      await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
+      await ensureBrandFonts(series.id, brand);
       const sound = await makeSound(played, playedBeats);
       for (const [n, format] of formats.entries()) {
         const [w, h] = format === "vertical" ? [1080, 1920] : [1920, 1080];
@@ -1001,7 +1001,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       width: w,
       height: h,
       fps: 30,
-      brand: { bg: brand.bg, text: brand.text, accent: brand.accent, displayFont: brand.displayFont, uiFont: brand.uiFont, ...(brand.motion && { motion: brand.motion }) },
+      brand: { bg: brand.bg, text: brand.text, accent: brand.accent, displayFont: brand.displayFont, uiFont: brand.uiFont, ...(brand.motion && { motion: brand.motion }), ...(brand.fonts?.length && { fonts: brand.fonts }) },
       assets: picked.flatMap((id) => {
         const a = assets[id];
         if (!a) return [];
@@ -1026,7 +1026,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     if (!s) return { problems: [{ message: "Esa escena ya no está.", fatal: true }], saved: false, texts: 0, slowest: 0 };
     const trial = { ...s, code: { source, assets: picked } };
     const sig = samplesSig(trial, codeFormat, script?.tone, mascotTag);
-    await Promise.all([ensureFont(brand.displayFont), ensureFont(brand.uiFont)]);
+    await ensureBrandFonts(series.id, brand);
     const result = await testCode(source, trial, codeFormat, world, script?.tone, fontBytes, sig, undefined, mascotCode);
     const fatal = result.problems.find((p) => p.fatal);
     const saved = !fatal && Boolean(result.samples);

@@ -31,6 +31,7 @@ import type { Reference } from "../../shared/reference.ts";
 import type { ScreenDevice } from "../../shared/screenBatch.ts";
 import type { ClipFit, ExplainerKind, ExplainerVideo } from "../../shared/adsFromExplainer.ts";
 import type { AdCombo, AdCopy, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceSpeaker, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
+import type { BrandFont } from "../../shared/brandFonts.ts";
 
 // Demucs on this computer (Modelos → Demucs).
 export type DemucsStatus = { ready: boolean; command: string; model: string; songs: number; envBin: boolean };
@@ -394,6 +395,13 @@ export const api = {
   efforts: (model: string) => call<{ efforts: string[] }>(`/api/settings/efforts?model=${enc(model)}`),
   testModel: (provider: string, model: string, vision: boolean) => call<{ result: string }>("/api/settings/test", { provider, model, vision }),
   usage: () => call<{ entries: UsageEntry[]; averages: KindAverage[] }>("/api/settings/usage"),
+  // "Fuentes propias de la marca": one font file per call; family, role, weight and style are optional (guessed).
+  uploadBrandFont: (seriesId: string, file: File, face: { family?: string; role?: string; weight?: number; style?: string }) => {
+    const q = new URLSearchParams({ name: file.name });
+    for (const [k, v] of Object.entries(face)) if (v !== undefined && v !== "") q.set(k, String(v));
+    return upload<{ font: BrandFont; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/fonts?${q}`, file, "application/octet-stream");
+  },
+  removeBrandFont: (seriesId: string, file: string) => call<{ series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/fonts/${enc(file)}`, undefined, "DELETE"),
   uploadLogo: (seriesId: string, image: Blob) =>
     upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/logo`, image, image.type),
   saveLyricStyle: (id: string, lyricStyle: LyricStyle) =>
