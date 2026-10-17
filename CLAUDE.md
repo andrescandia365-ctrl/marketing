@@ -478,6 +478,51 @@ people and politics. The playbook's 75 s ad template does not drive the app.
     (`speakerBatch`/`speakerBatchText`). "Que lo diga la mascota" (series with a code mascot) opens an explainer from
     `AdSeed.presenter = "mascot"` (`mascotScript`: one character scene per sentence with MASCOT_ASSET); "Usar en
     Publicidad" can also target an approved hook (`TARGET_KINDS`).
+- No key, word entrances, metaphors, fonts and text style (idea 67):
+  - "Sin clave" (`shared/handoff.ts`, `ClaudeHandoff.tsx`): with no AI key every writer task goes to claude.ai by copy
+    and paste. A writer request is data (`WriterTask` {system, prompt, schema, finish} in server/claude.ts:
+    `menuTask`, `storyTask`, `reviseStoryTask`, `hookVariantsTask`, `boardTask`, `reviseBoardTask`, `rewriteShotTask`,
+    `motionTask`, `reviseMotionTask`, `reviewMotionTask`; server/adsWriter.ts: `hooksTask`, `meatsTask`, `ctasTask`,
+    `clipTask`, `reviewTask`, `copiesTask`; `runTask` runs one on the writer). Routes take an optional `handoff`
+    (`HandoffSchema`, `viaWriter`): `{mode: "prompt"}` → `{prompt, chars}` (`taskPrompt`/`assemblePrompt`: system
+    blocks, request, `ANSWER_LINE`, JSON schema); `{mode: "paste", reply}` → `readReply` (fences, prose, <think>, a
+    wrapper, trailing commas; the same helpers kimi.ts uses), the same schema and `finish`, answered like the writer
+    (`demo: false`, `pasted: true`); a bad paste is `PasteError` (400, names the field). Client: `asks`/`sendAsk`/
+    `askPrompt` in src/lib/api.ts. With no key each writer button reads "Ver un ejemplo" (the sample) with
+    ClaudeHandoff next to it (`promptSizeText`: long over 40k, very long over 150k); with a key nothing changes.
+    Explainer review by paste attaches the contact sheet by hand (`sheetFileName`, `NO_SHEET_REPLY`, `takeReview`,
+    `ReviewHandoff`/`ManualRound`). Publicidad splits long requests into prompts (`PASTE_PER_PROMPT`, `part`/`parts`,
+    `PartsHandoff`, walk state in src/lib/handoffWalk.ts); pasted platform texts carry their hook/CTA sig and only
+    fresh ones are used (`withSigs`/`freshCopies`, shared/adsHandoff.ts).
+  - "Entrar con la palabra" (`shared/wordEntry.ts`, `MotionPiece.enterOnWord`, on for new pieces, `enterOnWordOn`): an
+    element whose words the scene's voice says enters on that word's start (`voiceWordSpans`, the subtitles' word
+    times; tolerant `findSaid`). `arrangeScenes(..., words)` runs `enterOnWords` before `snapElements`; precedence
+    tweaks.at > onWord > onBeat > template (`placedAt`), `onWord` on the arranged copy only. The word wins over the
+    beat but never costs reading time: `readableOnWords` drops an entry that adds or worsens a `readingIssues` or
+    `quietGaps` problem.
+  - "Escenas metáfora" (template `metaphor`, `shared/metaphor.ts`): one Grok picture (or muted clip) that explains an
+    abstract idea, with the scene title as its line; `scene.metaphor` {image, video, cast} (`pickMetaphor`, cast from
+    `metaphorCastOf`, never a screen), prompts `metaphorImagePrompt` (no text, 1:1, look or PLAIN_PHOTO) /
+    `metaphorVideoPrompt`, by paste `metaphorOpusPrompt`/`parseMetaphorReply`, batch `metaphorBatch`. Uploads go to
+    project slot `METAPHOR_BASE` 600 + N (`metaphorUploadSlot`, asset "metafora:N", played from a blob URL); until
+    then a placeholder draws and `metaphorIssues` blocks the render. Drawn whole (watermark never cut) by
+    `metaphorLayout` (9:16 budgets the real text block above the floor) and `metaphorSettle`; it turns the AI notice on.
+  - "Fuentes propias de la marca" (`shared/brandFonts.ts`, `BrandFontsBox` in Editar serie → Marca): font files
+    (woff2/woff/ttf/otf by bytes, `FONT_MAX_BYTES` 8 MB, `BRAND_FONT_MAX` 24) in biblioteca/<series>/fuentes/
+    (`PUT/GET/DELETE /api/series/:id/fonts`), faces in `brand.fonts` {file, family, role, weight, style, name};
+    displayFont/uiFont naming an uploaded family load from its files (`resolveBrandFont`), else Google Fonts. The
+    browser registry (src/lib/fonts.ts) is per series (`registerBrandFonts`, `ensureBrandFonts(seriesId, brand)`,
+    `fontBytes(seriesId)`), used by MotionStudio, RenderPage's font gate, the code sandbox, Imagen fija, Estáticos and
+    stories with `TextStyle.font = "brand"`. The UI says "Usá fuentes que tengas permiso de usar".
+  - Story text style (`TextStyleSchema`, VideoPanel "Texto · estilo"): `nameColor` ("role" or a hex),
+    `subtitlePosition` bottom/center/top, `headlinePosition` top/center, `font` app/brand/other with `fontFamily`.
+    `storyTextLayout` (shared/storyText.ts) places both blocks for `drawOverlay` inside the safe zone, below CONCEPTO,
+    above the AI notice, never subtitle over headline; defaults give the old look.
+  - `server/playbook.md` is the trimmed operative summary (no sources, tags or 75 s template, nothing the app enforces
+    in code); `tests/playbookTrim.test.ts` keeps it under 1800 words with every hard rule. Playbook examples are
+    shapes, not business facts (the Contradiction example is marked illustrative).
+  - Decided: the app runs locally only (no deploy), sound effects are added by hand (no API), no GLB character (the
+    code mascot covers it).
 - Publicidad (Método 50-5-3, `src/components/ads/`, `server/ads*.ts`, `shared/ads.ts`): the second section of the app,
   paid ads next to Playbook's organic content (header toggle). An ad = Hook + Meat + CTA; pieces are written and
   rendered separately and the combination hook × meat × CTA is pure code (`combine`, `varyHook`), never the AI. Per

@@ -511,6 +511,16 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
 - **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
 
+### 67. Sin clave, entradas en la palabra, metáforas, fuentes y estilo del texto (16 Oct 2026) — **Construido ("vamos con la A")**
+- **Sin clave (A):** cada pedido al escritor se puede hacer con claude.ai copiando y pegando: "Copiar el prompt para claude.ai", pegás la respuesta y "Usar esta respuesta". Cubre historias (menú, historia, notas del director, storyboard, tomas, 5 ganchos, Arreglalo), explicativos (guion, nota del director, revisión de calidad con la hoja de cuadros) y Publicidad (hooks, meats y CTAs en tandas de prompts, revisión, textos de la plataforma, cortar transcripciones). "Ver un ejemplo" sigue mostrando la muestra. Si la respuesta no encaja, el error dice qué campo falla.
+- **Entradas en la palabra:** en los explicativos, un título, rótulo, ítem o número entra cuando la voz lo dice. Manda la palabra sobre el golpe, pero nunca le quita tiempo de lectura.
+- **Escenas metáfora:** una imagen (o clip) de Grok que explica una idea abstracta, con su línea en la letra de la marca. La app da los prompts y vos subís lo que hizo Grok; hasta entonces no deja renderizar.
+- **Fuentes propias:** cada serie sube sus archivos de fuentes (varias por marca, woff2/woff/ttf/otf) en Editar serie → Marca; se usan en explicativos, render, escena de código, imagen fija, estáticos y, si lo elegís, en las historias.
+- **Estilo del texto (idea 21):** color del nombre de quien habla, posición de subtítulos (abajo, centro, arriba) y del titular, y la letra (de la app, de la marca u otra), siempre dentro de la zona segura.
+- **Playbook:** el ejemplo de la Contradicción quedó marcado como ilustrativo, se sumó el panel Audio de Grok, y `server/playbook.md` quedó recortado a lo que usa el escritor.
+- **Decidido:** la app corre solo local (sin deploy); los efectos de sonido los ponés a mano (sin API); el personaje 3D en GLB no se sigue, lo cubre la mascota en código.
+- **Revisión del código:** 10 errores confirmados y arreglados (entre ellos, textos de la plataforma viejos que podían salir con un hook cambiado, fuentes de una serie que pisaban las de otra, y clips de metáfora que no se podían adelantar).
+
 ### 66. Pantallas, escena de código, imagen fija y quien presenta (15 Oct 2026) — **Construido ("Go a los dos", "Go a los tres")**
 - **Pantallas en lote:** subís muchas capturas reales de una vez y las revisás en una grilla (nombre, qué muestra, celular o PC); sin clave, se nombran pegando la respuesta de claude.ai.
 - **Videos de la app funcionando** dentro del celular en los explicativos, con desde y hasta, iguales en la vista previa y en el render.
