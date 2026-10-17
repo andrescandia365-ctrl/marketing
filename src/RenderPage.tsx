@@ -11,7 +11,9 @@ import { drawMotionFrame, scriptDuration } from "./lib/motion.ts";
 import { toWav } from "./lib/motionAudio.ts";
 import { arrangeScenes, layerAssets, loadPieceMedia, loadSeriesImages, makeWorld, motionBeats, motionSound, pieceSubtitles, pieceWords, speechLevels, usesAiImages } from "./lib/motionProject.ts";
 import { toSrt } from "../shared/subtitles.ts";
-import { videoAssetOf } from "../shared/screenVideo.ts";
+import { recordingsUsed } from "../shared/screenVideo.ts";
+import { metaphorIssues } from "../shared/metaphor.ts";
+import { loadMetaphorAssets } from "./lib/metaphorMedia.ts";
 import { VideoDeck, drawReady, unreadableVideos, videoSources } from "./lib/screenVideo.ts";
 
 export type MotionRender = {
@@ -80,11 +82,16 @@ export function RenderPage({ projectId, format }: { projectId: string; format: "
       const subtitles = pieceSubtitles(scenes, piece, media.voices);
       // "Videos de la app funcionando": the screens' recordings, each scene's player sought to the exact frame before
       // it is drawn. One that cannot be read here stops the render (never a still in its place).
-      const deck = new VideoDeck(videoSources(images.cast));
-      const used = new Set(scenes.flatMap((s) => (s.recording ? [videoAssetOf(s)?.id ?? ""] : [])));
+      // "Escenas metáfora": the pictures and clips Grok made, uploaded into the project. A metaphor scene with none
+      // stops the render (never a placeholder in a finished video); a clip plays through the same players.
+      const metaphors = await loadMetaphorAssets(projectId, scenes, project.media);
+      const noPicture = metaphorIssues(scenes, (id) => Boolean(metaphors[id]));
+      if (noPicture.length) throw new Error(noPicture.map((i) => `Escena ${i.index + 1} (metáfora): ${i.problem}`).join(" "));
+      const deck = new VideoDeck(videoSources({ ...images.cast, ...metaphors }));
+      const used = recordingsUsed(scenes);
       const broken = deck.empty || !used.size ? [] : await deck.check(used);
       if (broken.length) throw new Error(unreadableVideos(broken, series));
-      const world = makeWorld(series.brand, { ...images.cast, ...layerAssets(media.layers) }, images.logo, beats, notice, {
+      const world = makeWorld(series.brand, { ...images.cast, ...layerAssets(media.layers), ...metaphors }, images.logo, beats, notice, {
         puppets: images.puppets,
         actors: images.actors,
         speech,

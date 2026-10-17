@@ -1,3 +1,4 @@
+import { metaphorCastOf } from "../shared/metaphor.ts";
 import { readFileSync } from "node:fs";
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
@@ -863,6 +864,10 @@ function explainerCast(brief: Brief) {
   return { series, host, cast, characters, recordings: (id: string) => recordings.get(id) };
 }
 
+// "Escenas metáfora": the cast ids a metaphor's picture may call by @reference.
+// Never a real screen (a screen is never drawn by an AI), and only members with an approved image.
+const castIds = (series: ReturnType<typeof getSeries>) => metaphorCastOf(series?.cast ?? []).map((m) => m.id);
+
 function castBlock(cast: string, layers: number): string {
   return `What you can show (the series' fixed cast; use ids exactly; only members with an image will render, others show a placeholder):
 ${cast || "- (nothing yet: use hook, steps, stat and logo, and say in note what is missing)"}
@@ -893,6 +898,7 @@ ${
 - notify, when the pain or the payoff is what arrives on the phone (the supplier's message, the reminder, the alert the app sends): up to 3 notifications, each "title | body" (title up to 3 words, body up to 6), in the order they arrive; give the scene about 1 s per notification plus 2.5 s for the last. A notification the product sends must be on the series' working-today list; one from a person or another app follows "Cómo se trabaja hoy".
 - flow, when one thing goes to several places (one order to every supplier, one sale into stock, the cash and the report): title is the source (up to 3 words, its picture in asset if the cast has it), items up to 4 places of up to 3 words, named in the order the voice says them; about 1 s per place plus 1.5 s. Only connections the series lists as working today, unless the scene is labelled concept.
 - slots, the open loop on screen, at most one row per piece: the first slots scene names 2 to 5 boxes (items, up to 3 words each: what the piece promises to settle) and the voice promises them; later slots scenes (2.5 to 3.5 s, items empty, a short title) each fill the next box right after the scene that settles it, so the row fills as the piece goes and the last box fills before the logo. Use it in pieces of 30 s or more, never for fewer than 2 boxes.
+- metaphor, once or twice in a piece and only where an idea is abstract (a delay, a mess that piles up, a weight off someone's shoulders): one simple picture made with Grok that explains it as a metaphor (the order as a pile of boxes about to fall), with the title as its short line (up to 6 words) and text empty or one short line. Write the picture in imagePrompt, in English: one frozen moment, one subject, concrete objects, a plain background, room around it, never words, letters, numbers or logos in it, never a real person or a known character. In videoPrompt, optionally, how the still moves when animated (one action, one slow camera move). A cast member that appears goes in cast by its id (it is called by its @reference); a product or a place of the series only as it really is. Leave asset empty: the person uploads the picture. A metaphor is a picture of the pain or the relief, never a claim: it shows no feature that is not on the working-today list (else label it concept) and it never replaces showing the product in use.
 - Travel between scales when it helps the idea: from the whole to the detail (the shelf, the product on it, its expiry date) or back out to the whole. Make that move with entry "through" on the scene that opens inside the previous one (the camera dives into its main thing), once or twice per piece, never on every cut.
 - Continuity: when the next scene says more about the same picture (the real screen, then a zoom or labels on it; the product, then its callouts; the host presenting the screen, then the screen), give both scenes the same asset: the app carries that picture across the cut from where it was to where it settles (entry "cut" lets it do so by itself; "match" asks for it). Leave it to the scenes that really continue; a new idea gets its own picture.
 - In beforeAfter, reveal "iris" when the change starts in one spot and spreads (set focusX, focusY on that spot); "wipe" when it is a plain side-by-side.
@@ -923,7 +929,7 @@ ${explainerRules(brief, host)}`,
     MotionScriptSchema,
     (wire) => {
       const wireWorld = wire.world;
-      const motion = normalizeMotion(wire, brief.tone);
+      const motion = normalizeMotion(wire, brief.tone, { cast: castIds(series) });
       // The series' explainer character hosts every character scene, whatever id the writer put there. A writer that
       // gave no place at all (not even none) gets the one the series leans to.
       const world = motion.world ?? (pickWorld(wireWorld) === "none" ? undefined : worldLean(series?.type));
@@ -996,7 +1002,7 @@ ${explainerRules(brief, host)}`,
     (wire) => {
       if (!wire.scenes.length) throw new WriterError("La IA devolvió el guion sin escenas. Probá de nuevo o escribí la nota de otra forma.");
       const links = wire.scenes.map((s) => ({ from: s.from, camera: pickCamera(s.camera) }));
-      const revised = normalizeMotion({ ...wire, scenes: wire.scenes.map(({ from: _from, ...s }) => s) }, current.tone ?? brief.tone, { revising: true });
+      const revised = normalizeMotion({ ...wire, scenes: wire.scenes.map(({ from: _from, ...s }) => s) }, current.tone ?? brief.tone, { revising: true, cast: castIds(series) });
       // keepOthers as in the studio: a character the person chose for a scene stays.
       const hosted = { ...revised, scenes: settleClips(hostScenes(revised.scenes, host?.id, characters, true), recordings), tone: current.tone ?? brief.tone };
       return mergeNote(current, hosted, links);

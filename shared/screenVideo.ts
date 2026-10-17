@@ -5,6 +5,7 @@
 // speed, hold the last frame or loop), which scenes are on screen at t, and how the file type is read from its bytes.
 // The browser side (src/lib/screenVideo.ts) seeks each video to these times before a frame is drawn.
 import { elementTimes, pushOf, type MotionScene, type TimedScene } from "./motion.ts";
+import { isMetaphorAsset } from "./metaphor.ts";
 
 // The biggest recording the library takes, and the types the browsers play (read from the bytes, never the name).
 export const SCREEN_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
@@ -86,7 +87,20 @@ const VIDEO_MEDIA: readonly MotionScene["template"][] = ["hook", "screen", "zoom
 export const VIDEO_TEMPLATES: readonly MotionScene["template"][] = [...VIDEO_MEDIA, "character"];
 export function videoAssetOf(scene: Pick<MotionScene, "template" | "asset" | "assetB">): { id: string; key: "media" | "prop" } | null {
   if (scene.template === "character") return scene.assetB ? { id: scene.assetB, key: "prop" } : null;
+  // "Escenas metáfora": the clip Grok made from the picture plays in its place (when one was uploaded).
+  if (scene.template === "metaphor") return isMetaphorAsset(scene.asset) ? { id: scene.asset, key: "media" } : null;
   return VIDEO_MEDIA.includes(scene.template) && scene.asset ? { id: scene.asset, key: "media" } : null;
+}
+
+// "Escenas metáfora": a metaphor's Grok clip plays once from its start when the picture comes in and holds its last
+// frame (a clip of 6 s in a shorter scene is cut by the scene's end).
+export const METAPHOR_CLIP: ScreenClip = { from: 0, rate: 1 };
+// What a scene plays of its picture's recording: its own stretch, or a metaphor's whole clip; none for the rest.
+export const sceneClip = (scene: Pick<MotionScene, "template"> & { recording?: ScreenClip }): ScreenClip | undefined =>
+  scene.recording ?? (scene.template === "metaphor" ? METAPHOR_CLIP : undefined);
+// The recordings a piece's scenes play (a render checks each can be read first).
+export function recordingsUsed(scenes: readonly MotionScene[]): Set<string> {
+  return new Set(scenes.flatMap((s) => (sceneClip(s) && videoAssetOf(s) ? [videoAssetOf(s)!.id] : [])));
 }
 
 // The scenes drawn at piece time t and their scene time: the scene on screen, and while it comes in (its push, a
@@ -116,9 +130,10 @@ export function videoPlan(scenes: TimedScene[], push: number, t: number, seconds
   for (const { scene, lt } of drawnAt(scenes, push, t)) {
     const v = videoAssetOf(scene);
     const d = v ? seconds(v.id) : undefined;
-    if (!scene.recording || !v || !d) continue;
+    const clip = sceneClip(scene);
+    if (!clip || !v || !d) continue;
     const startAt = elementTimes(scene)[v.key] ?? 0;
-    needs.push({ sceneId: scene.id, asset: v.id, time: clipTime(scene.recording, d, lt, startAt), moving: clipMoving(scene.recording, d, lt, startAt), rate: clipRate(scene.recording.rate) });
+    needs.push({ sceneId: scene.id, asset: v.id, time: clipTime(clip, d, lt, startAt), moving: clipMoving(clip, d, lt, startAt), rate: clipRate(clip.rate) });
   }
   return needs;
 }

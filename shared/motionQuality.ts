@@ -1,6 +1,7 @@
 // The quality loop before any full render (the studio's rule): a contact sheet with one frame per beat, the AI scores
 // six things from 1 to 10, the three worst problems are fixed as edits to the script, and it repeats until every score
 // is 8 or more, up to a set number of rounds.
+import { isMetaphorAsset } from "./metaphor.ts";
 import { clipText, videoAssetOf } from "./screenVideo.ts";
 import { z } from "zod";
 import { DISCLOSURE_TAG, MOTION_TEMPLATES, MOTION_TEMPLATE_LABEL, beyondNow, conceptIssues, flagBeyond, hostScenes, labelled, planCameras, sceneElements, timeScenes, tweakScene, type MotionScene, type MotionScript, type Spot } from "./motion.ts";
@@ -192,7 +193,12 @@ export function describeScenes(scenes: MotionScene[]): string {
       // "Escena de código": the person's own animation code paints the whole scene.
       const code = s.template === "code" ? ", a code animation the person pasted (it paints the whole frame itself; its title, text and items are not drawn by the app, so never propose fixes to them, only describe what looks wrong)" : "";
       const played = s.recording && videoAssetOf(s) ? `, its real screen plays the app's screen recording (stretch ${clipText(s.recording)} s of the recording, muted)` : "";
-      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}${entry}${reveal}${camera}${label}${flag}${played}${code}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
+      // "Escenas metáfora": the picture is made in Grok and uploaded by the person; fixes go to the line, never the picture.
+      const metaphor =
+        s.template === "metaphor"
+          ? `, a metaphor picture made with Grok and uploaded by the person (${isMetaphorAsset(s.asset) ? "uploaded" : "not uploaded yet: the sheet shows a placeholder, do not grade it"}; what it shows: "${s.metaphor?.image ?? ""}"); the app sets the title as its line`
+          : "";
+      return `Scene ${s.index + 1} (${s.start.toFixed(2)}–${s.end.toFixed(2)} s, ${s.seconds.toFixed(2)} s, template ${s.template}${entry}${reveal}${camera}${label}${flag}${played}${code}${metaphor}): title "${s.title}"; text "${s.text}"; items ${JSON.stringify(s.items)}; image ${s.asset || "none"}${s.assetB ? ` → ${s.assetB}` : ""}; voice "${s.voice}". Elements: ${elements || "none"}.`;
     })
     .join("\n");
 }

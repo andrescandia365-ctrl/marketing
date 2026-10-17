@@ -4,6 +4,7 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { APP_SKETCH, SKETCH_BASE, appSketchFile } from "../shared/prompt.ts";
+import { isMetaphorSlot, metaphorFileBase } from "../shared/metaphor.ts";
 import { storyCard, type RoomCard } from "../shared/room.ts";
 import { STILL_EXPORT } from "../shared/stillLayout.ts";
 
@@ -254,6 +255,8 @@ const SHEETS: Record<number, string> = {
 const slot = (index: number, kind: MediaKind) =>
   (kind === "image" && SHEETS[index]) ||
   (kind === "image" && index >= SKETCH_BASE && index < SKETCH_BASE + 100 && `boceto-${String(index - SKETCH_BASE + 1).padStart(2, "0")}`) ||
+  // "Escenas metáfora": the picture and the clip Grok made for an explainer's metaphor scene (600 + N).
+  ((kind === "image" || kind === "clip") && isMetaphorSlot(index) && metaphorFileBase(index, kind)) ||
   `toma-${String(index + 1).padStart(2, "0")}-${SLOT_NAME[kind]}`;
 
 export function saveMedia(

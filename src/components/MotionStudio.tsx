@@ -58,7 +58,23 @@ import type { PuppetAsset } from "../lib/puppet.ts";
 import type { ActorAsset } from "../lib/actor.ts";
 import { drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "../lib/motion.ts";
 import { VideoDeck, drawReady, unreadableVideos, videoSources, withOwnVideos } from "../lib/screenVideo.ts";
-import { videoAssetOf } from "../../shared/screenVideo.ts";
+import { recordingsUsed } from "../../shared/screenVideo.ts";
+import {
+  METAPHOR_BASE,
+  metaphorAsset,
+  metaphorBatch,
+  metaphorCastOf,
+  metaphorImagePrompt,
+  metaphorIssues,
+  metaphorOpusPrompt,
+  metaphorSlot,
+  metaphorVideoPrompt,
+  nextMetaphorSlot,
+  parseMetaphorReply,
+} from "../../shared/metaphor.ts";
+import { loadMetaphorParts, metaphorAssets, type MetaphorParts } from "../lib/metaphorMedia.ts";
+import { probeScreenVideo } from "../lib/videoProbe.ts";
+import type { MetaphorTools } from "./MetaphorPanel.tsx";
 import { TARGET_LUFS } from "../lib/motionAudio.ts";
 import { contactSheet, measureFacts, sheetJpeg, type ManualRound, type SheetFormat } from "../lib/motionQuality.ts";
 import {
@@ -138,6 +154,8 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   );
   const [voices, setVoices] = useState<Record<string, AudioFile>>({});
   const [layers, setLayers] = useState<HTMLImageElement[]>([]);
+  // "Escenas metáfora": the pictures and clips Grok made, by asset id ("metafora:N").
+  const [metaphorParts, setMetaphorParts] = useState<Record<string, MetaphorParts>>({});
   const [track, setTrack] = useState<{ file: AudioFile; buffer: AudioBuffer } | null>(null);
   // "Storyboard": open or closed (closed by default, so its code loads only when asked for).
   const [boardOpen, setBoardOpen] = useState(false);
@@ -307,6 +325,11 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         if (loaded.track) setTrack({ file: { url: objectUrl(loaded.track.blob), blob: loaded.track.blob, name: loaded.track.name, duration: loaded.track.duration }, buffer: loaded.track.buffer });
       })
       .catch(() => undefined);
+    // "Escenas metáfora": the pictures the opened scenes use, loaded on their own (a slow clip never holds the voices back).
+    const opened = openMotionPiece(brief.format, initial.piece).script?.scenes ?? [];
+    loadMetaphorParts(projectId, opened, initial.media)
+      .then((parts) => setMetaphorParts((had) => ({ ...parts, ...had })))
+      .catch(() => undefined);
     // Only when the piece is opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -329,10 +352,12 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const snapped: MotionScript | null = script ? { ...script, scenes } : null;
   const total = scenes.reduce((n, s) => n + s.seconds, 0);
 
-  const assets: Record<string, MotionAsset> = useMemo(() => ({ ...castImages, ...layerAssets(layers) }), [castImages, layers]);
+  const metaphors = useMemo(() => metaphorAssets(metaphorParts), [metaphorParts]);
+  const assets: Record<string, MotionAsset> = useMemo(() => ({ ...castImages, ...layerAssets(layers), ...metaphors }), [castImages, layers, metaphors]);
   // "Videos de la app funcionando": one player per scene for the screens' recordings (the preview's; every capture
   // forks its own).
-  const deck = useMemo(() => new VideoDeck(videoSources(castImages)), [castImages]);
+  // "Escenas metáfora": a metaphor's Grok clip plays through the same players.
+  const deck = useMemo(() => new VideoDeck(videoSources({ ...castImages, ...metaphors })), [castImages, metaphors]);
   useEffect(() => () => deck.dispose(), [deck]);
   // "Escena de código": the preview's sandboxes (every render forks its own, strict).
   const codeDeck = useMemo(() => new CodeDeck({ fonts: fontBytes, format: piece.format }), [piece.format]);
@@ -375,7 +400,9 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   // "Escena de código": a code scene with no code, a failed test, or a text out of the safe zone stops the render.
   const codeSig = (s: MotionScene) => samplesSig(s, piece.format, script?.tone, mascotTag);
   const openCode = codeIssues(timeScenes(scenes), piece.format, Boolean(world.disclosure), codeSig);
-  const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0 || openConcepts.length > 0 || openCode.length > 0;
+  // "Escenas metáfora": a metaphor scene with no picture from Grok yet (never a placeholder in a video).
+  const openMetaphor = metaphorIssues(scenes, (id) => Boolean(assets[id]));
+  const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0 || openConcepts.length > 0 || openCode.length > 0 || openMetaphor.length > 0;
   // The thumbnail: frame 0 of every render.
   const posterT = posterTime(scenes, piece.poster, push);
   const posterRef = useRef<HTMLCanvasElement>(null);
@@ -907,7 +934,12 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         const [w, h] = format === "vertical" ? [1080, 1920] : [1920, 1080];
         // A recording that cannot be read stops the render (never a still in its place in a finished video).
         const own = playedWorld.videos instanceof VideoDeck ? playedWorld.videos.fork() : null;
-        const used = new Set(played.scenes.flatMap((sc) => (sc.recording ? [videoAssetOf(sc)?.id ?? ""] : [])));
+        const missingPicture = metaphorIssues(played.scenes, (id) => Boolean(playedWorld.assets[id]));
+        if (missingPicture.length) {
+          own?.dispose();
+          throw new Error(missingPicture.map((i) => `Escena ${i.index + 1} (metáfora): ${i.problem}`).join(" "));
+        }
+        const used = recordingsUsed(played.scenes);
         const broken = own && used.size ? await own.check(used) : [];
         if (broken.length) {
           own?.dispose();
@@ -1008,6 +1040,72 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     const texts = new Set((result.samples?.frames ?? []).flat().map((t) => t.text.trim())).size;
     return { problems: result.problems, saved, texts, slowest: result.slowest };
   }
+
+  // "Escenas metáfora": the picture Grok made (a still or a clip) goes into the scene's slot (600 + N) in the project,
+  // and the scene's asset names it. A new upload of the same kind replaces the last one.
+  const metaphorCast = useMemo(() => metaphorCastOf(series.cast), [series.cast]);
+  async function uploadMetaphor(sceneId: string, file: File) {
+    const scene = scriptRef.current?.scenes.find((x) => x.id === sceneId);
+    if (!scene) return;
+    await work(
+      "upload",
+      async () => {
+        const isVideo = file.type.startsWith("video/");
+        if (!isVideo && !file.type.startsWith("image/")) throw new Error("Eso no es una imagen ni un video. Subí lo que bajaste de Grok (PNG, JPG, WebP, MP4 o WebM).");
+        const held = Object.keys(metaphorParts).map((id) => ({ asset: id }));
+        const n = metaphorSlot(scene.asset) ?? nextMetaphorSlot([...(scriptRef.current?.scenes ?? []), ...held]);
+        const id = metaphorAsset(n);
+        let part: Partial<MetaphorParts>;
+        let meta: { name: string; duration: number } | undefined;
+        if (isVideo) {
+          const probed = await probeScreenVideo(file);
+          const poster = probed.poster ? await loadImage(objectUrl(probed.poster)) : null;
+          part = { clip: { url: objectUrl(file), seconds: probed.seconds, width: probed.width, height: probed.height, poster } };
+          meta = { name: file.name, duration: probed.seconds };
+        } else {
+          const still = await loadImage(objectUrl(file));
+          if (!still) throw new Error("No pude abrir esa imagen. Probá bajarla de nuevo de Grok como PNG o JPG.");
+          part = { still };
+        }
+        if (projectId) await api.uploadMedia(projectId, METAPHOR_BASE + n, isVideo ? "clip" : "image", file, meta);
+        setMetaphorParts((had) => ({ ...had, [id]: { still: had[id]?.still ?? null, clip: had[id]?.clip ?? null, ...part } }));
+        if (scene.asset !== id) {
+          remember(`metafora-${sceneId}-${Date.now()}`);
+          editScenes((list) => list.map((x) => (x.id === sceneId ? { ...x, asset: id } : x)));
+        }
+      },
+      true,
+    );
+  }
+  async function removeMetaphor(sceneId: string) {
+    const scene = scriptRef.current?.scenes.find((x) => x.id === sceneId);
+    const n = metaphorSlot(scene?.asset);
+    if (!scene || n === null) return;
+    await work("upload", async () => {
+      if (projectId) await Promise.all((["image", "clip"] as const).map((k) => api.removeMedia(projectId, METAPHOR_BASE + n, k).catch(() => undefined)));
+      setMetaphorParts((had) => {
+        const { [metaphorAsset(n)]: _gone, ...rest } = had;
+        return rest;
+      });
+      remember(`metafora-${sceneId}-${Date.now()}`);
+      editScenes((list) => list.map((x) => (x.id === sceneId ? { ...x, asset: "" } : x)));
+    });
+  }
+  const metaphorTools: MetaphorTools = {
+    imagePrompt: (sc) => metaphorImagePrompt(sc.metaphor ?? { image: "", video: "", cast: [] }, { look: series.look, cast: metaphorCast }),
+    videoPrompt: (sc) => metaphorVideoPrompt(sc.metaphor ?? { image: "", video: "", cast: [] }),
+    opusPrompt: (sc) => metaphorOpusPrompt(sc, { series: series.name, problem: script?.problem ?? "", cast: metaphorCast, look: series.look }),
+    parse: (reply) => parseMetaphorReply(reply, metaphorCast.map((c) => c.id)),
+    cast: metaphorCast.map((c) => ({ id: c.id, label: `${series.cast.find((m) => m.id === c.id)?.name ?? c.id} (@${c.ref})` })),
+    has: (asset) => ({ image: Boolean(metaphorParts[asset]?.still), clip: Boolean(metaphorParts[asset]?.clip) }),
+    upload: uploadMetaphor,
+    remove: removeMetaphor,
+    batch: () =>
+      metaphorBatch(
+        timeScenes(scenes).filter((x) => x.template === "metaphor"),
+        { look: series.look, cast: metaphorCast },
+      ),
+  };
 
   const codeTools: CodeTools = {
     prompt: scenePrompt,
@@ -1148,6 +1246,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               timeRef={timeRef}
               vertical={vertical}
               openCode={openCode}
+              openMetaphor={openMetaphor}
             />
           </div>
 
@@ -1263,6 +1362,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           voiceAvailable={voiceAvailable}
           busy={busy}
           codeTools={codeTools}
+          metaphorTools={metaphorTools}
         />
       )}
     </section>

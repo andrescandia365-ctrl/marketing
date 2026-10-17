@@ -13,6 +13,7 @@ import { enterOnWordOn, enterOnWords, readableOnWords, type WordEntryInput } fro
 import { beatGrid, drawMotionFrame, scriptDuration, type MotionAsset, type MotionWorld } from "./motion.ts";
 import { buildSound, type HitKind, type SoundPlan } from "./motionAudio.ts";
 import { drawReady, withOwnVideos } from "./screenVideo.ts";
+import { isMetaphorAsset } from "../../shared/metaphor.ts";
 
 export const VOICE_BASE = 100;
 
@@ -226,9 +227,11 @@ export function layerAssets(layers: HTMLImageElement[]): Record<string, MotionAs
   return Object.fromEntries(layers.map((img, k) => [`layer:${k}`, asAsset(img, `layer:${k}`)]));
 }
 
-// Some picture on screen was made by an AI: an uploaded layer or a cast member that is not a real screenshot.
+// Some picture on screen was made by an AI: an uploaded layer, a metaphor's picture or a cast member that is not a
+// real screenshot.
 export function usesAiImages(scenes: MotionScene[], series: SeriesInfo): boolean {
-  return scenes.some((s) => [s.asset, s.assetB, ...(s.template === "code" ? (s.code?.assets ?? []) : [])].some((a) => a.startsWith("layer:") || series.cast.find((m) => m.id === a && m.kind !== "screen")));
+  // "Escenas metáfora": a metaphor's picture is always made with Grok.
+  return scenes.some((s) => [s.asset, s.assetB, ...(s.template === "code" ? (s.code?.assets ?? []) : [])].some((a) => a.startsWith("layer:") || isMetaphorAsset(a) || series.cast.find((m) => m.id === a && m.kind !== "screen")));
 }
 
 export function makeWorld(

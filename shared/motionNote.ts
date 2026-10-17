@@ -17,6 +17,7 @@ import {
 } from "./motion.ts";
 import { WORLD_PLACES, worldOf, type SceneWorld, type WorldPlace } from "./world.ts";
 import { clipText } from "./screenVideo.ts";
+import { sameMetaphor } from "./metaphor.ts";
 
 // The current script as the studio sends it. Old saved scenes may lack the later fields: they get the values the
 // studio already reads them with; everything else passes through untouched.
@@ -88,6 +89,8 @@ export function noteView(script: MotionScript): string {
         beyondToday: beyondNow(s)?.what ?? "",
         world: worldOf(s, script.world) ?? "none",
         clip: clipText(s.recording),
+        // "Escenas metáfora": what Grok draws, how it moves and who is in it (the uploaded picture stays the scene's).
+        ...(s.template === "metaphor" && { imagePrompt: s.metaphor?.image ?? "", videoPrompt: s.metaphor?.video ?? "", cast: (s.metaphor?.cast ?? []).join(", ") }),
       })),
     },
     null,
@@ -124,7 +127,13 @@ function changedScene(cur: MotionScene, rev: MotionScene, camera: MotionCamera |
   if (place !== worldOf(cur, worlds.cur)) patch.world = (place ?? "none") === (worlds.cur ?? "none") ? undefined : (place ?? "none");
   if (rev.template !== cur.template) patch.template = rev.template;
   if (!near(rev.seconds, cur.seconds, 0.25)) patch.seconds = rev.seconds;
-  for (const k of ["title", "text", "asset", "assetB", "voice", "emotion"] as const) if (rev[k].trim() !== (cur[k] ?? "").trim()) patch[k] = rev[k];
+  // A metaphor that stays a metaphor keeps its uploaded picture (the writer never uploads one); its moment may change.
+  const metaphor = rev.template === "metaphor" && cur.template === "metaphor";
+  for (const k of ["title", "text", "asset", "assetB", "voice", "emotion"] as const) {
+    if (k === "asset" && metaphor) continue;
+    if (rev[k].trim() !== (cur[k] ?? "").trim()) patch[k] = rev[k];
+  }
+  if (rev.template === "metaphor" && rev.metaphor && !sameMetaphor(rev.metaphor, cur.metaphor)) patch.metaphor = rev.metaphor;
   if (!same(rev.items, cur.items)) patch.items = rev.items;
   const template = rev.template;
   if (template === "character") {

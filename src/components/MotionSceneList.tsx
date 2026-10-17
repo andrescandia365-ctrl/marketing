@@ -36,8 +36,10 @@ import { Recorder, type AudioFile } from "./Audio.tsx";
 import type { Selection } from "./MotionTimeline.tsx";
 import { SceneRecording } from "./SceneRecording.tsx";
 import { CodeScenePanel, type CodeTools } from "./CodeScenePanel.tsx";
+import { MetaphorBatchButton, MetaphorPanel, type MetaphorTools } from "./MetaphorPanel.tsx";
 import { Button, inputClass } from "./ui.tsx";
 import { MASCOT_ASSET } from "../../shared/mascot.ts";
+import { isMetaphorAsset } from "../../shared/metaphor.ts";
 
 const smallInput = inputClass.replace("w-full", "");
 
@@ -66,9 +68,12 @@ type Props = {
   busy: string | null;
   // "Escena de código": the prompt for Opus, the test-and-save, and the writer when there is a key.
   codeTools: CodeTools;
+  // "Escenas metáfora": the Grok prompts, the request for Opus and the upload.
+  metaphorTools: MetaphorTools;
 };
 
-export function MotionSceneList({ script, scenes, selected, setSelected, seek, voices, piece, actors, puppets, series, layers, host, castCharacters, remember, setScript, updateScene, moveScene, fitVoice, generateVoice, keepVoice, voiceAvailable, busy, codeTools }: Props) {
+export function MotionSceneList({ script, scenes, selected, setSelected, seek, voices, piece, actors, puppets, series, layers, host, castCharacters, remember, setScript, updateScene, moveScene, fitVoice, generateVoice, keepVoice, voiceAvailable, busy, codeTools, metaphorTools }: Props) {
+  const metaphors = script.scenes.filter((x) => x.template === "metaphor").length;
   const assetOptions = [
     ...series.cast
       .filter((m) => m.kind !== "character" || m.image || m.puppet?.layers.length || m.rig?.file)
@@ -87,6 +92,8 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold">Escenas</h3>
+          <span className="flex items-start gap-2">
+          {metaphors > 0 && <MetaphorBatchButton tools={metaphorTools} count={metaphors} />}
           <Button
             variant="secondary"
             className="px-3 py-1 text-xs"
@@ -97,6 +104,7 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
           >
             + Escena
           </Button>
+          </span>
         </div>
         <ol className="space-y-2">
           {timeScenes(scenes).map((s) => {
@@ -124,7 +132,9 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
                       // A new character scene gets the series' explainer character.
                       const template = e.target.value as MotionScene["template"];
                       const [hosted] = hostScenes([{ ...raw, template }], host, castCharacters, true);
-                      updateScene(s.id, hosted.asset === raw.asset ? { template } : { template, asset: hosted.asset, assetB: hosted.assetB });
+                      // A metaphor shows only the picture made for it in Grok, never another one in its place.
+                      if (template === "metaphor") updateScene(s.id, { template, ...(!isMetaphorAsset(raw.asset) && { asset: "" }) });
+                      else updateScene(s.id, hosted.asset === raw.asset ? { template } : { template, asset: hosted.asset, assetB: hosted.assetB });
                     }}
                   >
                     {MOTION_TEMPLATES.map((t) => (
@@ -242,6 +252,8 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
                       })}
                       tools={codeTools}
                     />
+                  ) : raw.template === "metaphor" ? (
+                    <MetaphorPanel scene={raw} tools={metaphorTools} update={(patch) => updateScene(s.id, patch)} busy={busy !== null} />
                   ) : (
                   <>
                   <textarea

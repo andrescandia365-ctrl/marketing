@@ -1,5 +1,6 @@
 // The explainer studio's checks under the preview (Se lee, Cifras con fuente, Lo que existe hoy, Algo nuevo cada 2 a 4 s)
 // and the poster. Each open problem blocks the render until it is fixed or dismissed.
+import type { MetaphorIssue } from "../../shared/metaphor.ts";
 import {
   conceptIssues,
   conceptKey,
@@ -34,11 +35,35 @@ type Props = {
   vertical: boolean;
   // "Escena de código": scenes with no code, a failed test or text out of the safe zone (they block the render).
   openCode?: CodeIssue[];
+  // "Escenas metáfora": scenes still waiting for their picture from Grok (they block the render).
+  openMetaphor?: MetaphorIssue[];
 };
 
-export function MotionChecks({ scenes, piece, set, seek, setSelected, updateScene, openReading, openFigures, openConcepts, openGaps, gapKey, posterRef, posterT, timeRef, vertical, openCode = [] }: Props) {
+export function MotionChecks({ scenes, piece, set, seek, setSelected, updateScene, openReading, openFigures, openConcepts, openGaps, gapKey, posterRef, posterT, timeRef, vertical, openCode = [], openMetaphor = [] }: Props) {
   return (
     <>
+      {openMetaphor.length > 0 && (
+        <div className="rounded-xl border border-neg/40 bg-neg-soft p-3 text-sm">
+          <p className="font-semibold text-neg">Metáforas: no se puede generar hasta que cada una tenga su imagen de Grok.</p>
+          <ul className="mt-1 space-y-1">
+            {openMetaphor.map((c) => (
+              <li key={c.sceneId}>
+                <button
+                  type="button"
+                  className="text-left hover:underline"
+                  onClick={() => {
+                    const at = timeScenes(scenes).find((x) => x.id === c.sceneId);
+                    if (at) seek(at.start + 0.5);
+                    setSelected({ sceneId: c.sceneId, key: null });
+                  }}
+                >
+                  Escena {c.index + 1}: {c.problem}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {openCode.length > 0 && (
         <div className={`rounded-xl border p-3 text-sm ${openCode.every((c) => c.stale) ? "border-line bg-white" : "border-neg/40 bg-neg-soft"}`}>
           <p className={`font-semibold ${openCode.every((c) => c.stale) ? "text-muted" : "text-neg"}`}>Escenas de código: no se puede generar hasta que estén listas.</p>
