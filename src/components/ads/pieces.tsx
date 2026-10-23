@@ -1,6 +1,6 @@
 // Shared bits of the Publicidad section: level chips and the card that shows and edits one piece (hook, meat or CTA)
 // with its prompts and its clip or image.
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ANGLE_LABEL,
   FORMULA_LABEL,
@@ -17,13 +17,27 @@ import {
 } from "../../../shared/ads.ts";
 import { continuityNote, grokSequence, sequencePromptText, sequencePromptsFromPiece } from "../../../shared/adsSequence.ts";
 import { unverified } from "../../../shared/adsSpeaker.ts";
+import { formatSeconds, voiceLengthWarning, voiceNumber, VOICE_VARIANTS_MAX } from "../../../shared/voiceVariants.ts";
 import { buildCopyPrompt } from "../../../shared/prompt.ts";
 import type { Brief } from "../../../shared/schema.ts";
 import { CopyButton } from "../ScriptView.tsx";
 import { Button, Spinner, inputClass } from "../ui.tsx";
 
 export type ClipFile = { url: string; blob: Blob; name: string; duration: number; from?: number };
-export type PieceMediaState = { image?: string; clip?: ClipFile; clips?: (ClipFile | null)[]; voice?: ClipFile; loading?: boolean; voiceLoading?: boolean; error?: string };
+export type VoiceClip = ClipFile & { id: string; cutOk?: boolean };
+export type PieceMediaState = {
+  image?: string;
+  clip?: ClipFile;
+  clips?: (ClipFile | null)[];
+  // The single voice, mirrored while the piece has exactly one (the old render reads this blob).
+  voice?: ClipFile;
+  voices?: VoiceClip[];
+  voiceSeq?: number;
+  voiceErrors?: string[];
+  loading?: boolean;
+  voiceLoading?: boolean;
+  error?: string;
+};
 
 // A voice starts 0.15 s into its piece (render.ts) and is cut at the piece's end.
 export const VOICE_START = 0.15;
@@ -136,7 +150,16 @@ type CardProps = {
   look?: string;
   onGenerateImage: () => void;
   onRemoveMedia: (kind: "image" | "clip" | "voice") => void;
-  onUploadVoice: (file: File) => void;
+  onUploadVoices: (files: File[]) => void;
+  onReplaceVoice: (vid: string, file: File) => void;
+  onRenameVoice: (vid: string, name: string) => void;
+  onAcceptCut: (vid: string) => void;
+  onRemoveVoice: (vid: string) => void;
+  onConvert: () => void;
+  converting?: boolean;
+  convertDisabled?: boolean;
+  // "2/4" when several voices each have their own render.
+  cachedDetail?: string;
   // Null when there is no OpenAI key for generated voices.
   onGenerateVoice: (() => void) | null;
   // The piece's render in the cache: "mp4" (H.264) or "webm" (VP9 or another codec); null if not rendered yet.
@@ -150,6 +173,196 @@ type CardProps = {
   // "Que lo diga un personaje" (SpeakerPanel), shown under the clip buttons in Producción.
   speakerPanel?: ReactNode;
 };
+
+function PlayVoice({ url }: { url: string }) {
+  const audio = useRef<HTMLAudioElement>(null);
+  const [on, setOn] = useState(false);
+  if (!url) return null;
+  return (
+    <>
+      <audio
+        ref={audio}
+        src={url}
+        onEnded={() => setOn(false)}
+        onPause={() => setOn(false)}
+      />
+      <Button
+        variant="ghost"
+        className="px-2 py-1 text-xs"
+        onClick={() => {
+          const el = audio.current;
+          if (!el) return;
+          if (on) {
+            el.pause();
+            setOn(false);
+          } else {
+            void el.play();
+            setOn(true);
+          }
+        }}
+      >
+        {on ? "Pausa" : "Escuchar"}
+      </Button>
+    </>
+  );
+}
+
+function VoiceName({ name, onRename }: { name: string; onRename: (name: string) => void }) {
+  const [draft, setDraft] = useState(name);
+  useEffect(() => setDraft(name), [name]);
+  return (
+    <input
+      className="w-40 rounded border border-line bg-white px-2 py-1 text-xs"
+      value={draft}
+      aria-label="Nombre de la voz"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        const next = draft.trim();
+        if (next && next !== name) onRename(next);
+        else setDraft(name);
+      }}
+    />
+  );
+}
+
+function VoiceBox({
+  pieceSeconds,
+  voices,
+  errors,
+  loading,
+  canGenerate,
+  hasText,
+  converting,
+  convertDisabled,
+  onUpload,
+  onReplace,
+  onRename,
+  onAcceptCut,
+  onRemove,
+  onGenerate,
+  onConvert,
+}: {
+  pieceSeconds: number;
+  voices: VoiceClip[];
+  errors: string[];
+  loading: boolean;
+  canGenerate: boolean;
+  hasText: boolean;
+  converting: boolean;
+  convertDisabled: boolean;
+  onUpload: (files: File[]) => void;
+  onReplace: (vid: string, file: File) => void;
+  onRename: (vid: string, name: string) => void;
+  onAcceptCut: (vid: string) => void;
+  onRemove: (vid: string) => void;
+  onGenerate: (() => void) | null;
+  onConvert: () => void;
+}) {
+  const [over, setOver] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const full = voices.length >= VOICE_VARIANTS_MAX;
+  return (
+    <div className="space-y-1.5 border-t border-line pt-2">
+      <p className="font-semibold text-ink">
+        Voces ({voices.length}/{VOICE_VARIANTS_MAX})
+      </p>
+      <div
+        className={`rounded-lg border-2 border-dashed p-2 ${over ? "border-good bg-paper" : "border-line"}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          if (!full && e.dataTransfer.files.length) onUpload([...e.dataTransfer.files]);
+        }}
+      >
+        <p className="text-muted">
+          Soltá las voces acá o elegilas. mp3, wav, m4a, ogg o webm, hasta 25 MB. Cada archivo entra solo: si uno falla, los demás siguen.
+        </p>
+        <Button variant="secondary" className="mt-1 px-2 py-1 text-xs" disabled={full} onClick={() => input.current?.click()}>
+          Elegir voces
+        </Button>
+        <input
+          ref={input}
+          type="file"
+          multiple
+          accept=".mp3,.wav,.m4a,.ogg,.webm,audio/*"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files?.length) onUpload([...e.target.files]);
+            e.target.value = "";
+          }}
+        />
+      </div>
+      {voices.map((v) => {
+        const warning = voiceLengthWarning(voiceNumber(v.id), v.duration, pieceSeconds);
+        return (
+          <div key={v.id} className="flex flex-wrap items-center gap-2 rounded border border-line px-2 py-1">
+            <span className="font-mono text-[11px] text-muted">{v.id}</span>
+            <PlayVoice url={v.url} />
+            <VoiceName name={v.name} onRename={(name) => onRename(v.id, name)} />
+            <span className="text-muted">{formatSeconds(v.duration)} s</span>
+            <label className="cursor-pointer rounded border border-line bg-white px-2 py-0.5 font-semibold hover:border-ink">
+              Reemplazar
+              <input
+                type="file"
+                accept=".mp3,.wav,.m4a,.ogg,.webm,audio/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onReplace(v.id, file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            <button type="button" className="text-muted underline" onClick={() => onRemove(v.id)}>
+              Borrar
+            </button>
+            {warning && !v.cutOk && (
+              <p className="basis-full text-neg">
+                {warning}. Se corta al final de la pieza. Aceptá el corte o reemplazala antes de renderizar.{" "}
+                <button type="button" className="font-semibold underline" onClick={() => onAcceptCut(v.id)}>
+                  Cortala igual
+                </button>
+              </p>
+            )}
+            {warning && v.cutOk && <p className="basis-full text-muted">Aceptaste el corte: se corta al final de la pieza.</p>}
+          </div>
+        );
+      })}
+      {errors.map((e, i) => (
+        <p key={i} className="text-neg">
+          {e}
+        </p>
+      ))}
+      <div className="flex flex-wrap gap-2">
+        {onGenerate && (
+          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={onGenerate} disabled={loading || !hasText || (full && voices.length !== 1)}>
+            {loading ? <Spinner /> : voices.length === 1 ? "Generar de nuevo" : voices.length > 1 ? "Generar otra voz" : "Generar voz"}
+          </Button>
+        )}
+        {voices.length === 1 && (
+          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={onConvert} disabled={converting || convertDisabled}>
+            {converting ? <Spinner /> : "Convertir la voz"}
+          </Button>
+        )}
+        {voices.length > 1 && (
+          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={onConvert} disabled={converting || convertDisabled}>
+            {converting ? (
+              <Spinner />
+            ) : (
+              `Convertir las ${voices.length} voces`
+            )}
+          </Button>
+        )}
+      </div>
+      {!canGenerate && <p className="text-muted">Para generarla falta la clave de OpenAI en Modelos; podés subir las voces.</p>}
+    </div>
+  );
+}
 
 export function PieceCard({
   piece,
@@ -167,7 +380,15 @@ export function PieceCard({
   look,
   onGenerateImage,
   onRemoveMedia,
-  onUploadVoice,
+  onUploadVoices,
+  onReplaceVoice,
+  onRenameVoice,
+  onAcceptCut,
+  onRemoveVoice,
+  onConvert,
+  converting = false,
+  convertDisabled = false,
+  cachedDetail,
   onGenerateVoice,
   cached,
   stats,
@@ -176,7 +397,8 @@ export function PieceCard({
   onMakeExplainer,
   speakerPanel,
 }: CardProps) {
-  const voiceOver = media?.voice ? media.voice.duration + VOICE_START - piece.seconds : 0;
+  const voices = [...(media?.voices ?? [])].sort((a, b) => voiceNumber(a.id) - voiceNumber(b.id));
+  const longVoice = voices.find((v) => !v.cutOk && voiceLengthWarning(voiceNumber(v.id), v.duration, piece.seconds));
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ text: piece.text, onScreenText: piece.onScreenText, visualPrompt: piece.visualPrompt, videoPrompt: piece.videoPrompt });
@@ -299,16 +521,26 @@ export function PieceCard({
         )}
         {media?.image && !media.clip && <Tag>imagen</Tag>}
         {piece.speaker && <Tag title="Que lo diga un personaje">lo dice un personaje</Tag>}
-        {media?.voice ? (
-          <Tag title={voiceOver > 0 ? "La voz no entra: se corta al final de la pieza" : "Voz"}>
-            <span className={voiceOver > 0 ? "text-neg" : ""}>voz {media.voice.duration.toFixed(1)} s</span>
+        {voices.length > 1 ? (
+          <Tag title={longVoice ? (voiceLengthWarning(voiceNumber(longVoice.id), longVoice.duration, piece.seconds) ?? "Voz larga") : "Variantes de voz"}>
+            <span className={longVoice ? "text-neg" : ""}>
+              voces {voices.length}/{VOICE_VARIANTS_MAX}
+            </span>
           </Tag>
+        ) : voices.length === 1 ? (
+          <Tag title={longVoice ? "La voz no entra: se corta al final de la pieza" : "Voz"}>
+            <span className={longVoice ? "text-neg" : ""}>voz {formatSeconds(voices[0].duration)} s</span>
+          </Tag>
+        ) : media?.voice ? (
+          <Tag>voz {formatSeconds(media.voice.duration)} s</Tag>
         ) : (
           <Tag>solo subtítulo</Tag>
         )}
         {cached && (
           <Tag title={cached === "mp4" ? "Renderizada en H.264: se une sin recodificar y las plataformas la aceptan." : "Renderizada en webm (VP9 u otro): este navegador no codifica H.264. Los anuncios salen en MP4 con VP9, que algunas plataformas rechazan."}>
-            <span className={cached === "webm" ? "text-neg" : ""}>en caché · {cached === "mp4" ? "H.264" : "webm"}</span>
+            <span className={cached === "webm" ? "text-neg" : ""}>
+              en caché{cachedDetail ? ` · ${cachedDetail}` : ""} · {cached === "mp4" ? "H.264" : "webm"}
+            </span>
           </Tag>
         )}
       </div>
@@ -398,32 +630,23 @@ export function PieceCard({
               </ol>
             )}
             {speakerPanel}
-            <div className="space-y-1.5 border-t border-line pt-2">
-              <p className="font-semibold text-ink">Voz</p>
-              {media?.voice && <audio src={media.voice.url} controls className="h-8 w-full" />}
-              {voiceOver > 0 && (
-                <p className="text-neg">
-                  La voz dura {media!.voice!.duration.toFixed(1)} s y la pieza {piece.seconds} s: se corta {voiceOver.toFixed(1)} s antes de terminar. Acortá el texto o regenerala.
-                </p>
-              )}
-              <div className="flex flex-wrap gap-2">
-                {onGenerateVoice && (
-                  <Button variant="secondary" className="px-2 py-1 text-xs" onClick={onGenerateVoice} disabled={media?.voiceLoading || !piece.text.trim()}>
-                    {media?.voiceLoading ? <Spinner /> : media?.voice ? "Generar de nuevo" : "Generar voz"}
-                  </Button>
-                )}
-                <label className="cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-semibold hover:border-ink">
-                  Subir voz
-                  <input type="file" accept="audio/*" className="hidden" onChange={(e) => e.target.files?.[0] && onUploadVoice(e.target.files[0])} />
-                </label>
-                {media?.voice && (
-                  <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onRemoveMedia("voice")}>
-                    Quitar voz
-                  </Button>
-                )}
-              </div>
-              {!onGenerateVoice && <p className="text-muted">Para generarla falta la clave de OpenAI en Modelos; podés subirla.</p>}
-            </div>
+            <VoiceBox
+              pieceSeconds={piece.seconds}
+              voices={voices}
+              errors={media?.voiceErrors ?? []}
+              loading={Boolean(media?.voiceLoading)}
+              canGenerate={Boolean(onGenerateVoice)}
+              hasText={Boolean(piece.text.trim())}
+              converting={converting}
+              convertDisabled={convertDisabled}
+              onUpload={onUploadVoices}
+              onReplace={onReplaceVoice}
+              onRename={onRenameVoice}
+              onAcceptCut={onAcceptCut}
+              onRemove={onRemoveVoice}
+              onGenerate={onGenerateVoice}
+              onConvert={onConvert}
+            />
             {media?.error && <p className="text-neg">{media.error}</p>}
           </div>
           <div className={`overflow-hidden rounded-lg border border-line bg-black ${format === "vertical" ? "aspect-[9/16]" : "aspect-video"}`}>

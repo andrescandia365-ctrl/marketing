@@ -6,6 +6,7 @@ import {
   ADS_SETTINGS_KEY,
   LEVEL_INFO,
   levelsOf,
+  adId,
   currentRender,
   isAdSeconds,
   offerFilled,
@@ -40,7 +41,8 @@ import { CombinePanel, type RenderProgress } from "./CombinePanel.tsx";
 import { HooksPanel } from "./HooksPanel.tsx";
 import { OfferForm } from "./OfferForm.tsx";
 import { PiecesPanel } from "./PiecesPanel.tsx";
-import { PieceCard, type PieceMediaState } from "./pieces.tsx";
+import { PieceCard, type PieceMediaState, type VoiceClip } from "./pieces.tsx";
+import { nextVoiceId, pieceOfUnit, renderKey, renderUnits, voiceCachePlan, voiceCutBlock, voiceNumber, type CachePlan } from "../../../shared/voiceVariants.ts";
 import { SourcesPanel } from "./SourcesPanel.tsx";
 import { SpeakerBatch } from "./SpeakerBatch.tsx";
 import { SpeakerPanel } from "./SpeakerPanel.tsx";
@@ -76,6 +78,34 @@ type Props = {
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const findPieceIn = (state: AdsState | null, id: string): Piece | undefined => (state ? [...state.hooks, ...state.meats, ...state.ctas].find((p) => p.id === id) : undefined);
+const byVoiceId = (a: { id: string }, b: { id: string }) => voiceNumber(a.id) - voiceNumber(b.id);
+
+function dropSessionPiece(map: Map<string, Blob>, pieceId: string) {
+  for (const key of [...map.keys()]) {
+    if (key === pieceId || key.startsWith(`${pieceId}.v`)) map.delete(key);
+  }
+}
+
+function applySessionPlan(map: Map<string, Blob>, plan: CachePlan) {
+  if (plan.move) {
+    const blob = map.get(plan.move.from);
+    if (blob) {
+      map.delete(plan.move.from);
+      map.set(plan.move.to, blob);
+    }
+  }
+  for (const key of plan.drop) {
+    if (key !== plan.move?.to) map.delete(key);
+  }
+}
+
+const STAGE_LABEL: Record<RenderProgress["stage"], string> = {
+  pieces: "Renderizando piezas",
+  ads: "Armando anuncios",
+  csv: "Escribiendo el CSV",
+  voices: "Generando voces",
+  convert: "Convirtiendo voces",
+};
 
 function clipDuration(url: string): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -136,6 +166,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   const [flags, setFlags] = useState<ReviewFlag[] | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [progress, setProgress] = useState<RenderProgress | null>(null);
+  const [convertingId, setConvertingId] = useState<string | null>(null);
   const [wizard, setWizard] = useState<Wizard | null>(null);
   const [fields, setFields] = useState<{ worksToday: string[]; audience: string; what: string } | null>(null);
   // "Sin clave": the platform texts pasted from claude.ai (by pair key) until a run takes them, and the counts
@@ -148,6 +179,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     setPreset({});
   }, [series.id]);
   const renders = useRef(new Map<string, Blob>());
+  const stopRef = useRef(false);
   const urls = useRef<string[]>([]);
   const motionLock = useRef(false);
   const toolId = settings.tool && tools.some((t) => t.id === settings.tool) ? settings.tool : (tools[0]?.id ?? "");
@@ -201,7 +233,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
               .then((image) => !cancel && setMedia((prev) => ({ ...prev, [id]: { ...prev[id], image } })))
               .catch(() => undefined);
           }
-          for (const kind of ["clip", "voice"] as const) {
+          for (const kind of ["clip"] as const) {
             const saved = m[kind];
             if (!saved) continue;
             fetch(adsFileUrl(series.id, saved.file))
@@ -212,6 +244,34 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
                 urls.current.push(url);
                 const from = "from" in saved ? saved.from : undefined;
                 setMedia((prev) => ({ ...prev, [id]: { ...prev[id], [kind]: { url, blob, name: saved.name, duration: saved.duration, ...(from !== undefined ? { from } : {}) } } }));
+              })
+              .catch(() => undefined);
+          }
+          if (m.voiceSeq || m.voices?.length) {
+            setMedia((prev) => ({ ...prev, [id]: { ...prev[id], voiceSeq: m.voiceSeq } }));
+          }
+          const voiceList = m.voices ?? [];
+          const singleVoice = voiceList.length === 1;
+          for (const saved of voiceList) {
+            fetch(adsFileUrl(series.id, saved.file))
+              .then((r) => r.blob())
+              .then((blob) => {
+                if (cancel) return;
+                const url = URL.createObjectURL(blob);
+                urls.current.push(url);
+                const entry: VoiceClip = { id: saved.id, url, blob, name: saved.name, duration: saved.seconds, ...(saved.cutOk ? { cutOk: true } : {}) };
+                setMedia((prev) => {
+                  const cur = prev[id] ?? {};
+                  const voices = [...(cur.voices ?? [])];
+                  const at = voices.findIndex((v) => v.id === saved.id);
+                  if (at >= 0) voices[at] = entry;
+                  else voices.push(entry);
+                  voices.sort(byVoiceId);
+                  const next: PieceMediaState = { ...cur, voices, voiceSeq: m.voiceSeq ?? cur.voiceSeq };
+                  if (singleVoice) next.voice = { url, blob, name: saved.name, duration: saved.seconds };
+                  else delete next.voice;
+                  return { ...prev, [id]: next };
+                });
               })
               .catch(() => undefined);
           }
@@ -243,9 +303,21 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   const demo = !writer;
   const lang = "es" as const;
   // How a piece's cached render was encoded, from its file: mp4 is H.264 (render.ts), webm is VP9 or another codec.
+  const cacheFiles = (id: string): string[] => {
+    if (!state) return [];
+    return Object.entries(state.renders)
+      .filter(([key, file]) => currentRender(file) && (key === id || key.startsWith(`${id}.v`)))
+      .map(([, file]) => file);
+  };
   const cachedFormat = (id: string): "mp4" | "webm" | null => {
-    const file = state?.renders[id];
-    return file ? (file.endsWith(".mp4") ? "mp4" : "webm") : null;
+    const files = cacheFiles(id);
+    if (!files.length) return null;
+    return files.some((f) => !f.endsWith(".mp4")) ? "webm" : "mp4";
+  };
+  const cachedDetail = (id: string): string | undefined => {
+    const total = state?.media[id]?.voices?.length ?? 0;
+    if (total <= 1) return undefined;
+    return `${cacheFiles(id).length}/${total}`;
   };
   const pieceById = useMemo(() => {
     const m = new Map<string, Piece>();
@@ -289,7 +361,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       setPieceMedia(piece.id, { image, error: undefined });
       const r = await adsApi.uploadPieceMedia(series.id, piece.id, "image", file);
       setState(r.state);
-      renders.current.delete(piece.id);
+      dropSessionPiece(renders.current, piece.id);
     } catch (e) {
       setPieceMedia(piece.id, { error: message(e) });
     }
@@ -313,7 +385,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       }
       const r = await adsApi.uploadPieceMedia(series.id, piece.id, "clip", file, { name: file.name, duration, ...(index !== undefined && { index }) });
       setState(r.state);
-      renders.current.delete(piece.id);
+      dropSessionPiece(renders.current, piece.id);
     } catch (e) {
       URL.revokeObjectURL(url);
       setPieceMedia(piece.id, { error: message(e) });
@@ -329,39 +401,91 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       const blob = await (await fetch(dataUrl)).blob();
       const r = await adsApi.uploadPieceMedia(series.id, piece.id, "image", blob);
       setState(r.state);
-      renders.current.delete(piece.id);
+      dropSessionPiece(renders.current, piece.id);
     } catch (e) {
       setPieceMedia(piece.id, { loading: false, error: message(e) });
     }
   }
 
-  // The piece's voice: uploaded, or generated with the presenter's voice from the offer profile. Its render is redone.
-  async function keepVoice(piece: Piece, blob: Blob, name: string) {
+  // Stores one voice file under a variant id. One voice replaces that voice. Several voices add the next id.
+  // The session cache follows voiceCachePlan, so the voice that did not change is not rendered again.
+  async function storeVoice(piece: Piece, blob: Blob, name: string, vid: string, beforeIds: string[]) {
     const duration = await audioDuration(blob).catch(() => {
       throw new Error("No se pudo leer ese audio. Probá con un .mp3 o un .wav.");
     });
-    const url = URL.createObjectURL(blob);
-    urls.current.push(url);
-    setPieceMedia(piece.id, { voice: { url, blob, name, duration }, voiceLoading: false, error: undefined });
     const file = blob.type ? blob : new Blob([blob], { type: "audio/mpeg" });
-    const r = await adsApi.uploadPieceMedia(series.id, piece.id, "voice", file, { name, duration });
+    const r = await adsApi.uploadVoice(series.id, piece.id, vid, file, { name, seconds: duration });
     setState(r.state);
-    renders.current.delete(piece.id);
+    const saved = r.state.media[piece.id];
+    const url = URL.createObjectURL(file);
+    urls.current.push(url);
+    setMedia((prev) => {
+      const cur = prev[piece.id] ?? {};
+      const voices: VoiceClip[] = (saved?.voices ?? []).flatMap((v) => {
+        const local = (cur.voices ?? []).find((x) => x.id === v.id);
+        const src = v.id === vid ? { url, blob: file } : local;
+        if (!src?.url) return [];
+        return [{ id: v.id, url: src.url, blob: src.blob, name: v.name, duration: v.seconds, ...(v.cutOk ? { cutOk: true as const } : {}) }];
+      });
+      const next: PieceMediaState = { ...cur, voices, voiceSeq: saved?.voiceSeq, voiceLoading: false, error: undefined };
+      if (voices.length === 1) next.voice = { url: voices[0].url, blob: voices[0].blob, name: voices[0].name, duration: voices[0].duration };
+      else delete next.voice;
+      return { ...prev, [piece.id]: next };
+    });
+    const afterIds = (saved?.voices ?? []).map((v) => v.id);
+    applySessionPlan(renders.current, voiceCachePlan(piece.id, beforeIds, afterIds, vid, beforeIds.includes(vid) ? "replace" : "add"));
+    return { seq: saved?.voiceSeq ?? 0, count: afterIds.length, ids: afterIds };
   }
 
-  async function uploadVoice(piece: Piece, file: File) {
+  async function uploadVoices(piece: Piece, files: File[]) {
+    const errors: string[] = [];
+    let seq = state?.media[piece.id]?.voiceSeq ?? 0;
+    let count = state?.media[piece.id]?.voices?.length ?? 0;
+    let beforeIds = (state?.media[piece.id]?.voices ?? []).map((v) => v.id);
+    for (const file of files) {
+      const next = nextVoiceId(seq, count);
+      if ("error" in next) {
+        errors.push(`${file.name}: ${next.error}`);
+        continue;
+      }
+      try {
+        const saved = await storeVoice(piece, file, file.name, next.id, beforeIds);
+        seq = saved.seq;
+        count = saved.count;
+        beforeIds = saved.ids;
+      } catch (e) {
+        errors.push(`${file.name}: ${message(e)}`);
+      }
+    }
+    setPieceMedia(piece.id, { voiceErrors: errors });
+  }
+
+  async function replaceVoice(piece: Piece, vid: string, file: File) {
+    const beforeIds = (state?.media[piece.id]?.voices ?? []).map((v) => v.id);
     try {
-      await keepVoice(piece, file, file.name);
+      await storeVoice(piece, file, file.name, vid, beforeIds);
+      setPieceMedia(piece.id, { voiceErrors: [] });
     } catch (e) {
-      setPieceMedia(piece.id, { error: message(e) });
+      setPieceMedia(piece.id, { voiceErrors: [`${file.name}: ${message(e)}`] });
     }
   }
 
   async function generateVoice(piece: Piece) {
+    const list = state?.media[piece.id]?.voices ?? [];
+    const seq = state?.media[piece.id]?.voiceSeq ?? 0;
+    let vid = list.length === 1 ? list[0].id : "";
+    if (list.length !== 1) {
+      const next = nextVoiceId(seq, list.length);
+      if ("error" in next) {
+        setPieceMedia(piece.id, { error: next.error });
+        return;
+      }
+      vid = next.id;
+    }
     setPieceMedia(piece.id, { voiceLoading: true, error: undefined });
     try {
       const blob = await api.speak(piece.text, state?.offer.ttsVoice ?? "", lang);
-      await keepVoice(piece, blob, `${piece.id}-voz-generada.mp3`);
+      await storeVoice(piece, blob, `${piece.id}-voz-generada.mp3`, vid, list.map((v) => v.id));
     } catch (e) {
       setPieceMedia(piece.id, { voiceLoading: false, error: message(e) });
     }
@@ -370,17 +494,70 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   // Every approved piece without a voice gets one, one after another (the speech API is called once per piece).
   async function generateMissingVoices() {
     if (!state) return;
-    const missing = [...state.hooks, ...state.meats, ...state.ctas].filter((p) => p.status === "approved" && !media[p.id]?.voice && p.text.trim());
+    const missing = [...state.hooks, ...state.meats, ...state.ctas].filter((p) => p.status === "approved" && !(state.media[p.id]?.voices?.length) && p.text.trim());
     setBusy("voices");
     setError("");
     try {
       for (const [i, p] of missing.entries()) {
-        setProgress({ stage: "voices", done: i, total: missing.length, current: `${p.id}: ${p.text.slice(0, 60)}`, errors: [] });
+        setProgress({ stage: "voices", done: i + 1, total: missing.length, current: `${p.id}: ${p.text.slice(0, 60)}`, errors: [] });
         await generateVoice(p);
       }
-      setProgress(null);
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function renameVoice(piece: Piece, vid: string, name: string) {
+    try {
+      const r = await adsApi.patchVoice(series.id, piece.id, vid, { name });
+      setState(r.state);
+      const saved = r.state.media[piece.id]?.voices?.find((v) => v.id === vid);
+      if (!saved) return;
+      setMedia((prev) => {
+        const cur = prev[piece.id];
+        if (!cur) return prev;
+        const voices = (cur.voices ?? []).map((v) => (v.id === vid ? { ...v, name: saved.name } : v));
+        const next: PieceMediaState = { ...cur, voices };
+        if (voices.length === 1 && next.voice) next.voice = { ...next.voice, name: saved.name };
+        return { ...prev, [piece.id]: next };
+      });
+    } catch (e) {
+      setPieceMedia(piece.id, { error: message(e) });
+    }
+  }
+
+  async function acceptCut(piece: Piece, vid: string) {
+    try {
+      const r = await adsApi.patchVoice(series.id, piece.id, vid, { cutOk: true });
+      setState(r.state);
+      setMedia((prev) => {
+        const voices = (prev[piece.id]?.voices ?? []).map((v) => (v.id === vid ? { ...v, cutOk: true } : v));
+        return { ...prev, [piece.id]: { ...prev[piece.id], voices } };
+      });
+    } catch (e) {
+      setPieceMedia(piece.id, { error: message(e) });
+    }
+  }
+
+  async function removeVoice(piece: Piece, vid: string) {
+    const before = (state?.media[piece.id]?.voices ?? []).map((v) => v.id);
+    try {
+      const r = await adsApi.removeVoice(series.id, piece.id, vid);
+      setState(r.state);
+      const after = (r.state.media[piece.id]?.voices ?? []).map((v) => v.id);
+      applySessionPlan(renders.current, voiceCachePlan(piece.id, before, after, vid, "delete"));
+      setMedia((prev) => {
+        const cur = prev[piece.id] ?? {};
+        const gone = (cur.voices ?? []).find((v) => v.id === vid);
+        if (gone) URL.revokeObjectURL(gone.url);
+        const voices = (cur.voices ?? []).filter((v) => v.id !== vid);
+        const next: PieceMediaState = { ...cur, voices, voiceSeq: r.state.media[piece.id]?.voiceSeq };
+        if (voices.length === 1) next.voice = { url: voices[0].url, blob: voices[0].blob, name: voices[0].name, duration: voices[0].duration };
+        else delete next.voice;
+        return { ...prev, [piece.id]: next };
+      });
+    } catch (e) {
+      setPieceMedia(piece.id, { error: message(e) });
     }
   }
 
@@ -396,7 +573,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       }
       return { ...prev, [piece.id]: next };
     });
-    renders.current.delete(piece.id);
+    dropSessionPiece(renders.current, piece.id);
     await act("media", () => adsApi.removePieceMedia(series.id, piece.id, kind, index));
   }
 
@@ -413,7 +590,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       onStatus={(status) => setStatus([piece.id], status)}
       onSave={async (patch) => {
         const r = await act("patch", () => adsApi.patchPiece(series.id, piece.id, patch));
-        if (r) renders.current.delete(piece.id);
+        if (r) dropSessionPiece(renders.current, piece.id);
       }}
       onRemove={() => confirm(`¿Borrar ${piece.id}?`) && act("remove", () => adsApi.removePiece(series.id, piece.id))}
       onUploadImage={(f) => uploadImage(piece, f)}
@@ -423,9 +600,17 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       look={lookPhrase(series.look)}
       onGenerateImage={() => generateImage(piece)}
       onRemoveMedia={(k) => removeMedia(piece, k)}
-      onUploadVoice={(f) => uploadVoice(piece, f)}
+      onUploadVoices={(files) => void uploadVoices(piece, files)}
+      onReplaceVoice={(vid, file) => void replaceVoice(piece, vid, file)}
+      onRenameVoice={(vid, name) => void renameVoice(piece, vid, name)}
+      onAcceptCut={(vid) => void acceptCut(piece, vid)}
+      onRemoveVoice={(vid) => void removeVoice(piece, vid)}
+      onConvert={() => void convertPiece(piece)}
+      converting={convertingId === piece.id}
+      convertDisabled={busy !== null}
       onGenerateVoice={voice.available ? () => generateVoice(piece) : null}
       cached={cachedFormat(piece.id)}
+      cachedDetail={cachedDetail(piece.id)}
       flags={flagsFor(piece.id)}
       explainer={state?.media[piece.id]?.clip?.explainer ? { title: state.media[piece.id]!.clip!.explainer!.title, from: state.media[piece.id]!.clip!.from ?? 0 } : undefined}
       onMakeExplainer={
@@ -441,10 +626,10 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           tool={tools.find((t) => t.id === toolId)}
           format={settings.format}
           hasClip={Boolean(media[piece.id]?.clip) || Boolean(media[piece.id]?.clips?.some(Boolean))}
-          hasVoice={Boolean(media[piece.id]?.voice)}
+          hasVoice={Boolean(media[piece.id]?.voice) || (media[piece.id]?.voices?.length ?? 0) > 0}
           onSave={async (speaker) => {
             const r = await act("patch", () => adsApi.patchPiece(series.id, piece.id, { speaker }));
-            if (r) renders.current.delete(piece.id);
+            if (r) dropSessionPiece(renders.current, piece.id);
           }}
           onMascot={
             onToExplainer && series.mascot
@@ -636,13 +821,17 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   // An explainer's clip plays from its in point and carries its own words (nothing drawn on top).
   // A character's clip ("Que lo diga un personaje") plays from the speaker's in point, muted when the piece's own voice
   // says the line instead.
-  const shotMedia = (id: string): PieceMedia => {
+  const shotMedia = (id: string, voiceId?: string): PieceMedia => {
     const saved = state?.media[id]?.clip;
     const speaker = findPieceIn(state, id)?.speaker;
+    const locals = media[id]?.voices ?? [];
+    const multi = (state?.media[id]?.voices?.length ?? 0) > 1;
+    // One voice keeps the old blob (media.voice). Several voices play the chosen variant.
+    const voiceBlob = multi && voiceId ? locals.find((v) => v.id === voiceId)?.blob : locals.length === 1 ? locals[0].blob : media[id]?.voice?.blob;
     return {
       image: media[id]?.image,
       clip: media[id]?.clip?.blob,
-      voice: media[id]?.voice?.blob,
+      voice: voiceBlob,
       clipFrom: saved?.from ?? speaker?.from ?? 0,
       finished: Boolean(saved?.explainer),
       clips: (media[id]?.clips ?? []).map((c) => (c ? { blob: c.blob, from: c.from ?? 0 } : null)),
@@ -651,23 +840,35 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   };
 
   // A piece's render: this session's, the cached file, or a new render saved to the cache.
-  async function ensureRender(piece: Piece, current: AdsState): Promise<{ blob: Blob; state: AdsState }> {
-    const known = renders.current.get(piece.id);
+  // One voice uses the piece id (`H3.l2.mp4`). Several voices use `H3.v2.l2.mp4`.
+  async function ensureRender(piece: Piece, current: AdsState, voiceId?: string): Promise<{ blob: Blob; state: AdsState }> {
+    const voices = current.media[piece.id]?.voices ?? [];
+    const multi = voices.length > 1;
+    const vid = multi ? voiceId : undefined;
+    if (multi && !vid) throw new Error("Esta pieza tiene varias voces: indicá cuál render es.");
+    const variant = vid ? voices.find((v) => v.id === vid) : voices[0];
+    if (vid && !variant) throw new Error("Esa voz no existe.");
+    if (variant) {
+      const block = voiceCutBlock(variant, piece.seconds);
+      if (block) throw new Error(block);
+    }
+    const key = renderKey(piece.id, vid, multi);
+    const known = renders.current.get(key);
     if (known) return { blob: known, state: current };
-    const saved = current.renders[piece.id];
+    const saved = current.renders[key];
     // A render from before the pieces were levelled to one loudness is made again.
     if (currentRender(saved)) {
       const blob = await fetch(adsFileUrl(series.id, saved))
         .then((r) => (r.ok ? r.blob() : null))
         .catch(() => null);
       if (blob && blob.size) {
-        renders.current.set(piece.id, blob);
+        renders.current.set(key, blob);
         return { blob, state: current };
       }
     }
-    const result = await renderPiece(piece, shotMedia(piece.id), look(), () => undefined);
-    renders.current.set(piece.id, result.blob);
-    const up = await adsApi.uploadRender(series.id, piece.id, result.blob);
+    const result = await renderPiece(piece, shotMedia(piece.id, vid), look(), () => undefined);
+    renders.current.set(key, result.blob);
+    const up = await adsApi.uploadRender(series.id, piece.id, result.blob, vid);
     setState(up.state);
     return { blob: result.blob, state: up.state };
   }
@@ -675,8 +876,9 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   // One ad from its cached pieces, packets copied; if this browser cannot, rendered whole (and so is the rest).
   async function assembleAd(ad: AdCombo, whole: { on: boolean }, errors: string[]): Promise<Blob> {
     const parts = [ad.hookId, ad.meatId, ad.ctaId];
+    const voiceOf = [ad.hookVoice, ad.meatVoice, ad.ctaVoice];
     const pieces = parts.map((id) => pieceById.get(id)).filter((p): p is Piece => Boolean(p));
-    const cached = parts.map((id) => renders.current.get(id));
+    const cached = renderUnits(ad).map((unit) => renders.current.get(unit));
     if (!whole.on && cached.every((b): b is Blob => Boolean(b))) {
       try {
         return await concatPieces(cached);
@@ -685,23 +887,42 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
         errors.push(`Las piezas no se pudieron unir sin recodificar (${message(e)}); los anuncios se renderizan enteros.`);
       }
     }
-    return (await renderAdWhole(pieces, Object.fromEntries(parts.map((id) => [id, shotMedia(id)])), look(), () => undefined)).blob;
+    return (await renderAdWhole(pieces, Object.fromEntries(parts.map((id, i) => [id, shotMedia(id, voiceOf[i])])), look(), () => undefined)).blob;
   }
 
   // "Probar un anuncio": the three pieces (cached or rendered now) cut together, to watch before a batch.
-  async function previewAd(hookId: string, meatId: string, ctaId: string): Promise<string | null> {
+  async function previewAd(hookId: string, meatId: string, ctaId: string, voices?: { hook?: string; meat?: string; cta?: string }): Promise<string | null> {
     if (!state) return null;
     setError("");
     setBusy("preview");
     try {
       let current = state;
-      for (const id of [hookId, meatId, ctaId]) {
-        const piece = pieceById.get(id);
-        if (!piece) throw new Error(`No existe ${id}.`);
-        current = (await ensureRender(piece, current)).state;
+      const specs = [
+        { id: hookId, voice: voices?.hook },
+        { id: meatId, voice: voices?.meat },
+        { id: ctaId, voice: voices?.cta },
+      ];
+      for (const spec of specs) {
+        const piece = pieceById.get(spec.id);
+        if (!piece) throw new Error(`No existe ${spec.id}.`);
+        current = (await ensureRender(piece, current, spec.voice)).state;
       }
+      const hook = pieceById.get(hookId);
       const errors: string[] = [];
-      const blob = await assembleAd({ id: `${hookId}-${meatId}-${ctaId}`, hookId, meatId, ctaId, level: pieceById.get(hookId)?.kind === "hook" ? (pieceById.get(hookId) as Hook).level : 1 }, { on: false }, errors);
+      const blob = await assembleAd(
+        {
+          id: adId(hookId, meatId, ctaId, voices),
+          hookId,
+          meatId,
+          ctaId,
+          level: hook?.kind === "hook" ? (hook as Hook).level : 1,
+          ...(voices?.hook && { hookVoice: voices.hook }),
+          ...(voices?.meat && { meatVoice: voices.meat }),
+          ...(voices?.cta && { ctaVoice: voices.cta }),
+        },
+        { on: false },
+        errors,
+      );
       if (errors.length) setError(errors.join(" "));
       const url = URL.createObjectURL(blob);
       urls.current.push(url);
@@ -711,6 +932,43 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       return null;
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function convertPiece(piece: Piece) {
+    if (!state || busy) return;
+    const voices = state.media[piece.id]?.voices ?? [];
+    if (!voices.length) return;
+    stopRef.current = false;
+    setConvertingId(piece.id);
+    setBusy("convert");
+    setError("");
+    const errors: string[] = [];
+    const total = voices.length;
+    let stoppedAt = 0;
+    try {
+      let current = state;
+      for (let i = 0; i < voices.length; i++) {
+        if (stopRef.current) {
+          errors.push("Paraste la conversión.");
+          break;
+        }
+        const v = voices[i];
+        stoppedAt = i + 1;
+        setProgress({ stage: "convert", done: i + 1, total, current: `${piece.id} · ${v.name}`, errors: [...errors] });
+        try {
+          current = (await ensureRender(piece, current, v.id)).state;
+        } catch (e) {
+          errors.push(`${v.name}: ${message(e)}`);
+          setProgress({ stage: "convert", done: i + 1, total, current: `${piece.id} · ${v.name}`, errors: [...errors] });
+        }
+      }
+      setProgress({ stage: "convert", done: stopRef.current ? stoppedAt : total, total, current: stopRef.current ? "Parado" : "Listo", errors });
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(null);
+      setConvertingId(null);
     }
   }
   function clipPresence(piece: Piece): ClipPresence {
@@ -740,6 +998,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     }
     setError("");
     setBusy("run");
+    stopRef.current = false;
     const errors: string[] = [];
     try {
       const created = await adsApi.createBatch(series.id, {
@@ -756,36 +1015,49 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       setPastedCopies((prev) => Object.fromEntries(Object.entries(prev).filter(([key]) => !used.has(key))));
       const batch = created.batch;
       let current = created.state;
+      const units = [...new Set(combos.flatMap((a) => renderUnits(a)))];
 
-      setProgress({ stage: "pieces", done: 0, total: pieceIds.length, current: "", errors });
-      for (let i = 0; i < pieceIds.length; i++) {
-        const id = pieceIds[i];
+      setProgress({ stage: "pieces", done: 0, total: units.length, current: "", errors });
+      for (let i = 0; i < units.length; i++) {
+        if (stopRef.current) {
+          errors.push("Paraste la tanda.");
+          break;
+        }
+        const unit = units[i];
+        const id = pieceOfUnit(unit);
+        const voiceId = unit === id ? undefined : unit.slice(id.length + 1);
         const piece = pieceById.get(id);
         if (!piece) continue;
-        setProgress({ stage: "pieces", done: i, total: pieceIds.length, current: `${id}: ${piece.text.slice(0, 60)}`, errors });
+        setProgress({ stage: "pieces", done: i + 1, total: units.length, current: `${unit}: ${piece.text.slice(0, 60)}`, errors: [...errors] });
         try {
-          current = (await ensureRender(piece, current)).state;
+          current = (await ensureRender(piece, current, voiceId)).state;
         } catch (e) {
-          errors.push(`${id}: ${message(e)}`);
+          errors.push(`${unit}: ${message(e)}`);
         }
       }
 
       setProgress({ stage: "ads", done: 0, total: combos.length, current: "", errors });
       const whole = { on: false };
-      for (let i = 0; i < combos.length; i++) {
-        const ad = combos[i];
-        setProgress({ stage: "ads", done: i, total: combos.length, current: ad.id, errors });
-        let blob: Blob;
-        try {
-          blob = await assembleAd(ad, whole, errors);
-        } catch (e) {
-          errors.push(`${ad.id}: ${message(e)}`);
-          continue;
-        }
-        try {
-          await adsApi.uploadAd(series.id, batch.id, ad.id, blob);
-        } catch (e) {
-          errors.push(`${ad.id}: no se guardó (${message(e)})`);
+      if (!stopRef.current) {
+        for (let i = 0; i < combos.length; i++) {
+          if (stopRef.current) {
+            errors.push("Paraste la tanda.");
+            break;
+          }
+          const ad = combos[i];
+          setProgress({ stage: "ads", done: i + 1, total: combos.length, current: ad.id, errors: [...errors] });
+          let blob: Blob;
+          try {
+            blob = await assembleAd(ad, whole, errors);
+          } catch (e) {
+            errors.push(`${ad.id}: ${message(e)}`);
+            continue;
+          }
+          try {
+            await adsApi.uploadAd(series.id, batch.id, ad.id, blob);
+          } catch (e) {
+            errors.push(`${ad.id}: no se guardó (${message(e)})`);
+          }
         }
       }
       setProgress({ stage: "csv", done: combos.length, total: combos.length, current: "anuncios.csv", errors });
@@ -811,7 +1083,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   }
 
   const approvedPieces = [...state.hooks, ...state.meats, ...state.ctas].filter((p) => p.status === "approved");
-  const missingVoices = approvedPieces.filter((p) => !media[p.id]?.voice && p.text.trim()).length;
+  const missingVoices = approvedPieces.filter((p) => !(state.media[p.id]?.voices?.length) && p.text.trim()).length;
   const webmCount = approvedPieces.filter((p) => cachedFormat(p.id) === "webm").length;
   const counts = {
     hooks: state.hooks.length,
@@ -862,7 +1134,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           <Button variant="secondary" className="px-2 py-1 text-xs" onClick={generateMissingVoices} disabled={busy !== null || missingVoices === 0}>
             {busy === "voices" && progress?.stage === "voices" ? (
               <>
-                <Spinner /> Voz {progress.done + 1}/{progress.total}
+                <Spinner /> Voz {progress.done}/{progress.total}
               </>
             ) : missingVoices ? (
               `Generar las ${missingVoices} voces que faltan`
@@ -892,6 +1164,36 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       )}
 
       <BatchWizard wizard={wizard} defaults={{ levels: settings.levels, seconds: settings.seconds, split: settings.split, lengthTouched: settings.lengthTouched }} counts={counts} busy={busy !== null} onStart={startWizard} onNext={nextWizard} onStop={() => setWizard(null)} />
+
+      {progress && (
+        <div className="rounded-xl border border-line bg-white p-4 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold">
+              {STAGE_LABEL[progress.stage]} · {progress.done} de {progress.total}
+            </p>
+            {(busy === "convert" || busy === "run") && (
+              <Button
+                variant="ghost"
+                className="ml-auto px-2 py-1 text-xs"
+                onClick={() => {
+                  stopRef.current = true;
+                }}
+              >
+                Parar
+              </Button>
+            )}
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded bg-paper">
+            <div className="h-full bg-ink transition-all" style={{ width: `${progress.total ? (100 * progress.done) / progress.total : 0}%` }} />
+          </div>
+          <p className="mt-1 font-mono text-xs text-muted">{progress.current}</p>
+          {progress.errors.map((e, i) => (
+            <p key={i} className="mt-1 text-xs text-neg">
+              {e}
+            </p>
+          ))}
+        </div>
+      )}
 
       <nav className="flex gap-1 overflow-x-auto border-b border-line">
         {TABS.map((t) => {
@@ -1051,12 +1353,11 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           webm={webmCount}
           onDropWebm={async () => {
             for (const p of approvedPieces.filter((x) => cachedFormat(x.id) === "webm")) {
-              renders.current.delete(p.id);
+              dropSessionPiece(renders.current, p.id);
               await act("drop", () => adsApi.dropRender(series.id, p.id));
             }
           }}
           reviewNote={reviewNote}
-          progress={progress}
           onReview={review}
           onRun={runBatch}
           onWeeklyLimit={async (n) => {

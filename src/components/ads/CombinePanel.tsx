@@ -11,6 +11,7 @@ import {
   estimate,
   pieceStats,
   renderedPieces,
+  adId,
   varyHook,
   type AdCombo,
   type AdsState,
@@ -18,6 +19,7 @@ import {
   type CombineRules,
   type ReviewFlag,
 } from "../../../shared/ads.ts";
+import { adsCountWarning, formatSeconds, voicePicks } from "../../../shared/voiceVariants.ts";
 import { adsFileUrl } from "../../lib/api.ts";
 import { download } from "../../lib/markdown.ts";
 import { copyChunks, copyPairs, freshCopies, type PastedCopy } from "../../../shared/adsHandoff.ts";
@@ -26,7 +28,7 @@ import { Button, Notice, Spinner } from "../ui.tsx";
 import { PartsHandoff } from "./PartsHandoff.tsx";
 import { LevelChip, Tag } from "./pieces.tsx";
 
-export type RenderProgress = { stage: "pieces" | "ads" | "csv" | "voices"; done: number; total: number; current: string; errors: string[] };
+export type RenderProgress = { stage: "pieces" | "ads" | "csv" | "voices" | "convert"; done: number; total: number; current: string; errors: string[] };
 
 type Props = {
   series: string;
@@ -37,14 +39,14 @@ type Props = {
   busy: string | null;
   flags: ReviewFlag[] | null;
   reviewNote: string;
-  progress: RenderProgress | null;
   onReview: () => Promise<void>;
   onRun: (ads: AdCombo[], mode: "full" | "stage", rules: CombineRules) => Promise<void>;
   onWeeklyLimit: (n: number) => Promise<void>;
   onRemoveBatch: (id: string) => Promise<void>;
   onBatchCsv: (id: string) => Promise<string>;
   // "Probar un anuncio": the ad cut from its three pieces, as a video URL (null if it failed).
-  onPreview: (hookId: string, meatId: string, ctaId: string) => Promise<string | null>;
+  // voices is set only for a piece that has more than one voice.
+  onPreview: (hookId: string, meatId: string, ctaId: string, voices?: { hook?: string; meat?: string; cta?: string }) => Promise<string | null>;
   // Approved pieces cached as webm (this browser has no H.264 encoder), and dropping them from the cache.
   webm: number;
   onDropWebm: () => Promise<void>;
@@ -68,7 +70,6 @@ export function CombinePanel({
   busy,
   flags,
   reviewNote,
-  progress,
   onReview,
   onRun,
   onWeeklyLimit,
@@ -85,16 +86,23 @@ export function CombinePanel({
   const [mode, setMode] = useState<"full" | "stage">("full");
   const [rules, setRules] = useState<CombineRules>({ sameLevel: true });
   const [winner, setWinner] = useState<{ meatId: string; ctaId: string }>({ meatId: "", ctaId: "" });
+  // Variants chosen for this batch. A piece missing from the map uses all of its voices.
+  const [chosen, setChosen] = useState<Record<string, string[]>>({});
   const approved = { hooks: state.hooks.filter((p) => p.status === "approved"), meats: state.meats.filter((p) => p.status === "approved"), ctas: state.ctas.filter((p) => p.status === "approved") };
   const stats = useMemo(() => pieceStats(state.metrics), [state.metrics]);
 
   const length = useMemo(() => ({ seconds, split }), [seconds, split]);
+  const picks = useMemo(() => voicePicks(state.media, chosen), [state.media, chosen]);
+  const multi = useMemo(
+    () => [...state.hooks, ...state.meats, ...state.ctas].filter((p) => (state.media[p.id]?.voices?.length ?? 0) > 1),
+    [state],
+  );
   const ads = useMemo(() => {
-    if (mode === "full") return combine(state.hooks, state.meats, state.ctas, rules, length);
+    if (mode === "full") return combine(state.hooks, state.meats, state.ctas, rules, length, picks);
     const meat = state.meats.find((m) => m.id === winner.meatId);
     const cta = state.ctas.find((c) => c.id === winner.ctaId);
-    return meat && cta ? varyHook(meat, cta, state.hooks, rules, length) : [];
-  }, [mode, rules, winner, state.hooks, state.meats, state.ctas, length]);
+    return meat && cta ? varyHook(meat, cta, state.hooks, rules, length, picks) : [];
+  }, [mode, rules, winner, state.hooks, state.meats, state.ctas, length, picks]);
   const theoretical = approved.hooks.length * approved.meats.length * approved.ctas.length;
   const pieceSeconds = useMemo(() => {
     const map: Record<string, number> = {};
@@ -104,6 +112,9 @@ export function CombinePanel({
   const est = estimate(ads, renderedPieces(state.renders), pieceSeconds);
   const week = adsThisWeek(state.batches);
   const overLimit = week + ads.length > state.weeklyLimit;
+  const countNote = adsCountWarning(ads.length);
+  const voiced = Boolean(picks);
+  const selectedOf = (id: string) => chosen[id] ?? (state.media[id]?.voices ?? []).map((v) => v.id);
   const policy = (flags ?? []).filter((f) => f.kind === "policy");
   const pairs = useMemo(() => copyPairs(ads, state.hooks, state.ctas), [ads, state.hooks, state.ctas]);
   const copyPrompts = copyChunks(pairs).length;
@@ -168,7 +179,8 @@ export function CombinePanel({
           <p className="mt-1 text-3xl font-bold tracking-tight">{ads.length}</p>
           <p className="text-xs text-muted">
             {approved.hooks.length} hooks × {approved.meats.length} meats × {approved.ctas.length} CTAs = {theoretical} en teoría
-            {rules.sameLevel && theoretical !== ads.length ? `; ${ads.length} respetando el nivel` : ""}. Mínimo 50×3×1 = 150, máximo 50×5×3 = 750.
+            {rules.sameLevel && !voiced && theoretical !== ads.length ? `; ${ads.length} respetando el nivel` : ""}
+            {voiced ? `. Con las voces elegidas: ${ads.length} anuncios` : ""}. Mínimo 50×3×1 = 150, máximo 50×5×3 = 750.
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {Object.entries(byLevel).map(([l, n]) => (
@@ -182,7 +194,15 @@ export function CombinePanel({
           <p className="font-semibold">Estimación</p>
           <ul className="mt-1 space-y-0.5 text-xs text-muted">
             <li>
-              <b className="text-ink">{est.toRender}</b> piezas por renderizar ({est.pieces} únicas; {est.pieces - est.toRender} ya en caché) en vez de {ads.length} anuncios enteros.
+              {voiced ? (
+                <>
+                  <b className="text-ink">{est.toRender}</b> renders por hacer, una por pieza y voz ({est.pieces} en total; {est.pieces - est.toRender} ya en caché) en vez de {ads.length} anuncios enteros.
+                </>
+              ) : (
+                <>
+                  <b className="text-ink">{est.toRender}</b> piezas por renderizar ({est.pieces} únicas; {est.pieces - est.toRender} ya en caché) en vez de {ads.length} anuncios enteros.
+                </>
+              )}
             </li>
             <li>
               Tiempo aproximado: <b className="text-ink">{mins(est.renderSeconds)}</b> en este navegador.
@@ -208,6 +228,51 @@ export function CombinePanel({
           </ul>
         </div>
       </div>
+
+      {multi.length > 0 && (
+        <div className="rounded-xl border border-line bg-white p-4 text-sm">
+          <p className="font-semibold">Voces de esta tanda</p>
+          <p className="mt-1 text-xs text-muted">Cada voz entra como un anuncio más. Una pieza con una sola voz no cambia su id.</p>
+          <ul className="mt-2 space-y-2">
+            {multi.map((p) => {
+              const voices = state.media[p.id]?.voices ?? [];
+              const selected = selectedOf(p.id);
+              const all = voices.map((v) => v.id);
+              return (
+                <li key={p.id} className="rounded border border-line px-2 py-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs">{p.id}</span>
+                    <span className="text-xs text-muted">{p.text.slice(0, 70)}</span>
+                    <button type="button" className="text-xs underline" onClick={() => setChosen({ ...chosen, [p.id]: all })}>
+                      Todas
+                    </button>
+                    <button type="button" className="text-xs underline" onClick={() => setChosen({ ...chosen, [p.id]: [] })}>
+                      Ninguna
+                    </button>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {voices.map((v) => (
+                      <label key={v.id} className="flex items-center gap-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(v.id)}
+                          onChange={() => {
+                            const cur = selectedOf(p.id);
+                            const next = cur.includes(v.id) ? cur.filter((id) => id !== v.id) : [...cur, v.id];
+                            setChosen({ ...chosen, [p.id]: next });
+                          }}
+                        />
+                        {v.name} ({formatSeconds(v.seconds)} s)
+                      </label>
+                    ))}
+                  </div>
+                  {selected.length === 0 && <p className="mt-1 text-xs text-neg">Sin voces elegidas: esta pieza no entra en ningún anuncio.</p>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       <div className="rounded-xl border border-line bg-white p-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -257,6 +322,8 @@ export function CombinePanel({
         </Notice>
       )}
 
+      {countNote.block && <Notice tone="error">{countNote.block}</Notice>}
+      {countNote.warn && <Notice tone="warn">{countNote.warn}</Notice>}
       {overLimit && (
         <Notice tone="warn">
           Esta tanda ({ads.length}) supera el límite semanal: ya van {week} de {state.weeklyLimit}. Subí el límite o achicá la tanda.
@@ -286,7 +353,7 @@ export function CombinePanel({
       )}
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={() => onRun(ads, mode, rules)} disabled={busy !== null || ads.length === 0 || overLimit}>
+        <Button onClick={() => onRun(ads, mode, rules)} disabled={busy !== null || ads.length === 0 || overLimit || Boolean(countNote.block)}>
           {busy === "run" ? (
             <>
               <Spinner /> Renderizando…
@@ -296,32 +363,11 @@ export function CombinePanel({
           )}
         </Button>
         <span className="text-xs text-muted">
-          Cada pieza se renderiza una vez (con su clip o imagen, subtítulo y titular) y los anuncios se arman uniendo piezas ya hechas. Todas comparten resolución, fps y pista de audio.
+          {voiced
+            ? "Cada pieza y cada voz se renderizan una vez (con su clip o imagen, subtítulo y titular) y los anuncios se arman uniendo esas versiones. Todas comparten resolución, fps y pista de audio."
+            : "Cada pieza se renderiza una vez (con su clip o imagen, subtítulo y titular) y los anuncios se arman uniendo piezas ya hechas. Todas comparten resolución, fps y pista de audio."}
         </span>
       </div>
-      {progress && (
-        <div className="rounded-xl border border-line bg-white p-4 text-sm">
-          <p className="font-semibold">
-            {progress.stage === "pieces"
-              ? "Renderizando piezas"
-              : progress.stage === "ads"
-                ? "Armando anuncios"
-                : progress.stage === "voices"
-                  ? "Generando voces"
-                  : "Escribiendo el CSV"}{" "}
-            · {progress.done}/{progress.total}
-          </p>
-          <div className="mt-2 h-2 overflow-hidden rounded bg-paper">
-            <div className="h-full bg-ink transition-all" style={{ width: `${progress.total ? (100 * progress.done) / progress.total : 0}%` }} />
-          </div>
-          <p className="mt-1 font-mono text-xs text-muted">{progress.current}</p>
-          {progress.errors.map((e, i) => (
-            <p key={i} className="mt-1 text-xs text-neg">
-              {e}
-            </p>
-          ))}
-        </div>
-      )}
 
       <div className="rounded-xl border border-line bg-white p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -371,7 +417,7 @@ export function CombinePanel({
           </ul>
         )}
         <p className="mt-2 text-xs text-muted">
-          El CSV trae id, archivo, nivel, público (fría / retargeting), hook, meat, CTA, texto principal, titular, botón, tipo y formato; las versiones estáticas de los hooks de la tanda («Estáticos») van al final, como imagen, con su archivo en estaticos/. Si exportás estáticos después, volvé a descargar el CSV. Al subir el reporte de la plataforma con esos nombres, las métricas vuelven a cada pieza solas.
+          El CSV trae id, archivo, nivel, público (fría / retargeting), hook, meat, CTA, texto principal, titular, botón, tipo, formato, voz_hook, voz_meat y voz_cta (el nombre de cada voz, para cruzar el tono que ganó con las métricas). Las versiones estáticas de los hooks de la tanda («Estáticos») van al final, como imagen, con su archivo en estaticos/. Si exportás estáticos después, volvé a descargar el CSV. Al subir el reporte de la plataforma con esos nombres, las métricas vuelven a cada pieza solas.
         </p>
       </div>
     </section>
@@ -379,11 +425,19 @@ export function CombinePanel({
 }
 
 // "Probar un anuncio": pick a hook, a meat and a CTA and watch the ad cut from their pieces before a batch.
+function voiceChoices(state: AdsState, id: string) {
+  const voices = state.media[id]?.voices ?? [];
+  return voices.length > 1 ? voices : [];
+}
+
 function TryAd({ state, rules, busy, onPreview }: { state: AdsState; rules: CombineRules; busy: string | null; onPreview: Props["onPreview"] }) {
   const hooks = state.hooks.filter((p) => p.status === "approved");
   const [hookId, setHookId] = useState("");
   const [meatId, setMeatId] = useState("");
   const [ctaId, setCtaId] = useState("");
+  const [hookVoice, setHookVoice] = useState("");
+  const [meatVoice, setMeatVoice] = useState("");
+  const [ctaVoice, setCtaVoice] = useState("");
   const [url, setUrl] = useState<string | null>(null);
   const hook = hooks.find((h) => h.id === hookId);
   // With the level rule on, only the meats and CTAs that serve the hook's level.
@@ -392,6 +446,26 @@ function TryAd({ state, rules, busy, onPreview }: { state: AdsState; rules: Comb
   const ctas = state.ctas.filter((p) => p.status === "approved" && fits(p.levels));
   const select = "mt-1 w-full rounded-lg border border-line bg-white px-2 py-1.5 text-sm";
   const short = (t: string) => (t.length > 60 ? `${t.slice(0, 59)}…` : t);
+  const hookVoices = voiceChoices(state, hookId);
+  const meatVoices = voiceChoices(state, meatId);
+  const ctaVoices = voiceChoices(state, ctaId);
+  const picked = (list: { id: string }[], value: string) => (list.length ? value || list[0].id : undefined);
+  const voices = {
+    hook: picked(hookVoices, hookVoice),
+    meat: picked(meatVoices, meatVoice),
+    cta: picked(ctaVoices, ctaVoice),
+  };
+  const previewId = adId(hookId || "H0", meatId || "M0", ctaId || "C0", voices);
+  const voiceSelect = (label: string, list: { id: string; name: string }[], value: string, onChange: (v: string) => void) =>
+    list.length > 1 ? (
+      <select className={select} aria-label={`Voz del ${label}`} value={value || list[0].id} onChange={(e) => onChange(e.target.value)}>
+        {list.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.name}
+          </option>
+        ))}
+      </select>
+    ) : null;
   return (
     <div className="rounded-xl border border-line bg-white p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -401,7 +475,7 @@ function TryAd({ state, rules, busy, onPreview }: { state: AdsState; rules: Comb
       <div className="mt-2 grid gap-2 md:grid-cols-3">
         <label className="text-xs font-semibold">
           Hook
-          <select className={select} value={hookId} onChange={(e) => setHookId(e.target.value)}>
+          <select className={select} value={hookId} onChange={(e) => { setHookId(e.target.value); setHookVoice(""); }}>
             <option value="">Elegí…</option>
             {hooks.map((h) => (
               <option key={h.id} value={h.id}>
@@ -409,10 +483,11 @@ function TryAd({ state, rules, busy, onPreview }: { state: AdsState; rules: Comb
               </option>
             ))}
           </select>
+          {voiceSelect("hook", hookVoices, hookVoice, setHookVoice)}
         </label>
         <label className="text-xs font-semibold">
           Meat
-          <select className={select} value={meatId} onChange={(e) => setMeatId(e.target.value)}>
+          <select className={select} value={meatId} onChange={(e) => { setMeatId(e.target.value); setMeatVoice(""); }}>
             <option value="">Elegí…</option>
             {meats.map((m) => (
               <option key={m.id} value={m.id}>
@@ -420,10 +495,11 @@ function TryAd({ state, rules, busy, onPreview }: { state: AdsState; rules: Comb
               </option>
             ))}
           </select>
+          {voiceSelect("meat", meatVoices, meatVoice, setMeatVoice)}
         </label>
         <label className="text-xs font-semibold">
           CTA
-          <select className={select} value={ctaId} onChange={(e) => setCtaId(e.target.value)}>
+          <select className={select} value={ctaId} onChange={(e) => { setCtaId(e.target.value); setCtaVoice(""); }}>
             <option value="">Elegí…</option>
             {ctas.map((c) => (
               <option key={c.id} value={c.id}>
@@ -431,13 +507,14 @@ function TryAd({ state, rules, busy, onPreview }: { state: AdsState; rules: Comb
               </option>
             ))}
           </select>
+          {voiceSelect("CTA", ctaVoices, ctaVoice, setCtaVoice)}
         </label>
       </div>
       <div className="mt-3 flex flex-wrap items-start gap-3">
         <Button
           variant="secondary"
           disabled={busy !== null || !hookId || !meats.some((m) => m.id === meatId) || !ctas.some((c) => c.id === ctaId)}
-          onClick={async () => setUrl(await onPreview(hookId, meatId, ctaId))}
+          onClick={async () => setUrl(await onPreview(hookId, meatId, ctaId, voices))}
         >
           {busy === "preview" ? (
             <>
@@ -450,7 +527,7 @@ function TryAd({ state, rules, busy, onPreview }: { state: AdsState; rules: Comb
         {url && (
           <div className="flex items-start gap-2">
             <video src={url} controls className="max-h-80 rounded-lg border border-line bg-black" aria-label="El anuncio de prueba" />
-            <a className="text-xs underline" href={url} download={`${hookId}-${meatId}-${ctaId}-prueba.mp4`}>
+            <a className="text-xs underline" href={url} download={`${previewId}-prueba.mp4`}>
               Descargar
             </a>
           </div>

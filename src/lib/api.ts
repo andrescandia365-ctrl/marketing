@@ -200,6 +200,16 @@ export const ads = {
   },
   removePieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice", index?: number) =>
     call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/media/${kind}${index !== undefined ? `?index=${index}` : ""}`, undefined, "DELETE"),
+  uploadVoice: (series: string, id: string, vid: string, file: Blob, meta: { name: string; seconds: number }) => {
+    const q = new URLSearchParams();
+    if (meta.name) q.set("name", meta.name);
+    q.set("seconds", String(meta.seconds));
+    return upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/voices/${enc(vid)}?${q}`, file, file.type || "application/octet-stream");
+  },
+  patchVoice: (series: string, id: string, vid: string, patch: { name?: string; cutOk?: boolean }) =>
+    call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/voices/${enc(vid)}`, patch, "PATCH"),
+  removeVoice: (series: string, id: string, vid: string) =>
+    call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/voices/${enc(vid)}`, undefined, "DELETE"),
   explainerVideos: (series: string, project: string) =>
     call<{ videos: ExplainerVideo[]; title: string }>(`/api/ads/${enc(series)}/explainers/${enc(project)}`),
   fromExplainer: (
@@ -207,7 +217,8 @@ export const ads = {
     body: { project: string; file: string; duration: number; start: number; pieceId?: string; create?: { kind: ExplainerKind; seconds: number; text: string } },
   ) => call<{ state: AdsState; pieceId: string; fit: ClipFit }>(`/api/ads/${enc(series)}/pieces/from-explainer`, body),
   dropRender: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, undefined, "DELETE"),
-  uploadRender: (series: string, id: string, video: Blob) => upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, video, video.type),
+  uploadRender: (series: string, id: string, video: Blob, voiceId?: string) =>
+    upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render${voiceId ? `?voice=${enc(voiceId)}` : ""}`, video, video.type),
   createBatch: (series: string, body: { seconds: number; split?: { hook: number; meat: number; cta: number }; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[]; copies?: Record<string, PastedCopy> }) =>
     call<{ state: AdsState; batch: Batch } & Demo>(`/api/ads/${enc(series)}/batches`, body),
   uploadAd: (series: string, batch: string, adId: string, video: Blob) =>

@@ -11,6 +11,7 @@ import {
   copyKey,
   csvCell,
   exportCsv,
+  type AdsMedia,
   type Batch,
   type Cta,
   type Hook,
@@ -242,6 +243,9 @@ export function staticRows(o: {
         copy?.button ?? "",
         "imagen",
         parsed.format.replace("x", ":"),
+        "",
+        "",
+        "",
       ]);
     }
   }
@@ -251,8 +255,15 @@ export function staticRows(o: {
 const line = (cells: string[]) => cells.map(csvCell).join(",");
 
 // The batch's CSV with the static versions of its hooks next to the videos.
-export function campaignCsv(batch: Batch, hooks: Hook[], meats: Meat[], ctas: Cta[], statics: Record<string, HookStatic>): string {
-  const videos = exportCsv(batch, hooks, meats, ctas);
+export function campaignCsv(
+  batch: Batch,
+  hooks: Hook[],
+  meats: Meat[],
+  ctas: Cta[],
+  statics: Record<string, HookStatic>,
+  media?: Record<string, AdsMedia>,
+): string {
+  const videos = exportCsv(batch, hooks, meats, ctas, media);
   const rows = staticRows({ hooks, ctas, statics, copies: batch.copies, prefix: "../../estaticos/", only: new Set(batch.ads.map((a) => a.hookId)) });
   return rows.length ? `${videos}\n${rows.map(line).join("\n")}` : videos;
 }

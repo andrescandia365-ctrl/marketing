@@ -580,9 +580,20 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   -14 LUFS (`loudness`; per piece in the whole-ad fallback, raised 20 dB at most), so the cuts never jump in level, and
   cached piece renders carry `RENDER_VERSION` in their name (older ones are rendered again); the platform texts (primary,
   headline, button) come from one writer call per 50 hook+CTA pairs. `server/ads.md` is the method the writer reads.
-  Each piece can carry a voice (uploaded, or generated with the presenter's voice `offer.ttsVoice`; "Generar las N
-  voces que faltan" does every approved piece); it starts 0.15 s into the piece and is cut at its end. "Probar un
-  anuncio" cuts one ad from three chosen pieces (the same cache). The weekly limit is enforced by the server too. A
+  Each piece can carry up to 10 voices (`VOICE_VARIANTS_MAX`, `shared/voiceVariants.ts`). The existing single voice
+  (uploaded, or generated with the presenter's voice `offer.ttsVoice`) is v1 when old data loads, and a piece with one
+  voice keeps the old ad id (`H12-M3-C2`) and the old cache name (`H3.l2.mp4`); "Generar las N voces que faltan" still
+  fills approved pieces that have none, and "Generar voz" on a piece with one voice replaces that voice. Extra voices
+  are files the person made outside the app (mp3, wav, m4a, ogg or webm, type read from the bytes, 25 MB): the app
+  does not call ElevenLabs or any voice API. Ids are v1–v10 and are not reused after a delete. Files live in
+  `publicidad/<series>/media/<pieceId>-voz-<vN>.<ext>`. A voice starts 0.15 s into the piece and is cut at its end. One
+  that runs past the piece shows "La voz N dura X s y la pieza Y s" and blocks that variant's render until the person
+  accepts the cut (`cutOk`) or replaces the file. Several voices render one video each (`H3.v2.l2.mp4`, still
+  `RENDER_VERSION` l2, −14 LUFS) and the ad id adds the variant only while the piece has more than one voice
+  (`H12v3-M3v1-C2v2`). Before a batch the person picks which variants enter; over 300 ads warns and over 1000 blocks.
+  The weekly limit still counts ads and is enforced on the server. `campaignCsv` and the batch CSV add `voz_hook`,
+  `voz_meat` and `voz_cta` (the variant's name). `parseMetricsCsv` matches the new ids. "Probar un anuncio" cuts one
+  ad from three chosen pieces (the same cache; a voice select only when that piece has more than one). A
   piece's cache shows its format: webm means this browser has no H.264 encoder (the ads would be VP9 in MP4), and
   "Sacarlas de la caché" (DELETE .../pieces/:id/render) lets a browser that has one render them again.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
