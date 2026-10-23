@@ -37,6 +37,7 @@ import {
   type Piece,
 } from "../shared/ads.ts";
 import { campaignCsv, defaultStatic, staticBelongs, staticsCsv } from "../shared/adsStatic.ts";
+import { sequenceSlot } from "../shared/adsSequence.ts";
 import { currentWriter, taskFromPaste, taskPrompt } from "./claude.ts";
 import { HandoffSchema } from "../shared/handoff.ts";
 import { PastedCopySchema, copiesFromWire, copyChunks, copyPairs, countParts, freshCopies, withSigs, hookParts, partOf, type PromptPart } from "../shared/adsHandoff.ts";
@@ -489,6 +490,12 @@ export function adsRoutes(app: Hono) {
     const indexRaw = c.req.query("index");
     const index = indexRaw === undefined || indexRaw === "" ? undefined : Number(indexRaw);
     if (index !== undefined && kind !== "clip") throw new AdsError("Solo un clip de la secuencia lleva un lugar.");
+    if (kind === "clip" && index !== undefined) {
+      const piece = findPiece(await loadAds(id), pieceId);
+      if (!piece) throw new AdsError("Esa pieza no existe.");
+      const reason = sequenceSlot(piece.seconds, index);
+      if (reason) throw new AdsError(reason);
+    }
     const file = await savePieceMedia(id, pieceId, kind, data, c.req.header("content-type") ?? "", index);
     const { state } = await updateAds(id, async (s) => {
       if (!findPiece(s, pieceId)) throw new AdsError("Esa pieza no existe.");
@@ -519,6 +526,10 @@ export function adsRoutes(app: Hono) {
     const { state } = await updateAds(id, async (s) => {
       const m = s.media[pieceId];
       if (kind === "clip" && index !== undefined) {
+        const piece = findPiece(s, pieceId);
+        if (!piece) throw new AdsError("Esa pieza no existe.");
+        const reason = sequenceSlot(piece.seconds, index);
+        if (reason) throw new AdsError(reason);
         const slot = m?.clips?.[index];
         if (slot?.file) await removePieceMedia(id, slot.file).catch(() => undefined);
         if (m?.clips) m.clips[index] = null;

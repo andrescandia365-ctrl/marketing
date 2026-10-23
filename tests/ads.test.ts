@@ -56,10 +56,13 @@ function catalogue() {
 
 test("ids are numbered per kind and the combination respects the level when asked", () => {
   const s = catalogue();
+  const length = { seconds: 15 };
   assert.deepEqual(s.hooks.map((h) => h.id), ["H1", "H2", "H3"]);
-  assert.deepEqual(combine(s.hooks, s.meats, s.ctas, { sameLevel: true }).map((a) => a.id).sort(), ["H1-M1-C1", "H2-M2-C1", "H3-M1-C1"]);
-  assert.equal(combine(s.hooks, s.meats, s.ctas, { sameLevel: false }).length, 6);
-  assert.equal(varyHook(s.meats[0], s.ctas[0], s.hooks, { sameLevel: true }).length, 2);
+  assert.deepEqual(combine(s.hooks, s.meats, s.ctas, { sameLevel: true }, length).map((a) => a.id).sort(), ["H1-M1-C1", "H2-M2-C1", "H3-M1-C1"]);
+  assert.equal(combine(s.hooks, s.meats, s.ctas, { sameLevel: false }, length).length, 6);
+  assert.equal(varyHook(s.meats[0], s.ctas[0], s.hooks, { sameLevel: true }, length).length, 2);
+  assert.equal(combine(s.hooks, s.meats, s.ctas, { sameLevel: false }, { seconds: 60 }).length, 0, "a 60 s batch does not pick a 9 s meat");
+  assert.deepEqual(varyHook(s.meats[0], s.ctas[0], s.hooks, { sameLevel: true }, { seconds: 60 }), []);
 });
 
 test("time budget and near-duplicates", () => {
@@ -92,7 +95,7 @@ H3-M1-C1,500,100,4,5,0,700
 
 test("the export CSV quotes what needs quoting and the estimate counts unique pieces", () => {
   const s = catalogue();
-  const ads = combine(s.hooks, s.meats, s.ctas, { sameLevel: true });
+  const ads = combine(s.hooks, s.meats, s.ctas, { sameLevel: true }, { seconds: 15 });
   const csv = exportCsv(
     { id: "tanda-1", createdAt: new Date().toISOString(), seconds: 15, mode: "full", rules: { sameLevel: true }, ads, copies: { "H1-C1": { primary: 'Hola, "mundo"', headline: "T", button: "Comprar" } }, files: { "H1-M1-C1": "H1-M1-C1.mp4" } },
     s.hooks,
@@ -101,7 +104,11 @@ test("the export CSV quotes what needs quoting and the estimate counts unique pi
   );
   assert.equal(csv.split("\n").length, 4);
   assert.ok(csv.includes('"Hola, ""mundo"""'));
-  const e = estimate(ads, new Set(["H1"]), 15);
+  const pieceSeconds = Object.fromEntries([...s.hooks, ...s.meats, ...s.ctas].map((p) => [p.id, p.seconds]));
+  const e = estimate(ads, new Set(["H1"]), pieceSeconds);
   assert.equal(e.pieces, 6);
   assert.equal(e.toRender, 5);
+  // H2 and H3 are 3 s, M1 and M2 are 9 s, C1 is 3 s: 27 s still to render.
+  assert.equal(e.renderSeconds, 27 * 0.8 + ads.length * 0.6);
+  assert.equal(estimate(ads, new Set(["H1"]), {}).renderSeconds, ads.length * 0.6);
 });

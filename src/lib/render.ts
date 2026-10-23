@@ -21,6 +21,7 @@ import {
 import type { Board, Brief, Role } from "../../shared/schema.ts";
 import { isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import { storyTextLayout } from "../../shared/storyText.ts";
+import { pieceLoudnessStarts, shotUnderVoice } from "../../shared/adsSequence.ts";
 import { PIECE_MAX_BOOST_DB, normalizeLoudness, normalizeSegments } from "./motionAudio.ts";
 import type { TextStyle } from "../../shared/series.ts";
 import { ensureFont } from "./fonts.ts";
@@ -471,15 +472,19 @@ async function mixSound(
 ): Promise<AudioBuffer | null> {
   const ctx = new OfflineAudioContext(2, Math.ceil(SAMPLE_RATE * total), SAMPLE_RATE);
   let any = Boolean(options.alwaysAudio);
+  // A voice covers every shot it overlaps, not only the shot that carries the file. A sequence puts the voice on
+  // the first clip and voiceFor runs across the rest; those clips duck too. A decode that fails does not duck.
+  const voiceSpans: { start: number; end: number }[] = [];
   for (const shot of shots) {
     const m = media[shot.index] ?? {};
-    // A voice laid on top lowers the clip's own sound while it plays.
     const voice = m.voice ? await decodeAudio(ctx, m.voice) : null;
     if (voice) {
       const gain = ctx.createGain();
       gain.connect(ctx.destination);
+      const start = shot.start + 0.15;
       const until = m.voiceFor != null ? shot.start + 0.15 + m.voiceFor : shot.end;
-      place(ctx, voice, shot.start + 0.15, until, gain);
+      place(ctx, voice, start, until, gain);
+      voiceSpans.push({ start, end: until });
       any = true;
     }
     const sfx = m.sfx ? await decodeAudio(ctx, m.sfx) : null;
@@ -490,13 +495,16 @@ async function mixSound(
       place(ctx, sfx, shot.start, shot.end, gain);
       any = true;
     }
+  }
+  for (const shot of shots) {
+    const m = media[shot.index] ?? {};
     const clipGain = options.clipGain?.[shot.index] ?? 1;
     if (!options.keepSound || !m.clip || clipGain <= 0) continue;
     const input = new Input({ source: new BlobSource(m.clip), formats: ALL_FORMATS });
     try {
       const track = await input.getPrimaryAudioTrack();
       if (!track || !(await track.canDecode())) continue;
-      const level = (voice ? 0.3 : 1) * clipGain;
+      const level = (shotUnderVoice(shot.start, shot.end, voiceSpans) ? 0.3 : 1) * clipGain;
       const gain = ctx.createGain();
       gain.connect(ctx.destination);
       gain.gain.setValueAtTime(0, shot.start);
@@ -566,9 +574,11 @@ export async function renderVideo(
   const hasAudio = shots.some((s) => media[s.index]?.voice || media[s.index]?.sfx || (options.keepSound && media[s.index]?.clip));
   if (hasAudio || music || options.alwaysAudio) {
     sound = await mixSound(shots, media, total, options, music);
-    // Publicidad: each shot (a piece) on its own when several are cut together, so the cuts never jump in level.
+    // One level per piece. A long meat's clips share it (hardCuts marks those internal cuts). A story has no
+    // hardCuts, so every shot stays its own piece. oneLoudness levels the whole buffer once.
     if (sound && options.loudness !== undefined) {
-      if (shots.length > 1 && !options.oneLoudness) await normalizeSegments(sound, shots.map((s) => s.start), options.loudness, PIECE_MAX_BOOST_DB);
+      const starts = pieceLoudnessStarts(shots.map((s) => s.start), options.hardCuts);
+      if (!options.oneLoudness && starts.length > 1) await normalizeSegments(sound, starts, options.loudness, PIECE_MAX_BOOST_DB);
       else await normalizeLoudness(sound, options.loudness, PIECE_MAX_BOOST_DB);
     }
     if (!sound) notes.push("Los clips no traían sonido que este navegador pueda leer.");

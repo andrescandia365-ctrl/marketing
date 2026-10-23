@@ -11,7 +11,7 @@ export type Wizard = { stage: WizardStage; levels: number[]; seconds: number; sp
 
 type Props = {
   wizard: Wizard | null;
-  defaults: { levels: number[]; seconds: number; split: Budget | null };
+  defaults: { levels: number[]; seconds: number; split: Budget | null; lengthTouched: boolean };
   counts: { hooks: number; hooksApproved: number; meats: number; meatsApproved: number; ctas: number; ctasApproved: number };
   busy: boolean;
   onStart: (w: Wizard) => Promise<void>;
@@ -33,7 +33,7 @@ export function BatchWizard({ wizard, defaults, counts, busy, onStart, onNext, o
     levels: defaults.levels,
     seconds: defaults.seconds,
     split: defaults.split,
-    lengthTouched: false,
+    lengthTouched: defaults.lengthTouched,
     hooks: 50,
     meats: 4,
     ctas: 2,
@@ -96,7 +96,7 @@ export function BatchWizard({ wizard, defaults, counts, busy, onStart, onNext, o
                 levels: defaults.levels,
                 seconds: defaults.seconds,
                 split: defaults.split,
-                lengthTouched: false,
+                lengthTouched: defaults.lengthTouched,
                 hooks: draft.hooks,
                 meats: draft.meats,
                 ctas: draft.ctas,

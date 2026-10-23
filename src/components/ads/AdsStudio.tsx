@@ -3,6 +3,7 @@
 // clip prompts (one Grok clip, or a sequence when the piece is longer than 15 s) and its video renderer (render.ts, by pieces with a cache).
 import { lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  ADS_SETTINGS_KEY,
   LEVEL_INFO,
   levelsOf,
   currentRender,
@@ -30,6 +31,7 @@ import type { Handoff } from "../ClaudeHandoff.tsx";
 import { concatPieces, renderAdWhole, renderPiece, type PieceLook, type PieceMedia } from "../../lib/adsRender.ts";
 import { blobToDataUrl, readImageFile } from "../../lib/files.ts";
 import type { AdSeed } from "../../../shared/adsFromExplainer.ts";
+import { emptyClipSlots, grokSequence, type ClipPresence } from "../../../shared/adsSequence.ts";
 import type { PastedCopy } from "../../../shared/adsHandoff.ts";
 import { audioDuration } from "../Audio.tsx";
 import { Button, Lazy, Notice, Segmented, Spinner } from "../ui.tsx";
@@ -85,7 +87,7 @@ function clipDuration(url: string): Promise<number> {
   });
 }
 
-const SETTINGS_KEY = "playbook-studio.ads.v1";
+const SETTINGS_KEY = ADS_SETTINGS_KEY;
 type Settings = {
   seconds: number;
   split: Budget | null;
@@ -479,8 +481,9 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     return r;
   }
 
-  // "Hacer en motion graphics": one explainer project per approved piece of this tab. They stay in Proyectos; none of
-  // them is opened here. A later failure keeps the ones already written.
+  // "Hacer en motion graphics": one explainer project per approved piece of this tab, up to 20. They stay in
+  // Proyectos; none of them is opened here. A piece that already has one is skipped. A save that fails removes the
+  // empty folder. A later failure keeps the ones already written.
   async function makeMotionBatch(pieces: Piece[]) {
     if (motionLock.current || busy) return;
     const approved = pieces.filter((p) => p.status === "approved");
@@ -488,21 +491,34 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       setError("No hay piezas aprobadas en esta pestaña.");
       return;
     }
-    const n = approved.length;
-    if (!confirm(`¿Armar ${n} explicativo${n === 1 ? "" : "s"}, uno por pieza aprobada? Cada uno queda en Proyectos, con el id de la pieza.`)) return;
+    const { MOTION_BATCH_MAX, projectForPiece, seedNotes, starterPiece } = await import("../../../shared/adsFromExplainer.ts");
+    let batch = approved;
+    if (approved.length > MOTION_BATCH_MAX) {
+      if (!confirm(`Son ${approved.length} piezas aprobadas. En un clic armo hasta ${MOTION_BATCH_MAX}. ¿Armo las primeras ${MOTION_BATCH_MAX}? El resto queda para otro clic.`)) return;
+      batch = approved.slice(0, MOTION_BATCH_MAX);
+    } else if (!confirm(`¿Armar ${approved.length} explicativo${approved.length === 1 ? "" : "s"}, uno por pieza aprobada? Cada uno queda en Proyectos.`)) {
+      return;
+    }
     motionLock.current = true;
     setError("");
     setBusy("motion");
     const lines: string[] = [];
     try {
-      const [{ seedNotes, starterPiece }, { pieceMarkdown }, { EMPTY_BRIEF }] = await Promise.all([
-        import("../../../shared/adsFromExplainer.ts"),
+      const [{ pieceMarkdown }, { EMPTY_BRIEF }, listed] = await Promise.all([
         import("../../lib/motionMarkdown.ts"),
         import("../../../shared/example.ts"),
+        api.projects(),
       ]);
+      const known = listed.projects.map((p) => ({ id: p.id, series: p.series }));
       const tone = state?.offer.tone ?? "warm";
-      for (const piece of approved) {
+      for (const piece of batch) {
+        const existing = projectForPiece(known, series.id, piece.id);
+        if (existing) {
+          lines.push(`${piece.id}: ya hay un explicativo (${existing.id}). No armé otro.`);
+          continue;
+        }
         const seed: AdSeed = { id: piece.id, kind: piece.kind, text: piece.text, onScreenText: piece.onScreenText, seconds: piece.seconds };
+        let id: string | null = null;
         try {
           const motion = starterPiece(seed, settings.format, tone);
           const pieceBrief = {
@@ -516,15 +532,20 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
             notes: seedNotes(seed),
             narrator: "with" as const,
           };
-          const { id } = await api.createProject(series.id, piece.id.toLowerCase());
+          id = (await api.createProject(series.id, piece.id.toLowerCase())).id;
           await api.saveProject(id, { version: 1, kind: "motion", step: "motion", pieceBrief, motion }, pieceMarkdown(motion, motion.script?.scenes ?? []));
+          known.push({ id, series: series.id });
           lines.push(`${piece.id} → ${id}`);
         } catch (e) {
+          if (id) await api.deleteProject(id).catch(() => undefined);
           lines.push(`${piece.id}: no se pudo (${message(e)})`);
         }
       }
       const ok = lines.filter((l) => l.includes("→")).length;
-      setMotionMade([`Listos ${ok} explicativos. Abrilos desde Proyectos.`, ...lines].join("\n"));
+      const left = approved.length - batch.length;
+      setMotionMade(
+        [`Listos ${ok} explicativos. Abrilos desde Proyectos.`, ...(left > 0 ? [`Quedaron ${left} sin armar: otro clic sigue con las siguientes.`] : []), ...lines].join("\n"),
+      );
     } catch (e) {
       setError(message(e));
       if (lines.length) setMotionMade(lines.join("\n"));
@@ -692,8 +713,31 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       setBusy(null);
     }
   }
+  function clipPresence(piece: Piece): ClipPresence {
+    const saved = state?.media[piece.id];
+    const local = media[piece.id];
+    const explainer = Boolean(saved?.clip?.explainer);
+    const n = explainer ? 1 : Math.max(1, grokSequence(piece.seconds).length);
+    return {
+      id: piece.id,
+      seconds: piece.seconds,
+      approved: piece.status === "approved",
+      explainer,
+      clip: Boolean(local?.clip || saved?.clip),
+      slots: Array.from({ length: n }, (_, i) => Boolean(local?.clips?.[i] || saved?.clips?.[i])),
+    };
+  }
   async function runBatch(combos: AdCombo[], mode: "full" | "stage", rules: CombineRules) {
     if (!state) return;
+    const pieceIds = [...new Set(combos.flatMap((a) => [a.hookId, a.meatId, a.ctaId]))];
+    const holes = emptyClipSlots(pieceIds.flatMap((id) => {
+      const piece = pieceById.get(id);
+      return piece ? [clipPresence(piece)] : [];
+    }));
+    if (holes.length) {
+      const detail = holes.map((h) => `${h.id}: ${h.clips.map((n) => `clip ${n}`).join(", ")}`).join("\n");
+      if (!confirm(`Faltan clips en piezas aprobadas. Esos lugares salen con la imagen de la pieza, o con una tarjeta de color si no hay imagen:\n\n${detail}\n\n¿Seguir con la tanda igual?`)) return;
+    }
     setError("");
     setBusy("run");
     const errors: string[] = [];
@@ -712,7 +756,6 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       setPastedCopies((prev) => Object.fromEntries(Object.entries(prev).filter(([key]) => !used.has(key))));
       const batch = created.batch;
       let current = created.state;
-      const pieceIds = [...new Set(combos.flatMap((a) => [a.hookId, a.meatId, a.ctaId]))];
 
       setProgress({ stage: "pieces", done: 0, total: pieceIds.length, current: "", errors });
       for (let i = 0; i < pieceIds.length; i++) {
@@ -848,7 +891,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
         </Notice>
       )}
 
-      <BatchWizard wizard={wizard} defaults={{ levels: settings.levels, seconds: settings.seconds, split: settings.split }} counts={counts} busy={busy !== null} onStart={startWizard} onNext={nextWizard} onStop={() => setWizard(null)} />
+      <BatchWizard wizard={wizard} defaults={{ levels: settings.levels, seconds: settings.seconds, split: settings.split, lengthTouched: settings.lengthTouched }} counts={counts} busy={busy !== null} onStart={startWizard} onNext={nextWizard} onStop={() => setWizard(null)} />
 
       <nav className="flex gap-1 overflow-x-auto border-b border-line">
         {TABS.map((t) => {
@@ -1000,6 +1043,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           series={series.id}
           state={state}
           seconds={settings.seconds}
+          split={settings.split}
           folder={folder}
           busy={busy}
           flags={flags}

@@ -15,7 +15,8 @@ import {
   type Piece,
   type PieceStatus,
 } from "../../../shared/ads.ts";
-import { grokSequence, sequencePromptText, sequencePromptsFromPiece } from "../../../shared/adsSequence.ts";
+import { continuityNote, grokSequence, sequencePromptText, sequencePromptsFromPiece } from "../../../shared/adsSequence.ts";
+import { unverified } from "../../../shared/adsSpeaker.ts";
 import { buildCopyPrompt } from "../../../shared/prompt.ts";
 import type { Brief } from "../../../shared/schema.ts";
 import { CopyButton } from "../ScriptView.tsx";
@@ -319,7 +320,7 @@ export function PieceCard({
               {sequence ? (
                 <>
                   Esta pieza dura <b>{piece.seconds} s</b> y Grok arma clips de 6, 10 o 15 s. Son {slots.length} clips ({slots.map((s) => `${s.length} s`).join(" + ")}), el mismo lugar y los mismos @ref, cada uno siguiendo al anterior. El anuncio usa{" "}
-                  {slots.map((s) => (s.play < s.length ? `${s.play} s del de ${s.length}` : `${s.play} s`)).join(", ")}.
+                  {slots.map((s) => (s.play < s.length ? `${s.play} s del de ${s.length}` : `${s.play} s`)).join(", ")}. En {toolName}: primero la imagen con el prompt, después animala ({format === "vertical" ? "9:16" : "16:9"}).
                 </>
               ) : (
                 <>
@@ -330,7 +331,12 @@ export function PieceCard({
             <div className="flex flex-wrap gap-2">
               <CopyButton text={buildCopyPrompt(piece.visualPrompt, format)} idle="Copiar prompt de imagen" />
               <CopyButton text={piece.videoPrompt} idle="Copiar prompt de video" variant="secondary" />
-              {sequence && <CopyButton text={sequenceText} idle="Copiar todos los prompts" />}
+              {sequence &&
+                (unverified(piece.text) ? (
+                  <p className="text-neg">El texto tiene un [VERIFY]: confirmalo o cambialo antes de copiar los prompts.</p>
+                ) : (
+                  <CopyButton text={sequenceText} idle="Copiar todos los prompts" />
+                ))}
               {canGenerate && (
                 <Button variant="secondary" className="px-2 py-1 text-xs" onClick={onGenerateImage} disabled={media?.loading || !piece.visualPrompt}>
                   {media?.loading ? <Spinner /> : "Generar imagen"}
@@ -373,6 +379,7 @@ export function PieceCard({
                       <span className="text-muted">
                         pedí {slot.length} s{slot.play < slot.length ? ` (el anuncio usa los primeros ${slot.play} s)` : ""}
                       </span>
+                      {i > 0 && <span className="basis-full text-muted">{continuityNote(i)}</span>}
                       <label className="cursor-pointer rounded border border-line bg-white px-2 py-0.5 font-semibold hover:border-ink">
                         {file ? "Cambiar" : "Subir"}
                         <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && onUploadClipAt?.(i, e.target.files[0])} />

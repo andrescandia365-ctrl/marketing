@@ -2,7 +2,7 @@
 // the clip of a meat or a CTA of the same series, copied on the server (shared/adsFromExplainer.ts). No AI involved:
 // it works the same with no key.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AD_MAX_SECONDS, AD_MIN_SECONDS, adLengthChoices, isAdSeconds, type AdsState } from "../../shared/ads.ts";
+import { AD_MAX_SECONDS, AD_MIN_SECONDS, ADS_SETTINGS_KEY, isAdSeconds, lengthsForKind, noShareNote, parseSavedLength, splitForLength, type AdsState, type SavedLength } from "../../shared/ads.ts";
 import {
   EXPLAINER_KIND_LABEL,
   TARGET_KINDS,
@@ -46,6 +46,7 @@ export function ExplainerToAds({ series, projectId, format, spans, version, pref
   const [target, setTarget] = useState<string>("new");
   const [adSeconds, setAdSeconds] = useState(15);
   const [typedSeconds, setTypedSeconds] = useState("15");
+  const [savedLength, setSavedLength] = useState<SavedLength | null>(null);
   const applied = useRef<string | null>(null);
   const [start, setStart] = useState(0);
   const [text, setText] = useState("");
@@ -54,6 +55,14 @@ export function ExplainerToAds({ series, projectId, format, spans, version, pref
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
   const player = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    try {
+      setSavedLength(parseSavedLength(localStorage.getItem(ADS_SETTINGS_KEY)));
+    } catch {
+      setSavedLength(parseSavedLength(null));
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open || !projectId) return;
@@ -86,7 +95,11 @@ export function ExplainerToAds({ series, projectId, format, spans, version, pref
 
   const targets = useMemo(() => (state ? explainerTargets(state, kind) : []), [state, kind]);
   const chosen = targets.find((t) => t.piece.id === target)?.piece ?? null;
-  const pieceSeconds = chosen ? chosen.seconds : pieceSecondsFor(kind, adSeconds);
+  const savedSplit = splitForLength(adSeconds, savedLength);
+  const share = pieceSecondsFor(kind, adSeconds, savedSplit);
+  const shareNote = noShareNote(kind, adSeconds, savedSplit);
+  const lengthChoices = lengthsForKind(kind, adSeconds, savedLength);
+  const pieceSeconds = chosen ? chosen.seconds : share;
   const fit = duration ? fitClip(duration, pieceSeconds, start) : null;
   const said = fit ? voiceInRange(spans, fit.start, fit.end) : "";
 
@@ -222,7 +235,7 @@ export function ExplainerToAds({ series, projectId, format, spans, version, pref
                         }}
                         disabled={target !== "new"}
                       >
-                        {adLengthChoices(adSeconds).map((n) => (
+                        {lengthChoices.map((n) => (
                           <option key={n} value={n}>
                             {n} s
                           </option>
@@ -244,10 +257,11 @@ export function ExplainerToAds({ series, projectId, format, spans, version, pref
                         }}
                         onBlur={() => setTypedSeconds(String(adSeconds))}
                       />{" "}
-                      s ({s1(pieceSecondsFor(kind, adSeconds))} de {EXPLAINER_KIND_LABEL[kind]})
+                      s ({share < 1 ? "sin segundos" : s1(share)} de {EXPLAINER_KIND_LABEL[kind]})
                     </span>
                   </label>
                 )}
+                {target === "new" && shareNote && <p className="text-xs text-neg">{shareNote}</p>}
               </div>
               {fit && fit.fit === "cut" && (
                 <label className="block text-xs">
@@ -285,7 +299,7 @@ export function ExplainerToAds({ series, projectId, format, spans, version, pref
                   />
                 </label>
               )}
-              <Button className="w-full" onClick={use} disabled={busy || !fit || !file || (target === "new" && (kind === "hook" || !text.trim()))}>
+              <Button className="w-full" onClick={use} disabled={busy || !fit || !file || (target === "new" && (kind === "hook" || !text.trim() || share < 1))}>
                 {busy ? <Spinner /> : chosen ? `Usar en ${chosen.id}` : kind === "hook" ? "Elegí un gancho" : `Crear ${kind === "meat" ? "el meat" : "el CTA"} con este video`}
               </Button>
               {!duration && file && <p className="text-xs text-muted">Leyendo cuánto dura el video…</p>}

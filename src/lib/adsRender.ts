@@ -70,7 +70,7 @@ function expandPiece(piece: Piece, media: PieceMedia): { shot: Shot; media: Shot
       onScreenText: i === 0 ? piece.onScreenText : "",
     },
     media: {
-      image: i === 0 ? media.image : undefined,
+      image: media.image,
       clip: media.clips?.[i]?.blob,
       clipFrom: media.clips?.[i]?.from ?? 0,
       ...(i === 0 && media.voice ? { voice: media.voice, voiceFor: Math.max(0, playSum - 0.15) } : {}),
@@ -131,8 +131,9 @@ export function renderPiece(piece: Piece, media: PieceMedia, look: PieceLook, on
   return renderVideo(board, byIndex, options(look, [piece], [media], gains, sequence ? slots.map((_, i) => i > 0) : undefined, sequence), onProgress);
 }
 
-// The fallback: the whole ad in one render from the pieces' own media. A sequence hard-cuts inside itself; the cut
-// from the hook into the meat, and from the meat into the CTA, stays a fade. Each shot is levelled on its own here.
+// The fallback: the whole ad in one render from the pieces' own media. A sequence hard-cuts inside itself and those
+// clips share one level, so the voice does not jump at the internal cuts. The cut from the hook into the meat, and
+// from the meat into the CTA, stays a fade and a new level.
 export function renderAdWhole(pieces: Piece[], media: Record<string, PieceMedia>, look: PieceLook, onProgress: (f: number) => void): Promise<RenderResult> {
   const shots: Shot[] = [];
   const byIndex: Record<number, ShotMedia> = {};

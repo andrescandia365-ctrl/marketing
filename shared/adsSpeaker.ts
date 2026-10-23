@@ -7,7 +7,8 @@
 import { ANGLE_LABEL, WORDS_PER_SECOND, clipSecondsFor, countWords, wordsFor, type Piece, type PieceSpeaker, type SpeakerSound } from "./ads.ts";
 import { clipContinuity, grokSequence, sequencePromptText, stretchText } from "./adsSequence.ts";
 import { audioLine, speakingPrompt } from "./audio.ts";
-import { lookPhrase } from "./prompt.ts";
+import { lookPhrase, PLAIN_VIDEO } from "./prompt.ts";
+export { PLAIN_VIDEO };
 import type { CastMember, SeriesLook, SeriesType } from "./series.ts";
 
 export { PieceSpeakerSchema, SPEAKER_SOUNDS, SPEAKER_SOUND_LABEL, type PieceSpeaker, type SpeakerSound } from "./ads.ts";
@@ -119,9 +120,6 @@ export function speakerDraft(
   };
 }
 
-// With no series look, an honest phone video, never the polished kind.
-export const PLAIN_VIDEO = "Ordinary unretouched phone video, natural light, slight noise, real skin";
-
 // ── The prompt ───────────────────────────────────────────────────────────────────────
 export type SpeakerPromptInput = {
   text: string;
@@ -171,16 +169,23 @@ export function sequenceSpeakerPrompts(input: SpeakerPromptInput): string[] {
   const look = lookPhrase(input.look) || PLAIN_VIDEO;
   const lines = stretchText(input.text, slots);
   return slots.map((slot, i) => {
+    const doing = i === 0 ? `${ref} ${action}` : `${ref} continues the same action and does not start it over`;
     const base = [
       clipContinuity(i, slots.length),
       `${ref}, the invented adult in the reference image${identity ? ` (${identity})` : ""}, ${place}.`,
-      `${shape} medium close-up at eye level, face clear and in focus; ${ref} ${action}.`,
+      `${shape} medium close-up at eye level, face clear and in focus; ${doing}.`,
       `Locked-off camera, no other camera move; face, hair and clothes stay exactly as in the reference.`,
       `${look}. Bare walls and blank labels, nothing written anywhere in frame.`,
     ].join(" ");
-    const said = speakingPrompt(base, ref, spokenLine(lines[i] ?? ""), clean(speaker.voice), "es", speaker.emotion);
+    const line = (lines[i] ?? "").trim();
     const cut = slot.play < slot.length ? ` The finished piece plays the first ${slot.play} s of this clip.` : "";
-    return `${said}. ${ref} starts speaking right away and says this clip's line once, as written. ${audioLine({ hear: ["dialogue", "ambient"], detail: "" })} Length: ${slot.length} s.${cut}`;
+    if (!line) return `${base} ${audioLine({ hear: ["ambient"], detail: "" })} Length: ${slot.length} s.${cut}`;
+    const said = speakingPrompt(base, ref, spokenLine(line), clean(speaker.voice), "es", speaker.emotion);
+    const goes =
+      i === 0
+        ? `${ref} starts speaking right away and says this clip's line once, as written.`
+        : `${ref} keeps speaking from the previous clip, says this clip's line once, and does not start the action over.`;
+    return `${said}. ${goes} ${audioLine({ hear: ["dialogue", "ambient"], detail: "" })} Length: ${slot.length} s.${cut}`;
   });
 }
 
@@ -199,6 +204,22 @@ export function speakerIssues(text: string, pieceSeconds: number): string[] {
         ? `La línea no entra en ${pieceSeconds} s (unas ${wordsFor(pieceSeconds)} palabras). Acortala.`
         : `La línea dura unos ${fit.speech.toString().replace(".", ",")} s: no entra ni en un clip de 15 s. Acortala.`,
     );
+  }
+  // Each clip of a sequence has to carry some of the line, and that stretch has to fit what the clip plays
+  // (its seconds, minus the breath before the first word).
+  const slots = grokSequence(pieceSeconds);
+  if (text.trim() && slots.length > 1) {
+    const lines = stretchText(text, slots);
+    lines.forEach((line, i) => {
+      const words = countWords(line);
+      const room = Math.max(0, slots[i].play - SPEECH_LEAD);
+      const limit = room * WORDS_PER_SECOND;
+      if (words === 0) out.push(`El clip ${i + 1} no tiene palabras y en cámara tiene que decir algo.`);
+      else if (words > limit + 1e-6) {
+        const max = Math.max(0, Math.floor(limit));
+        out.push(`El clip ${i + 1} tiene ${words} palabras y en sus ${slots[i].play} s entran unas ${max} (con la pausa del arranque). Acortá ese tramo.`);
+      }
+    });
   }
   return out;
 }

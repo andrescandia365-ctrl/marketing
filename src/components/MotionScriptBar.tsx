@@ -1,5 +1,6 @@
 // The top of the explainer studio: the piece's problem and length, how long it should be, writing the script, and the
 // director's note (the writer changes only what it asks).
+import { useEffect, useState } from "react";
 import { durationChoices, type MotionPiece, type MotionScript } from "../../shared/motion.ts";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
@@ -22,6 +23,9 @@ type Props = {
 };
 
 export function MotionScriptBar({ series, script, total, piece, set, busy, writeScript, handoffs, fitToTarget, directorNote, setDirectorNote, applyNote }: Props) {
+  // The field keeps what is being typed. Committing on every key would drop "100" at the "1".
+  const [typed, setTyped] = useState(String(piece.target));
+  useEffect(() => setTyped(String(piece.target)), [piece.target]);
   return (
     <>
       <div>
@@ -54,11 +58,14 @@ export function MotionScriptBar({ series, script, total, piece, set, busy, write
                   max={120}
                   className="w-20 rounded-lg border border-line px-2 py-1 text-sm"
                   aria-label="Segundos del explicativo"
-                  value={piece.target}
+                  value={typed}
                   onChange={(e) => {
-                    const n = Math.round(Number(e.target.value));
-                    if (n >= 2 && n <= 120) set({ target: n });
+                    const raw = e.target.value;
+                    setTyped(raw);
+                    const n = Number(raw);
+                    if (raw.trim() !== "" && Number.isInteger(n) && n >= 2 && n <= 120) set({ target: n });
                   }}
+                  onBlur={() => setTyped(String(piece.target))}
                 />
               </>
             )}

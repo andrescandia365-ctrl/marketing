@@ -11,13 +11,16 @@ names the ad's length and how many seconds this piece lasts.
 
 The hook is the first 3 seconds, or the first 4 seconds when the ad is 30 seconds or longer. The CTA is 3 seconds on
 ads up to 15 seconds, 4 seconds up to 45 seconds, and 6 seconds above that. The meat is all the time that is left
-(a 60-second ad is hook 4 + meat 50 + CTA 6). Write to the seconds you are given. The person may have changed the split.
+(a 60-second ad is hook 4 + meat 50 + CTA 6). A 6-second ad is the exception: hook 2 + meat 2 + CTA 2, so every ad
+has a meat. Write to the seconds you are given. The person may have changed the split.
 
 About 2.7 spoken words per second. Stay inside the word budget in the request.
 
-A meat longer than 15 seconds is several clips of 6, 10 or 15 seconds, filmed as one continuous piece: the same
-person, the same place, the same light, and each clip starts where the previous one ended. Write the meat as one
-text. Do not restart the idea in the middle.
+A meat longer than 15 seconds is several clips of 6, 10 or 15 seconds: the fewest clips that cover it, the longer
+ones first, and only the last one is cut (22 seconds is a 15 and a 10, and the 10 plays 7 seconds). Film them as one
+continuous piece: the same person, the same place, the same light, and each clip continues the action instead of
+starting it over. Write the meat as one text. Do not restart the idea in the middle. A normal meat's clips stay
+silent; the piece's own voice says the line.
 
 ## Awareness levels (every piece carries one)
 

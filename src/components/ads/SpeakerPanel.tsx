@@ -4,7 +4,7 @@
 // explainer where the series' code mascot says it instead.
 import { useMemo, useState } from "react";
 import { wordsFor, type Piece } from "../../../shared/ads.ts";
-import { grokSequence } from "../../../shared/adsSequence.ts";
+import { continuityNote, grokSequence } from "../../../shared/adsSequence.ts";
 import {
   SPEAKER_SOUNDS,
   SPEAKER_SOUND_LABEL,
@@ -175,9 +175,16 @@ export function SpeakerPanel({ piece, series, tool, format, hasClip, hasVoice, o
                     En {tool?.name ?? "Grok"}, adjuntá la referencia <b>@{member.ref}</b> (su imagen aprobada) en cada clip.
                   </li>
                   {sequence ? (
-                    <li>
-                      Pegá cada prompt y pedí {slots.map((s) => `${s.length} s`).join(", ")} ({format === "vertical" ? "9:16" : "16:9"}), con sonido. El clip 2 arranca donde terminó el 1.
-                    </li>
+                    <>
+                      <li>
+                        Pegá cada prompt y pedí {slots.map((s) => `${s.length} s`).join(", ")} ({format === "vertical" ? "9:16" : "16:9"}), con sonido. Primero la imagen, después animala. El clip 2 arranca donde terminó el 1.
+                      </li>
+                      {slots.map((_, i) =>
+                        i > 0 ? (
+                          <li key={i}>{continuityNote(i)}</li>
+                        ) : null,
+                      )}
+                    </>
                   ) : (
                     <li>
                       Pegá el prompt y elegí <b>{fit.clip} s</b> y {format === "vertical" ? "9:16" : "16:9"}, con sonido.

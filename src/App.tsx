@@ -482,8 +482,8 @@ export function App() {
   // starting one built from that text (no AI needed); with a key, "Escribir el guion" writes it from the notes.
   // The explainer's code comes with the studio, not with the first screen.
   async function startExplainerFrom(seed: AdSeed) {
-    const { seedNotes, starterPiece } = await import("../shared/adsFromExplainer.ts");
-    const b: Brief = { ...brief, piece: "explainer", notes: [brief.notes.trim(), seedNotes(seed)].filter(Boolean).join("\n") };
+    const { starterPiece, withSeedNotes } = await import("../shared/adsFromExplainer.ts");
+    const b: Brief = { ...brief, piece: "explainer", notes: withSeedNotes(brief.notes, seed) };
     setBrief(b);
     setSection("playbook");
     await startStudio("motion", { brief: b, motion: { piece: starterPiece(seed, b.format, b.tone), media: {}, music: null } }, seed.id.toLowerCase());

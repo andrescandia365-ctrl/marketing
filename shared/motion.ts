@@ -1106,12 +1106,16 @@ export function kineticLeave(title: string, seconds: number, start = 0): number 
   return leave;
 }
 
+// About half a beat. Beat snapping can shorten a scene, so the planned length leaves this on top of the reading room
+// and then rounds up to the next half second.
+const KINETIC_SNAP_MARGIN = 0.3;
+
 // Scene length so the title can assemble, be read and fall, at least the ad slot and never past a scene's 8 s.
 // A 3 s hook of many long words grows past the slot; the ad then plays the first seconds (fitClip).
 export function kineticHookSeconds(title: string, pieceSeconds: number): number {
   const room = kineticAssemble(title) + readingNeed(title) + KINETIC_FALL;
-  const want = Math.max(pieceSeconds, room);
-  const rounded = Math.round(want * 2) / 2;
+  const want = Math.max(pieceSeconds, room) + KINETIC_SNAP_MARGIN;
+  const rounded = Math.ceil(want * 2 - 1e-9) / 2;
   return Math.min(SCENE_SECONDS.max, Math.max(SCENE_SECONDS.min, rounded));
 }
 
@@ -1239,6 +1243,13 @@ export function revealTimes(scene: MotionScene, push = 0): number[] {
   const times = sceneElements(scene)
     .filter((e) => e.lane !== "voice")
     .map((e) => (e.at < push || e.key === carried ? 0 : e.at));
+  // A kinetic hook's fall is something new on screen. Without it, a scene that is only long enough to fall is a
+  // quiet gap by construction. The fall counts only when the scene asked for it and there is time to read first.
+  const fall =
+    scene.template === "hook" && scene.kineticExit
+      ? kineticLeave(scene.title, scene.seconds, sceneElements(scene).find((e) => e.key === "title")?.at ?? 0)
+      : null;
+  if (fall != null && fall < scene.seconds) times.push(fall < push ? 0 : fall);
   return [...new Set([0, ...times])].sort((a, b) => a - b);
 }
 

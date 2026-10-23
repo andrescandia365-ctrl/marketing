@@ -5,9 +5,9 @@ import {
   AD_MAX_SECONDS,
   AD_MIN_SECONDS,
   adLengthChoices,
+  defaultSplit,
   meatGapNote,
   splitIssue,
-  splitOf,
   suggestedSeconds,
   wordsFor,
   type Budget,
@@ -30,7 +30,8 @@ const PARTS = [
 const shareWords = (key: (typeof PARTS)[number], seconds: number) => (seconds < 1 ? key.empty : `${wordsFor(seconds)} palabras`);
 
 export function AdLength({ seconds, split, levels, onChange }: Props) {
-  const shown = splitOf(seconds, split);
+  // The draft as typed. splitOf() would snap a half-written split back to the default, so a custom split could never be built.
+  const shown = split ?? defaultSplit(seconds);
   const issue = split ? splitIssue(seconds, split) : null;
   const gap = meatGapNote(shown);
   const sug = suggestedSeconds(levels);
@@ -97,7 +98,7 @@ export function AdLength({ seconds, split, levels, onChange }: Props) {
         )}
       </div>
       <p className="text-xs text-muted">
-        El gancho queda corto, el llamado entre 3 y 6 s y el cuerpo se lleva el resto. Si cambiás una parte, las tres tienen que sumar {Math.round(seconds)} s.
+        De 7 s en adelante el gancho queda corto, el llamado entre 3 y 6 s y el cuerpo se lleva el resto. Un anuncio de 6 s es 2 + 2 + 2. Si cambiás una parte, las tres tienen que sumar {Math.round(seconds)} s.
       </p>
       {issue && <p className="text-xs text-neg">{issue}</p>}
       {gap && !issue && <p className="text-xs text-touch">{gap}</p>}

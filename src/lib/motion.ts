@@ -32,7 +32,7 @@ import {
   type MotionTone,
   type TimedScene,
 } from "../../shared/motion.ts";
-import { BUTTONS_FROM, PHONE_SAFE, isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
+import { BUTTONS_FROM, PHONE_SAFE, clampDelta, isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import { stepDownColour, type Brand, type BrandMotion } from "../../shared/series.ts";
 import { cueAt, litWord, type SubtitleCue } from "../../shared/subtitles.ts";
 import { sceneClip, videoAssetOf } from "../../shared/screenVideo.ts";
@@ -317,11 +317,22 @@ function kineticTitle(f: Frame, text: string, x: number, y: number, size: number
       const ww = ctx.measureText(word).width;
       ctx.save();
       if (fall > 0) {
+        // The words fade as they fall, and on a phone frame they stay inside the safe zone (the button column included).
+        ctx.globalAlpha *= 1 - fall;
         const sign = k % 2 === 0 ? -1 : 1;
         const mid = (total - 1) / 2;
-        ctx.translate((k - mid) * fall * size * 0.22, fall * fall * size * 1.35);
+        let dx = (k - mid) * fall * size * 0.22;
+        let dy = fall * fall * size * 1.35;
+        const angle = sign * fall * 0.4;
+        if (isPhoneFrame(f.w, f.h)) {
+          const safe = safeRect(f.w, f.h);
+          const pad = size * Math.sin(Math.abs(angle));
+          dx = clampDelta(cx - pad, ww + pad * 2, safe.x, safe.x + safe.w, dx);
+          dy = clampDelta(baseline - size * 0.95 - pad, size * 1.25 + pad * 2, safe.y, safe.y + safe.h, dy);
+        }
+        ctx.translate(dx, dy);
         ctx.translate(cx + ww / 2, baseline);
-        ctx.rotate(sign * fall * 0.4);
+        ctx.rotate(angle);
         ctx.translate(-(cx + ww / 2), -baseline);
       }
       ctx.beginPath();
