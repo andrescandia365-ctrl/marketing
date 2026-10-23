@@ -3,7 +3,7 @@
 import type { Hono } from "hono";
 import { z } from "zod";
 import {
-  AD_SECONDS,
+  AD_MAX_SECONDS,
   AdComboSchema,
   CombineRulesSchema,
   LEVEL_INFO,
@@ -23,10 +23,15 @@ import {
   rankHooks,
   toLevel,
   toLevels,
-  BUDGETS,
   HookStaticSchema,
+  PIECE_TEXT_MAX,
+  SplitSchema,
+  isAdSeconds,
+  noShareNote,
+  pieceShare,
+  splitIssue,
+  splitOf,
   adsThisWeek,
-  type AdSeconds,
   type AdsState,
   type Batch,
   type Piece,
@@ -81,7 +86,18 @@ import { EXPLAINER_KINDS, EXPLAINER_VIDEO, explainerPiece, explainerVideos, fitC
 
 const demo = () => currentWriter() === null;
 const Series = z.string().regex(/^[a-z0-9-]{1,40}$/);
-const Seconds = z.number().refine((n): n is AdSeconds => (AD_SECONDS as readonly number[]).includes(n), "El anuncio dura 6, 10 o 15 segundos.");
+const Seconds = z.number().refine(isAdSeconds, "El anuncio dura entre 6 y 120 segundos, un número entero.");
+const SplitBody = SplitSchema.optional();
+
+function shareFor(kind: "hook" | "meat" | "cta", seconds: number, split?: { hook: number; meat: number; cta: number }) {
+  if (split) {
+    const issue = splitIssue(seconds, split);
+    if (issue) throw new AdsError(issue);
+  }
+  const blocked = noShareNote(kind, seconds, split);
+  if (blocked) throw new AdsError(blocked);
+  return pieceShare(seconds, kind, split);
+}
 const Levels = z.array(z.number().int().min(1).max(5)).max(5).default([]);
 const Lang = z.enum(["es", "en"]).default("es");
 const PieceId = z.string().regex(/^[HMC]\d{1,4}$/);
@@ -240,9 +256,10 @@ export function adsRoutes(app: Hono) {
   // Hooks: the winners (metrics, organic) go in as patterns; existing hooks are not repeated.
   app.post("/api/ads/:series/hooks", async (c) => {
     const id = series(c);
-    const { levels, count, seconds, tool, language, handoff, part } = z
-      .object({ levels: Levels, count: z.number().int().min(1).max(60), seconds: Seconds, tool: z.string().max(60), language: Lang, handoff: Handoff, part: Part })
+    const { levels, count, seconds, tool, language, handoff, part, split } = z
+      .object({ levels: Levels, count: z.number().int().min(1).max(60), seconds: Seconds, tool: z.string().max(60), language: Lang, handoff: Handoff, part: Part, split: SplitBody })
       .parse(await c.req.json());
+    const hookSeconds = shareFor("hook", seconds, split);
     const state0 = await loadAds(id);
     // By copy and paste, 50 hooks are several prompts: this one asks for its share of the levels.
     const one = handoff ? partOf(hookParts(count, levelsOf(levels)), part) : null;
@@ -251,6 +268,7 @@ export function adsRoutes(app: Hono) {
       count: one?.count ?? count,
       ...(one && { perLevel: one.perLevel }),
       seconds,
+      ...(split && { split }),
       winners: [
         ...rankHooks(state0)
           .slice(0, 12)
@@ -268,7 +286,7 @@ export function adsRoutes(app: Hono) {
           ? sampleHooks(req)
           : await writeHooks(id, state0.offer, tool, req);
     const { state, result } = await updateAds(id, (s) => {
-      const hooks = hooksFromWire(s, wire, BUDGETS[seconds].hook, "ai");
+      const hooks = hooksFromWire(s, wire, hookSeconds, "ai");
       s.hooks.push(...hooks);
       return hooks;
     });
@@ -278,11 +296,11 @@ export function adsRoutes(app: Hono) {
   // "Enviar a Publicidad": a hook from a Playbook piece.
   app.post("/api/ads/:series/hooks/organic", async (c) => {
     const id = series(c);
-    const { text, level, seconds, note } = z
-      .object({ text: z.string().trim().min(1).max(600), level: z.number().int().min(1).max(5).default(2), seconds: Seconds.default(15), note: z.string().max(600).default("") })
+    const { text, level, seconds, note, split } = z
+      .object({ text: z.string().trim().min(1).max(600), level: z.number().int().min(1).max(5).default(2), seconds: Seconds.default(15), note: z.string().max(600).default(""), split: SplitBody })
       .parse(await c.req.json());
     const { state, result } = await updateAds(id, (s) => {
-      const hook = organicHook(s, text, toLevel(level), BUDGETS[seconds].hook, note);
+      const hook = organicHook(s, text, toLevel(level), shareFor("hook", seconds, split), note);
       s.hooks.push(hook);
       return hook;
     });
@@ -291,7 +309,7 @@ export function adsRoutes(app: Hono) {
 
   app.post("/api/ads/:series/meats", async (c) => {
     const id = series(c);
-    const { levels, formats, count, seconds, tool, language, handoff, part } = z
+    const { levels, formats, count, seconds, tool, language, handoff, part, split } = z
       .object({
         levels: Levels,
         formats: z.array(z.enum(MEAT_FORMATS)).max(5).default([]),
@@ -301,8 +319,10 @@ export function adsRoutes(app: Hono) {
         language: Lang,
         handoff: Handoff,
         part: Part,
+        split: SplitBody,
       })
       .parse(await c.req.json());
+    const meatSeconds = shareFor("meat", seconds, split);
     const state0 = await loadAds(id);
     const lv = levelsOf(levels);
     const one = handoff ? partOf(countParts("meat", count), part) : null;
@@ -311,6 +331,7 @@ export function adsRoutes(app: Hono) {
       formats: formats.length ? formats : [...new Set(lv.flatMap((l) => LEVEL_INFO[l].meats))],
       count: one?.count ?? count,
       seconds,
+      ...(split && { split }),
       hooks: state0.hooks.filter((h) => h.status === "approved" && lv.includes(h.level)).slice(0, 20),
       language,
     };
@@ -322,7 +343,7 @@ export function adsRoutes(app: Hono) {
           ? sampleMeats(req)
           : await writeMeats(id, state0.offer, tool, req);
     const { state, result } = await updateAds(id, (s) => {
-      const meats = meatsFromWire(s, wire, BUDGETS[seconds].meat, "", lv);
+      const meats = meatsFromWire(s, wire, meatSeconds, "", lv);
       s.meats.push(...meats);
       return meats;
     });
@@ -331,13 +352,14 @@ export function adsRoutes(app: Hono) {
 
   app.post("/api/ads/:series/ctas", async (c) => {
     const id = series(c);
-    const { levels, count, seconds, tool, language, handoff, part } = z
-      .object({ levels: Levels, count: z.number().int().min(1).max(5), seconds: Seconds, tool: z.string().max(60), language: Lang, handoff: Handoff, part: Part })
+    const { levels, count, seconds, tool, language, handoff, part, split } = z
+      .object({ levels: Levels, count: z.number().int().min(1).max(5), seconds: Seconds, tool: z.string().max(60), language: Lang, handoff: Handoff, part: Part, split: SplitBody })
       .parse(await c.req.json());
+    const ctaSeconds = shareFor("cta", seconds, split);
     const state0 = await loadAds(id);
     const lv = levelsOf(levels);
     const one = handoff ? partOf(countParts("cta", count), part) : null;
-    const req = { levels: lv, count: one?.count ?? count, seconds, hooks: state0.hooks.filter((h) => h.status === "approved" && lv.includes(h.level)).slice(0, 20), language };
+    const req = { levels: lv, count: one?.count ?? count, seconds, ...(split && { split }), hooks: state0.hooks.filter((h) => h.status === "approved" && lv.includes(h.level)).slice(0, 20), language };
     if (handoff?.mode === "prompt") return c.json({ ...taskPrompt(ctasTask(id, state0.offer, tool, req)), ...partInfo(one) });
     const wire =
       handoff?.mode === "paste"
@@ -346,7 +368,7 @@ export function adsRoutes(app: Hono) {
           ? sampleCtas(req)
           : await writeCtas(id, state0.offer, tool, req);
     const { state, result } = await updateAds(id, (s) => {
-      const ctas = ctasFromWire(s, wire, BUDGETS[seconds].cta, lv);
+      const ctas = ctasFromWire(s, wire, ctaSeconds, lv);
       s.ctas.push(...ctas);
       return ctas;
     });
@@ -360,7 +382,7 @@ export function adsRoutes(app: Hono) {
     const patch = z
       .object({
         status: z.enum(PIECE_STATUS).optional(),
-        text: z.string().max(600).optional(),
+        text: z.string().max(PIECE_TEXT_MAX).optional(),
         onScreenText: z.string().max(80).optional(),
         visualPrompt: z.string().max(3000).optional(),
         videoPrompt: z.string().max(3000).optional(),
@@ -420,7 +442,7 @@ export function adsRoutes(app: Hono) {
       s.meats = s.meats.filter((p) => p.id !== pieceId);
       s.ctas = s.ctas.filter((p) => p.id !== pieceId);
       const m = s.media[pieceId];
-      for (const f of [m?.image, m?.clip?.file, m?.voice?.file, s.renders[pieceId]]) if (f) await removePieceMedia(id, f).catch(() => undefined);
+      for (const f of [m?.image, m?.clip?.file, m?.voice?.file, ...(m?.clips ?? []).map((c) => c?.file), s.renders[pieceId]]) if (f) await removePieceMedia(id, f).catch(() => undefined);
       delete s.media[pieceId];
       delete s.renders[pieceId];
       const st = s.statics[pieceId];
@@ -464,12 +486,22 @@ export function adsRoutes(app: Hono) {
     if (!data.length) throw new AdsError("El archivo está vacío.");
     const name = (c.req.query("name") ?? "").slice(0, 120);
     const duration = Number(c.req.query("duration")) || 0;
-    const file = await savePieceMedia(id, pieceId, kind, data, c.req.header("content-type") ?? "");
+    const indexRaw = c.req.query("index");
+    const index = indexRaw === undefined || indexRaw === "" ? undefined : Number(indexRaw);
+    if (index !== undefined && kind !== "clip") throw new AdsError("Solo un clip de la secuencia lleva un lugar.");
+    const file = await savePieceMedia(id, pieceId, kind, data, c.req.header("content-type") ?? "", index);
     const { state } = await updateAds(id, async (s) => {
       if (!findPiece(s, pieceId)) throw new AdsError("Esa pieza no existe.");
       const m = (s.media[pieceId] ??= {});
       if (kind === "image") m.image = file;
-      else m[kind] = { file, name, duration };
+      else if (kind === "clip" && index !== undefined) {
+        const clips = [...(m.clips ?? [])];
+        while (clips.length <= index) clips.push(null);
+        const prev = clips[index];
+        if (prev?.file && prev.file !== file) await removePieceMedia(id, prev.file).catch(() => undefined);
+        clips[index] = { file, name, duration, from: prev?.from ?? 0 };
+        m.clips = clips;
+      } else m[kind] = { file, name, duration };
       if (s.renders[pieceId]) {
         await removePieceMedia(id, s.renders[pieceId]).catch(() => undefined);
         delete s.renders[pieceId];
@@ -482,11 +514,19 @@ export function adsRoutes(app: Hono) {
     const id = series(c);
     const pieceId = PieceId.parse(c.req.param("id"));
     const kind = z.enum(["image", "clip", "voice"]).parse(c.req.param("kind"));
+    const indexRaw = c.req.query("index");
+    const index = indexRaw === undefined || indexRaw === "" ? undefined : Number(indexRaw);
     const { state } = await updateAds(id, async (s) => {
       const m = s.media[pieceId];
-      const file = kind === "image" ? m?.image : m?.[kind]?.file;
-      if (file) await removePieceMedia(id, file).catch(() => undefined);
-      if (m) delete m[kind];
+      if (kind === "clip" && index !== undefined) {
+        const slot = m?.clips?.[index];
+        if (slot?.file) await removePieceMedia(id, slot.file).catch(() => undefined);
+        if (m?.clips) m.clips[index] = null;
+      } else {
+        const file = kind === "image" ? m?.image : m?.[kind]?.file;
+        if (file) await removePieceMedia(id, file).catch(() => undefined);
+        if (m) delete m[kind];
+      }
       if (s.renders[pieceId]) {
         await removePieceMedia(id, s.renders[pieceId]).catch(() => undefined);
         delete s.renders[pieceId];
@@ -514,7 +554,7 @@ export function adsRoutes(app: Hono) {
         duration: z.number().positive().max(3600),
         start: z.number().min(0).max(3600).default(0),
         pieceId: z.string().regex(/^[HMC]\d{1,4}$/).optional(),
-        create: z.object({ kind: z.enum(EXPLAINER_KINDS), seconds: z.number().min(1).max(15), text: z.string().max(600) }).optional(),
+        create: z.object({ kind: z.enum(EXPLAINER_KINDS), seconds: z.number().min(1).max(AD_MAX_SECONDS), text: z.string().max(PIECE_TEXT_MAX) }).optional(),
       })
       .refine((b) => Boolean(b.pieceId) !== Boolean(b.create), "Elegí una pieza o creá una nueva.")
       .parse(await c.req.json());
@@ -573,9 +613,10 @@ export function adsRoutes(app: Hono) {
   // A batch: the combinations (code) and the platform texts (one writer call per 50 hook+CTA pairs).
   app.post("/api/ads/:series/batches", async (c) => {
     const id = series(c);
-    const { seconds, mode, rules, ads, copies: pasted } = z
+    const { seconds, mode, rules, ads, copies: pasted, split } = z
       .object({
         seconds: Seconds,
+        split: SplitBody,
         mode: z.enum(["full", "stage"]),
         rules: CombineRulesSchema,
         ads: z.array(AdComboSchema).min(1).max(1000),
@@ -584,8 +625,12 @@ export function adsRoutes(app: Hono) {
         copies: z.record(z.string(), PastedCopySchema).optional(),
       })
       .parse(await c.req.json());
+    if (split) {
+      const issue = splitIssue(seconds, split);
+      if (issue) throw new AdsError(issue);
+    }
     const state0 = await loadAds(id);
-    // The weekly limit holds here too, not only on the screen.
+    // The weekly limit holds here too, not only on the screen. It counts ads, whatever each one lasts.
     const week = adsThisWeek(state0.batches);
     if (week + ads.length > state0.weeklyLimit) {
       throw new AdsError(`Esta tanda (${ads.length}) pasa el límite semanal: ya van ${week} de ${state0.weeklyLimit}. Subí el límite o achicá la tanda.`);
@@ -607,6 +652,7 @@ export function adsRoutes(app: Hono) {
         id: `tanda-${day}-${n}`,
         createdAt: stamp.toISOString(),
         seconds,
+        split: splitOf(seconds, split),
         mode,
         rules,
         ads: ads.map((a) => ({ ...a, level: toLevel(a.level) })),

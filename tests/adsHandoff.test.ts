@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ANSWER_LINE } from "../shared/handoff.ts";
-import { BUDGETS, EMPTY_OFFER, emptyAds, flagsFromWire, hooksFromWire, type Cta, type Hook, type Level } from "../shared/ads.ts";
+import { defaultSplit, EMPTY_OFFER, emptyAds, flagsFromWire, hooksFromWire, type Cta, type Hook, type Level } from "../shared/ads.ts";
 import {
   PASTE_PER_PROMPT,
   copiesFromWire,
@@ -115,7 +115,7 @@ test("paste round trip: a hooks reply in a fence with prose becomes pending hook
   ].join("\n");
   const wire = taskFromPaste(hooksTask("iman", EMPTY_OFFER, "grok-imagine", req), reply);
   const state = emptyAds("iman");
-  const hooks = hooksFromWire(state, wire, BUDGETS[15].hook, "ai");
+  const hooks = hooksFromWire(state, wire, defaultSplit(15).hook, "ai");
   state.hooks.push(...hooks);
   assert.deepEqual(
     hooks.map((h) => [h.id, h.level, h.status]),

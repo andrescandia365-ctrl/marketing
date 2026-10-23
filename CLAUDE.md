@@ -438,11 +438,17 @@ people and politics. The playbook's 75 s ad template does not drive the app.
     (`explainerPiece`: approved, manual, all levels, its seconds `pieceSecondsFor` the ad length, its text the voice
     said in the stretch, `voiceInRange`), copied on the server into publicidad/<series>/media/ and the piece's cached
     render dropped. The piece keeps its budget: `fitClip` plays a longer explainer from an in point
-    (`media.clip.from`, clamped) for the piece's seconds, a shorter one holds its last frame. The render plays a clip
-    from `ShotMedia.clipFrom` and draws nothing over an explainer clip (`media.clip.explainer` → `ShotMedia.finished`:
-    it brings its own words, subtitles and notice). The way back: a meat or CTA with no clip shows "Hacelo como
-    explicativo" (`onToExplainer`), a new explainer with the piece's text in brief.notes (`seedNotes`) and a starting
-    script built with no AI (`starterScript`/`starterPiece`).
+    (`media.clip.from`, clamped) for the piece's seconds (up to 120 s), a shorter one holds its last frame. The render
+    plays a clip from `ShotMedia.clipFrom` and draws nothing over an explainer clip (`media.clip.explainer` →
+    `ShotMedia.finished`: it brings its own words, subtitles and notice). The way back: a hook, meat or CTA with no
+    clip shows "Hacelo como explicativo" (`onToExplainer`). A hook is one kinetic title (`kineticExit` on the hook
+    template: the words assemble and, when `readingNeed` still fits, fall apart; `kineticHookSeconds` may run past the
+    3 or 4 s slot, and `fitClip` uses the first seconds). A meat longer than 15 s is several short hook-template
+    scenes (`wordChunks`). A short meat or CTA stays one line per sentence, and a CTA closes on the logo. The script
+    is built with no AI (`starterScript`/`starterPiece`); the brief notes the piece (`seedNotes`) and "Usar en
+    Publicidad" opens on that piece (`seedPieceId`, applied once). "Hacer en motion graphics" does the same for every
+    approved piece of the open tab, one project each, named with the piece id. A new hook is not created from this
+    panel (`kind === "hook"` still saves a meat); an existing approved hook is the target.
   - "Mascota en código" (`shared/mascot.ts`, `MascotPanel` lazy in SeriesEditor, `GET/PUT/DELETE
     /api/series/:id/mascot`, `POST /api/mascot/code` with a key): a series can hold one original mascot as code,
     `drawMascot(ctx, t, pose)` (`MASCOT_CONTRACT`; pose = x, y feet, scale 1 = 400 px tall, facing ±1, expression
@@ -468,8 +474,10 @@ people and politics. The playbook's 75 s ad template does not drive the app.
     approved image (`speakerCandidates`). `speakerPrompt` writes the Grok video prompt with no key: @ref + identity,
     place by series type (`defaultPlace`), one action, locked camera, the series look or `PLAIN_VIDEO`, the line in
     quotes via `speakingPrompt` (emotion as tone, `spokenLine` strips inner double quotes), `audioLine` with no music,
-    and the clip that fits the words (`speakerFit`: words/2.7 + 0.4 s, at least the piece, 6/10/15). [VERIFY], empty
-    or over-15 s lines block the copy (`speakerIssues`). The choice is saved as `piece.speaker` (PieceSpeakerSchema in
+    and the clip that fits the words (`speakerFit`: words/2.7 + 0.4 s, at least the piece, 6/10/15). A meat longer than
+    15 s is several of those clips (`sequenceSpeakerPrompts`): the same character, place and look, each stretch of the
+    line, and «Copiar todos los prompts» copies the sequence. [VERIFY], an empty line, or a line that does not fit the
+    piece's seconds blocks the copy (`speakerIssues`). The choice is saved as `piece.speaker` (PieceSpeakerSchema in
     shared/ads.ts; PATCH .../pieces/:id, null removes it; a change drops the cached render) with `sound` (clip's
     voice, or clip muted via `clipGain` with the piece's voice as fallback) and `from` (the clip's in point). The
     render's notice becomes `speakerDisclosure` ("Personaje (y voz) hechos con IA", `pieceDisclosure` in adsRender).
@@ -532,8 +540,19 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   piece, the cache) and `anuncios/<tanda>/` (videos named by id `H12-M3-C2` plus `anuncios.csv`). Every hook carries an
   awareness level 1–5 (`LEVEL_INFO`; 1–3 cold, 4–5 retargeting), an angle and a formula; meats have a format (demo,
   testimonial, education, story, faceless), the levels they serve and a neutral opening; CTAs say what, why, when and
-  how easy. An ad lasts 6, 10 or 15 s and `BUDGETS` splits it (15 s: hook 3, meat 9, CTA 3) at ~2.7 words/s; a piece's
-  clip is the next 6/10/15 s length (`clipSecondsFor`) and the render cuts it. "Fuentes" ranks winning hooks: a
+  how easy. An ad lasts any whole number of seconds from 6 to 120 (`AD_MIN_SECONDS` / `AD_MAX_SECONDS`; presets 6, 10,
+  15, 30, 45, 60, 90, or a typed length). `defaultSplit` gives the hook 3 s (4 s from 30 s up), the CTA 3 s up to a
+  15 s ad, 4 s up to 45 s and 6 s above, and the meat the rest (60 s = 4 + 50 + 6). A hand `split` on the batch is
+  kept when the three parts are whole seconds from 0 to 120 and add up (`splitIssue`, in Spanish). Words still follow
+  `WORDS_PER_SECOND` (~2.7) through `wordsFor`. A 0 s meat is not asked of the writer (`noShareNote`). A meat longer
+  than 15 s is a sequence of Grok clips of 6, 10 or 15 s (`grokSequence`, `shared/adsSequence.ts`): one prompt and one
+  upload per clip, the same cast @refs, place and look, each clip continuing the last; the render plays them in order
+  and cuts the last to the meat (`expandPiece`, a hard cut only inside the sequence). `RENDER_VERSION` is `l2`, so
+  older caches render again. Piece `seconds` stay a number (old pieces may be 2.5 s); batch seconds are integers.
+  Newly written 6 s and 10 s pieces use the new split (6 s is hook 3 + CTA 3; 10 s is 3 + 4 + 3). Levels 1–3 suggest
+  45 s and levels 4–5 suggest 15 s (`suggestedSeconds`); the suggestion never replaces a saved length. "Hacer en
+  motion graphics" writes one explainer project per approved piece of the open tab. A single clip of 15 s or less is
+  still `clipSecondsFor`. "Fuentes" ranks winning hooks: a
   platform CSV (`parseMetricsCsv`, Meta headers in Spanish or English; hook = 3 s views / impressions, meat = average
   watch time, CTA = clicks and conversions), hooks sent from Playbook ("Enviar a Publicidad") and uploaded clips
   transcribed with whisper-1 (`transcribeClip`, same OPENAI_API_KEY; or a pasted transcript) and split by the writer.

@@ -13,7 +13,6 @@ import {
   renderedPieces,
   varyHook,
   type AdCombo,
-  type AdSeconds,
   type AdsState,
   type CombineRules,
   type ReviewFlag,
@@ -31,7 +30,7 @@ export type RenderProgress = { stage: "pieces" | "ads" | "csv" | "voices"; done:
 type Props = {
   series: string;
   state: AdsState;
-  seconds: AdSeconds;
+  seconds: number;
   folder: string;
   busy: string | null;
   flags: ReviewFlag[] | null;
@@ -185,7 +184,7 @@ export function CombinePanel({
                 : "Créditos de IA: 1 pedido por cada 50 pares hook + CTA para los textos de la plataforma. Combinar es código puro."}
             </li>
             <li>
-              Esta semana: {week} anuncios de {state.weeklyLimit}.{" "}
+              Esta semana: {week} anuncios de {state.weeklyLimit}. El límite cuenta anuncios, sea de 6 s o de 2 minutos.{" "}
               <button
                 type="button"
                 className="underline"

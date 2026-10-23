@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  BUDGETS,
+  defaultSplit,
   clipSecondsFor,
   combine,
   ctasFromWire,
@@ -34,7 +34,7 @@ function catalogue() {
       ],
       note: "",
     },
-    BUDGETS[15].hook,
+    defaultSplit(15).hook,
     "ai",
     "approved",
   );
@@ -42,13 +42,13 @@ function catalogue() {
   const meats = meatsFromWire(
     s,
     { meats: [{ text: "m1", format: "demo", levels: [1, 2, 3], ...prompts }, { text: "m2", format: "testimonial", levels: [4, 5], ...prompts }], note: "" },
-    BUDGETS[15].meat,
+    defaultSplit(15).meat,
     "",
     [2],
   );
   meats.forEach((m) => (m.status = "approved"));
   s.meats.push(...meats);
-  const ctas = ctasFromWire(s, { ctas: [{ text: "c1", levels: [1, 2, 3, 4, 5], what: "", why: "", when: "", easy: "", ...prompts }], note: "" }, BUDGETS[15].cta, [2]);
+  const ctas = ctasFromWire(s, { ctas: [{ text: "c1", levels: [1, 2, 3, 4, 5], what: "", why: "", when: "", easy: "", ...prompts }], note: "" }, defaultSplit(15).cta, [2]);
   ctas.forEach((c) => (c.status = "approved"));
   s.ctas.push(...ctas);
   return s;

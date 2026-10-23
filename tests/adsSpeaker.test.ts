@@ -95,6 +95,9 @@ test("the clip fits the words: 6 s for a short line, longer when the line needs 
   assert.equal(speakerFit(long, 9).clip, 15);
   assert.ok(speakerFit(long, 9).tooLong);
   assert.ok(speakerIssues(long, 9).some((i) => i.includes("15 s")));
+  // The same 40 words fit a 50 s meat: it is several clips, not one 15 s file.
+  assert.equal(speakerFit(long, 50).tooLong, false);
+  assert.equal(speakerFit(long, 50).fits, true);
 });
 
 test("the line goes in quotes, whole, on one line, with no quote inside that would close it", () => {

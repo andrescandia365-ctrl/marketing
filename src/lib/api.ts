@@ -135,7 +135,7 @@ export const askPrompt = (ask: WriterAsk<unknown>) => call<PromptOnly>(ask.path,
 // prompt of a request split in several; the prompt's answer says how many there are.
 type Parted = { part?: number; parts?: number };
 export type PartPrompt = PromptOnly & Parted & { keys?: string[] };
-type PieceBody = { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; part: number };
+type PieceBody = { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; part: number; split?: { hook: number; meat: number; cta: number } };
 export const adsAsks = {
   hooks: (series: string, body: PieceBody) => writerAsk<{ state: AdsState; hooks: Hook[]; note: string } & Demo & Parted>(`/api/ads/${enc(series)}/hooks`, body),
   meats: (series: string, body: PieceBody & { formats: MeatFormat[] }) =>
@@ -178,26 +178,28 @@ export const ads = {
   removeClip: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/clips/${enc(id)}`, undefined, "DELETE"),
   importMetrics: (series: string, csv: string, replace = true) =>
     call<{ state: AdsState; ranking: RankedHook[]; rows: number; withId: number; found: string[]; missing: string[] }>(`/api/ads/${enc(series)}/metrics`, { csv, replace }),
-  hooks: (series: string, body: { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en" }) =>
+  hooks: (series: string, body: { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; split?: { hook: number; meat: number; cta: number } }) =>
     call<{ state: AdsState; hooks: Hook[]; note: string } & Demo>(`/api/ads/${enc(series)}/hooks`, body),
-  organicHook: (series: string, text: string, level: number, seconds: number, note: string) =>
-    call<{ state: AdsState; hook: Hook }>(`/api/ads/${enc(series)}/hooks/organic`, { text, level, seconds, note }),
-  meats: (series: string, body: { levels: number[]; formats: MeatFormat[]; count: number; seconds: number; tool: string; language: "es" | "en" }) =>
+  organicHook: (series: string, text: string, level: number, seconds: number, note: string, split?: { hook: number; meat: number; cta: number }) =>
+    call<{ state: AdsState; hook: Hook }>(`/api/ads/${enc(series)}/hooks/organic`, { text, level, seconds, note, ...(split ? { split } : {}) }),
+  meats: (series: string, body: { levels: number[]; formats: MeatFormat[]; count: number; seconds: number; tool: string; language: "es" | "en"; split?: { hook: number; meat: number; cta: number } }) =>
     call<{ state: AdsState; meats: Meat[]; note: string } & Demo>(`/api/ads/${enc(series)}/meats`, body),
-  ctas: (series: string, body: { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en" }) =>
+  ctas: (series: string, body: { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; split?: { hook: number; meat: number; cta: number } }) =>
     call<{ state: AdsState; ctas: Cta[]; note: string } & Demo>(`/api/ads/${enc(series)}/ctas`, body),
   patchPiece: (series: string, id: string, patch: PiecePatch) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}`, patch, "PATCH"),
   setStatus: (series: string, ids: string[], status: PieceStatus) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces`, { ids, status }, "PATCH"),
   removePiece: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}`, undefined, "DELETE"),
   review: (series: string) => call<{ flags: ReviewFlag[]; note: string } & Demo>(`/api/ads/${enc(series)}/review`, {}),
-  uploadPieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice", file: Blob, meta?: { name: string; duration: number }) =>
-    upload<{ state: AdsState; file: string }>(
-      `/api/ads/${enc(series)}/pieces/${enc(id)}/media/${kind}${meta ? `?name=${enc(meta.name)}&duration=${meta.duration}` : ""}`,
-      file,
-      file.type,
-    ),
-  removePieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice") =>
-    call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/media/${kind}`, undefined, "DELETE"),
+  uploadPieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice", file: Blob, meta?: { name: string; duration: number; index?: number }) => {
+    const q = new URLSearchParams();
+    if (meta?.name) q.set("name", meta.name);
+    if (meta?.duration) q.set("duration", String(meta.duration));
+    if (meta?.index !== undefined) q.set("index", String(meta.index));
+    const qs = q.toString();
+    return upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/media/${kind}${qs ? `?${qs}` : ""}`, file, file.type);
+  },
+  removePieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice", index?: number) =>
+    call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/media/${kind}${index !== undefined ? `?index=${index}` : ""}`, undefined, "DELETE"),
   explainerVideos: (series: string, project: string) =>
     call<{ videos: ExplainerVideo[]; title: string }>(`/api/ads/${enc(series)}/explainers/${enc(project)}`),
   fromExplainer: (
@@ -206,7 +208,7 @@ export const ads = {
   ) => call<{ state: AdsState; pieceId: string; fit: ClipFit }>(`/api/ads/${enc(series)}/pieces/from-explainer`, body),
   dropRender: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, undefined, "DELETE"),
   uploadRender: (series: string, id: string, video: Blob) => upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, video, video.type),
-  createBatch: (series: string, body: { seconds: number; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[]; copies?: Record<string, PastedCopy> }) =>
+  createBatch: (series: string, body: { seconds: number; split?: { hook: number; meat: number; cta: number }; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[]; copies?: Record<string, PastedCopy> }) =>
     call<{ state: AdsState; batch: Batch } & Demo>(`/api/ads/${enc(series)}/batches`, body),
   uploadAd: (series: string, batch: string, adId: string, video: Blob) =>
     upload<{ file: string }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/ads/${enc(adId)}`, video, video.type),
@@ -309,7 +311,7 @@ export const api = {
     upload<{ file: string; series: SeriesInfo[] }>(`/api/series/${enc(seriesId)}/cast/${enc(castId)}/image`, image, image.type),
 
   projects: () => call<{ projects: ProjectSummary[] }>("/api/projects"),
-  createProject: (series: string) => call<{ id: string }>("/api/projects", { series }),
+  createProject: (series: string, slug?: string) => call<{ id: string }>("/api/projects", { series, ...(slug ? { slug } : {}) }),
   project: (id: string) => call<ProjectData>(`/api/projects/${enc(id)}`),
   saveProject: (id: string, state: Record<string, unknown>, markdown?: string) =>
     call<{ updatedAt: string }>(`/api/projects/${enc(id)}`, { state, markdown }, "PUT"),

@@ -2,7 +2,7 @@
 // piece's budget, the words said in the chosen stretch, and the way back ("Hacelo como explicativo").
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AdsMediaSchema, BUDGETS, emptyAds, type Cta, type Meat } from "../shared/ads.ts";
+import { AdsMediaSchema, defaultSplit, emptyAds, type Cta, type Meat } from "../shared/ads.ts";
 import {
   explainerPiece,
   explainerTargets,
@@ -69,9 +69,11 @@ test("targets are the approved meats or CTAs, the ones still without a clip firs
 });
 
 test("a new piece takes its share of the ad's budget", () => {
-  assert.equal(pieceSecondsFor("meat", 15), BUDGETS[15].meat);
-  assert.equal(pieceSecondsFor("cta", 6), BUDGETS[6].cta);
-  assert.equal(pieceSecondsFor("meat", 7), BUDGETS[15].meat, "an unknown ad length falls back to 15 s");
+  assert.equal(pieceSecondsFor("meat", 15), defaultSplit(15).meat);
+  // A 6 s ad's call is 3 s. Newly written pieces use that; older pieces keep the 1.5 s they were saved with.
+  assert.equal(pieceSecondsFor("cta", 6), 3);
+  assert.equal(pieceSecondsFor("meat", 7), defaultSplit(7).meat, "7 s is a real ad length");
+  assert.equal(pieceSecondsFor("meat", 5), defaultSplit(15).meat, "a length outside 6 to 120 s is a 15 s ad");
 });
 
 test("the length budget: whole, cut from an in point that never runs past the end, or short (last frame holds)", () => {

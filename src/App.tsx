@@ -454,14 +454,14 @@ export function App() {
 
   // A lyric video, an explainer or a still: its own project folder, then its studio. An explainer can start from a
   // given brief and piece ("Hacelo como explicativo" in Publicidad).
-  async function startStudio(kind: "lyrics" | "motion" | "still", from?: { brief: Brief; motion: MotionOpen }) {
+  async function startStudio(kind: "lyrics" | "motion" | "still", from?: { brief: Brief; motion: MotionOpen }, slug?: string) {
     const b = from?.brief ?? brief;
     resetPiece();
     setError("");
     setPieceBrief(b);
     let id: string | null = null;
     try {
-      id = (await api.createProject(b.series)).id;
+      id = (await api.createProject(b.series, slug)).id;
     } catch (e) {
       setError(`Se puede seguir, pero no se pudo crear la carpeta del proyecto: ${message(e)}`);
     }
@@ -486,7 +486,7 @@ export function App() {
     const b: Brief = { ...brief, piece: "explainer", notes: [brief.notes.trim(), seedNotes(seed)].filter(Boolean).join("\n") };
     setBrief(b);
     setSection("playbook");
-    await startStudio("motion", { brief: b, motion: { piece: starterPiece(seed, b.format, b.tone), media: {}, music: null } });
+    await startStudio("motion", { brief: b, motion: { piece: starterPiece(seed, b.format, b.tone), media: {}, music: null } }, seed.id.toLowerCase());
   }
 
   // Step 1 → menu. A new piece gets its own project folder.

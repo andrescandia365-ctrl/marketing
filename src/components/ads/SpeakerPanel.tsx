@@ -4,11 +4,14 @@
 // explainer where the series' code mascot says it instead.
 import { useMemo, useState } from "react";
 import { wordsFor, type Piece } from "../../../shared/ads.ts";
+import { grokSequence } from "../../../shared/adsSequence.ts";
 import {
   SPEAKER_SOUNDS,
   SPEAKER_SOUND_LABEL,
   defaultEmotion,
   defaultPlace,
+  sequencePromptText,
+  sequenceSpeakerPrompts,
   speakerCandidates,
   speakerDraft,
   speakerDisclosure,
@@ -45,17 +48,31 @@ export function SpeakerPanel({ piece, series, tool, format, hasClip, hasVoice, o
   const member = candidates.find((m) => m.id === draft?.castId);
   const fit = speakerFit(piece.text, piece.seconds);
   const issues = speakerIssues(piece.text, piece.seconds);
+  const slots = grokSequence(piece.seconds);
+  const sequence = slots.length > 1;
   const prompt =
     member && draft
-      ? speakerPrompt({
-          text: piece.text,
-          pieceSeconds: piece.seconds,
-          member,
-          speaker: draft,
-          format,
-          look: series.look,
-          type: series.type,
-        })
+      ? sequence
+        ? sequencePromptText(
+            sequenceSpeakerPrompts({
+              text: piece.text,
+              pieceSeconds: piece.seconds,
+              member,
+              speaker: draft,
+              format,
+              look: series.look,
+              type: series.type,
+            }),
+          )
+        : speakerPrompt({
+            text: piece.text,
+            pieceSeconds: piece.seconds,
+            member,
+            speaker: draft,
+            format,
+            look: series.look,
+            type: series.type,
+          })
       : "";
   const saved = JSON.stringify(piece.speaker ?? null) === JSON.stringify(draft);
   const lip = tool?.lipSync;
@@ -134,8 +151,17 @@ export function SpeakerPanel({ piece, series, tool, format, hasClip, hasVoice, o
               <input className={inputClass} value={draft.voice} onChange={(e) => setDraft({ ...draft, voice: e.target.value })} />
             </label>
             <p className={fit.fits ? "text-muted" : "text-neg"}>
-              La línea ({fit.words} palabras) se dice en unos {s1(fit.speech)}: pedí en Grok un clip de <b>{fit.clip} s</b>. La pieza usa {s1(piece.seconds)}
-              {fit.fits ? "." : `: no entra y se corta. Acortala a ${wordsFor(piece.seconds)} palabras.`}
+              {sequence ? (
+                <>
+                  La línea ({fit.words} palabras) se parte en {slots.length} clips de Grok ({slots.map((s) => `${s.length} s`).join(" + ")}). Cada uno sigue donde terminó el anterior, con el mismo personaje y el mismo lugar. La pieza usa {s1(piece.seconds)}
+                  {fit.fits ? "." : `: no entra. Acortala a ${wordsFor(piece.seconds)} palabras.`}
+                </>
+              ) : (
+                <>
+                  La línea ({fit.words} palabras) se dice en unos {s1(fit.speech)}: pedí en Grok un clip de <b>{fit.clip} s</b>. La pieza usa {s1(piece.seconds)}
+                  {fit.fits ? "." : `: no entra y se corta. Acortala a ${wordsFor(piece.seconds)} palabras.`}
+                </>
+              )}
             </p>
             {issues.map((i) => (
               <p key={i} className="text-neg">
@@ -146,14 +172,20 @@ export function SpeakerPanel({ piece, series, tool, format, hasClip, hasVoice, o
               <>
                 <ol className="list-decimal space-y-0.5 pl-4 text-muted">
                   <li>
-                    En {tool?.name ?? "Grok"}, adjuntá la referencia <b>@{member.ref}</b> (su imagen aprobada).
+                    En {tool?.name ?? "Grok"}, adjuntá la referencia <b>@{member.ref}</b> (su imagen aprobada) en cada clip.
                   </li>
-                  <li>
-                    Pegá el prompt y elegí <b>{fit.clip} s</b> y {format === "vertical" ? "9:16" : "16:9"}, con sonido.
-                  </li>
-                  <li>Subí el clip acá arriba con «Subir clip».</li>
+                  {sequence ? (
+                    <li>
+                      Pegá cada prompt y pedí {slots.map((s) => `${s.length} s`).join(", ")} ({format === "vertical" ? "9:16" : "16:9"}), con sonido. El clip 2 arranca donde terminó el 1.
+                    </li>
+                  ) : (
+                    <li>
+                      Pegá el prompt y elegí <b>{fit.clip} s</b> y {format === "vertical" ? "9:16" : "16:9"}, con sonido.
+                    </li>
+                  )}
+                  <li>{sequence ? "Subí cada clip en su lugar, arriba («Clip i de N»)." : "Subí el clip acá arriba con «Subir clip»."}</li>
                 </ol>
-                <CopyButton text={prompt} idle="Copiar prompt para Grok" />
+                <CopyButton text={prompt} idle={sequence ? "Copiar todos los prompts" : "Copiar prompt para Grok"} />
                 <pre className="whitespace-pre-wrap rounded bg-paper p-2 font-mono text-[11px] text-muted">{prompt}</pre>
               </>
             )}
@@ -181,24 +213,28 @@ export function SpeakerPanel({ piece, series, tool, format, hasClip, hasVoice, o
             {draft.sound === "voice" && !hasVoice && (
               <p className="text-touch">Falta la voz de la pieza: generala o subila abajo (si no, queda solo el subtítulo).</p>
             )}
-            <label className="block">
-              <span className="font-semibold">El clip arranca en</span>{" "}
-              <input
-                type="number"
-                min={0}
-                max={14}
-                step={0.1}
-                className="w-20 rounded-lg border border-line px-2 py-1"
-                value={draft.from}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    from: Math.max(0, Math.min(14, Number(e.target.value) || 0)),
-                  })
-                }
-              />{" "}
-              <span className="text-muted">s (si el personaje tarda en hablar, salteá ese silencio)</span>
-            </label>
+            {sequence ? (
+              <p className="text-muted">Cada clip arranca desde el principio. Si el personaje tarda en hablar, recortá ese silencio en Grok antes de subirlo.</p>
+            ) : (
+              <label className="block">
+                <span className="font-semibold">El clip arranca en</span>{" "}
+                <input
+                  type="number"
+                  min={0}
+                  max={14}
+                  step={0.1}
+                  className="w-20 rounded-lg border border-line px-2 py-1"
+                  value={draft.from}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      from: Math.max(0, Math.min(14, Number(e.target.value) || 0)),
+                    })
+                  }
+                />{" "}
+                <span className="text-muted">s (si el personaje tarda en hablar, salteá ese silencio)</span>
+              </label>
+            )}
             {!hasClip && piece.speaker && <p className="text-muted">Todavía no hay clip: hasta que lo subas, la pieza sale con imagen o tarjeta de color.</p>}
             <div className="flex flex-wrap gap-2">
               <Button className="px-2 py-1 text-xs" onClick={() => save(draft)} disabled={saving || saved}>

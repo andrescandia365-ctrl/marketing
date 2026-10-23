@@ -254,6 +254,9 @@ export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture"
   // Only on the arranged copy (enterOnWords, shared/wordEntry.ts), never saved: "Entrar con la palabra", the element
   // enters when the voice says the word that names it. A hand-set `at` wins over it; it wins over the beat.
   onWord?: Record<string, number>;
+  // A hook made from a Publicidad hook: after the words have been read, they fall apart. The writer never sets it
+  // (it is not on the wire). Missing: the title stays up, as every older hook scene does.
+  kineticExit?: boolean;
 };
 export type MotionScript = Omit<z.infer<typeof MotionScriptSchema>, "scenes" | "music" | "caption" | "world"> & {
   scenes: MotionScene[];
@@ -1084,6 +1087,34 @@ export function readingNeed(text: string): number {
   return Math.max(byWords, Math.round((letters / READ_LETTERS_PER_SECOND) * 10) / 10);
 }
 
+// A kinetic hook title: words rise one after another (0.11 s apart, 0.45 s each), then can fall. The fall is opt-in
+// (kineticExit) and only when the words are still long enough to read before they leave.
+export const KINETIC_STAGGER = 0.11;
+export const KINETIC_RISE = 0.45;
+export const KINETIC_FALL = 0.55;
+
+export function kineticAssemble(title: string): number {
+  const words = title.split(/\s+/).filter(Boolean).length;
+  return Math.max(0, words - 1) * KINETIC_STAGGER + KINETIC_RISE;
+}
+
+// When the words start to fall (seconds from the scene's start), or null when falling would eat the reading time.
+export function kineticLeave(title: string, seconds: number, start = 0): number | null {
+  const ready = start + kineticAssemble(title);
+  const leave = seconds - KINETIC_FALL;
+  if (!(leave > ready) || leave - ready < readingNeed(title)) return null;
+  return leave;
+}
+
+// Scene length so the title can assemble, be read and fall, at least the ad slot and never past a scene's 8 s.
+// A 3 s hook of many long words grows past the slot; the ad then plays the first seconds (fitClip).
+export function kineticHookSeconds(title: string, pieceSeconds: number): number {
+  const room = kineticAssemble(title) + readingNeed(title) + KINETIC_FALL;
+  const want = Math.max(pieceSeconds, room);
+  const rounded = Math.round(want * 2) / 2;
+  return Math.min(SCENE_SECONDS.max, Math.max(SCENE_SECONDS.min, rounded));
+}
+
 export type ReadingIssue = { sceneId: string; index: number; key: string; label: string; text: string; needs: number; has: number };
 
 // `push`: the tone's change between scenes (cutPush); a line inside a scene that is still sliding in is not readable yet.
@@ -1339,7 +1370,14 @@ export function openMotionPiece(format: "vertical" | "horizontal", saved: Partia
   return { ...newMotionPiece(format), ...saved, enterOnWord: saved.enterOnWord === true };
 }
 
-export const DURATIONS = [15, 30, 45, 60, 90] as const;
+export const DURATIONS = [15, 30, 45, 60, 90, 120] as const;
+
+// The length buttons, plus the current target when it is not one of them (a 3 s hook, a 50 s meat).
+export function durationChoices(current: number): number[] {
+  const set = new Set<number>(DURATIONS);
+  if (Number.isInteger(current) && current >= SCENE_SECONDS.min && current <= 120) set.add(current);
+  return [...set].sort((a, b) => a - b);
+}
 
 // ── Numbers with a source ──────────────────────────────────────────────────────────────
 // A number on screen (or in the voice, which is also the subtitle) is a claim. It must come from the series'

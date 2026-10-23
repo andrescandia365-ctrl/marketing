@@ -15,6 +15,7 @@ import {
   Output,
 } from "mediabunny";
 import type { Piece } from "../../shared/ads.ts";
+import { grokSequence, stretchText } from "../../shared/adsSequence.ts";
 import { speakerDisclosure } from "../../shared/adsSpeaker.ts";
 import type { Board, Brief, Shot } from "../../shared/schema.ts";
 import { renderVideo, type DrawStyle, type RenderResult, type ShotMedia } from "./render.ts";
@@ -52,50 +53,102 @@ export function pieceShot(piece: Piece): Shot {
 export const pieceBoard = (pieces: Piece[]): Board => ({ style: "", setups: [], shots: pieces.map(pieceShot), issues: [] });
 
 // A piece's media, plus how loud its clip plays (0: muted, for a character clip whose lips did not match).
-export type PieceMedia = ShotMedia & { clipGain?: number };
+// `clips` is a meat longer than 15 s: one Grok file per slot, in order. A missing slot renders as a still or a card.
+export type PieceMedia = ShotMedia & { clipGain?: number; clips?: ({ blob: Blob; from?: number } | null)[] };
+
+// One shot, or one shot per Grok clip when the meat is a sequence and it is not a finished explainer.
+function expandPiece(piece: Piece, media: PieceMedia): { shot: Shot; media: ShotMedia }[] {
+  const slots = !media.finished ? grokSequence(piece.seconds) : [];
+  if (slots.length <= 1) return [{ shot: pieceShot(piece), media }];
+  const lines = stretchText(piece.text, slots);
+  const playSum = slots.reduce((n, s) => n + s.play, 0);
+  return slots.map((slot, i) => ({
+    shot: {
+      ...pieceShot(piece),
+      seconds: slot.play,
+      voiceover: lines[i] ?? "",
+      onScreenText: i === 0 ? piece.onScreenText : "",
+    },
+    media: {
+      image: i === 0 ? media.image : undefined,
+      clip: media.clips?.[i]?.blob,
+      clipFrom: media.clips?.[i]?.from ?? 0,
+      ...(i === 0 && media.voice ? { voice: media.voice, voiceFor: Math.max(0, playSum - 0.15) } : {}),
+    },
+  }));
+}
 
 // "Que lo diga un personaje": a piece said by a cast character with its clip in says so in the corner (the character,
 // and its voice when the clip speaks, are AI-made); otherwise the look's notice. In a whole-ad render (one notice for
 // all), any such piece sets it.
+const hasFootage = (m?: PieceMedia) => Boolean(m?.clip || m?.clips?.some((c) => c?.blob));
+
 export function pieceDisclosure(pieces: Piece[], media: PieceMedia[], fallback: string): string {
-  const said = pieces.map((p, i) => (p.speaker && media[i]?.clip ? p.speaker.sound : null)).filter((s) => s !== null);
+  const said = pieces.map((p, i) => (p.speaker && hasFootage(media[i]) ? p.speaker.sound : null)).filter((s) => s !== null);
   if (!said.length) return fallback;
   return speakerDisclosure(said.includes("clip") ? "clip" : "voice");
 }
 
-function options(look: PieceLook, pieces: Piece[], media: PieceMedia[]) {
-  const count = pieces.length;
+function options(
+  look: PieceLook,
+  pieces: Piece[],
+  pieceMedia: PieceMedia[],
+  shotGain: PieceMedia[],
+  hardCuts?: boolean[],
+  oneLoudness?: boolean,
+) {
   const clipGain: Record<number, number> = {};
-  media.forEach((m, i) => {
+  shotGain.forEach((m, i) => {
     if (typeof m?.clipGain === "number") clipGain[i] = m.clipGain;
   });
   return {
     format: look.format,
-    disclosure: pieceDisclosure(pieces, media, look.disclosure),
+    disclosure: pieceDisclosure(pieces, pieceMedia, look.disclosure),
     clipGain,
     fullFrame: look.fullFrame,
     keepSound: true,
     speakers: {},
     headlines: look.headlines,
     style: look.style,
-    spoken: Array.from({ length: count }, () => true),
+    spoken: Array.from({ length: shotGain.length }, () => true),
     musicVolume: 0,
     sfxVolume: 1,
     beatSync: false,
     alwaysAudio: true,
     // Every piece at the same loudness: a hook, a meat and a CTA rendered apart never jump in level at the cuts.
     loudness: TARGET_LUFS,
+    ...(hardCuts && { hardCuts }),
+    ...(oneLoudness && { oneLoudness }),
   };
 }
 
 export function renderPiece(piece: Piece, media: PieceMedia, look: PieceLook, onProgress: (f: number) => void): Promise<RenderResult> {
-  return renderVideo(pieceBoard([piece]), { 0: media }, options(look, [piece], [media]), onProgress);
+  const slots = expandPiece(piece, media);
+  const sequence = slots.length > 1;
+  const board: Board = { style: "", setups: [], shots: slots.map((s) => s.shot), issues: [] };
+  const byIndex = Object.fromEntries(slots.map((s, i) => [i, s.media]));
+  const gains = slots.map(() => media);
+  return renderVideo(board, byIndex, options(look, [piece], [media], gains, sequence ? slots.map((_, i) => i > 0) : undefined, sequence), onProgress);
 }
 
-// The fallback: the whole ad in one render from the pieces' own media.
+// The fallback: the whole ad in one render from the pieces' own media. A sequence hard-cuts inside itself; the cut
+// from the hook into the meat, and from the meat into the CTA, stays a fade. Each shot is levelled on its own here.
 export function renderAdWhole(pieces: Piece[], media: Record<string, PieceMedia>, look: PieceLook, onProgress: (f: number) => void): Promise<RenderResult> {
-  const list = pieces.map((p) => media[p.id] ?? {});
-  return renderVideo(pieceBoard(pieces), Object.fromEntries(list.map((m, i) => [i, m])), options(look, pieces, list), onProgress);
+  const shots: Shot[] = [];
+  const byIndex: Record<number, ShotMedia> = {};
+  const hardCuts: boolean[] = [];
+  const gainMedia: PieceMedia[] = [];
+  for (const piece of pieces) {
+    const own = media[piece.id] ?? {};
+    for (const [k, slot] of expandPiece(piece, own).entries()) {
+      shots.push(slot.shot);
+      byIndex[shots.length - 1] = slot.media;
+      hardCuts.push(k > 0);
+      gainMedia.push(own);
+    }
+  }
+  const pieceMedia = pieces.map((p) => media[p.id] ?? {});
+  return renderVideo({ style: "", setups: [], shots, issues: [] }, byIndex, options(look, pieces, pieceMedia, gainMedia, hardCuts), onProgress);
 }
 
 const bytes = (a: AllowSharedBufferSource) =>

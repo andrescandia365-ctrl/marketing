@@ -1,11 +1,12 @@
-// "Usar como cuerpo o llamado": a finished explainer (MotionStudio) goes into Publicidad as the clip of a meat or a CTA
-// of the same series, copied on the server from the project folder into publicidad/<series>/media/ (no download and
-// upload). The piece keeps its length budget (6/10/15 s ads, BUDGETS): a longer explainer is used from an in point
-// for the piece's seconds, a shorter one holds its last frame. And the way back: a meat or CTA with no clip can start
-// a new explainer prefilled with its text ("Hacelo como explicativo"), usable with no AI key.
-import { BUDGETS, LEVELS, isAdSeconds, nextId, type AdsState, type Cta, type Hook, type Meat } from "./ads.ts";
+// "Usar como cuerpo o llamado": a finished explainer (MotionStudio) goes into Publicidad as the clip of a hook, a meat
+// or a CTA of the same series, copied on the server from the project folder into publicidad/<series>/media/ (no
+// download and upload). The piece keeps its length (its share of the ad, up to 120 s): a longer explainer is used from
+// an in point for the piece's seconds, a shorter one holds its last frame. And the way back: a piece with no clip can
+// start a new explainer prefilled with its text ("Hacelo como explicativo"), usable with no AI key. A hook is one
+// kinetic title; a meat longer than 15 s is several short scenes, because an explainer has no 15 s clip limit.
+import { AD_MAX_SECONDS, LEVELS, PIECE_TEXT_MAX, nextId, pieceShare, type AdsState, type Budget, type Cta, type Hook, type Meat } from "./ads.ts";
 import { MASCOT_ASSET } from "./mascot.ts";
-import { blankScene, newMotionPiece, type MotionPiece, type MotionScene, type MotionScript, type MotionTone } from "./motion.ts";
+import { blankScene, kineticHookSeconds, kineticLeave, newMotionPiece, type MotionPiece, type MotionScene, type MotionScript, type MotionTone } from "./motion.ts";
 
 export const EXPLAINER_KINDS = ["meat", "cta"] as const;
 export type ExplainerKind = (typeof EXPLAINER_KINDS)[number];
@@ -52,8 +53,8 @@ export function explainerTargets(state: AdsState, kind: TargetKind): ExplainerTa
     .sort((a, b) => Number(a.hasClip) - Number(b.hasClip));
 }
 
-// A new piece's seconds: its share of an ad of that length.
-export const pieceSecondsFor = (kind: TargetKind, adSeconds: number): number => BUDGETS[isAdSeconds(adSeconds) ? adSeconds : 15][kind];
+// A new piece's seconds: its share of an ad of that length (the default split, or the one the person stored).
+export const pieceSecondsFor = (kind: TargetKind, adSeconds: number, split?: Budget | null): number => pieceShare(adSeconds, kind, split);
 
 // ── The length budget ─────────────────────────────────────────────────────────────────
 export type ClipFit = {
@@ -110,18 +111,18 @@ export function voiceInRange(scenes: VoicedSpan[], start: number, end: number): 
     .map((s) => s.voice.trim())
     .join(" ")
     .replace(/\s+/g, " ")
-    .slice(0, 600);
+    .slice(0, PIECE_TEXT_MAX);
 }
 
 // A new meat or CTA made from the explainer: the person chose it, so it comes approved; the levels are all five
 // (an explainer explains, it fits any awareness) and the note says where it came from.
 export function explainerPiece(state: AdsState, kind: ExplainerKind, seconds: number, text: string, title: string): Meat | Cta {
   const base = {
-    text: text.trim().slice(0, 600),
+    text: text.trim().slice(0, PIECE_TEXT_MAX),
     onScreenText: "",
     visualPrompt: "",
     videoPrompt: "",
-    seconds: Math.min(15, Math.max(1, seconds)),
+    seconds: Math.min(AD_MAX_SECONDS, Math.max(1, seconds)),
     status: "approved" as const,
     source: "manual" as const,
     createdAt: new Date().toISOString(),
@@ -140,6 +141,20 @@ export type AdSeed = { id: string; kind: TargetKind; text: string; onScreenText:
 export function seedNotes(seed: AdSeed): string {
   const who = seed.presenter === "mascot" ? " Lo dice la mascota de la serie en cámara (escenas de personaje con la mascota en código)." : "";
   return `Desde Publicidad (${seed.id}, ${EXPLAINER_KIND_LABEL[seed.kind]}, ${secs(seed.seconds)} en el anuncio): «${seed.text.trim()}»${who}`;
+}
+
+// The piece's id written into the brief's notes by seedNotes, so "Usar en Publicidad" can open on that piece.
+export function seedPieceId(notes: string): string | null {
+  const m = /Desde Publicidad \(([HMC]\d{1,4}),/.exec(notes);
+  return m ? m[1] : null;
+}
+
+// Spoken words in groups of `size` (a long meat becomes several short scenes, each within the 8 s scene limit).
+export function wordChunks(text: string, size = 8): string[] {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (let i = 0; i < words.length; i += size) out.push(words.slice(i, i + size).join(" "));
+  return out;
 }
 
 // The piece's text split in sentences (a sentence that is only punctuation is dropped).
@@ -164,10 +179,56 @@ export function titleOf(sentence: string): string {
 // A scene long enough for its line at about 2.5 words a second, 2 to 8 s, in half seconds.
 export const sceneSecondsFor = (line: string) => Math.round(Math.min(8, Math.max(2, line.split(/\s+/).filter(Boolean).length / 2.5 + 0.6)) * 2) / 2;
 
-// The starting script with no AI key: one kinetic-title scene per sentence, its line as the voice; a CTA closes on the
-// logo with its call. A starting point to change in the studio (templates, real screens), never a finished piece.
+const KIND_TITLE = { hook: "Gancho", meat: "Cuerpo", cta: "Llamado" } as const;
+
+function scriptShell(seed: AdSeed, scenes: MotionScene[], tone: MotionTone | undefined, note: string): MotionScript {
+  return {
+    problem: seed.id,
+    title: `${KIND_TITLE[seed.kind]} ${seed.id} como explicativo`,
+    durationNote: `Arranca del texto de ${seed.id}: en el anuncio dura ${secs(seed.seconds)}.`,
+    scenes,
+    music: { mood: "drive", bpm: 110 },
+    note,
+    caption: "",
+    ...(tone && { tone }),
+  };
+}
+
+// A Publicidad hook: one kinetic title (the words assemble and, when there is time to read them, fall apart).
+function hookScript(seed: AdSeed, tone?: MotionTone): MotionScript {
+  const title = (seed.onScreenText.trim() || seed.text.trim() || "Gancho").replace(/\s+/g, " ").trim();
+  const seconds = kineticHookSeconds(title, seed.seconds);
+  const scene: MotionScene = {
+    ...blankScene("hook"),
+    title,
+    voice: seed.text.trim(),
+    seconds,
+    ...(kineticLeave(title, seconds) != null && { kineticExit: true }),
+  };
+  return scriptShell(
+    seed,
+    [scene],
+    tone,
+    `Gancho de ${seed.id}. En el anuncio entran los primeros ${secs(seed.seconds)}; si la escena es más larga es para que el título se lea antes de desarmarse.`,
+  );
+}
+
+// The starting script with no AI key. A hook is one kinetic title. A meat longer than 15 s is one short scene per
+// handful of words (an explainer scene is at most 8 s). A short meat or CTA stays one kinetic title per sentence, and
+// a CTA closes on the logo. A starting point to change in the studio, never a finished piece.
 export function starterScript(seed: AdSeed, tone?: MotionTone): MotionScript {
   if (seed.presenter === "mascot") return mascotScript(seed, tone);
+  if (seed.kind === "hook") return hookScript(seed, tone);
+  if (seed.kind === "meat" && seed.seconds > 15) {
+    const chunks = wordChunks(seed.text);
+    const scenes: MotionScene[] = (chunks.length ? chunks : [""]).map((line, i) => ({
+      ...blankScene("hook"),
+      title: titleOf(i === 0 && seed.onScreenText.trim() ? seed.onScreenText : line),
+      voice: line,
+      seconds: line ? sceneSecondsFor(line) : 2,
+    }));
+    return scriptShell(seed, scenes, tone, `Cuerpo de ${seed.id}, partido en escenas cortas. El anuncio dura ${secs(seed.seconds)}: si el explicativo es más corto, el último cuadro queda quieto.`);
+  }
   const lines = sentencesOf(seed.text);
   const scenes: MotionScene[] = lines.map((line, i) => ({ ...blankScene("hook"), title: titleOf(i === 0 && seed.onScreenText.trim() ? seed.onScreenText : line), voice: line, seconds: sceneSecondsFor(line) }));
   if (seed.kind === "cta") {
@@ -176,16 +237,7 @@ export function starterScript(seed: AdSeed, tone?: MotionTone): MotionScript {
     scenes.push({ ...blankScene("logo"), title: last?.title ?? call, items: call ? [call] : [], voice: last?.voice ?? "", seconds: last ? Math.max(3, last.seconds) : 3 });
   }
   if (!scenes.length) scenes.push(blankScene("hook"));
-  return {
-    problem: "",
-    title: `${seed.kind === "meat" ? "Cuerpo" : "Llamado"} ${seed.id} como explicativo`,
-    durationNote: `Arranca del texto de ${seed.id}: en el anuncio dura ${secs(seed.seconds)}.`,
-    scenes,
-    music: { mood: "drive", bpm: 110 },
-    note: `Guion de partida armado con el texto de ${seed.id}: cambiá las plantillas y sumá pantallas reales o el producto.`,
-    caption: "",
-    ...(tone && { tone }),
-  };
+  return scriptShell(seed, scenes, tone, `Guion de partida armado con el texto de ${seed.id}: cambiá las plantillas y sumá pantallas reales o el producto.`);
 }
 
 // "Que lo diga la mascota": one character scene per sentence, the series' code mascot (MASCOT_ASSET) saying it with
@@ -211,7 +263,7 @@ export function mascotScript(seed: AdSeed, tone?: MotionTone): MotionScript {
   if (!scenes.length) scenes.push({ ...blankScene("character"), asset: MASCOT_ASSET });
   const what = EXPLAINER_KIND_LABEL[seed.kind].replace(/ \(.*\)$/, "");
   return {
-    problem: "",
+    problem: seed.id,
     title: `${what.charAt(0).toUpperCase()}${what.slice(1)} ${seed.id} dicho por la mascota`,
     durationNote: `Arranca del texto de ${seed.id}: en el anuncio dura ${secs(seed.seconds)}.`,
     scenes,
@@ -222,7 +274,8 @@ export function mascotScript(seed: AdSeed, tone?: MotionTone): MotionScript {
   };
 }
 
-// The new explainer piece itself: the studio's defaults with the starting script.
+// The new explainer piece itself: the studio's defaults, aimed at the piece's seconds (2 to 120; a 3 s hook stays 3).
 export function starterPiece(seed: AdSeed, format: "vertical" | "horizontal", tone?: MotionTone): MotionPiece {
-  return { ...newMotionPiece(format), script: starterScript(seed, tone) };
+  const target = Math.min(120, Math.max(2, Math.round(seed.seconds)));
+  return { ...newMotionPiece(format), script: starterScript(seed, tone), durationMode: "manual", target };
 }

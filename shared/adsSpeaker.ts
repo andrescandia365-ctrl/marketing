@@ -5,6 +5,7 @@
 // key involved: the prompt is pure code. Grok's lip sync is [NOT SURE] in its profile (server/tools/grok-imagine.md),
 // so the piece can keep the clip's own voice or mute it and play the generated or uploaded voice instead.
 import { ANGLE_LABEL, WORDS_PER_SECOND, clipSecondsFor, countWords, wordsFor, type Piece, type PieceSpeaker, type SpeakerSound } from "./ads.ts";
+import { clipContinuity, grokSequence, sequencePromptText, stretchText } from "./adsSequence.ts";
 import { audioLine, speakingPrompt } from "./audio.ts";
 import { lookPhrase } from "./prompt.ts";
 import type { CastMember, SeriesLook, SeriesType } from "./series.ts";
@@ -39,12 +40,15 @@ export function speakerFit(text: string, pieceSeconds: number): SpeakerFit {
   const words = countWords(text);
   const speech = tenth(words / WORDS_PER_SECOND + SPEECH_LEAD);
   const need = speech + SPEECH_TAIL;
+  const slots = grokSequence(pieceSeconds);
+  // A long meat is several clips: it is too long only when the words do not fit the meat, not one 15 s file.
+  const sequence = slots.length > 1;
   return {
     words,
     speech,
-    clip: clipSecondsFor(Math.max(pieceSeconds, need)),
+    clip: sequence ? slots[0].length : clipSecondsFor(Math.max(pieceSeconds, need)),
     fits: words <= wordsFor(pieceSeconds),
-    tooLong: need > 15,
+    tooLong: sequence ? words > wordsFor(pieceSeconds) : need > 15,
   };
 }
 
@@ -153,13 +157,49 @@ export function speakerPrompt(input: SpeakerPromptInput): string {
   return `${said}. ${ref} starts speaking right away and says the line once, as written. ${audioLine({ hear: ["dialogue", "ambient"], detail: "" })} Length: ${fit.clip} s.`;
 }
 
+// One prompt per Grok clip of a meat longer than 15 s. Same character, place and look; each clip continues the last
+// and says only its stretch. A piece of 15 s or less is the single speakerPrompt.
+export function sequenceSpeakerPrompts(input: SpeakerPromptInput): string[] {
+  const slots = grokSequence(input.pieceSeconds);
+  if (slots.length <= 1) return [speakerPrompt(input)];
+  const { member, speaker } = input;
+  const ref = `@${member.ref}`;
+  const identity = clean(member.identity);
+  const place = clean(speaker.place) || defaultPlace(input.type);
+  const action = clean(speaker.action) || "talks straight to the lens";
+  const shape = input.format === "vertical" ? "Vertical 9:16" : "Horizontal 16:9";
+  const look = lookPhrase(input.look) || PLAIN_VIDEO;
+  const lines = stretchText(input.text, slots);
+  return slots.map((slot, i) => {
+    const base = [
+      clipContinuity(i, slots.length),
+      `${ref}, the invented adult in the reference image${identity ? ` (${identity})` : ""}, ${place}.`,
+      `${shape} medium close-up at eye level, face clear and in focus; ${ref} ${action}.`,
+      `Locked-off camera, no other camera move; face, hair and clothes stay exactly as in the reference.`,
+      `${look}. Bare walls and blank labels, nothing written anywhere in frame.`,
+    ].join(" ");
+    const said = speakingPrompt(base, ref, spokenLine(lines[i] ?? ""), clean(speaker.voice), "es", speaker.emotion);
+    const cut = slot.play < slot.length ? ` The finished piece plays the first ${slot.play} s of this clip.` : "";
+    return `${said}. ${ref} starts speaking right away and says this clip's line once, as written. ${audioLine({ hear: ["dialogue", "ambient"], detail: "" })} Length: ${slot.length} s.${cut}`;
+  });
+}
+
+export { sequencePromptText };
+
 // ── Problems that stop the copy ───────────────────────────────────────────────────────
 export function speakerIssues(text: string, pieceSeconds: number): string[] {
   const out: string[] = [];
   const fit = speakerFit(text, pieceSeconds);
   if (!text.trim()) out.push("La pieza no tiene texto para decir.");
   if (unverified(text)) out.push("La línea tiene un [VERIFY]: confirmalo o cambialo antes de que alguien lo diga en cámara.");
-  if (fit.tooLong) out.push(`La línea dura unos ${fit.speech.toString().replace(".", ",")} s: no entra ni en un clip de 15 s. Acortala.`);
+  if (fit.tooLong) {
+    const slots = grokSequence(pieceSeconds);
+    out.push(
+      slots.length > 1
+        ? `La línea no entra en ${pieceSeconds} s (unas ${wordsFor(pieceSeconds)} palabras). Acortala.`
+        : `La línea dura unos ${fit.speech.toString().replace(".", ",")} s: no entra ni en un clip de 15 s. Acortala.`,
+    );
+  }
   return out;
 }
 
@@ -172,6 +212,8 @@ export type SpeakerBatchEntry = {
   ref: string;
   pieceSeconds: number;
   clip: number;
+  // More than one: the prompt is the whole sequence, and `clip` is how many Grok files it asks for.
+  clips?: number;
   prompt: string;
 };
 export type SpeakerBatchInput = {
@@ -210,7 +252,7 @@ export function speakerBatch(input: SpeakerBatchInput): {
       continue;
     }
     const speaker = speakerDraft(piece, member.id);
-    const prompt = speakerPrompt({
+    const promptInput = {
       text: piece.text,
       pieceSeconds: piece.seconds,
       member,
@@ -218,13 +260,16 @@ export function speakerBatch(input: SpeakerBatchInput): {
       format: input.format,
       look: input.look,
       type: input.type,
-    });
+    };
+    const slots = grokSequence(piece.seconds);
+    const prompts = sequenceSpeakerPrompts(promptInput);
     entries.push({
       id: piece.id,
       ref: member.ref,
       pieceSeconds: piece.seconds,
-      clip: speakerFit(piece.text, piece.seconds).clip,
-      prompt,
+      clip: slots.length > 1 ? slots.length : speakerFit(piece.text, piece.seconds).clip,
+      ...(slots.length > 1 && { clips: slots.length }),
+      prompt: slots.length > 1 ? sequencePromptText(prompts) : prompts[0],
     });
   }
   return { entries, skipped };
@@ -232,7 +277,12 @@ export function speakerBatch(input: SpeakerBatchInput): {
 
 // One text to paste prompt by prompt: a header per piece (its id, the @ref to attach, the clip length) and the prompt.
 export function speakerBatchText(entries: SpeakerBatchEntry[]): string {
-  return entries.map((e) => `${e.id} · adjuntá @${e.ref} · clip de ${e.clip} s (la pieza usa ${e.pieceSeconds} s)\n${e.prompt}`).join("\n\n———\n\n");
+  return entries
+    .map((e) => {
+      const length = e.clips && e.clips > 1 ? `${e.clips} clips` : `clip de ${e.clip} s`;
+      return `${e.id} · adjuntá @${e.ref} · ${length} (la pieza usa ${e.pieceSeconds} s)\n${e.prompt}`;
+    })
+    .join("\n\n———\n\n");
 }
 
 // ── What the tool's profile says about lip sync ─────────────────────────────────────────────

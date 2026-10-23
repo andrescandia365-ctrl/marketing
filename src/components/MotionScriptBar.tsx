@@ -1,6 +1,6 @@
 // The top of the explainer studio: the piece's problem and length, how long it should be, writing the script, and the
 // director's note (the writer changes only what it asks).
-import { DURATIONS, type MotionPiece, type MotionScript } from "../../shared/motion.ts";
+import { durationChoices, type MotionPiece, type MotionScript } from "../../shared/motion.ts";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
 import { Button, Field, Segmented, Spinner, inputClass } from "./ui.tsx";
@@ -42,11 +42,25 @@ export function MotionScriptBar({ series, script, total, piece, set, busy, write
               ]}
             />
             {piece.durationMode === "manual" && (
-              <Segmented
-                value={String(piece.target)}
-                onChange={(v) => set({ target: Number(v) })}
-                options={DURATIONS.map((d) => ({ value: String(d), label: `${d} s` }))}
-              />
+              <>
+                <Segmented
+                  value={String(piece.target)}
+                  onChange={(v) => set({ target: Number(v) })}
+                  options={durationChoices(piece.target).map((d) => ({ value: String(d), label: `${d} s` }))}
+                />
+                <input
+                  type="number"
+                  min={2}
+                  max={120}
+                  className="w-20 rounded-lg border border-line px-2 py-1 text-sm"
+                  aria-label="Segundos del explicativo"
+                  value={piece.target}
+                  onChange={(e) => {
+                    const n = Math.round(Number(e.target.value));
+                    if (n >= 2 && n <= 120) set({ target: n });
+                  }}
+                />
+              </>
             )}
           </div>
         </Field>

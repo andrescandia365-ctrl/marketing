@@ -63,7 +63,17 @@ const BEAT_COLORS = {
 
 // clipFrom: where the shot starts playing its clip (seconds; Publicidad's in point). finished: the clip is a finished
 // video (an explainer) with its own words, subtitles and notice, so nothing is drawn on top of it.
-export type ShotMedia = { image?: string; clip?: Blob; voice?: Blob; sfx?: Blob; clipFrom?: number; finished?: boolean };
+export type ShotMedia = {
+  image?: string;
+  clip?: Blob;
+  voice?: Blob;
+  sfx?: Blob;
+  clipFrom?: number;
+  finished?: boolean;
+  // How many seconds this voice covers from 0.15 s into the shot. Missing: it stops at the shot's end (a story line,
+  // one ad piece). A sequence of clips sets it on the first shot so one voice file plays across all of them.
+  voiceFor?: number;
+};
 
 export type Speaker = { name: string; role: Role };
 
@@ -98,6 +108,11 @@ export type RenderOptions = {
   alwaysAudio?: boolean;
   // Bring the mix to this integrated loudness (LUFS), so pieces cut together sit at one level (Publicidad).
   loudness?: number;
+  // Cut into shot i is a hard cut. Missing or false: the usual 0.35 s crossfade. A Grok sequence hard-cuts between
+  // its own clips and leaves the fade between a hook, a meat and a CTA.
+  hardCuts?: boolean[];
+  // Several shots are one piece (a long meat): one loudness for the whole mix. Missing: each shot is levelled on its own.
+  oneLoudness?: boolean;
 };
 
 export type RenderResult = { blob: Blob; extension: string; mimeType: string; notes: string[] };
@@ -463,7 +478,8 @@ async function mixSound(
     if (voice) {
       const gain = ctx.createGain();
       gain.connect(ctx.destination);
-      place(ctx, voice, shot.start + 0.15, shot.end, gain);
+      const until = m.voiceFor != null ? shot.start + 0.15 + m.voiceFor : shot.end;
+      place(ctx, voice, shot.start + 0.15, until, gain);
       any = true;
     }
     const sfx = m.sfx ? await decodeAudio(ctx, m.sfx) : null;
@@ -552,7 +568,7 @@ export async function renderVideo(
     sound = await mixSound(shots, media, total, options, music);
     // Publicidad: each shot (a piece) on its own when several are cut together, so the cuts never jump in level.
     if (sound && options.loudness !== undefined) {
-      if (shots.length > 1) await normalizeSegments(sound, shots.map((s) => s.start), options.loudness, PIECE_MAX_BOOST_DB);
+      if (shots.length > 1 && !options.oneLoudness) await normalizeSegments(sound, shots.map((s) => s.start), options.loudness, PIECE_MAX_BOOST_DB);
       else await normalizeLoudness(sound, options.loudness, PIECE_MAX_BOOST_DB);
     }
     if (!sound) notes.push("Los clips no traían sonido que este navegador pueda leer.");
@@ -622,7 +638,7 @@ export async function renderVideo(
       }
 
       ctx.globalAlpha = 1;
-      if (i > 0 && t - shot.start < FADE) {
+      if (i > 0 && !options.hardCuts?.[i] && t - shot.start < FADE) {
         ctx.drawImage(layers[i - 1].canvas, 0, 0);
         ctx.globalAlpha = (t - shot.start) / FADE;
       }

@@ -2,13 +2,15 @@
 // approved hooks of the chosen levels.
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  BUDGETS,
   LEVEL_INFO,
   MEAT_FORMATS,
   MEAT_FORMAT_LABEL,
   levelsOf,
+  noShareNote,
+  pieceShare,
+  splitIssue,
   wordsFor,
-  type AdSeconds,
+  type Budget,
   type Cta,
   type Hook,
   type Meat,
@@ -26,7 +28,8 @@ type Props<T extends Meat | Cta> = {
   pieces: T[];
   hooks: Hook[];
   levels: number[];
-  seconds: AdSeconds;
+  seconds: number;
+  split: Budget | null;
   busy: boolean;
   demo: boolean;
   note: string;
@@ -35,6 +38,8 @@ type Props<T extends Meat | Cta> = {
   renderCard: (piece: T) => ReactNode;
   // "Que lo digan los personajes": the approved pieces' character prompts in one go.
   extra?: ReactNode;
+  onMotionBatch?: () => void;
+  motionBusy?: boolean;
   // "Sin clave": the prompts for claude.ai for this count (and, for meats, these formats).
   handoff?: ((count: number, formats: MeatFormat[]) => (part: number) => Handoff) | null;
   presetCount?: number;
@@ -42,7 +47,7 @@ type Props<T extends Meat | Cta> = {
   walkKey: string;
 };
 
-export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, renderCard, extra, handoff = null, presetCount, walkKey }: Props<T>) {
+export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels, seconds, split, busy, demo, note, onLevels, onGenerate, renderCard, extra, onMotionBatch, motionBusy = false, handoff = null, presetCount, walkKey }: Props<T>) {
   const isMeat = kind === "meat";
   const chosen = levelsOf(levels);
   const recipe = [...new Set(chosen.flatMap((l) => LEVEL_INFO[l].meats))];
@@ -57,8 +62,9 @@ export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presetCount, isMeat, countKey]);
   const [formats, setFormats] = useState<MeatFormat[]>([]);
-  const budget = BUDGETS[seconds];
-  const pieceSeconds = isMeat ? budget.meat : budget.cta;
+  const shareKind = isMeat ? "meat" : "cta";
+  const pieceSeconds = pieceShare(seconds, shareKind, split);
+  const blocked = (split ? splitIssue(seconds, split) : null) ?? noShareNote(shareKind, seconds, split);
   const approvedHooks = hooks.filter((h) => h.status === "approved" && chosen.includes(h.level));
   const useFormats = formats.length ? formats : recipe;
 
@@ -82,7 +88,7 @@ export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels,
             />
             <span className="ml-2 text-xs text-muted">{isMeat ? "3 a 5" : "1 a 3"}</span>
           </label>
-          <Button variant={handoff ? "secondary" : "primary"} onClick={() => onGenerate(count, isMeat ? useFormats : [])} disabled={busy}>
+          <Button variant={handoff ? "secondary" : "primary"} onClick={() => onGenerate(count, isMeat ? useFormats : [])} disabled={busy || Boolean(blocked)}>
             {busy ? (
               <>
                 <Spinner /> Escribiendo…
@@ -125,10 +131,15 @@ export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels,
           </div>
         )}
         <p className="mt-3 text-xs text-muted">
-          {isMeat
-            ? `Cada meat dura ${pieceSeconds} s (hasta ${wordsFor(pieceSeconds)} palabras) y abre neutro, así encaja con cualquier hook de su nivel. Educa sobre el problema, la solución o la oferta según el nivel.`
-            : `Cada CTA dura ${pieceSeconds} s (hasta ${wordsFor(pieceSeconds)} palabras) y dice qué hacer, por qué importa, cuándo y qué tan fácil es (del perfil: landing). ${chosen.map((l) => `N${l}: ${LEVEL_INFO[l].cta}`).join(" ")}`}
+          {pieceSeconds < 1
+            ? isMeat
+              ? "Sin cuerpo: este reparto no le deja segundos. Alargá el anuncio o cambialo antes de pedir meats."
+              : "Sin llamado: este reparto no le deja segundos. Cambialo antes de pedir CTAs."
+            : isMeat
+              ? `Cada meat dura ${pieceSeconds} s (hasta ${wordsFor(pieceSeconds)} palabras) y abre neutro, así encaja con cualquier hook de su nivel. Educa sobre el problema, la solución o la oferta según el nivel.`
+              : `Cada CTA dura ${pieceSeconds} s (hasta ${wordsFor(pieceSeconds)} palabras) y dice qué hacer, por qué importa, cuándo y qué tan fácil es (del perfil: landing). ${chosen.map((l) => `N${l}: ${LEVEL_INFO[l].cta}`).join(" ")}`}
         </p>
+        {blocked && <p className="mt-2 text-xs text-neg">{blocked}</p>}
         <p className="mt-1 text-xs text-muted">
           Contexto que recibe la IA: {approvedHooks.length ? `${approvedHooks.length} hooks aprobados de esos niveles` : "todavía no hay hooks aprobados de esos niveles (escribe igual, por nivel)"}.
         </p>
@@ -141,14 +152,23 @@ export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels,
             what={isMeat ? "los meats" : "los CTAs"}
             title={`${count} ${isMeat ? "meats" : "CTAs"}`}
             via={handoff(count, isMeat ? useFormats : [])}
-            resetKey={`${count}-${levels.join(",")}-${seconds}-${isMeat ? useFormats.join(",") : ""}`}
+            resetKey={`${count}-${levels.join(",")}-${seconds}-${JSON.stringify(split)}-${isMeat ? useFormats.join(",") : ""}`}
             walkKey={`${walkKey}:${kind}`}
-            disabled={busy}
+            disabled={busy || Boolean(blocked)}
           />
+        )}
+        {(extra || onMotionBatch) && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {extra}
+            {onMotionBatch && (
+              <Button variant="secondary" className="px-2 py-1 text-xs" onClick={onMotionBatch} disabled={busy || motionBusy}>
+                {motionBusy ? "Armando…" : "Hacer en motion graphics"}
+              </Button>
+            )}
+          </div>
         )}
       </div>
       {approvedHooks.length === 0 && hooks.length > 0 && <Notice tone="warn">Aprobá primero algunos hooks: el meat y el CTA se escriben con el hook elegido como contexto para que sean coherentes.</Notice>}
-      {extra}
       <div className="space-y-2">{pieces.map((p) => renderCard(p))}</div>
       {pieces.length === 0 && <p className="text-sm text-muted">Todavía no hay {isMeat ? "meats" : "CTAs"}.</p>}
     </section>

@@ -921,7 +921,7 @@ export function motionTask(brief: Brief, target: number | null, layers: number):
     `Brief:
 ${describeBrief(brief)}
 
-Write a motion-graphics explainer, not a story: ${series?.type === "ecommerce" ? "this episode's product, what it is and what it fixes at home" : "how the app solves one concrete problem, shown on its real screens"}. ${target ? `It lasts ${target} seconds in total.` : "Choose the length from how much there is to explain (15 to 60 seconds) and say why in durationNote."}
+Write a motion-graphics explainer, not a story: ${series?.type === "ecommerce" ? "this episode's product, what it is and what it fixes at home" : "how the app solves one concrete problem, shown on its real screens"}. ${target ? `It lasts ${target} seconds in total.` : "Choose the length from how much there is to explain (15 to 120 seconds) and say why in durationNote."} Each scene is 2 to 8 seconds, with something new every 2 to 4 seconds, so a long piece is many short scenes.
 
 ${castBlock(cast, layers)}
 

@@ -1,6 +1,6 @@
 // Step 1: 50 hooks by awareness level, covering a grid of level × angle, approved with a quick yes/no.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ANGLES, ANGLE_LABEL, BUDGETS, FORMULA_LABEL, LEVELS, LEVEL_INFO, levelsOf, wordsFor, type AdSeconds, type Hook, type PieceStatus } from "../../../shared/ads.ts";
+import { ANGLES, ANGLE_LABEL, FORMULA_LABEL, LEVELS, LEVEL_INFO, levelsOf, noShareNote, pieceShare, splitIssue, wordsFor, type Budget, type Hook, type PieceStatus } from "../../../shared/ads.ts";
 import { promptCount } from "../../../shared/adsHandoff.ts";
 import type { Handoff } from "../ClaudeHandoff.tsx";
 import { Button, Spinner } from "../ui.tsx";
@@ -11,7 +11,8 @@ import { LevelChip, LevelPicker, Tag, WordsBadge } from "./pieces.tsx";
 type Props = {
   hooks: Hook[];
   levels: number[];
-  seconds: AdSeconds;
+  seconds: number;
+  split: Budget | null;
   busy: boolean;
   demo: boolean;
   note: string;
@@ -21,6 +22,9 @@ type Props = {
   renderCard: (hook: Hook) => ReactNode;
   // "Que lo digan los personajes": the approved hooks' character prompts in one go.
   extra?: ReactNode;
+  // "Hacer en motion graphics": one explainer folder per approved hook. Missing when the studio cannot open one.
+  onMotionBatch?: () => void;
+  motionBusy?: boolean;
   // "Sin clave": the count's prompts for claude.ai (several when one reply would be too long).
   handoff?: ((count: number) => (part: number) => Handoff) | null;
   // The count "Generar tanda" asked for.
@@ -29,7 +33,7 @@ type Props = {
   walkKey: string;
 };
 
-export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels, onGenerate, onStatus, renderCard, extra, handoff = null, presetCount, walkKey }: Props) {
+export function HooksPanel({ hooks, levels, seconds, split, busy, demo, note, onLevels, onGenerate, onStatus, renderCard, extra, onMotionBatch, motionBusy = false, handoff = null, presetCount, walkKey }: Props) {
   const countKey = `${walkKey}:hooks-count`;
   const [count, setCountState] = useState(() => rememberedCount(countKey, presetCount ?? 50));
   const setCount = (n: number) => {
@@ -45,7 +49,8 @@ export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels,
   const pending = hooks.filter((h) => h.status === "pending");
   const approvedN = hooks.filter((h) => h.status === "approved").length;
   const chosen = levelsOf(levels);
-  const budget = BUDGETS[seconds];
+  const share = pieceShare(seconds, "hook", split);
+  const blocked = (split ? splitIssue(seconds, split) : null) ?? noShareNote("hook", seconds, split);
 
   // The grid: how many live hooks per level and angle, so the 50 come out covering it instead of at random.
   const grid = useMemo(() => {
@@ -82,7 +87,7 @@ export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels,
             <span className="font-semibold">Cantidad</span>
             <input type="number" min={1} max={60} className="ml-2 w-20 rounded-lg border border-line px-2 py-1" value={count} onChange={(e) => setCount(Math.max(1, Math.min(60, Number(e.target.value) || 1)))} />
           </label>
-          <Button variant={handoff ? "secondary" : "primary"} onClick={() => onGenerate(count)} disabled={busy}>
+          <Button variant={handoff ? "secondary" : "primary"} onClick={() => onGenerate(count)} disabled={busy || Boolean(blocked)}>
             {busy ? (
               <>
                 <Spinner /> Escribiendo hooks…
@@ -94,9 +99,10 @@ export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels,
             )}
           </Button>
           <span className="text-xs text-muted">
-            Cada hook: {budget.hook} s, hasta {wordsFor(budget.hook)} palabras. Los ganadores (métricas, orgánico) entran como patrón; los existentes no se repiten.
+            Cada hook: {share} s, hasta {wordsFor(share)} palabras. Los ganadores (métricas, orgánico) entran como patrón; los existentes no se repiten.
           </span>
         </div>
+        {blocked && <p className="mt-2 text-xs text-neg">{blocked}</p>}
         {note && <p className="mt-2 text-xs text-muted">{note}</p>}
         {demo && <p className="mt-2 text-xs text-muted">Sin clave de IA, «Ver un ejemplo» trae hooks de muestra. Los de verdad, con claude.ai:</p>}
         {handoff && (
@@ -106,10 +112,20 @@ export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels,
             what="los hooks"
             title={`${count} hooks`}
             via={handoff(count)}
-            resetKey={`${count}-${levels.join(",")}-${seconds}`}
+            resetKey={`${count}-${levels.join(",")}-${seconds}-${JSON.stringify(split)}`}
             walkKey={`${walkKey}:hooks`}
-            disabled={busy}
+            disabled={busy || Boolean(blocked)}
           />
+        )}
+        {(extra || onMotionBatch) && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {extra}
+            {onMotionBatch && (
+              <Button variant="secondary" className="px-2 py-1 text-xs" onClick={onMotionBatch} disabled={busy || motionBusy}>
+                {motionBusy ? "Armando…" : "Hacer en motion graphics"}
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
@@ -201,7 +217,6 @@ export function HooksPanel({ hooks, levels, seconds, busy, demo, note, onLevels,
           ))}
         </div>
       )}
-      {extra}
       <div className="space-y-2">{shown.map((h) => renderCard(h))}</div>
       {hooks.length === 0 && <p className="text-sm text-muted">Todavía no hay hooks. Elegí los niveles y generá la primera tanda, o traé ganadores desde Fuentes.</p>}
     </section>
