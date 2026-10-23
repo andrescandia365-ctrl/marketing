@@ -20,19 +20,33 @@ import {
 import {
   adId,
   adsCountWarning,
+  adsMediaType,
   cleanVoiceName,
+  comboIssues,
   formatSeconds,
   isAdId,
+  keptRenderMove,
+  newVoiceIds,
   nextVoiceId,
   parseAdId,
+  pieceVariantsReferenced,
+  readStoredVoices,
+  readVoiceSeconds,
+  readVoiceSelection,
   renderKey,
   renderNameForKey,
+  renderVoiceBlock,
+  renderVoiceUse,
+  shouldBlockVoice,
+  usableVoiceIds,
+  voiceBodyError,
   voiceCachePlan,
   voiceColumn,
   voiceCutBlock,
   voiceFileName,
   voiceLengthWarning,
   voicePicks,
+  voiceSeqAfterClear,
   voiceTypeOf,
   voiceUploadError,
   VOICE_MAX_BYTES,
@@ -88,6 +102,8 @@ test("an old single voice becomes v1 and an old ad id stays the same", () => {
   assert.equal(media.voices?.[0]?.id, "v1");
   assert.equal(media.voices?.[0]?.name, "calma.mp3");
   assert.equal(media.voices?.[0]?.seconds, 2.4);
+  // The migrated voice already rendered past the piece. It stays accepted, so the old cut still happens.
+  assert.equal(media.voices?.[0]?.cutOk, true);
   assert.equal(media.voice?.file, "media/H1-voice.mp3");
   assert.equal(media.voice?.duration, 2.4);
   assert.equal(media.voiceSeq, 1);
@@ -252,4 +268,164 @@ test("a very large batch is warned and one past 1000 is blocked", () => {
   assert.equal(adsCountWarning(301).block, null);
   assert.match(adsCountWarning(1001).block ?? "", /1000/);
   assert.equal(adsCountWarning(1001).warn, null);
+});
+
+test("a voice already listed is not marked accepted, and a current render is not blocked", () => {
+  const listed = AdsMediaSchema.parse({ voices: [{ id: "v1", file: "a", name: "x", seconds: 2.9 }], voiceSeq: 1 });
+  assert.equal(listed.voices?.[0]?.cutOk, undefined);
+  const long = { id: "v1", seconds: 2.9 };
+  assert.ok(voiceCutBlock(long, 3));
+  assert.equal(shouldBlockVoice(long, 3, true), null);
+  assert.equal(shouldBlockVoice(undefined, 3, false), null);
+  assert.ok(shouldBlockVoice(long, 3, false));
+  assert.equal(shouldBlockVoice({ ...long, cutOk: true }, 3, false), null);
+});
+
+test("routes keep ad ids uppercase and the metrics import still reads either case", () => {
+  assert.equal(isAdId("h1-m1-c1"), false);
+  assert.equal(isAdId("H1-M1-C1"), true);
+  assert.equal(adId("h12", "m3", "c2", { hook: "v3" }), "H12v3-M3-C2");
+  assert.equal(adId("H1", "M1", "C1", { hook: "V1" }), "H1-M1-C1");
+  const parsed = parseAdId("h1v10-m1-c1");
+  assert.equal(parsed?.hookId, "H1");
+  assert.equal(parsed?.meatId, "M1");
+  assert.equal(parsed?.ctaId, "C1");
+  assert.equal(parsed?.hookVoice, "v10");
+  assert.equal(parseAdId("H1V2-M1-C1")?.hookVoice, "v2");
+});
+
+test("a clip speaker stays off the voice axis and a voice that would be cut is left out of the count", () => {
+  const s = catalogue();
+  s.media.H1 = AdsMediaSchema.parse({
+    voices: [
+      { id: "v1", file: "a", name: "Calma", seconds: 2 },
+      { id: "v2", file: "b", name: "Larga", seconds: 9 },
+    ],
+    voiceSeq: 2,
+  });
+  s.media.M1 = AdsMediaSchema.parse({
+    voices: [
+      { id: "v1", file: "c", name: "Una", seconds: 2 },
+      { id: "v2", file: "d", name: "Otra", seconds: 2 },
+    ],
+    voiceSeq: 2,
+  });
+  const seconds = Object.fromEntries([...s.hooks, ...s.meats, ...s.ctas].map((p) => [p.id, p.seconds]));
+  assert.deepEqual(voicePicks(s.media)?.H1, ["v1", "v2"]);
+  const open = voicePicks(s.media, undefined, { seconds });
+  assert.deepEqual(open?.H1, ["v1"]);
+  assert.deepEqual(open?.M1, ["v1", "v2"]);
+  const openAds = combine(s.hooks, s.meats, s.ctas, { sameLevel: true }, { seconds: 15 }, open);
+  assert.ok(openAds.some((a) => a.id === "H1v1-M1v1-C1"));
+  assert.equal(openAds.some((a) => a.hookVoice === "v2"), false);
+  const blocked = voicePicks(
+    { H1: { voices: [{ id: "v1", file: "a", name: "Larga", seconds: 9 }, { id: "v2", file: "b", name: "Otra", seconds: 9 }], voiceSeq: 2 } },
+    undefined,
+    { seconds: { H1: 3 } },
+  );
+  assert.deepEqual(blocked, { H1: [] });
+  assert.equal(combine(s.hooks, s.meats, s.ctas, { sameLevel: true }, { seconds: 15 }, blocked).some((a) => a.hookId === "H1"), false);
+  const accepted = usableVoiceIds(
+    [
+      { id: "v1", seconds: 9, cutOk: true },
+      { id: "v2", seconds: 2 },
+    ],
+    3,
+  );
+  assert.deepEqual(accepted, ["v1", "v2"]);
+  const clip = voicePicks(s.media, undefined, { clipSpeaker: new Set(["H1", "M1"]) });
+  assert.equal(clip, undefined);
+  const onlyHook = voicePicks(s.media, undefined, { clipSpeaker: new Set(["H1"]), seconds });
+  assert.deepEqual(Object.keys(onlyHook ?? {}), ["M1"]);
+  const clipAds = combine(s.hooks, s.meats, s.ctas, { sameLevel: true }, { seconds: 15 }, onlyHook);
+  assert.ok(clipAds.some((a) => a.id === "H1-M1v1-C1"));
+  assert.equal(clipAds.some((a) => a.id.startsWith("H1v")), false);
+});
+
+test("deleting every voice frees the numbers only when no batch still names one", () => {
+  assert.equal(voiceSeqAfterClear(10, 0, false), 0);
+  assert.equal(voiceSeqAfterClear(10, 0, true), 10);
+  assert.equal(voiceSeqAfterClear(4, 2, false), 4);
+  const ad = { hookId: "H1", meatId: "M1", ctaId: "C1", hookVoice: "v2" };
+  assert.equal(pieceVariantsReferenced("H1", [{ ads: [ad] }]), true);
+  assert.equal(pieceVariantsReferenced("M1", [{ ads: [ad] }]), false);
+  assert.equal(pieceVariantsReferenced("C1", [{ ads: [{ ...ad, ctaVoice: "v1" }] }]), true);
+  assert.equal(pieceVariantsReferenced("H1", [{ ads: [{ hookId: "H1", meatId: "M1", ctaId: "C1" }] }]), false);
+});
+
+test("a batch is refused when the id, the voice or the cut does not match", () => {
+  const pieces = {
+    H1: { id: "H1", seconds: 3, voices: [{ id: "v1", seconds: 2 }, { id: "v2", seconds: 9 }] },
+    M1: { id: "M1", seconds: 9, voices: [{ id: "v1", seconds: 2 }] },
+    C1: { id: "C1", seconds: 3, clipSpeaker: true, voices: [{ id: "v1", seconds: 20 }, { id: "v2", seconds: 20 }] },
+  };
+  const base = { id: "H1v1-M1-C1", hookId: "H1", meatId: "M1", ctaId: "C1", hookVoice: "v1" };
+  assert.equal(comboIssues(base, pieces), null);
+  assert.match(comboIssues({ ...base, id: "h1v1-m1-c1" }, pieces) ?? "", /no coincide/);
+  assert.match(comboIssues({ ...base, id: "H1-M1-C1" }, pieces) ?? "", /no coincide/);
+  assert.match(comboIssues({ ...base, hookVoice: "v9", id: adId("H1", "M1", "C1", { hook: "v9" }) }, pieces) ?? "", /Esa voz no existe/);
+  assert.match(comboIssues({ id: "H1v2-M1-C1", hookId: "H1", meatId: "M1", ctaId: "C1", hookVoice: "v2" }, pieces) ?? "", /Se corta al final/);
+  assert.match(comboIssues({ id: "H1-M1-C1", hookId: "H1", meatId: "M1", ctaId: "C1" }, pieces) ?? "", /tiene varias voces/);
+  assert.match(comboIssues({ id: "H9-M1-C1", hookId: "H9", meatId: "M1", ctaId: "C1" }, pieces) ?? "", /no existe \(H9\)/);
+  const oneLong = { H1: { id: "H1", seconds: 3, voices: [{ id: "v1", seconds: 2.9 }] }, M1: pieces.M1, C1: { id: "C1", seconds: 3 } };
+  assert.match(comboIssues({ id: "H1-M1-C1", hookId: "H1", meatId: "M1", ctaId: "C1" }, oneLong) ?? "", /Se corta al final/);
+  assert.equal(comboIssues({ id: "H1-M1-C1", hookId: "H1", meatId: "M1", ctaId: "C1" }, { ...oneLong, H1: { ...oneLong.H1, voices: [{ id: "v1", seconds: 2.9, cutOk: true }] } }), null);
+  assert.match(
+    comboIssues({ id: adId("H1", "M1", "C1", { hook: "v1", cta: "v1" }), hookId: "H1", meatId: "M1", ctaId: "C1", hookVoice: "v1", ctaVoice: "v1" }, pieces) ?? "",
+    /la dice el personaje/,
+  );
+  assert.equal(comboIssues({ id: "H1v1-M1-C1", hookId: "H1", meatId: "M1", ctaId: "C1", hookVoice: "v1" }, pieces), null);
+  assert.equal(renderVoiceBlock({ hookId: "H1", meatId: "M1", ctaId: "C1", hookVoice: "v2" }, pieces), voiceCutBlock({ id: "v2", seconds: 9 }, 3));
+  assert.equal(renderVoiceBlock({ hookId: "H1", meatId: "M1", ctaId: "C1" }, { C1: pieces.C1, H1: { id: "H1", seconds: 3, clipSpeaker: true, voices: pieces.H1.voices }, M1: pieces.M1 }), null);
+  assert.equal(renderVoiceBlock({ hookId: "H9", meatId: "M1", ctaId: "C1" }, pieces), null);
+});
+
+test("the voice length and the file size are rejected before the body is trusted", () => {
+  assert.deepEqual(readVoiceSeconds(undefined), { error: "Falta el largo de la voz." });
+  assert.deepEqual(readVoiceSeconds("  "), { error: "Falta el largo de la voz." });
+  assert.deepEqual(readVoiceSeconds("2,9"), { error: "El largo de la voz no es un número." });
+  assert.deepEqual(readVoiceSeconds("-1"), { error: "El largo de la voz no es un número." });
+  assert.deepEqual(readVoiceSeconds("7201"), { error: "El largo de la voz no es un número." });
+  assert.deepEqual(readVoiceSeconds("NaN"), { error: "El largo de la voz no es un número." });
+  assert.deepEqual(readVoiceSeconds("0"), { seconds: 0 });
+  assert.deepEqual(readVoiceSeconds("2.9"), { seconds: 2.9 });
+  assert.deepEqual(readVoiceSeconds("1.2346"), { seconds: 1.235 });
+  assert.equal(voiceBodyError(undefined), "Falta el tamaño del archivo.");
+  assert.equal(voiceBodyError(""), "Falta el tamaño del archivo.");
+  assert.equal(voiceBodyError("0"), "El archivo está vacío.");
+  assert.equal(voiceBodyError("no"), "El archivo está vacío.");
+  assert.equal(voiceBodyError(String(VOICE_MAX_BYTES + 1)), "La voz pesa más de 25 MB.");
+  assert.equal(voiceBodyError("100"), null);
+});
+
+test("a voice webm is audio and an old render is not renamed into the current cache", () => {
+  assert.equal(adsMediaType("media/H3-voz-v1.webm", "video/webm"), "audio/webm");
+  assert.equal(adsMediaType("media/H3-voz-v10.webm", "video/webm"), "audio/webm");
+  assert.equal(adsMediaType("media/toma.webm", "video/webm"), "video/webm");
+  assert.equal(adsMediaType("H3-voz-V1.webm", "video/webm"), "video/webm");
+  assert.equal(adsMediaType("media/H3-voz-v1.mp3", "audio/mpeg"), "audio/mpeg");
+  assert.equal(keptRenderMove("piezas/H3.mp4", "H3.v1"), null);
+  assert.equal(keptRenderMove("piezas/H3.l2.mp4", "H3.v1"), "piezas/H3.v1.l2.mp4");
+  assert.equal(keptRenderMove("piezas/H3.v2.l2.webm", "H3"), "piezas/H3.l2.webm");
+});
+
+test("a voice added after the pick is new, and a clip speaker's render stays one file", () => {
+  assert.deepEqual(newVoiceIds(["v1", "v3"], undefined), []);
+  assert.deepEqual(newVoiceIds(["v1", "v3"], { picked: ["v1"], known: ["v1"] }), ["v3"]);
+  assert.deepEqual(newVoiceIds(["v1"], { picked: [], known: ["v1", "v2"] }), []);
+  assert.deepEqual(readVoiceSelection({ picked: [], known: [] }), { picked: [], known: [] });
+  assert.equal(readVoiceSelection({ picked: "v1" }), undefined);
+  assert.deepEqual(readVoiceSelection({ picked: ["v1", "no", "v11"], known: ["v2"] }), { picked: ["v1"], known: ["v2"] });
+  assert.deepEqual(readStoredVoices({ BAD: { H1: { picked: ["v1"], known: [] } }, iman: { nope: { picked: ["v1"] }, H1: { picked: ["v1", "x"], known: [] } } }), {
+    iman: { H1: { picked: ["v1"], known: [] } },
+  });
+  assert.deepEqual(readStoredVoices(null), {});
+  const voices = [{ id: "v1" }, { id: "v2" }];
+  assert.deepEqual(renderVoiceUse(voices, undefined, true), {});
+  assert.deepEqual(renderVoiceUse(voices, "v2", true), {});
+  assert.deepEqual(renderVoiceUse(voices, undefined, false), { error: "Esta pieza tiene varias voces: indicá cuál render es." });
+  assert.deepEqual(renderVoiceUse(voices, "v2", false), { voice: "v2" });
+  assert.deepEqual(renderVoiceUse(voices, "v9", false), { error: "Esa voz no existe." });
+  assert.deepEqual(renderVoiceUse([{ id: "v1" }], "v2", false), { error: "Esa voz no existe." });
+  assert.deepEqual(renderVoiceUse([{ id: "v1" }], undefined, false), {});
 });

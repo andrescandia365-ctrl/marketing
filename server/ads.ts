@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { AdsStateSchema, OfferSchema, RENDER_VERSION, emptyAds, isAdId, offerFilled, type AdsState, type Offer } from "../shared/ads.ts";
-import { renderNameForKey, voiceFileName, voiceTypeOf, type CachePlan } from "../shared/voiceVariants.ts";
+import { adsMediaType, keptRenderMove, pieceVariantsReferenced, renderNameForKey, voiceFileName, voiceSeqAfterClear, voiceTypeOf, type CachePlan } from "../shared/voiceVariants.ts";
 import { staticBelongs } from "../shared/adsStatic.ts";
 import { checkErrorText } from "../shared/errors.ts";
 
@@ -18,7 +18,14 @@ const BATCH = /^[a-z0-9-]{1,60}$/;
 const FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/;
 const MAX_STATE = 16 * 1024 * 1024;
 
-export class AdsError extends Error {}
+export class AdsError extends Error {
+  readonly status: 400 | 404;
+  constructor(message: string, status: 400 | 404 = 400) {
+    super(message);
+    this.name = "AdsError";
+    this.status = status;
+  }
+}
 
 const TYPES: Record<string, string> = {
   png: "image/png",
@@ -66,7 +73,14 @@ function fill(raw: unknown, series: string): AdsState {
   const merged = { ...base, ...(raw && typeof raw === "object" ? (raw as object) : {}), version: 1, series };
   const parsed = AdsStateSchema.safeParse(merged);
   if (!parsed.success) throw new AdsError(checkErrorText(parsed.error, "El archivo de Publicidad de la serie está dañado"));
-  return parsed.data as AdsState;
+  const data = parsed.data as AdsState;
+  // A piece that used v1–v10 and then lost every voice can take voices again, unless a batch still names one.
+  for (const [pieceId, media] of Object.entries(data.media)) {
+    const before = media.voiceSeq ?? 0;
+    const seq = voiceSeqAfterClear(before, media.voices?.length ?? 0, pieceVariantsReferenced(pieceId, data.batches));
+    if (seq !== before) media.voiceSeq = seq;
+  }
+  return data;
 }
 
 export async function loadAds(series: string): Promise<AdsState> {
@@ -210,11 +224,14 @@ export async function moveAdsFile(series: string, from: string, to: string): Pro
 export async function applyRenderPlan(series: string, renders: Record<string, string>, plan: CachePlan): Promise<void> {
   if (plan.move && renders[plan.move.from]) {
     const fromFile = renders[plan.move.from];
-    const extension = fromFile.split(".").pop() || "mp4";
-    const toFile = `piezas/${renderNameForKey(plan.move.to, extension, RENDER_VERSION)}`;
-    if (fromFile !== toFile) await moveAdsFile(series, fromFile, toFile);
+    const toFile = keptRenderMove(fromFile, plan.move.to, RENDER_VERSION);
     delete renders[plan.move.from];
-    renders[plan.move.to] = toFile;
+    if (!toFile) {
+      await removePieceMedia(series, fromFile).catch(() => undefined);
+    } else {
+      if (fromFile !== toFile) await moveAdsFile(series, fromFile, toFile);
+      renders[plan.move.to] = toFile;
+    }
   }
   for (const key of plan.drop) {
     if (!renders[key] || key === plan.move?.to) continue;
@@ -284,8 +301,9 @@ function resolveFile(series: string, file: string): { path: string; type: string
     (parts.length === 2 && ["clips", "media", "piezas", "estaticos"].includes(parts[0]) && FILE.test(parts[1])) ||
     (parts.length === 3 && parts[0] === "anuncios" && BATCH.test(parts[1]) && FILE.test(parts[2]));
   if (!ok) throw new AdsError("Ese archivo no existe.");
-  const e = parts[parts.length - 1].split(".").pop()?.toLowerCase() ?? "";
-  return { path: join(folder(series), ...parts), type: TYPES[e] ?? "application/octet-stream" };
+  const name = parts[parts.length - 1];
+  const e = name.split(".").pop()?.toLowerCase() ?? "";
+  return { path: join(folder(series), ...parts), type: adsMediaType(name, TYPES[e] ?? "application/octet-stream") };
 }
 
 export async function readAdsFile(series: string, file: string): Promise<{ data: Buffer; type: string }> {

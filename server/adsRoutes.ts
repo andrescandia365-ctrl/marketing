@@ -38,7 +38,27 @@ import {
   type Batch,
   type Piece,
 } from "../shared/ads.ts";
-import { applyVoices, cleanVoiceName, nextVoiceId, pictureCachePlan, pieceRenderKeys, voiceCachePlan, voiceNumber, voiceUploadError, type VoiceVariant } from "../shared/voiceVariants.ts";
+import {
+  PIECE_ID,
+  VOICE_ID,
+  VOICE_MAX_BYTES,
+  applyVoices,
+  cleanVoiceName,
+  comboIssues,
+  nextVoiceId,
+  pictureCachePlan,
+  pieceRenderKeys,
+  pieceVariantsReferenced,
+  readVoiceSeconds,
+  renderVoiceUse,
+  voiceBodyError,
+  voiceCachePlan,
+  voiceNumber,
+  voiceSeqAfterClear,
+  voiceUploadError,
+  type VoiceCheckPiece,
+  type VoiceVariant,
+} from "../shared/voiceVariants.ts";
 import { campaignCsv, defaultStatic, staticBelongs, staticsCsv } from "../shared/adsStatic.ts";
 import { sequenceSlot } from "../shared/adsSequence.ts";
 import { currentWriter, taskFromPaste, taskPrompt } from "./claude.ts";
@@ -137,40 +157,94 @@ async function dropPictureRenders(seriesId: string, s: AdsState, pieceId: string
   await applyRenderPlan(seriesId, s.renders, pictureCachePlan(pieceId, ids));
 }
 
-// Stores one voice and drops only that variant's cache. Replacing keeps the id; a new one must be the next number.
-async function writeVoice(seriesId: string, pieceId: string, vid: string, data: Buffer, name: string, seconds: number) {
+// Writes one voice inside an open updateAds. A new id is chosen by the caller, inside that same lock.
+async function putVoice(seriesId: string, s: AdsState, pieceId: string, vid: string, data: Buffer, name: string, seconds: number, replacing: boolean): Promise<string> {
+  if (!findPiece(s, pieceId)) throw new AdsError("Esa pieza no existe.");
+  const m: AdsMedia = (s.media[pieceId] ??= {});
+  const list = [...(m.voices ?? [])];
+  if (replacing && !list.some((v) => v.id === vid)) throw new AdsError("Esa voz no existe.", 404);
+  const err = voiceUploadError({
+    pieceId,
+    vid,
+    count: list.length,
+    seq: m.voiceSeq ?? 0,
+    byteLength: data.length,
+    bytes: data,
+    replacing,
+  });
+  if (err) throw new AdsError(err);
+  const file = await saveVoiceFile(seriesId, pieceId, vid, data);
+  const before = list.map((v) => v.id);
+  const prev = list.find((v) => v.id === vid);
+  if (prev?.file && prev.file !== file) await removePieceMedia(seriesId, prev.file).catch(() => undefined);
+  const next: VoiceVariant = { id: vid, file, name: cleanVoiceName(name, `${pieceId}-voz-${vid}`), seconds };
+  if (prev) list[list.findIndex((v) => v.id === vid)] = next;
+  else list.push(next);
+  applyVoices(m, list, Math.max(m.voiceSeq ?? 0, voiceNumber(vid)));
+  await applyRenderPlan(seriesId, s.renders, voiceCachePlan(pieceId, before, list.map((v) => v.id), vid, prev ? "replace" : "add"));
+  return file;
+}
+
+function settleVoiceSeq(s: AdsState, pieceId: string, m: AdsMedia, voices: VoiceVariant[]) {
+  const seq = voiceSeqAfterClear(m.voiceSeq ?? 0, voices.length, pieceVariantsReferenced(pieceId, s.batches));
+  applyVoices(m, voices, seq);
+}
+
+// The server picks the id inside the lock, so two uploads cannot land on the same vN.
+async function addVoice(seriesId: string, pieceId: string, data: Buffer, name: string, seconds: number) {
   const { state, result } = await updateAds(seriesId, async (s) => {
     if (!findPiece(s, pieceId)) throw new AdsError("Esa pieza no existe.");
-    const m: AdsMedia = (s.media[pieceId] ??= {});
-    const list = [...(m.voices ?? [])];
-    const replacing = list.some((v) => v.id === vid);
-    const err = voiceUploadError({
-      pieceId,
-      vid,
-      count: list.length,
-      seq: m.voiceSeq ?? 0,
-      byteLength: data.length,
-      bytes: data,
-      replacing,
-    });
-    if (err) throw new AdsError(err);
-    const file = await saveVoiceFile(seriesId, pieceId, vid, data);
-    const before = list.map((v) => v.id);
-    const prev = list.find((v) => v.id === vid);
-    if (prev?.file && prev.file !== file) await removePieceMedia(seriesId, prev.file).catch(() => undefined);
-    const next: VoiceVariant = {
-      id: vid,
-      file,
-      name: cleanVoiceName(name, `${pieceId}-voz-${vid}`),
-      seconds: Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) / 1000 : (prev?.seconds ?? 0),
-    };
-    if (prev) list[list.findIndex((v) => v.id === vid)] = next;
-    else list.push(next);
-    applyVoices(m, list, Math.max(m.voiceSeq ?? 0, voiceNumber(vid)));
-    await applyRenderPlan(seriesId, s.renders, voiceCachePlan(pieceId, before, list.map((v) => v.id), vid, prev ? "replace" : "add"));
-    return file;
+    const m = s.media[pieceId];
+    const next = nextVoiceId(m?.voiceSeq ?? 0, m?.voices?.length ?? 0);
+    if ("error" in next) throw new AdsError(next.error);
+    const file = await putVoice(seriesId, s, pieceId, next.id, data, name, seconds, false);
+    return { file, vid: next.id };
+  });
+  return { state, file: result.file, vid: result.vid };
+}
+
+async function replaceVoiceFile(seriesId: string, pieceId: string, vid: string, data: Buffer, name: string, seconds: number) {
+  const { state, result } = await updateAds(seriesId, (s) => putVoice(seriesId, s, pieceId, vid, data, name, seconds, true));
+  return { state, file: result };
+}
+
+// The old single-voice upload. Several voices are refused; one replaces that id; none allocates inside the lock.
+async function writeLegacyVoice(seriesId: string, pieceId: string, data: Buffer, name: string, seconds: number) {
+  const { state, result } = await updateAds(seriesId, async (s) => {
+    if (!findPiece(s, pieceId)) throw new AdsError("Esa pieza no existe.");
+    const m = s.media[pieceId];
+    const list = m?.voices ?? [];
+    if (list.length > 1) throw new AdsError("Esta pieza ya tiene varias voces: subilas desde Voces.");
+    if (list.length === 1) return putVoice(seriesId, s, pieceId, list[0].id, data, name, seconds, true);
+    const next = nextVoiceId(m?.voiceSeq ?? 0, 0);
+    if ("error" in next) throw new AdsError(next.error);
+    return putVoice(seriesId, s, pieceId, next.id, data, name, seconds, false);
   });
   return { state, file: result };
+}
+
+function voicePieces(state: AdsState): Record<string, VoiceCheckPiece> {
+  const out: Record<string, VoiceCheckPiece> = {};
+  for (const p of [...state.hooks, ...state.meats, ...state.ctas]) {
+    out[p.id] = {
+      id: p.id,
+      seconds: p.seconds,
+      clipSpeaker: p.speaker?.sound === "clip",
+      voices: state.media[p.id]?.voices,
+    };
+  }
+  return out;
+}
+
+async function readVoiceBody(c: { req: { header: (name: string) => string | undefined; query: (name: string) => string | undefined; arrayBuffer: () => Promise<ArrayBuffer> } }, secondsKey: "seconds" | "duration") {
+  const lengthErr = voiceBodyError(c.req.header("content-length"));
+  if (lengthErr) throw new AdsError(lengthErr);
+  const seconds = readVoiceSeconds(c.req.query(secondsKey));
+  if ("error" in seconds) throw new AdsError(seconds.error);
+  const data = Buffer.from(await c.req.arrayBuffer());
+  if (!data.length) throw new AdsError("El archivo está vacío.");
+  if (data.length > VOICE_MAX_BYTES) throw new AdsError("La voz pesa más de 25 MB.");
+  return { data, seconds: seconds.seconds, name: c.req.query("name") ?? "" };
 }
 
 // An explainer project of this series (its studio saves kind "motion" and the brief it was made with).
@@ -532,6 +606,11 @@ export function adsRoutes(app: Hono) {
     const id = series(c);
     const pieceId = PieceId.parse(c.req.param("id"));
     const kind = z.enum(["image", "clip", "voice"]).parse(c.req.param("kind"));
+    if (kind === "voice") {
+      const body = await readVoiceBody(c, "duration");
+      const { state, file } = await writeLegacyVoice(id, pieceId, body.data, body.name.slice(0, 120), body.seconds);
+      return c.json({ state, file });
+    }
     const data = Buffer.from(await c.req.arrayBuffer());
     if (!data.length) throw new AdsError("El archivo está vacío.");
     const name = (c.req.query("name") ?? "").slice(0, 120);
@@ -544,19 +623,6 @@ export function adsRoutes(app: Hono) {
       if (!piece) throw new AdsError("Esa pieza no existe.");
       const reason = sequenceSlot(piece.seconds, index);
       if (reason) throw new AdsError(reason);
-    }
-    if (kind === "voice") {
-      const media = (await loadAds(id)).media[pieceId];
-      const list = media?.voices ?? [];
-      if (list.length > 1) throw new AdsError("Esta pieza ya tiene varias voces: subilas desde Voces.");
-      let vid = list[0]?.id ?? "";
-      if (list.length !== 1) {
-        const next = nextVoiceId(media?.voiceSeq ?? 0, list.length);
-        if ("error" in next) throw new AdsError(next.error);
-        vid = next.id;
-      }
-      const { state, file } = await writeVoice(id, pieceId, vid, data, name, duration);
-      return c.json({ state, file });
     }
     const file = await savePieceMedia(id, pieceId, kind, data, c.req.header("content-type") ?? "", index);
     const { state } = await updateAds(id, async (s) => {
@@ -576,15 +642,25 @@ export function adsRoutes(app: Hono) {
     return c.json({ state, file });
   });
 
-  // One voice of a piece. The id is v1..v10, never reused. The type is read from the bytes.
+  // A new voice. The id is allocated inside the save lock (POST), so two uploads cannot take the same number.
+  app.post("/api/ads/:series/pieces/:id/voices", async (c) => {
+    const id = series(c);
+    const pieceId = c.req.param("id") ?? "";
+    if (!PIECE_ID.test(pieceId)) throw new AdsError("Esa pieza no existe.");
+    const body = await readVoiceBody(c, "seconds");
+    const { state, file, vid } = await addVoice(id, pieceId, body.data, body.name, body.seconds);
+    return c.json({ state, file, vid });
+  });
+
+  // Replaces one voice. A vid that is not on the piece is 404; a vid that is not v1–v10 is 400. Both say the same sentence.
   app.put("/api/ads/:series/pieces/:id/voices/:vid", async (c) => {
     const id = series(c);
     const pieceId = c.req.param("id") ?? "";
     const vid = c.req.param("vid") ?? "";
-    const data = Buffer.from(await c.req.arrayBuffer());
-    const name = c.req.query("name") ?? "";
-    const seconds = Number(c.req.query("seconds"));
-    const { state, file } = await writeVoice(id, pieceId, vid, data, name, seconds);
+    if (!PIECE_ID.test(pieceId)) throw new AdsError("Esa pieza no existe.");
+    if (!VOICE_ID.test(vid)) throw new AdsError("Esa voz no existe.");
+    const body = await readVoiceBody(c, "seconds");
+    const { state, file } = await replaceVoiceFile(id, pieceId, vid, body.data, body.name, body.seconds);
     return c.json({ state, file });
   });
 
@@ -624,7 +700,7 @@ export function adsRoutes(app: Hono) {
       if (prev.file) await removePieceMedia(id, prev.file).catch(() => undefined);
       const before = list.map((v) => v.id);
       const next = list.filter((v) => v.id !== vid);
-      applyVoices(m, next, m.voiceSeq ?? 0);
+      settleVoiceSeq(s, pieceId, m, next);
       await applyRenderPlan(id, s.renders, voiceCachePlan(pieceId, before, next.map((v) => v.id), vid, "delete"));
     });
     return c.json({ state });
@@ -644,11 +720,12 @@ export function adsRoutes(app: Hono) {
         if (list.length === 1 && m) {
           const prev = list[0];
           if (prev.file) await removePieceMedia(id, prev.file).catch(() => undefined);
-          applyVoices(m, [], m.voiceSeq ?? 0);
+          settleVoiceSeq(s, pieceId, m, []);
           await applyRenderPlan(id, s.renders, voiceCachePlan(pieceId, [prev.id], [], prev.id, "delete"));
         } else if (m?.voice?.file) {
           await removePieceMedia(id, m.voice.file).catch(() => undefined);
           delete m.voice;
+          m.voiceSeq = voiceSeqAfterClear(m.voiceSeq ?? 0, 0, pieceVariantsReferenced(pieceId, s.batches));
           await dropPictureRenders(id, s, pieceId);
         }
         return;
@@ -721,7 +798,7 @@ export function adsRoutes(app: Hono) {
   });
 
   // The cache: one render per piece, or one per voice when the piece has several (`?voice=v3`).
-  // A piece with one voice ignores `voice` and keeps the old file name.
+  // A piece with one voice, and a clip speaker, ignore `voice` and keep the old file name.
   app.put("/api/ads/:series/pieces/:id/render", async (c) => {
     const id = series(c);
     const pieceId = PieceId.parse(c.req.param("id"));
@@ -730,12 +807,11 @@ export function adsRoutes(app: Hono) {
     const voiceQ = c.req.query("voice") || undefined;
     const type = c.req.header("content-type") ?? "";
     const { state, result } = await updateAds(id, async (s) => {
-      const voices = s.media[pieceId]?.voices ?? [];
-      if (voiceQ && !voices.some((v) => v.id === voiceQ)) throw new AdsError("Esa voz no existe.");
-      const use = voices.length > 1 ? voiceQ : undefined;
-      if (voices.length > 1 && !use) throw new AdsError("Esta pieza tiene varias voces: indicá cuál render es.");
-      const file = await savePieceRender(id, pieceId, data, type, use);
-      const key = use ? `${pieceId}.${use}` : pieceId;
+      const piece = findPiece(s, pieceId);
+      const use = renderVoiceUse(s.media[pieceId]?.voices, voiceQ, piece?.speaker?.sound === "clip");
+      if ("error" in use) throw new AdsError(use.error);
+      const file = await savePieceRender(id, pieceId, data, type, use.voice);
+      const key = use.voice ? `${pieceId}.${use.voice}` : pieceId;
       if (s.renders[key] && s.renders[key] !== file) await removePieceMedia(id, s.renders[key]).catch(() => undefined);
       s.renders[key] = file;
       return file;
@@ -782,6 +858,11 @@ export function adsRoutes(app: Hono) {
       if (issue) throw new AdsError(issue);
     }
     const state0 = await loadAds(id);
+    const pieces = voicePieces(state0);
+    for (const ad of ads) {
+      const issue = comboIssues(ad, pieces);
+      if (issue) throw new AdsError(issue);
+    }
     // The weekly limit holds here too, not only on the screen. It counts ads, whatever each one lasts.
     const week = adsThisWeek(state0.batches);
     if (week + ads.length > state0.weeklyLimit) {
@@ -871,6 +952,47 @@ export function adsRoutes(app: Hono) {
       s.batches = s.batches.filter((b) => b.id !== batchId);
     });
     return c.json({ state });
+  });
+
+  // A stopped run keeps only the ads that were uploaded, in their original order. None uploaded: the batch goes,
+  // so the weekly limit does not count videos that were never written.
+  app.post("/api/ads/:series/batches/:batch/kept", async (c) => {
+    const id = series(c);
+    const batchId = z.string().regex(/^[a-z0-9-]{1,60}$/).parse(c.req.param("batch"));
+    const { ids } = z.object({ ids: z.array(z.string().max(40)).max(1000) }).parse(await c.req.json());
+    for (const ad of ids) {
+      if (!isAdId(ad)) throw new AdsError("Ese anuncio no existe.");
+    }
+    const keep = new Set(ids);
+    if (!keep.size) {
+      await removeBatchFolder(id, batchId);
+      const { state } = await updateAds(id, (s) => {
+        s.batches = s.batches.filter((b) => b.id !== batchId);
+      });
+      return c.json({ state, removed: true });
+    }
+    const { state, result } = await updateAds(id, async (s) => {
+      const b = s.batches.find((x) => x.id === batchId);
+      if (!b) throw new AdsError("Esa tanda no existe.");
+      for (const [ad, file] of Object.entries(b.files)) {
+        if (!keep.has(ad)) await removePieceMedia(id, `anuncios/${batchId}/${file}`).catch(() => undefined);
+      }
+      b.ads = b.ads.filter((a) => keep.has(a.id));
+      const files: Record<string, string> = {};
+      for (const a of b.ads) {
+        if (b.files[a.id]) files[a.id] = b.files[a.id];
+      }
+      b.files = files;
+      return b.ads.length;
+    });
+    if (result === 0) {
+      await removeBatchFolder(id, batchId);
+      const gone = await updateAds(id, (s) => {
+        s.batches = s.batches.filter((b) => b.id !== batchId);
+      });
+      return c.json({ state: gone.state, removed: true });
+    }
+    return c.json({ state, removed: false });
   });
 
   // ── "Versión estática" of the hooks (shared/adsStatic.ts) ──────────────────────

@@ -17,7 +17,7 @@ import {
 } from "../../../shared/ads.ts";
 import { continuityNote, grokSequence, sequencePromptText, sequencePromptsFromPiece } from "../../../shared/adsSequence.ts";
 import { unverified } from "../../../shared/adsSpeaker.ts";
-import { formatSeconds, voiceLengthWarning, voiceNumber, VOICE_VARIANTS_MAX } from "../../../shared/voiceVariants.ts";
+import { formatSeconds, nextVoiceId, voiceLengthWarning, voiceNumber, VOICE_VARIANTS_MAX } from "../../../shared/voiceVariants.ts";
 import { buildCopyPrompt } from "../../../shared/prompt.ts";
 import type { Brief } from "../../../shared/schema.ts";
 import { CopyButton } from "../ScriptView.tsx";
@@ -158,6 +158,9 @@ type CardProps = {
   onConvert: () => void;
   converting?: boolean;
   convertDisabled?: boolean;
+  voiceSeq?: number;
+  savedVoiceCount?: number;
+  voiceAdding?: boolean;
   // "2/4" when several voices each have their own render.
   cachedDetail?: string;
   // Null when there is no OpenAI key for generated voices.
@@ -241,6 +244,9 @@ function VoiceBox({
   onRemove,
   onGenerate,
   onConvert,
+  voiceSeq = 0,
+  savedCount = 0,
+  adding = false,
 }: {
   pieceSeconds: number;
   voices: VoiceClip[];
@@ -257,10 +263,18 @@ function VoiceBox({
   onRemove: (vid: string) => void;
   onGenerate: (() => void) | null;
   onConvert: () => void;
+  voiceSeq?: number;
+  savedCount?: number;
+  adding?: boolean;
 }) {
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  const full = voices.length >= VOICE_VARIANTS_MAX;
+  const count = Math.max(voices.length, savedCount);
+  const gate = nextVoiceId(voiceSeq, count);
+  const cannotAdd = "error" in gate;
+  // One voice is replaced in place. Every other case needs a new id.
+  const addBlocked = cannotAdd && voices.length !== 1;
+  const seqFull = cannotAdd && count < VOICE_VARIANTS_MAX;
   return (
     <div className="space-y-1.5 border-t border-line pt-2">
       <p className="font-semibold text-ink">
@@ -276,13 +290,13 @@ function VoiceBox({
         onDrop={(e) => {
           e.preventDefault();
           setOver(false);
-          if (!full && e.dataTransfer.files.length) onUpload([...e.dataTransfer.files]);
+          if (!cannotAdd && !adding && e.dataTransfer.files.length) onUpload([...e.dataTransfer.files]);
         }}
       >
         <p className="text-muted">
           Soltá las voces acá o elegilas. mp3, wav, m4a, ogg o webm, hasta 25 MB. Cada archivo entra solo: si uno falla, los demás siguen.
         </p>
-        <Button variant="secondary" className="mt-1 px-2 py-1 text-xs" disabled={full} onClick={() => input.current?.click()}>
+        <Button variant="secondary" className="mt-1 px-2 py-1 text-xs" disabled={cannotAdd || adding} onClick={() => input.current?.click()}>
           Elegir voces
         </Button>
         <input
@@ -292,11 +306,12 @@ function VoiceBox({
           accept=".mp3,.wav,.m4a,.ogg,.webm,audio/*"
           className="hidden"
           onChange={(e) => {
-            if (e.target.files?.length) onUpload([...e.target.files]);
+            if (!adding && !cannotAdd && e.target.files?.length) onUpload([...e.target.files]);
             e.target.value = "";
           }}
         />
       </div>
+      {seqFull && "error" in gate && <p className="text-muted">{gate.error}</p>}
       {voices.map((v) => {
         const warning = voiceLengthWarning(voiceNumber(v.id), v.duration, pieceSeconds);
         return (
@@ -340,7 +355,7 @@ function VoiceBox({
       ))}
       <div className="flex flex-wrap gap-2">
         {onGenerate && (
-          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={onGenerate} disabled={loading || !hasText || (full && voices.length !== 1)}>
+          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={onGenerate} disabled={loading || adding || !hasText || addBlocked}>
             {loading ? <Spinner /> : voices.length === 1 ? "Generar de nuevo" : voices.length > 1 ? "Generar otra voz" : "Generar voz"}
           </Button>
         )}
@@ -388,6 +403,9 @@ export function PieceCard({
   onConvert,
   converting = false,
   convertDisabled = false,
+  voiceSeq = 0,
+  savedVoiceCount = 0,
+  voiceAdding = false,
   cachedDetail,
   onGenerateVoice,
   cached,
@@ -646,6 +664,9 @@ export function PieceCard({
               onRemove={onRemoveVoice}
               onGenerate={onGenerateVoice}
               onConvert={onConvert}
+              voiceSeq={voiceSeq}
+              savedCount={savedVoiceCount}
+              adding={voiceAdding}
             />
             {media?.error && <p className="text-neg">{media.error}</p>}
           </div>

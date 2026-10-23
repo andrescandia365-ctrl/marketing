@@ -200,6 +200,12 @@ export const ads = {
   },
   removePieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice", index?: number) =>
     call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/media/${kind}${index !== undefined ? `?index=${index}` : ""}`, undefined, "DELETE"),
+  addVoice: (series: string, id: string, file: Blob, meta: { name: string; seconds: number }) => {
+    const q = new URLSearchParams();
+    if (meta.name) q.set("name", meta.name);
+    q.set("seconds", String(meta.seconds));
+    return upload<{ state: AdsState; file: string; vid: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/voices?${q}`, file, file.type || "application/octet-stream", "POST");
+  },
   uploadVoice: (series: string, id: string, vid: string, file: Blob, meta: { name: string; seconds: number }) => {
     const q = new URLSearchParams();
     if (meta.name) q.set("name", meta.name);
@@ -224,6 +230,7 @@ export const ads = {
   uploadAd: (series: string, batch: string, adId: string, video: Blob) =>
     upload<{ file: string }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/ads/${enc(adId)}`, video, video.type),
   batchCsv: (series: string, batch: string) => call<{ file: string; csv: string }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/csv`, {}),
+  keepBatch: (series: string, batch: string, ids: string[]) => call<{ state: AdsState; removed: boolean }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/kept`, { ids }),
   removeBatch: (series: string, batch: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/batches/${enc(batch)}`, undefined, "DELETE"),
   // "Versión estática" of the hooks.
   patchStatic: (series: string, hookId: string, patch: Partial<Omit<HookStatic, "picture" | "exports">>) =>

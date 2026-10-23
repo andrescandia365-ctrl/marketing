@@ -48,7 +48,35 @@ export function nextVoiceId(seq: number, count: number): { id: string } | { erro
   return { id: `v${seq + 1}` };
 }
 
-// Old campana.json keeps `voice` and no list. That file becomes v1. A piece that already has a list is left as it is.
+// A batch names a variant when the ad carries hookVoice / meatVoice / ctaVoice for this piece.
+export type VariantRef = {
+  hookId: string;
+  meatId: string;
+  ctaId: string;
+  hookVoice?: string;
+  meatVoice?: string;
+  ctaVoice?: string;
+};
+
+export function pieceVariantsReferenced(pieceId: string, batches: { ads: VariantRef[] }[]): boolean {
+  for (const batch of batches) {
+    for (const ad of batch.ads) {
+      if (ad.hookId === pieceId && ad.hookVoice) return true;
+      if (ad.meatId === pieceId && ad.meatVoice) return true;
+      if (ad.ctaId === pieceId && ad.ctaVoice) return true;
+    }
+  }
+  return false;
+}
+
+// With no voices left and no batch still naming one, the next upload can be v1 again. Otherwise the high-water stays.
+export function voiceSeqAfterClear(seq: number, voicesLeft: number, referenced: boolean): number {
+  if (voicesLeft === 0 && !referenced) return 0;
+  return seq;
+}
+
+// Old campana.json keeps `voice` and no list. That file becomes v1, already accepted (`cutOk`), so a voice that
+// used to render past the piece still does. A piece that already has a list is left as it is, cutOk included.
 // A single voice is also mirrored back onto `voice`, so the one-voice render keeps reading the same field.
 export function settleVoices<T extends VoiceCarrier>(media: T): T {
   const hadList = Array.isArray(media.voices);
@@ -56,7 +84,7 @@ export function settleVoices<T extends VoiceCarrier>(media: T): T {
   if (!list.length && !media.voice) return media;
   let seq = media.voiceSeq ?? 0;
   if (!list.length && media.voice?.file) {
-    list.push({ id: "v1", file: media.voice.file, name: media.voice.name, seconds: media.voice.duration });
+    list.push({ id: "v1", file: media.voice.file, name: media.voice.name, seconds: media.voice.duration, cutOk: true });
     seq = Math.max(seq, 1);
   }
   for (const v of list) seq = Math.max(seq, voiceNum(v.id));
@@ -102,6 +130,76 @@ export function voiceCutBlock(variant: Pick<VoiceVariant, "id" | "seconds" | "cu
   return `${warning}. Se corta al final de la pieza. Aceptá el corte o reemplazala antes de renderizar.`;
 }
 
+// A current cache (this session, or a file whose name carries the render version) still plays. The block applies
+// only before a fresh render.
+export function shouldBlockVoice(
+  variant: Pick<VoiceVariant, "id" | "seconds" | "cutOk"> | undefined,
+  pieceSeconds: number,
+  hasCurrentRender: boolean,
+): string | null {
+  if (!variant || hasCurrentRender) return null;
+  return voiceCutBlock(variant, pieceSeconds);
+}
+
+export type VoiceCheckPiece = {
+  id: string;
+  seconds: number;
+  clipSpeaker?: boolean;
+  voices?: Pick<VoiceVariant, "id" | "seconds" | "cutOk">[];
+};
+
+// What POST /batches refuses, in Spanish. A clip speaker does not need a variant and is not blocked by a voice it does not play.
+export function comboIssues(ad: VariantRef & { id: string }, pieces: Record<string, VoiceCheckPiece | undefined>): string | null {
+  const expected = adId(ad.hookId, ad.meatId, ad.ctaId, { hook: ad.hookVoice, meat: ad.meatVoice, cta: ad.ctaVoice });
+  if (ad.id !== expected) return `El id ${ad.id} no coincide con sus partes (${expected}).`;
+  const slots = [
+    { pieceId: ad.hookId, voiceId: ad.hookVoice },
+    { pieceId: ad.meatId, voiceId: ad.meatVoice },
+    { pieceId: ad.ctaId, voiceId: ad.ctaVoice },
+  ];
+  for (const slot of slots) {
+    const piece = pieces[slot.pieceId];
+    if (!piece) return `Esa pieza no existe (${slot.pieceId}).`;
+    if (piece.clipSpeaker) {
+      if (slot.voiceId) return `${slot.pieceId} la dice el personaje en el clip: no lleva una voz de la pieza.`;
+      continue;
+    }
+    const voices = (piece.voices ?? []).filter((v) => VOICE_ID.test(v.id));
+    if (slot.voiceId) {
+      const variant = voices.find((v) => v.id === slot.voiceId);
+      if (!variant) return `Esa voz no existe (${slot.pieceId} ${slot.voiceId}).`;
+      const block = voiceCutBlock(variant, piece.seconds);
+      if (block) return block;
+      continue;
+    }
+    if (voices.length > 1) return `${slot.pieceId} tiene varias voces: el anuncio tiene que decir cuál.`;
+    if (voices.length === 1) {
+      const block = voiceCutBlock(voices[0], piece.seconds);
+      if (block) return block;
+    }
+  }
+  return null;
+}
+
+// The cut check alone, for a whole-ad re-render. A missing voice is not this function's job.
+export function renderVoiceBlock(ad: VariantRef, pieces: Record<string, VoiceCheckPiece | undefined>): string | null {
+  const slots = [
+    { pieceId: ad.hookId, voiceId: ad.hookVoice },
+    { pieceId: ad.meatId, voiceId: ad.meatVoice },
+    { pieceId: ad.ctaId, voiceId: ad.ctaVoice },
+  ];
+  for (const slot of slots) {
+    const piece = pieces[slot.pieceId];
+    if (!piece || piece.clipSpeaker) continue;
+    const voices = piece.voices ?? [];
+    const variant = slot.voiceId ? voices.find((v) => v.id === slot.voiceId) : voices.length === 1 ? voices[0] : undefined;
+    if (!variant) continue;
+    const block = voiceCutBlock(variant, piece.seconds);
+    if (block) return block;
+  }
+  return null;
+}
+
 // mp3, wav, m4a, ogg, webm, from the bytes. Null is anything else (including an empty file).
 export function voiceTypeOf(bytes: Uint8Array): VoiceExt | null {
   if (bytes.length < 4) return null;
@@ -116,6 +214,31 @@ export function voiceTypeOf(bytes: Uint8Array): VoiceExt | null {
 
 export function voiceFileName(pieceId: string, vid: string, ext: VoiceExt): string {
   return `${pieceId}-voz-${vid}.${ext}`;
+}
+
+// A voice file is audio. A clip named .webm stays video/webm (the caller passes that fallback).
+const VOICE_WEBM = /-voz-v(?:10|[1-9])\.webm$/;
+export function adsMediaType(file: string, fallback: string): string {
+  const base = file.split("/").pop() ?? file;
+  return VOICE_WEBM.test(base) ? "audio/webm" : fallback;
+}
+
+// The browser measures the voice. The query string is only accepted when it is a real length.
+const VOICE_SECONDS_MAX = 7200;
+export function readVoiceSeconds(raw: string | undefined): { seconds: number } | { error: string } {
+  if (raw === undefined || raw.trim() === "") return { error: "Falta el largo de la voz." };
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || n > VOICE_SECONDS_MAX) return { error: "El largo de la voz no es un número." };
+  return { seconds: Math.round(n * 1000) / 1000 };
+}
+
+// Reject before the body is read. A missing length, an empty file and a file over 25 MB never get buffered.
+export function voiceBodyError(contentLength: string | undefined): string | null {
+  if (contentLength === undefined || contentLength.trim() === "") return "Falta el tamaño del archivo.";
+  const n = Number(contentLength);
+  if (!Number.isFinite(n) || n <= 0) return "El archivo está vacío.";
+  if (n > VOICE_MAX_BYTES) return "La voz pesa más de 25 MB.";
+  return null;
 }
 
 // What the route answers with (400). Null means the upload may proceed.
@@ -148,9 +271,10 @@ export function cleanVoiceName(name: string, fallback: string): string {
 
 // ── Ad ids ──────────────────────────────────────────────────────────────────────
 // The variant suffix is added only when that piece has more than one voice. One voice keeps H12-M3-C2.
+// Routes and file names stay uppercase. The metrics import is the only place that accepts either case (`AD_ID`).
 const TOKEN = "(H\\d{1,4})(v(?:10|[1-9]))?-(M\\d{1,4})(v(?:10|[1-9]))?-(C\\d{1,4})(v(?:10|[1-9]))?";
 export const AD_ID = new RegExp(`\\b${TOKEN}\\b`, "i");
-export const AD_ID_EXACT = new RegExp(`^${TOKEN}$`, "i");
+export const AD_ID_EXACT = new RegExp(`^${TOKEN}$`);
 
 export type ParsedAdId = {
   hookId: string;
@@ -184,7 +308,10 @@ export function parseAdId(text: string): ParsedAdId | null {
 }
 
 export function adId(hookId: string, meatId: string, ctaId: string, voices?: { hook?: string; meat?: string; cta?: string }): string {
-  const token = (id: string, voice?: string) => (voice && VOICE_ID.test(voice) ? `${id}${voice}` : id);
+  const token = (id: string, voice?: string) => {
+    const base = id.toUpperCase();
+    return voice && VOICE_ID.test(voice) ? `${base}${voice}` : base;
+  };
   return `${token(hookId, voices?.hook)}-${token(meatId, voices?.meat)}-${token(ctaId, voices?.cta)}`;
 }
 
@@ -196,17 +323,38 @@ export function isAdId(id: string): boolean {
 // A missing catalogue means "no voice axis" (every piece combines once, old ids).
 export type VoicePicks = Record<string, string[]>;
 
+export type VoicePickContext = {
+  // Pieces whose character speaks inside the clip. They stay off the axis.
+  clipSpeaker?: ReadonlySet<string>;
+  // When set, a variant that would be cut (no cutOk) is left out. Without it, every voice counts.
+  seconds?: Record<string, number>;
+};
+
+export function usableVoiceIds(voices: Pick<VoiceVariant, "id" | "seconds" | "cutOk">[] | undefined, pieceSeconds?: number): string[] {
+  const ids: string[] = [];
+  for (const v of voices ?? []) {
+    if (!VOICE_ID.test(v.id)) continue;
+    if (pieceSeconds !== undefined && voiceCutBlock(v, pieceSeconds)) continue;
+    ids.push(v.id);
+  }
+  return ids;
+}
+
 export function voicePicks(
   media: Record<string, VoiceCarrier | undefined>,
   chosen?: Record<string, string[]>,
+  ctx?: VoicePickContext,
 ): VoicePicks | undefined {
   const out: VoicePicks = {};
   let any = false;
   for (const [id, m] of Object.entries(media)) {
-    const ids = (m?.voices ?? []).map((v) => v.id).filter((v) => VOICE_ID.test(v));
-    if (ids.length <= 1) continue;
+    if (ctx?.clipSpeaker?.has(id)) continue;
+    const all = (m?.voices ?? []).map((v) => v.id).filter((v) => VOICE_ID.test(v));
+    if (all.length <= 1) continue;
     any = true;
-    const pick = (chosen?.[id] ?? ids).filter((v) => ids.includes(v));
+    const seconds = ctx?.seconds?.[id];
+    const open = seconds === undefined ? all : usableVoiceIds(m?.voices, seconds);
+    const pick = (chosen?.[id] ?? open).filter((v) => open.includes(v));
     out[id] = pick;
   }
   return any ? out : undefined;
@@ -231,9 +379,32 @@ export function renderKey(pieceId: string, voiceId: string | undefined, multi: b
   return multi && voiceId ? `${pieceId}.${voiceId}` : pieceId;
 }
 
+// Which variant a saved render belongs to. A clip speaker is one file even when the piece has several voices:
+// the clip already says the line, so `?voice=` is ignored. One voice also keeps the old file name.
+export function renderVoiceUse(
+  voices: { id: string }[] | undefined,
+  voiceQuery: string | undefined,
+  clipSpeaker: boolean,
+): { voice?: string } | { error: string } {
+  const list = (voices ?? []).filter((v) => VOICE_ID.test(v.id));
+  if (voiceQuery && !list.some((v) => v.id === voiceQuery)) return { error: "Esa voz no existe." };
+  if (clipSpeaker || list.length <= 1) return {};
+  if (!voiceQuery) return { error: "Esta pieza tiene varias voces: indicá cuál render es." };
+  return { voice: voiceQuery };
+}
+
 export function renderNameForKey(key: string, ext: string, version = "l2"): string {
   const m = key.match(/^(.*)\.(v(?:10|[1-9]))$/);
   return m ? `${m[1]}.${m[2]}.${version}.${ext}` : `${key}.${version}.${ext}`;
+}
+
+// Move a cached render only when its name already carries the current version. An older file is dropped, so renaming
+// it to `….l2.…` cannot make it current forever. Null means drop.
+export function keptRenderMove(fromFile: string, toKey: string, version = "l2"): string | null {
+  if (!fromFile.includes(`.${version}.`)) return null;
+  const base = fromFile.split("/").pop() ?? fromFile;
+  const ext = base.split(".").pop() || "mp4";
+  return `piezas/${renderNameForKey(toKey, ext, version)}`;
 }
 
 export function pieceRenderKeys(renders: Record<string, string>, pieceId: string): string[] {
@@ -269,6 +440,44 @@ export function renderUnits(ad: { hookId: string; meatId: string; ctaId: string;
 
 export function pieceOfUnit(unit: string): string {
   return unit.replace(/\.v(?:10|[1-9])$/, "");
+}
+
+// Voices the person had not seen when they picked variants. No selection means nothing is "new".
+export type VoiceSelection = { picked: string[]; known: string[] };
+
+export function newVoiceIds(current: readonly string[], selection: VoiceSelection | undefined): string[] {
+  if (!selection) return [];
+  const known = new Set(selection.known);
+  return current.filter((id) => VOICE_ID.test(id) && !known.has(id));
+}
+
+const SERIES_ID = /^[a-z0-9-]{1,40}$/;
+
+export function readVoiceSelection(raw: unknown): VoiceSelection | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  if (!Array.isArray(o.picked) && !Array.isArray(o.known)) return undefined;
+  const ids = (value: unknown) => (Array.isArray(value) ? value.filter((x): x is string => typeof x === "string" && VOICE_ID.test(x)) : []);
+  return { picked: ids(o.picked), known: ids(o.known) };
+}
+
+// series id → piece id → the variants picked for the batch, plus the ids the person had already seen.
+export type StoredVoices = Record<string, Record<string, VoiceSelection>>;
+
+export function readStoredVoices(raw: unknown): StoredVoices {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: StoredVoices = {};
+  for (const [series, pieces] of Object.entries(raw as Record<string, unknown>)) {
+    if (!SERIES_ID.test(series) || !pieces || typeof pieces !== "object" || Array.isArray(pieces)) continue;
+    const map: Record<string, VoiceSelection> = {};
+    for (const [piece, sel] of Object.entries(pieces as Record<string, unknown>)) {
+      if (!PIECE_ID.test(piece)) continue;
+      const parsed = readVoiceSelection(sel);
+      if (parsed) map[piece] = parsed;
+    }
+    if (Object.keys(map).length) out[series] = map;
+  }
+  return out;
 }
 
 export function adsCountWarning(count: number): { block: string | null; warn: string | null } {

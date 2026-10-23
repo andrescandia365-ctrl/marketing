@@ -19,7 +19,7 @@ import {
   type CombineRules,
   type ReviewFlag,
 } from "../../../shared/ads.ts";
-import { adsCountWarning, formatSeconds, voicePicks } from "../../../shared/voiceVariants.ts";
+import { adsCountWarning, formatSeconds, newVoiceIds, usableVoiceIds, voiceCutBlock, voicePicks, type VoiceSelection } from "../../../shared/voiceVariants.ts";
 import { adsFileUrl } from "../../lib/api.ts";
 import { download } from "../../lib/markdown.ts";
 import { copyChunks, copyPairs, freshCopies, type PastedCopy } from "../../../shared/adsHandoff.ts";
@@ -57,6 +57,9 @@ type Props = {
   // Keeps the platform texts' walk while another tab is open (series id).
   walkKey: string;
   pastedCopies?: Record<string, PastedCopy>;
+  // The variants this series already picked, kept with the batch settings.
+  voiceChoice: Record<string, VoiceSelection>;
+  onVoiceChoice: (next: Record<string, VoiceSelection>) => void;
 };
 
 const mins = (s: number) => (s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`);
@@ -82,20 +85,39 @@ export function CombinePanel({
   copiesVia = null,
   walkKey,
   pastedCopies = {},
+  voiceChoice,
+  onVoiceChoice,
 }: Props) {
   const [mode, setMode] = useState<"full" | "stage">("full");
   const [rules, setRules] = useState<CombineRules>({ sameLevel: true });
   const [winner, setWinner] = useState<{ meatId: string; ctaId: string }>({ meatId: "", ctaId: "" });
-  // Variants chosen for this batch. A piece missing from the map uses all of its voices.
-  const [chosen, setChosen] = useState<Record<string, string[]>>({});
   const approved = { hooks: state.hooks.filter((p) => p.status === "approved"), meats: state.meats.filter((p) => p.status === "approved"), ctas: state.ctas.filter((p) => p.status === "approved") };
   const stats = useMemo(() => pieceStats(state.metrics), [state.metrics]);
 
   const length = useMemo(() => ({ seconds, split }), [seconds, split]);
-  const picks = useMemo(() => voicePicks(state.media, chosen), [state.media, chosen]);
+  const catalogue = useMemo(() => [...state.hooks, ...state.meats, ...state.ctas], [state.hooks, state.meats, state.ctas]);
+  const pieceSeconds = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const p of catalogue) map[p.id] = p.seconds;
+    return map;
+  }, [catalogue]);
+  const clipSpeaker = useMemo(() => new Set(catalogue.filter((p) => p.speaker?.sound === "clip").map((p) => p.id)), [catalogue]);
+  const chosen = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const [id, sel] of Object.entries(voiceChoice)) out[id] = sel.picked;
+    return Object.keys(out).length ? out : undefined;
+  }, [voiceChoice]);
+  const picks = useMemo(
+    () => voicePicks(state.media, chosen, { clipSpeaker, seconds: pieceSeconds }),
+    [state.media, chosen, clipSpeaker, pieceSeconds],
+  );
   const multi = useMemo(
-    () => [...state.hooks, ...state.meats, ...state.ctas].filter((p) => (state.media[p.id]?.voices?.length ?? 0) > 1),
-    [state],
+    () => catalogue.filter((p) => !clipSpeaker.has(p.id) && (state.media[p.id]?.voices?.length ?? 0) > 1),
+    [catalogue, clipSpeaker, state.media],
+  );
+  const clipNotes = useMemo(
+    () => catalogue.filter((p) => clipSpeaker.has(p.id) && (state.media[p.id]?.voices?.length ?? 0) > 1),
+    [catalogue, clipSpeaker, state.media],
   );
   const ads = useMemo(() => {
     if (mode === "full") return combine(state.hooks, state.meats, state.ctas, rules, length, picks);
@@ -104,17 +126,18 @@ export function CombinePanel({
     return meat && cta ? varyHook(meat, cta, state.hooks, rules, length, picks) : [];
   }, [mode, rules, winner, state.hooks, state.meats, state.ctas, length, picks]);
   const theoretical = approved.hooks.length * approved.meats.length * approved.ctas.length;
-  const pieceSeconds = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const p of [...state.hooks, ...state.meats, ...state.ctas]) map[p.id] = p.seconds;
-    return map;
-  }, [state]);
   const est = estimate(ads, renderedPieces(state.renders), pieceSeconds);
   const week = adsThisWeek(state.batches);
   const overLimit = week + ads.length > state.weeklyLimit;
   const countNote = adsCountWarning(ads.length);
   const voiced = Boolean(picks);
-  const selectedOf = (id: string) => chosen[id] ?? (state.media[id]?.voices ?? []).map((v) => v.id);
+  const openOf = (id: string) => usableVoiceIds(state.media[id]?.voices, pieceSeconds[id]);
+  const selectedOf = (id: string) => {
+    const open = openOf(id);
+    const sel = voiceChoice[id];
+    return sel ? sel.picked.filter((v) => open.includes(v)) : open;
+  };
+  const writeChoice = (id: string, picked: string[], known: string[]) => onVoiceChoice({ ...voiceChoice, [id]: { picked, known } });
   const policy = (flags ?? []).filter((f) => f.kind === "policy");
   const pairs = useMemo(() => copyPairs(ads, state.hooks, state.ctas), [ads, state.hooks, state.ctas]);
   const copyPrompts = copyChunks(pairs).length;
@@ -229,7 +252,7 @@ export function CombinePanel({
         </div>
       </div>
 
-      {multi.length > 0 && (
+      {(multi.length > 0 || clipNotes.length > 0) && (
         <div className="rounded-xl border border-line bg-white p-4 text-sm">
           <p className="font-semibold">Voces de esta tanda</p>
           <p className="mt-1 text-xs text-muted">Cada voz entra como un anuncio más. Una pieza con una sola voz no cambia su id.</p>
@@ -238,39 +261,68 @@ export function CombinePanel({
               const voices = state.media[p.id]?.voices ?? [];
               const selected = selectedOf(p.id);
               const all = voices.map((v) => v.id);
+              const open = openOf(p.id);
+              const fresh = newVoiceIds(all, voiceChoice[p.id]);
               return (
                 <li key={p.id} className="rounded border border-line px-2 py-1.5">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-xs">{p.id}</span>
                     <span className="text-xs text-muted">{p.text.slice(0, 70)}</span>
-                    <button type="button" className="text-xs underline" onClick={() => setChosen({ ...chosen, [p.id]: all })}>
+                    <button type="button" className="text-xs underline" onClick={() => writeChoice(p.id, open, all)}>
                       Todas
                     </button>
-                    <button type="button" className="text-xs underline" onClick={() => setChosen({ ...chosen, [p.id]: [] })}>
+                    <button type="button" className="text-xs underline" onClick={() => writeChoice(p.id, [], all)}>
                       Ninguna
                     </button>
                   </div>
                   <div className="mt-1 flex flex-wrap gap-2">
-                    {voices.map((v) => (
-                      <label key={v.id} className="flex items-center gap-1 text-xs">
-                        <input
-                          type="checkbox"
-                          checked={selected.includes(v.id)}
-                          onChange={() => {
-                            const cur = selectedOf(p.id);
-                            const next = cur.includes(v.id) ? cur.filter((id) => id !== v.id) : [...cur, v.id];
-                            setChosen({ ...chosen, [p.id]: next });
-                          }}
-                        />
-                        {v.name} ({formatSeconds(v.seconds)} s)
-                      </label>
-                    ))}
+                    {voices.map((v) => {
+                      const blocked = Boolean(voiceCutBlock(v, p.seconds));
+                      const isNew = !blocked && fresh.includes(v.id);
+                      return (
+                        <span key={v.id} className={`flex items-center gap-1 text-xs ${blocked ? "text-muted" : ""}`}>
+                          <label className="flex items-center gap-1">
+                            <input
+                              type="checkbox"
+                              disabled={blocked}
+                              checked={!blocked && selected.includes(v.id)}
+                              onChange={() => {
+                                const cur = selectedOf(p.id);
+                                const next = cur.includes(v.id) ? cur.filter((id) => id !== v.id) : [...cur, v.id];
+                                const known = [...new Set([...(voiceChoice[p.id]?.known ?? []), ...all])];
+                                writeChoice(p.id, next, known);
+                              }}
+                            />
+                            {v.name} ({formatSeconds(v.seconds)} s)
+                          </label>
+                          {isNew && <span className="rounded bg-good-soft px-1 text-[10px] font-semibold text-good">Nueva</span>}
+                          {isNew && (
+                            <button
+                              type="button"
+                              className="underline"
+                              onClick={() => {
+                                const known = [...new Set([...(voiceChoice[p.id]?.known ?? []), v.id])];
+                                writeChoice(p.id, [...selectedOf(p.id), v.id], known);
+                              }}
+                            >
+                              Sumarla
+                            </button>
+                          )}
+                          {blocked && <span>No entra: aceptá el corte en la tarjeta.</span>}
+                        </span>
+                      );
+                    })}
                   </div>
                   {selected.length === 0 && <p className="mt-1 text-xs text-neg">Sin voces elegidas: esta pieza no entra en ningún anuncio.</p>}
                 </li>
               );
             })}
           </ul>
+          {clipNotes.map((p) => (
+            <p key={p.id} className="mt-2 text-xs text-muted">
+              {p.id} la dice el clip: no multiplica.
+            </p>
+          ))}
         </div>
       )}
 
@@ -417,7 +469,7 @@ export function CombinePanel({
           </ul>
         )}
         <p className="mt-2 text-xs text-muted">
-          El CSV trae id, archivo, nivel, público (fría / retargeting), hook, meat, CTA, texto principal, titular, botón, tipo, formato, voz_hook, voz_meat y voz_cta (el nombre de cada voz, para cruzar el tono que ganó con las métricas). Las versiones estáticas de los hooks de la tanda («Estáticos») van al final, como imagen, con su archivo en estaticos/. Si exportás estáticos después, volvé a descargar el CSV. Al subir el reporte de la plataforma con esos nombres, las métricas vuelven a cada pieza solas.
+          El CSV trae id, archivo, nivel, público (fría / retargeting), hook, meat, CTA, texto principal, titular, botón, tipo, formato, voz_hook, voz_meat y voz_cta (el nombre de cada voz, para cruzar el tono que ganó con las métricas). El id nombra la voz por su lugar (v1, v2): si después borrás v1, H3v1 sigue siendo esa voz y no pasa a la que quedó. Los números no se reusan. Las versiones estáticas de los hooks de la tanda («Estáticos») van al final, como imagen, con su archivo en estaticos/. Si exportás estáticos después, volvé a descargar el CSV. Al subir el reporte de la plataforma con esos nombres, las métricas vuelven a cada pieza solas.
         </p>
       </div>
     </section>
@@ -426,8 +478,11 @@ export function CombinePanel({
 
 // "Probar un anuncio": pick a hook, a meat and a CTA and watch the ad cut from their pieces before a batch.
 function voiceChoices(state: AdsState, id: string) {
+  const piece = [...state.hooks, ...state.meats, ...state.ctas].find((p) => p.id === id);
+  if (piece?.speaker?.sound === "clip") return [];
   const voices = state.media[id]?.voices ?? [];
-  return voices.length > 1 ? voices : [];
+  if (voices.length <= 1 || !piece) return [];
+  return voices.filter((v) => !voiceCutBlock(v, piece.seconds));
 }
 
 function TryAd({ state, rules, busy, onPreview }: { state: AdsState; rules: CombineRules; busy: string | null; onPreview: Props["onPreview"] }) {
