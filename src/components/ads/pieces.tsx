@@ -15,13 +15,15 @@ import {
   type Piece,
   type PieceStatus,
 } from "../../../shared/ads.ts";
+import { continuityNote, grokSequence, sequencePromptText, sequencePromptsFromPiece } from "../../../shared/adsSequence.ts";
+import { unverified } from "../../../shared/adsSpeaker.ts";
 import { buildCopyPrompt } from "../../../shared/prompt.ts";
 import type { Brief } from "../../../shared/schema.ts";
 import { CopyButton } from "../ScriptView.tsx";
 import { Button, Spinner, inputClass } from "../ui.tsx";
 
-export type ClipFile = { url: string; blob: Blob; name: string; duration: number };
-export type PieceMediaState = { image?: string; clip?: ClipFile; voice?: ClipFile; loading?: boolean; voiceLoading?: boolean; error?: string };
+export type ClipFile = { url: string; blob: Blob; name: string; duration: number; from?: number };
+export type PieceMediaState = { image?: string; clip?: ClipFile; clips?: (ClipFile | null)[]; voice?: ClipFile; loading?: boolean; voiceLoading?: boolean; error?: string };
 
 // A voice starts 0.15 s into its piece (render.ts) and is cut at the piece's end.
 export const VOICE_START = 0.15;
@@ -127,6 +129,11 @@ type CardProps = {
   onRemove: () => void;
   onUploadImage: (file: File) => void;
   onUploadClip: (file: File) => void;
+  // One file per Grok clip when the piece is longer than 15 s.
+  onUploadClipAt?: (index: number, file: File) => void;
+  onRemoveClipAt?: (index: number) => void;
+  // The series look, already a phrase, so a sequence prompt stays in the same light.
+  look?: string;
   onGenerateImage: () => void;
   onRemoveMedia: (kind: "image" | "clip" | "voice") => void;
   onUploadVoice: (file: File) => void;
@@ -138,7 +145,7 @@ type CardProps = {
   flags?: { kind: string; note: string; fix: string }[];
   // The clip came from an explainer of this series ("Usar en Publicidad"): its title and in point.
   explainer?: { title: string; from: number };
-  // "Hacelo como explicativo": a meat or CTA with no clip opens a new explainer with its text. Missing for hooks.
+  // "Hacelo como explicativo": a hook, meat or CTA with no clip opens a new explainer with its text.
   onMakeExplainer?: () => void;
   // "Que lo diga un personaje" (SpeakerPanel), shown under the clip buttons in Producción.
   speakerPanel?: ReactNode;
@@ -155,6 +162,9 @@ export function PieceCard({
   onRemove,
   onUploadImage,
   onUploadClip,
+  onUploadClipAt,
+  onRemoveClipAt,
+  look,
   onGenerateImage,
   onRemoveMedia,
   onUploadVoice,
@@ -171,7 +181,12 @@ export function PieceCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ text: piece.text, onScreenText: piece.onScreenText, visualPrompt: piece.visualPrompt, videoPrompt: piece.videoPrompt });
   const [saving, setSaving] = useState(false);
-  const clipSeconds = clipSecondsFor(piece.seconds);
+  const slots = explainer ? [] : grokSequence(piece.seconds);
+  const sequence = slots.length > 1;
+  const clipSeconds = sequence ? slots[0].length : clipSecondsFor(piece.seconds);
+  const sequenceText = sequence
+    ? sequencePromptText(sequencePromptsFromPiece({ text: piece.text, seconds: piece.seconds, visualPrompt: piece.visualPrompt, videoPrompt: piece.videoPrompt, look }))
+    : "";
   const dim = piece.status === "rejected" ? "opacity-60" : "";
 
   async function save() {
@@ -268,8 +283,17 @@ export function PieceCard({
             {explainer.from > 0 ? ` desde ${explainer.from.toFixed(1)} s` : ""}
           </Tag>
         )}
-        {onMakeExplainer && !media?.clip && piece.kind !== "hook" && (
-          <Button variant="ghost" className="px-2 py-1 text-xs" title="Abre un explicativo nuevo de esta serie con el texto de la pieza; después se usa acá con «Usar en Publicidad»" onClick={onMakeExplainer}>
+        {onMakeExplainer && !media?.clip && !media?.clips?.some(Boolean) && (
+          <Button
+            variant="ghost"
+            className="px-2 py-1 text-xs"
+            title={
+              piece.kind === "hook"
+                ? "Abre un explicativo con el gancho en texto cinético. Si la escena es más larga que la pieza, el anuncio usa los primeros segundos."
+                : "Abre un explicativo nuevo de esta serie con el texto de la pieza; después se usa acá con «Usar en Publicidad»"
+            }
+            onClick={onMakeExplainer}
+          >
             Hacelo como explicativo
           </Button>
         )}
@@ -293,11 +317,26 @@ export function PieceCard({
         <div className="mt-3 grid gap-3 border-t border-line pt-3 md:grid-cols-[minmax(0,1fr)_200px]">
           <div className="space-y-2 text-xs">
             <p className="text-muted">
-              En {toolName}: imagen con el prompt, después animala con el de video a <b>{clipSeconds} s</b> ({format === "vertical" ? "9:16" : "16:9"}). La pieza dura {piece.seconds} s en el anuncio; el render corta el clip.
+              {sequence ? (
+                <>
+                  Esta pieza dura <b>{piece.seconds} s</b> y Grok arma clips de 6, 10 o 15 s. Son {slots.length} clips ({slots.map((s) => `${s.length} s`).join(" + ")}), el mismo lugar y los mismos @ref, cada uno siguiendo al anterior. El anuncio usa{" "}
+                  {slots.map((s) => (s.play < s.length ? `${s.play} s del de ${s.length}` : `${s.play} s`)).join(", ")}. En {toolName}: primero la imagen con el prompt, después animala ({format === "vertical" ? "9:16" : "16:9"}).
+                </>
+              ) : (
+                <>
+                  En {toolName}: imagen con el prompt, después animala con el de video a <b>{clipSeconds} s</b> ({format === "vertical" ? "9:16" : "16:9"}). La pieza dura {piece.seconds} s en el anuncio; el render corta el clip.
+                </>
+              )}
             </p>
             <div className="flex flex-wrap gap-2">
               <CopyButton text={buildCopyPrompt(piece.visualPrompt, format)} idle="Copiar prompt de imagen" />
               <CopyButton text={piece.videoPrompt} idle="Copiar prompt de video" variant="secondary" />
+              {sequence &&
+                (unverified(piece.text) ? (
+                  <p className="text-neg">El texto tiene un [VERIFY]: confirmalo o cambialo antes de copiar los prompts.</p>
+                ) : (
+                  <CopyButton text={sequenceText} idle="Copiar todos los prompts" />
+                ))}
               {canGenerate && (
                 <Button variant="secondary" className="px-2 py-1 text-xs" onClick={onGenerateImage} disabled={media?.loading || !piece.visualPrompt}>
                   {media?.loading ? <Spinner /> : "Generar imagen"}
@@ -311,21 +350,53 @@ export function PieceCard({
                 Subir imagen
                 <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && onUploadImage(e.target.files[0])} />
               </label>
-              <label className="cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-semibold hover:border-ink">
-                Subir clip
-                <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && onUploadClip(e.target.files[0])} />
-              </label>
+              {!sequence && (
+                <label className="cursor-pointer rounded-lg border border-line bg-white px-2 py-1 font-semibold hover:border-ink">
+                  Subir clip
+                  <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && onUploadClip(e.target.files[0])} />
+                </label>
+              )}
               {media?.image && (
                 <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onRemoveMedia("image")}>
                   Quitar imagen
                 </Button>
               )}
-              {media?.clip && (
+              {media?.clip && !sequence && (
                 <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onRemoveMedia("clip")}>
                   Quitar clip
                 </Button>
               )}
             </div>
+            {sequence && (
+              <ol className="space-y-1.5">
+                {slots.map((slot, i) => {
+                  const file = media?.clips?.[i];
+                  return (
+                    <li key={i} className="flex flex-wrap items-center gap-2 rounded border border-line px-2 py-1">
+                      <span className="font-semibold">
+                        Clip {i + 1} de {slots.length}
+                      </span>
+                      <span className="text-muted">
+                        pedí {slot.length} s{slot.play < slot.length ? ` (el anuncio usa los primeros ${slot.play} s)` : ""}
+                      </span>
+                      {i > 0 && <span className="basis-full text-muted">{continuityNote(i)}</span>}
+                      <label className="cursor-pointer rounded border border-line bg-white px-2 py-0.5 font-semibold hover:border-ink">
+                        {file ? "Cambiar" : "Subir"}
+                        <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && onUploadClipAt?.(i, e.target.files[0])} />
+                      </label>
+                      {file && (
+                        <>
+                          <span className="text-muted">{file.name}</span>
+                          <button type="button" className="text-muted underline" onClick={() => onRemoveClipAt?.(i)}>
+                            Quitar
+                          </button>
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
             {speakerPanel}
             <div className="space-y-1.5 border-t border-line pt-2">
               <p className="font-semibold text-ink">Voz</p>
@@ -358,6 +429,8 @@ export function PieceCard({
           <div className={`overflow-hidden rounded-lg border border-line bg-black ${format === "vertical" ? "aspect-[9/16]" : "aspect-video"}`}>
             {media?.clip ? (
               <video src={media.clip.url} className="size-full object-contain" controls muted />
+            ) : media?.clips?.find((c) => c) ? (
+              <video src={media.clips.find((c) => c)!.url} className="size-full object-contain" controls muted />
             ) : media?.image ? (
               <img src={media.image} alt="" className="size-full object-contain" />
             ) : (

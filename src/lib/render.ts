@@ -21,6 +21,7 @@ import {
 import type { Board, Brief, Role } from "../../shared/schema.ts";
 import { isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import { storyTextLayout } from "../../shared/storyText.ts";
+import { pieceLoudnessStarts, shotUnderVoice } from "../../shared/adsSequence.ts";
 import { PIECE_MAX_BOOST_DB, normalizeLoudness, normalizeSegments } from "./motionAudio.ts";
 import type { TextStyle } from "../../shared/series.ts";
 import { ensureFont } from "./fonts.ts";
@@ -63,7 +64,17 @@ const BEAT_COLORS = {
 
 // clipFrom: where the shot starts playing its clip (seconds; Publicidad's in point). finished: the clip is a finished
 // video (an explainer) with its own words, subtitles and notice, so nothing is drawn on top of it.
-export type ShotMedia = { image?: string; clip?: Blob; voice?: Blob; sfx?: Blob; clipFrom?: number; finished?: boolean };
+export type ShotMedia = {
+  image?: string;
+  clip?: Blob;
+  voice?: Blob;
+  sfx?: Blob;
+  clipFrom?: number;
+  finished?: boolean;
+  // How many seconds this voice covers from 0.15 s into the shot. Missing: it stops at the shot's end (a story line,
+  // one ad piece). A sequence of clips sets it on the first shot so one voice file plays across all of them.
+  voiceFor?: number;
+};
 
 export type Speaker = { name: string; role: Role };
 
@@ -98,6 +109,11 @@ export type RenderOptions = {
   alwaysAudio?: boolean;
   // Bring the mix to this integrated loudness (LUFS), so pieces cut together sit at one level (Publicidad).
   loudness?: number;
+  // Cut into shot i is a hard cut. Missing or false: the usual 0.35 s crossfade. A Grok sequence hard-cuts between
+  // its own clips and leaves the fade between a hook, a meat and a CTA.
+  hardCuts?: boolean[];
+  // Several shots are one piece (a long meat): one loudness for the whole mix. Missing: each shot is levelled on its own.
+  oneLoudness?: boolean;
 };
 
 export type RenderResult = { blob: Blob; extension: string; mimeType: string; notes: string[] };
@@ -456,14 +472,19 @@ async function mixSound(
 ): Promise<AudioBuffer | null> {
   const ctx = new OfflineAudioContext(2, Math.ceil(SAMPLE_RATE * total), SAMPLE_RATE);
   let any = Boolean(options.alwaysAudio);
+  // A voice covers every shot it overlaps, not only the shot that carries the file. A sequence puts the voice on
+  // the first clip and voiceFor runs across the rest; those clips duck too. A decode that fails does not duck.
+  const voiceSpans: { start: number; end: number }[] = [];
   for (const shot of shots) {
     const m = media[shot.index] ?? {};
-    // A voice laid on top lowers the clip's own sound while it plays.
     const voice = m.voice ? await decodeAudio(ctx, m.voice) : null;
     if (voice) {
       const gain = ctx.createGain();
       gain.connect(ctx.destination);
-      place(ctx, voice, shot.start + 0.15, shot.end, gain);
+      const start = shot.start + 0.15;
+      const until = m.voiceFor != null ? shot.start + 0.15 + m.voiceFor : shot.end;
+      place(ctx, voice, start, until, gain);
+      voiceSpans.push({ start, end: until });
       any = true;
     }
     const sfx = m.sfx ? await decodeAudio(ctx, m.sfx) : null;
@@ -474,13 +495,16 @@ async function mixSound(
       place(ctx, sfx, shot.start, shot.end, gain);
       any = true;
     }
+  }
+  for (const shot of shots) {
+    const m = media[shot.index] ?? {};
     const clipGain = options.clipGain?.[shot.index] ?? 1;
     if (!options.keepSound || !m.clip || clipGain <= 0) continue;
     const input = new Input({ source: new BlobSource(m.clip), formats: ALL_FORMATS });
     try {
       const track = await input.getPrimaryAudioTrack();
       if (!track || !(await track.canDecode())) continue;
-      const level = (voice ? 0.3 : 1) * clipGain;
+      const level = (shotUnderVoice(shot.start, shot.end, voiceSpans) ? 0.3 : 1) * clipGain;
       const gain = ctx.createGain();
       gain.connect(ctx.destination);
       gain.gain.setValueAtTime(0, shot.start);
@@ -550,9 +574,11 @@ export async function renderVideo(
   const hasAudio = shots.some((s) => media[s.index]?.voice || media[s.index]?.sfx || (options.keepSound && media[s.index]?.clip));
   if (hasAudio || music || options.alwaysAudio) {
     sound = await mixSound(shots, media, total, options, music);
-    // Publicidad: each shot (a piece) on its own when several are cut together, so the cuts never jump in level.
+    // One level per piece. A long meat's clips share it (hardCuts marks those internal cuts). A story has no
+    // hardCuts, so every shot stays its own piece. oneLoudness levels the whole buffer once.
     if (sound && options.loudness !== undefined) {
-      if (shots.length > 1) await normalizeSegments(sound, shots.map((s) => s.start), options.loudness, PIECE_MAX_BOOST_DB);
+      const starts = pieceLoudnessStarts(shots.map((s) => s.start), options.hardCuts);
+      if (!options.oneLoudness && starts.length > 1) await normalizeSegments(sound, starts, options.loudness, PIECE_MAX_BOOST_DB);
       else await normalizeLoudness(sound, options.loudness, PIECE_MAX_BOOST_DB);
     }
     if (!sound) notes.push("Los clips no traían sonido que este navegador pueda leer.");
@@ -622,7 +648,7 @@ export async function renderVideo(
       }
 
       ctx.globalAlpha = 1;
-      if (i > 0 && t - shot.start < FADE) {
+      if (i > 0 && !options.hardCuts?.[i] && t - shot.start < FADE) {
         ctx.drawImage(layers[i - 1].canvas, 0, 0);
         ctx.globalAlpha = (t - shot.start) / FADE;
       }

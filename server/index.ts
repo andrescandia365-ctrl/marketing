@@ -586,8 +586,8 @@ app.get("/api/room", async (c) => {
 });
 
 app.post("/api/projects", async (c) => {
-  const { series } = z.object({ series: z.string() }).parse(await c.req.json());
-  const project = await createProject(series);
+  const { series, slug } = z.object({ series: z.string(), slug: z.string().max(40).optional() }).parse(await c.req.json());
+  const project = await createProject(series, slug);
   return c.json({ id: project.id });
 });
 
@@ -705,7 +705,7 @@ app.post("/api/voice", async (c) => {
 app.post("/api/motion", async (c) => {
   const body = await c.req.json();
   const { brief, target, layers } = z
-    .object({ brief: BriefSchema, target: z.number().int().min(10).max(120).nullable(), layers: z.number().int().min(0).max(12).default(0) })
+    .object({ brief: BriefSchema, target: z.number().int().min(2).max(120).nullable(), layers: z.number().int().min(0).max(12).default(0) })
     .parse(body);
   const { handoff } = z.object({ handoff: HandoffField }).parse(body);
   return c.json(await viaWriter(handoff, () => motionTask(brief, target, layers), () => ({ script: demoMotion(brief, target) }), (script) => ({ script })));

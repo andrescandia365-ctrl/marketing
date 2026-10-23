@@ -113,6 +113,7 @@ import { MotionSettings } from "./MotionSettings.tsx";
 import { MotionOutputs } from "./MotionOutputs.tsx";
 import { ReviewHandoff } from "./ReviewHandoff.tsx";
 import { ExplainerToAds } from "./ExplainerToAds.tsx";
+import { seedPieceId } from "../../shared/adsFromExplainer.ts";
 import { MotionSceneList } from "./MotionSceneList.tsx";
 import { MotionScriptBar } from "./MotionScriptBar.tsx";
 import { MotionToggles } from "./MotionToggles.tsx";
@@ -566,7 +567,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     if (!script) return;
     const k = piece.target / scriptDuration(script);
     remember(`fit-${Date.now()}`);
-    setScript({ ...script, scenes: script.scenes.map((s) => ({ ...s, seconds: Math.max(2, Math.round(s.seconds * k * 2) / 2) })) });
+    setScript({ ...script, scenes: script.scenes.map((s) => ({ ...s, seconds: Math.min(SCENE_SECONDS.max, Math.max(SCENE_SECONDS.min, Math.round(s.seconds * k * 2) / 2)) })) });
   }
 
   function updateScene(id: string, patch: Partial<MotionScene>) {
@@ -1321,6 +1322,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               format={piece.format}
               spans={timeScenes(scenes).map((x) => ({ start: x.start, end: x.end, voice: x.voice }))}
               version={`${finalJob?.done ? finalJob.id : ""}-${results.length}`}
+              preferId={seedPieceId(brief.notes)}
             />
           </div>
         </div>

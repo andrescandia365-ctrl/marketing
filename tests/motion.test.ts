@@ -6,6 +6,7 @@ import {
   VOICE_TAIL,
   blankScene,
   elementTimes,
+  kineticLeave,
   posterTime,
   quietGaps,
   readingIssues,
@@ -78,6 +79,19 @@ test("what enters during the push between scenes arrives with the cut", () => {
   const s2: MotionScene = { ...blankScene("hook"), seconds: 4.3, title: "Listo", asset: "x" };
   assert.equal(quietGaps([s1, s2], 0).length, 0);
   assert.equal(quietGaps([s1, s2], 0.38).length, 1);
+});
+
+test("a kinetic hook's fall counts as something new on screen", () => {
+  const still: MotionScene = { ...blankScene("hook"), seconds: 4.4, title: "Hola" };
+  const falling: MotionScene = { ...still, kineticExit: true };
+  const leave = kineticLeave("Hola", 4.4);
+  assert.ok(leave != null && Math.abs(leave - 3.85) < 1e-9);
+  const times = revealTimes(falling, 0);
+  assert.equal(times[0], 0);
+  assert.ok(times[1] != null && Math.abs(times[1] - 3.85) < 1e-9);
+  assert.equal(quietGaps([falling], 0).length, 0);
+  assert.deepEqual(revealTimes(still, 0), [0]);
+  assert.equal(quietGaps([still], 0).length, 1);
 });
 
 test("a line that does not stay long enough to read is flagged", () => {

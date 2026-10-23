@@ -11,6 +11,8 @@ export function lookPhrase(look?: SeriesLook): string {
 
 // With no series look, an honest photo with its flaws, never the polished "cinematic" kind (polishWords).
 export const PLAIN_PHOTO = "Ordinary unretouched photograph from a real camera, natural light, slight noise, real skin and surfaces";
+// The same for a clip. Lives here so the ad sequence and the speaker prompt share it without importing each other.
+export const PLAIN_VIDEO = "Ordinary unretouched phone video, natural light, slight noise, real skin";
 
 // The full text sent to an image generator API for a single shot. The series look leads the closing words; without
 // one, the plain photo line does.

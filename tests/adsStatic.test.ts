@@ -2,7 +2,7 @@
 // variants, the checks and the campaign CSV rows next to the videos.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AdsStateSchema, BUDGETS, CSV_HEAD, ctasFromWire, emptyAds, hooksFromWire, parseCsv, type Batch, type HookStatic } from "../shared/ads.ts";
+import { AdsStateSchema, CSV_HEAD, ctasFromWire, defaultSplit, emptyAds, hooksFromWire, parseCsv, type Batch, type HookStatic } from "../shared/ads.ts";
 import {
   allStaticPrompts,
   campaignCsv,
@@ -45,7 +45,7 @@ function state() {
         ],
         note: "",
       },
-      BUDGETS[15].hook,
+      defaultSplit(15).hook,
       "ai",
       "approved",
     ),

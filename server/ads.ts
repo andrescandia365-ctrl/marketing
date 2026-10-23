@@ -138,16 +138,22 @@ export async function saveClipFile(series: string, id: string, data: Buffer, typ
   return `clips/${name}`;
 }
 
-// A piece's own clip, image or voice.
-export async function savePieceMedia(series: string, pieceId: string, kind: "image" | "clip" | "voice", data: Buffer, type: string): Promise<string> {
+// A piece's own clip, image or voice. `index` is one slot of a long meat (H3-seq-0.mp4): it does not share the
+// single-clip name, so replacing the one clip never deletes the sequence.
+export async function savePieceMedia(series: string, pieceId: string, kind: "image" | "clip" | "voice", data: Buffer, type: string, index?: number): Promise<string> {
   if (!PIECE.test(pieceId)) throw new AdsError("Esa pieza no existe.");
   const table = kind === "image" ? IMAGE : kind === "clip" ? VIDEO : AUDIO;
-  const name = `${pieceId}-${kind}.${ext(type, table, kind === "image" ? "una imagen" : kind === "clip" ? "un video" : "un audio")}`;
+  const slot = kind === "clip" && index !== undefined;
+  if (slot && (!Number.isInteger(index) || index < 0 || index > 23)) throw new AdsError("Ese clip de la secuencia no existe.");
+  const name = slot
+    ? `${pieceId}-seq-${index}.${ext(type, table, "un video")}`
+    : `${pieceId}-${kind}.${ext(type, table, kind === "image" ? "una imagen" : kind === "clip" ? "un video" : "un audio")}`;
   const dir = join(folder(series), "media");
   await mkdir(dir, { recursive: true });
-  // One file per piece and kind: an older one with another extension goes.
+  const prefix = slot ? `${pieceId}-seq-${index}.` : `${pieceId}-${kind}.`;
+  // One file per slot: an older one with another extension goes.
   for (const old of await readdir(dir).catch(() => [])) {
-    if (old.startsWith(`${pieceId}-${kind}.`) && old !== name) await rm(join(dir, old), { force: true });
+    if (old.startsWith(prefix) && old !== name) await rm(join(dir, old), { force: true });
   }
   await writeFile(join(dir, name), data);
   return `media/${name}`;

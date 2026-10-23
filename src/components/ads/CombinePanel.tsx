@@ -13,8 +13,8 @@ import {
   renderedPieces,
   varyHook,
   type AdCombo,
-  type AdSeconds,
   type AdsState,
+  type Budget,
   type CombineRules,
   type ReviewFlag,
 } from "../../../shared/ads.ts";
@@ -31,7 +31,8 @@ export type RenderProgress = { stage: "pieces" | "ads" | "csv" | "voices"; done:
 type Props = {
   series: string;
   state: AdsState;
-  seconds: AdSeconds;
+  seconds: number;
+  split: Budget | null;
   folder: string;
   busy: string | null;
   flags: ReviewFlag[] | null;
@@ -62,6 +63,7 @@ export function CombinePanel({
   series,
   state,
   seconds,
+  split,
   folder,
   busy,
   flags,
@@ -86,14 +88,20 @@ export function CombinePanel({
   const approved = { hooks: state.hooks.filter((p) => p.status === "approved"), meats: state.meats.filter((p) => p.status === "approved"), ctas: state.ctas.filter((p) => p.status === "approved") };
   const stats = useMemo(() => pieceStats(state.metrics), [state.metrics]);
 
+  const length = useMemo(() => ({ seconds, split }), [seconds, split]);
   const ads = useMemo(() => {
-    if (mode === "full") return combine(state.hooks, state.meats, state.ctas, rules);
+    if (mode === "full") return combine(state.hooks, state.meats, state.ctas, rules, length);
     const meat = state.meats.find((m) => m.id === winner.meatId);
     const cta = state.ctas.find((c) => c.id === winner.ctaId);
-    return meat && cta ? varyHook(meat, cta, state.hooks, rules) : [];
-  }, [mode, rules, winner, state.hooks, state.meats, state.ctas]);
+    return meat && cta ? varyHook(meat, cta, state.hooks, rules, length) : [];
+  }, [mode, rules, winner, state.hooks, state.meats, state.ctas, length]);
   const theoretical = approved.hooks.length * approved.meats.length * approved.ctas.length;
-  const est = estimate(ads, renderedPieces(state.renders), seconds);
+  const pieceSeconds = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const p of [...state.hooks, ...state.meats, ...state.ctas]) map[p.id] = p.seconds;
+    return map;
+  }, [state]);
+  const est = estimate(ads, renderedPieces(state.renders), pieceSeconds);
   const week = adsThisWeek(state.batches);
   const overLimit = week + ads.length > state.weeklyLimit;
   const policy = (flags ?? []).filter((f) => f.kind === "policy");
@@ -185,7 +193,7 @@ export function CombinePanel({
                 : "Créditos de IA: 1 pedido por cada 50 pares hook + CTA para los textos de la plataforma. Combinar es código puro."}
             </li>
             <li>
-              Esta semana: {week} anuncios de {state.weeklyLimit}.{" "}
+              Esta semana: {week} anuncios de {state.weeklyLimit}. El límite cuenta anuncios, sea de 6 s o de 2 minutos.{" "}
               <button
                 type="button"
                 className="underline"

@@ -2,20 +2,27 @@
 // piece's budget, the words said in the chosen stretch, and the way back ("Hacelo como explicativo").
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AdsMediaSchema, BUDGETS, emptyAds, type Cta, type Meat } from "../shared/ads.ts";
+import { AdsMediaSchema, defaultSplit, emptyAds, type Cta, type Meat } from "../shared/ads.ts";
 import {
+  MOTION_BATCH_MAX,
   explainerPiece,
   explainerTargets,
   explainerVideos,
   fitClip,
+  meatScenePlan,
   pickExplainerVideo,
   pieceSecondsFor,
+  problemOf,
+  projectForPiece,
   seedNotes,
+  seedPieceId,
   sentencesOf,
+  splitSpoken,
   starterPiece,
   starterScript,
   titleOf,
   voiceInRange,
+  withSeedNotes,
 } from "../shared/adsFromExplainer.ts";
 
 const meat = (id: string, status: Meat["status"], seconds = 9): Meat => ({
@@ -69,9 +76,12 @@ test("targets are the approved meats or CTAs, the ones still without a clip firs
 });
 
 test("a new piece takes its share of the ad's budget", () => {
-  assert.equal(pieceSecondsFor("meat", 15), BUDGETS[15].meat);
-  assert.equal(pieceSecondsFor("cta", 6), BUDGETS[6].cta);
-  assert.equal(pieceSecondsFor("meat", 7), BUDGETS[15].meat, "an unknown ad length falls back to 15 s");
+  assert.equal(pieceSecondsFor("meat", 15), defaultSplit(15).meat);
+  // A 6 s ad is 2 + 2 + 2. Newly written pieces use that; older pieces keep the seconds they were saved with.
+  assert.equal(pieceSecondsFor("cta", 6), 2);
+  assert.equal(pieceSecondsFor("meat", 6), 2);
+  assert.equal(pieceSecondsFor("meat", 7), defaultSplit(7).meat, "7 s is a real ad length");
+  assert.equal(pieceSecondsFor("meat", 5), defaultSplit(15).meat, "a length outside 6 to 120 s is a 15 s ad");
 });
 
 test("the length budget: whole, cut from an in point that never runs past the end, or short (last frame holds)", () => {
@@ -152,4 +162,58 @@ test("the way back: the piece's text becomes the brief's note and a starting scr
   const piece = starterPiece(seed, "vertical", "warm");
   assert.equal(piece.format, "vertical");
   assert.equal(piece.script?.scenes.length, 3);
+  assert.equal(piece.script?.problem, seed.text);
+});
+
+test("a long meat's scenes add up to its seconds and do not cut a sentence", () => {
+  assert.deepEqual(splitSpoken("Aaa bbb. Ccc ddd.", 2), ["Aaa bbb.", "Ccc ddd."]);
+  const spoken = (n: number) => Array.from({ length: n }, (_, i) => (i % 8 === 7 ? `w${i}.` : `w${i}`)).join(" ");
+  for (const target of [30, 60, 113]) {
+    const plan = meatScenePlan(spoken(Math.ceil(target * 2.7)), target);
+    const sum = plan.reduce((n, s) => n + s.seconds, 0);
+    assert.ok(Math.abs(sum - target) <= 1, `${target} s summed ${sum}`);
+    assert.ok(plan.every((s) => s.seconds === 2 || s.seconds === 2.5));
+    assert.equal(plan.map((s) => s.voice).join(" "), spoken(Math.ceil(target * 2.7)));
+  }
+});
+
+test("the script's problem is the piece's text, and a later seed line replaces the earlier one", () => {
+  assert.equal(problemOf("  hola   mundo "), "hola mundo");
+  assert.equal(problemOf("   "), "Sin texto todavía");
+  const long = `${"a".repeat(170)} ${"b".repeat(100)}`;
+  assert.ok(problemOf(long).endsWith("…"));
+  assert.ok(problemOf(long).length <= 241);
+  const seed = { id: "M9", kind: "meat" as const, text: "El pedido se arma solo.", onScreenText: "", seconds: 50 };
+  const next = withSeedNotes("Nota vieja.\nDesde Publicidad (M1, cuerpo (meat), 9 s en el anuncio): «viejo»\nOtra nota.", seed);
+  assert.equal(seedPieceId(next), "M9");
+  assert.doesNotMatch(next, /\(M1,/);
+  assert.match(next, /Nota vieja/);
+  assert.match(next, /Otra nota/);
+  assert.equal(MOTION_BATCH_MAX, 20);
+  const projects = [
+    { id: "20261023-iman-m1", series: "iman" },
+    { id: "20261023-iman-m9", series: "iman" },
+    { id: "20261023-iman-m9-2", series: "iman" },
+    { id: "20261023-iman-m9", series: "otra" },
+    { id: "20261023-otra-m9", series: "otra" },
+    { id: "titulo-con-m9", series: "iman" },
+  ];
+  assert.equal(projectForPiece(projects, "iman", "M9")?.id, "20261023-iman-m9-2");
+  assert.equal(projectForPiece(projects, "iman", "M1")?.id, "20261023-iman-m1");
+  assert.equal(projectForPiece(projects, "otra", "M9")?.id, "20261023-otra-m9");
+  assert.equal(projectForPiece(projects, "iman", ""), null);
+});
+
+test("a kinetic hook also fits its voice, and a share longer than the scene does not fall", () => {
+  const voice = Array.from({ length: 12 }, () => "palabra").join(" ");
+  const grown = starterScript({ id: "H2", kind: "hook", text: voice, onScreenText: "Hola", seconds: 3 });
+  assert.equal(grown.scenes[0].seconds, 6.5);
+  assert.ok(grown.scenes[0].seconds >= 5.85);
+  assert.equal(grown.scenes[0].kineticExit, true);
+  assert.equal(grown.problem, voice);
+  const longTitle = Array.from({ length: 20 }, () => "palabra").join(" ");
+  const held = starterScript({ id: "H9", kind: "hook", text: "Hola.", onScreenText: longTitle, seconds: 15 });
+  assert.equal(held.scenes[0].seconds, 8);
+  assert.equal(held.scenes[0].kineticExit, undefined);
+  assert.equal(held.problem, "Hola.");
 });

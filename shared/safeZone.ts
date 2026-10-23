@@ -41,6 +41,17 @@ export function safeBands(box: Rect, w: number, h: number, slack = 2): SafeBand[
   return bands;
 }
 
+// Move `pos` by `delta` and keep the `size` span inside [lo, hi]. A span wider than the room pins to `lo`.
+export function clampDelta(pos: number, size: number, lo: number, hi: number, delta: number): number {
+  const room = hi - lo;
+  if (!(size > 0) || !(room > 0)) return delta;
+  if (size >= room - 1e-6) return lo - pos;
+  const next = pos + delta;
+  if (next < lo) return lo - pos;
+  if (next + size > hi) return hi - (pos + size);
+  return delta;
+}
+
 // How much of the smaller box two boxes share (0 to 1).
 export function overlapShare(a: Rect, b: Rect): number {
   const x = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));

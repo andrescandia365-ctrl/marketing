@@ -15,6 +15,7 @@ import {
   speakerDisclosure,
   speakerDraft,
   speakerFit,
+  sequenceSpeakerPrompts,
   speakerIssues,
   speakerPrompt,
   spokenLine,
@@ -95,6 +96,9 @@ test("the clip fits the words: 6 s for a short line, longer when the line needs 
   assert.equal(speakerFit(long, 9).clip, 15);
   assert.ok(speakerFit(long, 9).tooLong);
   assert.ok(speakerIssues(long, 9).some((i) => i.includes("15 s")));
+  // The same 40 words fit a 50 s meat: it is several clips, not one 15 s file.
+  assert.equal(speakerFit(long, 50).tooLong, false);
+  assert.equal(speakerFit(long, 50).fits, true);
 });
 
 test("the line goes in quotes, whole, on one line, with no quote inside that would close it", () => {
@@ -197,6 +201,19 @@ test("only characters with an approved image can say it; [VERIFY] lines are held
   assert.ok(speakerIssues("Ahorrá 40 % [VERIFY]", 3).some((i) => i.includes("[VERIFY]")));
   assert.ok(speakerIssues("", 3).length > 0);
   assert.deepEqual(speakerIssues("Hola.", 3), []);
+  assert.ok(speakerIssues("hola", 22).some((i) => i.includes("clip 2") && i.includes("no tiene palabras")));
+  const overflow = Array.from({ length: 50 }, () => "palabra").join(" ");
+  assert.ok(speakerIssues(overflow, 16).some((i) => i.includes("clip 2")));
+  const said = sequenceSpeakerPrompts({ text: "uno dos tres cuatro cinco seis siete ocho", pieceSeconds: 22, member: marta, speaker, format: "vertical" });
+  assert.equal(said.length, 2);
+  assert.match(said[0], /starts speaking right away/);
+  assert.match(said[0], /lips in sync/);
+  assert.match(said[1], /keeps speaking from the previous clip/);
+  assert.match(said[1], /does not start the action over/);
+  assert.match(said[1], /does not start it over/);
+  const silent = sequenceSpeakerPrompts({ text: "hola", pieceSeconds: 22, member: marta, speaker, format: "vertical" });
+  assert.match(silent[1], /no speech/);
+  assert.doesNotMatch(silent[1], /lips in sync/);
   assert.equal(speakerDisclosure("clip"), "Personaje y voz hechos con IA");
   assert.equal(speakerDisclosure("voice"), "Personaje hecho con IA");
 });

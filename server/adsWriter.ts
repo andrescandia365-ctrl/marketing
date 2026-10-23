@@ -6,7 +6,6 @@ import { readFileSync } from "node:fs";
 import type { z } from "zod";
 import {
   ANGLES,
-  BUDGETS,
   BUTTONS,
   ClipAnalysisWireSchema,
   CopiesWireSchema,
@@ -18,9 +17,10 @@ import {
   MEAT_FORMATS,
   MeatsWireSchema,
   ReviewWireSchema,
-  isAdSeconds,
+  pieceShare,
   wordsFor,
   type AdSeconds,
+  type Budget,
   type ClipAnalysisWire,
   type CopiesWire,
   type Cta,
@@ -76,12 +76,13 @@ function task<T>(series: string, offer: Offer, tool: string | null, prompt: stri
 }
 
 const levelLines = (levels: Level[]) => levels.map((l) => `${l}. ${LEVEL_INFO[l].label}: ${LEVEL_INFO[l].desc}`).join("\n");
-const budgetOf = (seconds: number) => (isAdSeconds(seconds) ? BUDGETS[seconds] : BUDGETS[15]);
 
 export type HookRequest = {
   levels: Level[];
   count: number;
   seconds: AdSeconds;
+  // The person's split, when they edited it. Missing: the default for that length.
+  split?: Budget;
   winners: string[];
   existing: string[];
   language: "es" | "en";
@@ -95,13 +96,13 @@ const levelQuota = (req: HookRequest) =>
     : `Awareness levels to cover (about ${Math.ceil(req.count / req.levels.length)} hooks each):\n${levelLines(req.levels)}`;
 
 export function hooksTask(series: string, offer: Offer, tool: string, req: HookRequest): WriterTask<HooksWire, HooksWire> {
-  const budget = budgetOf(req.seconds);
-  const words = wordsFor(budget.hook);
+  const seconds = pieceShare(req.seconds, "hook", req.split);
+  const words = wordsFor(seconds);
   return task(
     series,
     offer,
     tool,
-    `Write ${req.count} hooks for ${req.seconds}-second ads. Each hook lasts ${budget.hook} s: at most ${words} spoken words (about 2.7 words per second), in ${req.language === "es" ? "Rioplatense Spanish" : "English"}.
+    `Write ${req.count} hooks for ${req.seconds}-second ads. Each hook lasts ${seconds} s: at most ${words} spoken words (about 2.7 words per second), in ${req.language === "es" ? "Rioplatense Spanish" : "English"}.
 
 ${levelQuota(req)}
 
@@ -121,18 +122,19 @@ export type MeatRequest = {
   formats: MeatFormat[];
   count: number;
   seconds: AdSeconds;
+  split?: Budget;
   hooks: Hook[];
   language: "es" | "en";
 };
 
 export function meatsTask(series: string, offer: Offer, tool: string, req: MeatRequest): WriterTask<MeatsWire, MeatsWire> {
-  const budget = budgetOf(req.seconds);
-  const words = wordsFor(budget.meat);
+  const seconds = pieceShare(req.seconds, "meat", req.split);
+  const words = wordsFor(seconds);
   return task(
     series,
     offer,
     tool,
-    `Write ${req.count} meats for ${req.seconds}-second ads. Each meat lasts ${budget.meat} s: at most ${words} spoken words, in ${req.language === "es" ? "Rioplatense Spanish" : "English"}.
+    `Write ${req.count} meats for ${req.seconds}-second ads. Each meat lasts ${seconds} s: at most ${words} spoken words, in ${req.language === "es" ? "Rioplatense Spanish" : "English"}. A meat longer than 15 seconds is filmed as several clips of the same person in the same place; write it as one continuous piece, from the first idea to the last, with no restart in the middle.
 
 They will follow these approved hooks (any hook of the meat's levels, chosen by code), so open neutral: never refer back to a hook's words, never repeat one.
 ${req.hooks.map((h) => `- [${h.id} · N${h.level}] ${h.text}`).join("\n") || "- (no hooks approved yet: write for the levels below)"}
@@ -149,16 +151,16 @@ Give every meat its onScreenText, visualPrompt and videoPrompt, same presenter a
 }
 export const writeMeats = (series: string, offer: Offer, tool: string, req: MeatRequest): Promise<MeatsWire> => runTask(meatsTask(series, offer, tool, req));
 
-export type CtaRequest = { levels: Level[]; count: number; seconds: AdSeconds; hooks: Hook[]; language: "es" | "en" };
+export type CtaRequest = { levels: Level[]; count: number; seconds: AdSeconds; split?: Budget; hooks: Hook[]; language: "es" | "en" };
 
 export function ctasTask(series: string, offer: Offer, tool: string, req: CtaRequest): WriterTask<CtasWire, CtasWire> {
-  const budget = budgetOf(req.seconds);
-  const words = wordsFor(budget.cta);
+  const seconds = pieceShare(req.seconds, "cta", req.split);
+  const words = wordsFor(seconds);
   return task(
     series,
     offer,
     tool,
-    `Write ${req.count} CTAs for ${req.seconds}-second ads. Each CTA lasts ${budget.cta} s: at most ${words} spoken words, in ${req.language === "es" ? "Rioplatense Spanish" : "English"}.
+    `Write ${req.count} CTAs for ${req.seconds}-second ads. Each CTA lasts ${seconds} s: at most ${words} spoken words, in ${req.language === "es" ? "Rioplatense Spanish" : "English"}.
 
 Each CTA says, in one breath: what to do (the exact action), why it matters (the benefit), when (a real urgency) and how easy it is (only from the landing page facts in the offer). Fill the four fields with the parts and put them together in text.
 
@@ -183,7 +185,7 @@ export function clipTask(series: string, offer: Offer, transcript: string, name:
 
 ${transcript}
 
-Split it into Hook (usually the first 3–5 seconds), Meat and CTA. Label the hook's awareness level (1–5), angle and formula, and the meat's format (${MEAT_FORMATS.join(", ")}). Quote the words as heard. Say in one or two lines why it works or fails.`,
+Split it into Hook (the opening, usually the first 3 or 4 seconds), Meat and CTA. Label the hook's awareness level (1–5), angle and formula, and the meat's format (${MEAT_FORMATS.join(", ")}). Quote the words as heard. Say in one or two lines why it works or fails.`,
     ClipAnalysisWireSchema,
   );
 }

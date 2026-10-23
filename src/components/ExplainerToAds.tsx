@@ -2,9 +2,10 @@
 // the clip of a meat or a CTA of the same series, copied on the server (shared/adsFromExplainer.ts). No AI involved:
 // it works the same with no key.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AD_SECONDS, type AdSeconds, type AdsState } from "../../shared/ads.ts";
+import { AD_MAX_SECONDS, AD_MIN_SECONDS, ADS_SETTINGS_KEY, isAdSeconds, lengthsForKind, noShareNote, parseSavedLength, splitForLength, type AdsState, type SavedLength } from "../../shared/ads.ts";
 import {
   EXPLAINER_KIND_LABEL,
+  TARGET_KINDS,
   explainerTargets,
   fitClip,
   pickExplainerVideo,
@@ -25,6 +26,9 @@ type Props = {
   spans: VoicedSpan[];
   // Changes when a new render is saved, so the list is read again.
   version: string;
+  // The piece id written into the brief ("Desde Publicidad (H12, …)"). Applied once, when that piece is an approved
+  // target. A later refresh does not move a choice the person already made.
+  preferId?: string | null;
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -32,7 +36,7 @@ const s1 = (n: number) => `${(Math.round(n * 10) / 10).toString().replace(".", "
 const videoLabel = (v: ExplainerVideo) =>
   `${v.final ? "Render final" : "Generado en el navegador"} ${v.format === "vertical" ? "9:16" : "16:9"}${v.file.endsWith(".webm") ? " (.webm)" : ""}`;
 
-export function ExplainerToAds({ series, projectId, format, spans, version }: Props) {
+export function ExplainerToAds({ series, projectId, format, spans, version, preferId = null }: Props) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<AdsState | null>(null);
   const [videos, setVideos] = useState<ExplainerVideo[] | null>(null);
@@ -40,7 +44,10 @@ export function ExplainerToAds({ series, projectId, format, spans, version }: Pr
   const [duration, setDuration] = useState(0);
   const [kind, setKind] = useState<TargetKind>("meat");
   const [target, setTarget] = useState<string>("new");
-  const [adSeconds, setAdSeconds] = useState<AdSeconds>(15);
+  const [adSeconds, setAdSeconds] = useState(15);
+  const [typedSeconds, setTypedSeconds] = useState("15");
+  const [savedLength, setSavedLength] = useState<SavedLength | null>(null);
+  const applied = useRef<string | null>(null);
   const [start, setStart] = useState(0);
   const [text, setText] = useState("");
   const [textTouched, setTextTouched] = useState(false);
@@ -48,6 +55,14 @@ export function ExplainerToAds({ series, projectId, format, spans, version }: Pr
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
   const player = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    try {
+      setSavedLength(parseSavedLength(localStorage.getItem(ADS_SETTINGS_KEY)));
+    } catch {
+      setSavedLength(parseSavedLength(null));
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open || !projectId) return;
@@ -66,9 +81,25 @@ export function ExplainerToAds({ series, projectId, format, spans, version }: Pr
     };
   }, [open, projectId, series, format, version]);
 
+  useEffect(() => {
+    if (!state || !preferId || applied.current === preferId) return;
+    applied.current = preferId;
+    for (const k of TARGET_KINDS) {
+      if (explainerTargets(state, k).some((t) => t.piece.id === preferId)) {
+        setKind(k);
+        setTarget(preferId);
+        return;
+      }
+    }
+  }, [state, preferId]);
+
   const targets = useMemo(() => (state ? explainerTargets(state, kind) : []), [state, kind]);
   const chosen = targets.find((t) => t.piece.id === target)?.piece ?? null;
-  const pieceSeconds = chosen ? chosen.seconds : pieceSecondsFor(kind, adSeconds);
+  const savedSplit = splitForLength(adSeconds, savedLength);
+  const share = pieceSecondsFor(kind, adSeconds, savedSplit);
+  const shareNote = noShareNote(kind, adSeconds, savedSplit);
+  const lengthChoices = lengthsForKind(kind, adSeconds, savedLength);
+  const pieceSeconds = chosen ? chosen.seconds : share;
   const fit = duration ? fitClip(duration, pieceSeconds, start) : null;
   const said = fit ? voiceInRange(spans, fit.start, fit.end) : "";
 
@@ -193,17 +224,44 @@ export function ExplainerToAds({ series, projectId, format, spans, version }: Pr
                     <input type="radio" name="explainer-target" checked={target === "new"} onChange={() => setTarget("new")} />
                     <span>
                       <b>Uno nuevo</b> para anuncios de{" "}
-                      <select className="rounded border border-line bg-white px-1 py-0.5" value={adSeconds} onChange={(e) => setAdSeconds(Number(e.target.value) as AdSeconds)} disabled={target !== "new"}>
-                        {AD_SECONDS.map((n) => (
+                      <select
+                        className="rounded border border-line bg-white px-1 py-0.5"
+                        value={adSeconds}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          if (!isAdSeconds(n)) return;
+                          setAdSeconds(n);
+                          setTypedSeconds(String(n));
+                        }}
+                        disabled={target !== "new"}
+                      >
+                        {lengthChoices.map((n) => (
                           <option key={n} value={n}>
                             {n} s
                           </option>
                         ))}
                       </select>{" "}
-                      ({s1(pieceSecondsFor(kind, adSeconds))} de {EXPLAINER_KIND_LABEL[kind]})
+                      <input
+                        type="number"
+                        min={AD_MIN_SECONDS}
+                        max={AD_MAX_SECONDS}
+                        step={1}
+                        className="w-16 rounded border border-line bg-white px-1 py-0.5"
+                        value={typedSeconds}
+                        aria-label="Segundos del anuncio"
+                        disabled={target !== "new"}
+                        onChange={(e) => {
+                          setTypedSeconds(e.target.value);
+                          const n = Number(e.target.value);
+                          if (isAdSeconds(n)) setAdSeconds(n);
+                        }}
+                        onBlur={() => setTypedSeconds(String(adSeconds))}
+                      />{" "}
+                      s ({share < 1 ? "sin segundos" : s1(share)} de {EXPLAINER_KIND_LABEL[kind]})
                     </span>
                   </label>
                 )}
+                {target === "new" && shareNote && <p className="text-xs text-neg">{shareNote}</p>}
               </div>
               {fit && fit.fit === "cut" && (
                 <label className="block text-xs">
@@ -241,7 +299,7 @@ export function ExplainerToAds({ series, projectId, format, spans, version }: Pr
                   />
                 </label>
               )}
-              <Button className="w-full" onClick={use} disabled={busy || !fit || !file || (target === "new" && (kind === "hook" || !text.trim()))}>
+              <Button className="w-full" onClick={use} disabled={busy || !fit || !file || (target === "new" && (kind === "hook" || !text.trim() || share < 1))}>
                 {busy ? <Spinner /> : chosen ? `Usar en ${chosen.id}` : kind === "hook" ? "Elegí un gancho" : `Crear ${kind === "meat" ? "el meat" : "el CTA"} con este video`}
               </Button>
               {!duration && file && <p className="text-xs text-muted">Leyendo cuánto dura el video…</p>}

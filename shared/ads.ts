@@ -87,22 +87,136 @@ export const FORMULA_LABEL: Record<Formula, string> = {
 };
 
 // ── Time budget ───────────────────────────────────────────────────────────────────
-// An ad lasts 6, 10 or 15 s (the tool's clip lengths). The app splits the time between the three pieces and tells the
-// writer how many words fit, so scripts come out the right length on the first try.
-export const AD_SECONDS = [6, 10, 15] as const;
-export type AdSeconds = (typeof AD_SECONDS)[number];
+// An ad lasts any whole number of seconds from 6 to 120. The presets are the usual lengths; the person can type any
+// other whole number in that range. The app splits the time between the three pieces and tells the writer how many
+// words fit, so scripts come out the right length on the first try. A meat longer than 15 s is several Grok clips
+// (shared/adsSequence.ts): Grok's own clips stay 6, 10 or 15 s.
+export const AD_MIN_SECONDS = 6;
+export const AD_MAX_SECONDS = 120;
+export const AD_PRESETS = [6, 10, 15, 30, 45, 60, 90] as const;
+/** Lengths shown as buttons. Any whole second from AD_MIN_SECONDS to AD_MAX_SECONDS is also an ad. */
+export const AD_SECONDS = AD_PRESETS;
+export type AdSeconds = number;
 export type Budget = { hook: number; meat: number; cta: number };
-export const BUDGETS: Record<AdSeconds, Budget> = {
-  6: { hook: 2, meat: 2.5, cta: 1.5 },
-  10: { hook: 3, meat: 5, cta: 2 },
-  15: { hook: 3, meat: 9, cta: 3 },
-};
 export const WORDS_PER_SECOND = 2.7;
+/** Spoken words that fit in `seconds`. A 0 s share still returns 2: the screen must not ask the writer for it. */
 export const wordsFor = (seconds: number) => Math.max(2, Math.round(seconds * WORDS_PER_SECOND));
 export const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
-// The tool only makes clips of 6, 10 or 15 s: a piece's clip is the shortest that covers it (the render cuts it).
+// One Grok clip is 6, 10 or 15 s. A piece of 15 s or less uses the shortest that covers it (the render cuts it).
 export const clipSecondsFor = (seconds: number): 6 | 10 | 15 => (seconds <= 6 ? 6 : seconds <= 10 ? 10 : 15);
-export const isAdSeconds = (n: number): n is AdSeconds => (AD_SECONDS as readonly number[]).includes(n);
+export const isAdSeconds = (n: number): n is AdSeconds => Number.isInteger(n) && n >= AD_MIN_SECONDS && n <= AD_MAX_SECONDS;
+/** A 110 s meat is about 300 words. Old pieces were under 600 characters and still fit. */
+export const PIECE_TEXT_MAX = 4000;
+
+// The hook stays short (3 s, or 4 s from 30 s up). The CTA is 3 s up to 15 s, 4 s up to 45 s and 6 s above.
+// The meat takes the rest. A 6 s ad is the exception: 2 + 2 + 2, so every ad has a meat. Whole seconds.
+export function defaultSplit(seconds: number): Budget {
+  const total = Math.round(seconds);
+  if (total === 6) return { hook: 2, meat: 2, cta: 2 };
+  const hook = total >= 30 ? 4 : 3;
+  const cta = total <= 15 ? 3 : total <= 45 ? 4 : 6;
+  return { hook, meat: total - hook - cta, cta };
+}
+
+const SPLIT_NAME = { hook: "el gancho", meat: "el cuerpo", cta: "el llamado" } as const;
+
+// The parts are whole seconds, each from 0 to 120, and they add up to the ad. The message names the field.
+export function splitIssue(seconds: number, split: Budget): string | null {
+  for (const key of ["hook", "meat", "cta"] as const) {
+    const n = split[key];
+    if (!Number.isInteger(n) || n < 0 || n > AD_MAX_SECONDS) {
+      return `El reparto de ${SPLIT_NAME[key]} tiene que ser un número entero de 0 a ${AD_MAX_SECONDS} segundos.`;
+    }
+  }
+  const total = Math.round(seconds);
+  const sum = split.hook + split.meat + split.cta;
+  if (sum !== total) {
+    return `El gancho, el cuerpo y el llamado suman ${sum} s y el anuncio dura ${total} s. Tienen que sumar lo mismo.`;
+  }
+  return null;
+}
+
+// The stored split when it still matches this length; otherwise the default. An unknown length is a 15 s ad.
+export function splitOf(seconds: number, split?: Budget | null): Budget {
+  const base = isAdSeconds(seconds) ? seconds : 15;
+  if (isAdSeconds(seconds) && split && splitIssue(seconds, split) === null) return split;
+  return defaultSplit(base);
+}
+
+export function pieceShare(adSeconds: number, kind: "hook" | "meat" | "cta", split?: Budget | null): number {
+  return splitOf(adSeconds, split)[kind];
+}
+
+// A 0 s share is not a piece: the writer is not asked for it.
+export function noShareNote(kind: "hook" | "meat" | "cta", seconds: number, split?: Budget | null): string | null {
+  if (pieceShare(seconds, kind, split) >= 1) return null;
+  return `Este reparto no deja segundos para ${SPLIT_NAME[kind]}. Cambiá el reparto del anuncio antes de pedirlo.`;
+}
+
+export function meatGapNote(split: Budget): string | null {
+  if (split.meat > 0) return null;
+  return "Este anuncio no tiene cuerpo: el gancho y el llamado se llevan todo el tiempo. Alargalo o cambiá el reparto si querés un cuerpo.";
+}
+
+// Preset buttons, plus the current length when it is not one of them (22 s stays visible).
+export function adLengthChoices(current: number): number[] {
+  const set = new Set<number>(AD_PRESETS);
+  if (isAdSeconds(current)) set.add(current);
+  return [...set].sort((a, b) => a - b);
+}
+
+// The length Publicidad saved in this browser (`playbook-studio.ads.v1`). ExplainerToAds reads it without loading
+// the ads studio. An unreadable value is a 15 s ad with the app's split.
+export const ADS_SETTINGS_KEY = "playbook-studio.ads.v1";
+export type SavedLength = { seconds: number; split: Budget | null };
+
+export function parseSavedLength(raw: string | null): SavedLength {
+  const base: SavedLength = { seconds: 15, split: null };
+  if (!raw) return base;
+  try {
+    const saved = JSON.parse(raw) as { seconds?: unknown; split?: unknown } | null;
+    const seconds = Number(saved?.seconds);
+    if (!isAdSeconds(seconds)) return base;
+    const split = saved?.split;
+    if (split && typeof split === "object" && splitIssue(seconds, split as Budget) === null) return { seconds, split: split as Budget };
+    return { seconds, split: null };
+  } catch {
+    return base;
+  }
+}
+
+// The saved split only when it was stored for this exact length and still adds up. Any other length uses the default.
+export function splitForLength(adSeconds: number, saved: SavedLength | null): Budget | null {
+  if (!saved || saved.seconds !== adSeconds || !saved.split) return null;
+  return splitIssue(adSeconds, saved.split) === null ? saved.split : null;
+}
+
+// Lengths to offer for a new piece of this kind: never one whose share is under a second.
+export function lengthsForKind(kind: "hook" | "meat" | "cta", current: number, saved: SavedLength | null): number[] {
+  return adLengthChoices(current).filter((n) => pieceShare(n, kind, splitForLength(n, saved)) >= 1);
+}
+
+export type LengthSuggestion = { seconds: number; range: string; note: string };
+
+// Cold (levels 1–3) suggests 30–60 s, with 45 as the button. Retargeting (4–5) suggests 15 s. Mixed: no suggestion.
+// A suggestion only: the field stays editable.
+export function suggestedSeconds(levels: number[]): LengthSuggestion | null {
+  if (!levels.length) return null;
+  const cold = levels.some((n) => n >= 1 && n <= 3);
+  const warm = levels.some((n) => n >= 4 && n <= 5);
+  if (cold && warm) return null;
+  if (cold) {
+    return {
+      seconds: 45,
+      range: "30 a 60 s",
+      note: "Audiencia fría (niveles 1 a 3): un anuncio de 30 a 60 s suele alcanzar. Es una sugerencia.",
+    };
+  }
+  if (warm) {
+    return { seconds: 15, range: "15 s", note: "Retargeting (niveles 4 y 5): 15 s suele alcanzar. Es una sugerencia." };
+  }
+  return null;
+}
 
 // ── The offer profile (once per series) ───────────────────────────────────────────
 export const OfferSchema = z.object({
@@ -200,12 +314,13 @@ export type PieceSpeaker = z.infer<typeof PieceSpeakerSchema>;
 
 const PieceBase = z.object({
   id: z.string().regex(/^[HMC]\d{1,4}$/),
-  text: z.string().max(600),
+  text: z.string().max(PIECE_TEXT_MAX),
   onScreenText: z.string().max(80),
   visualPrompt: z.string().max(3000),
   videoPrompt: z.string().max(3000),
-  // Seconds in the finished ad (its share of the budget).
-  seconds: z.number().min(1).max(15),
+  // Seconds in the finished ad (its share of the budget). Not an integer: pieces saved at 2.5 s or 1.5 s still load.
+  // New pieces are whole seconds, up to the whole ad.
+  seconds: z.number().min(1).max(AD_MAX_SECONDS),
   status: z.enum(PIECE_STATUS),
   source: z.enum(PIECE_SOURCES),
   createdAt: z.string(),
@@ -302,10 +417,18 @@ export const CombineRulesSchema = z.object({
 });
 export type CombineRules = z.infer<typeof CombineRulesSchema>;
 
+export const SplitSchema = z.object({
+  hook: z.number().int().min(0).max(AD_MAX_SECONDS),
+  meat: z.number().int().min(0).max(AD_MAX_SECONDS),
+  cta: z.number().int().min(0).max(AD_MAX_SECONDS),
+});
+
 export const BatchSchema = z.object({
   id: z.string().max(60),
   createdAt: z.string(),
-  seconds: z.number(),
+  // Whole seconds, 6 to 120. Older batches are 6, 10 or 15 and still load. No split: the default for that length.
+  seconds: z.number().int().min(AD_MIN_SECONDS).max(AD_MAX_SECONDS),
+  split: SplitSchema.optional(),
   mode: z.enum(["full", "stage"]),
   rules: CombineRulesSchema,
   ads: z.array(AdComboSchema),
@@ -329,6 +452,22 @@ export const AdsMediaSchema = z.object({
       // subtitles and notice, so the render draws nothing on top of it.
       explainer: z.object({ project: z.string().max(80), file: z.string().max(80), title: z.string().max(200) }).optional(),
     })
+    .optional(),
+  // A meat longer than 15 s: one Grok file per slot (shared/adsSequence.ts). Null keeps the index when a slot is empty.
+  // Older pieces have no list and keep playing `clip`.
+  clips: z
+    .array(
+      z
+        .object({
+          file: z.string(),
+          name: z.string(),
+          duration: z.number(),
+          // Each file is a Grok clip of at most 15 s, so the in point stays inside one file.
+          from: z.number().min(0).max(14).optional(),
+        })
+        .nullable(),
+    )
+    .max(24)
     .optional(),
   voice: z.object({ file: z.string(), name: z.string(), duration: z.number() }).optional(),
 });
@@ -531,7 +670,7 @@ export function hooksFromWire(state: AdsState, wire: HooksWire, seconds: number,
     .map((h) => ({
       id: nextId(state, "hook"),
       kind: "hook" as const,
-      text: clean(h.text, 600),
+      text: clean(h.text, PIECE_TEXT_MAX),
       onScreenText: clean(h.onScreenText, 80),
       visualPrompt: clean(h.visualPrompt, 3000),
       videoPrompt: clean(h.videoPrompt, 3000),
@@ -553,7 +692,7 @@ export function meatsFromWire(state: AdsState, wire: MeatsWire, seconds: number,
     .map((m) => ({
       id: nextId(state, "meat"),
       kind: "meat" as const,
-      text: clean(m.text, 600),
+      text: clean(m.text, PIECE_TEXT_MAX),
       onScreenText: clean(m.onScreenText, 80),
       visualPrompt: clean(m.visualPrompt, 3000),
       videoPrompt: clean(m.videoPrompt, 3000),
@@ -575,7 +714,7 @@ export function ctasFromWire(state: AdsState, wire: CtasWire, seconds: number, f
     .map((c) => ({
       id: nextId(state, "cta"),
       kind: "cta" as const,
-      text: clean(c.text, 600),
+      text: clean(c.text, PIECE_TEXT_MAX),
       onScreenText: clean(c.onScreenText, 80),
       visualPrompt: clean(c.visualPrompt, 3000),
       videoPrompt: clean(c.videoPrompt, 3000),
@@ -625,14 +764,23 @@ export function parseAdId(text: string): { hookId: string; meatId: string; ctaId
 const approved = <T extends Piece>(pieces: T[]) => pieces.filter((p) => p.status === "approved");
 const serves = (piece: Meat | Cta, level: Level, rules: CombineRules) => !rules.sameLevel || piece.levels.includes(level);
 
-// Every approved hook with every approved meat and CTA (that serve its level, when the rule is on).
-export function combine(hooks: Hook[], meats: Meat[], ctas: Cta[], rules: CombineRules): AdCombo[] {
+// The batch's length. A piece joins only when its own seconds are that batch's share (a 60 s batch does not pick up
+// a meat written for 9 s). A tenth of a second covers old pieces saved with a fraction.
+export type CombineLength = { seconds: number; split?: Budget | null };
+const SHARE_EPS = 0.05;
+const fitsShare = (seconds: number, kind: "hook" | "meat" | "cta", length: CombineLength) =>
+  Math.abs(seconds - pieceShare(length.seconds, kind, length.split)) <= SHARE_EPS;
+
+// Every approved hook with every approved meat and CTA (that serve its level, when the rule is on) whose seconds
+// match this batch.
+export function combine(hooks: Hook[], meats: Meat[], ctas: Cta[], rules: CombineRules, length: CombineLength): AdCombo[] {
   const out: AdCombo[] = [];
   for (const h of approved(hooks)) {
+    if (!fitsShare(h.seconds, "hook", length)) continue;
     for (const m of approved(meats)) {
-      if (!serves(m, h.level, rules)) continue;
+      if (!fitsShare(m.seconds, "meat", length) || !serves(m, h.level, rules)) continue;
       for (const c of approved(ctas)) {
-        if (!serves(c, h.level, rules)) continue;
+        if (!fitsShare(c.seconds, "cta", length) || !serves(c, h.level, rules)) continue;
         out.push({ id: adId(h.id, m.id, c.id), hookId: h.id, meatId: m.id, ctaId: c.id, level: h.level });
       }
     }
@@ -640,25 +788,29 @@ export function combine(hooks: Hook[], meats: Meat[], ctas: Cta[], rules: Combin
   return out;
 }
 
-// "Variar hook": keep a winner's meat and CTA, change only the hook.
-export function varyHook(meat: Meat, cta: Cta, hooks: Hook[], rules: CombineRules): AdCombo[] {
+// "Variar hook": keep a winner's meat and CTA, change only the hook. The meat and the CTA themselves have to fit.
+export function varyHook(meat: Meat, cta: Cta, hooks: Hook[], rules: CombineRules, length: CombineLength): AdCombo[] {
+  if (!fitsShare(meat.seconds, "meat", length) || !fitsShare(cta.seconds, "cta", length)) return [];
   return approved(hooks)
-    .filter((h) => serves(meat, h.level, rules) && serves(cta, h.level, rules))
+    .filter((h) => fitsShare(h.seconds, "hook", length) && serves(meat, h.level, rules) && serves(cta, h.level, rules))
     .map((h) => ({ id: adId(h.id, meat.id, cta.id), hookId: h.id, meatId: meat.id, ctaId: cta.id, level: h.level }));
 }
 
-// A piece's cached render carries this version in its file name (`H3.l1.mp4`). Renders from before every piece was
-// brought to one loudness have none and are rendered again, so an ad never mixes a levelled piece with an old one.
-export const RENDER_VERSION = "l1";
+// A piece's cached render carries this version in its file name (`H3.l2.mp4`). l2 plays a long meat as one sequence of
+// Grok clips. Older names are rendered again.
+export const RENDER_VERSION = "l2";
 export const currentRender = (file: string | undefined): file is string => Boolean(file?.includes(`.${RENDER_VERSION}.`));
 export const renderedPieces = (renders: Record<string, string>) => new Set(Object.keys(renders).filter((id) => currentRender(renders[id])));
 
 // What it takes: unique pieces to render (each once, cached) and the ads to cut from them.
-export function estimate(ads: AdCombo[], rendered: Set<string>, seconds: number) {
+// `pieceSeconds` is each piece's own length. A missing id counts as 0. The old call multiplied every piece by the
+// whole ad.
+export function estimate(ads: AdCombo[], rendered: Set<string>, pieceSeconds: Record<string, number>) {
   const pieces = new Set(ads.flatMap((a) => [a.hookId, a.meatId, a.ctaId]));
   const toRender = [...pieces].filter((id) => !rendered.has(id));
+  const pieceTime = toRender.reduce((n, id) => n + (Number(pieceSeconds[id]) || 0), 0);
   // A piece renders at about twice real time in the browser; cutting an ad from cached pieces takes under a second.
-  const renderSeconds = toRender.length * seconds * 0.8 + ads.length * 0.6;
+  const renderSeconds = pieceTime * 0.8 + ads.length * 0.6;
   return { pieces: pieces.size, toRender: toRender.length, renderSeconds, ads: ads.length };
 }
 

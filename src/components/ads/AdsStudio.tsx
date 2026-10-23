@@ -1,18 +1,19 @@
 // Publicidad (Método 50-5-3): paid ads next to Playbook's organic content. Tabs: the offer profile, the sources of
 // winning hooks, the hooks, the meats, the CTAs, the combiner and the hooks' static versions. Reuses the app's writer, its image generators, its
-// 6/10/15 s clip prompts and its video renderer (render.ts, by pieces with a cache).
+// clip prompts (one Grok clip, or a sequence when the piece is longer than 15 s) and its video renderer (render.ts, by pieces with a cache).
 import { lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  AD_SECONDS,
-  BUDGETS,
+  ADS_SETTINGS_KEY,
   LEVEL_INFO,
   levelsOf,
   currentRender,
+  isAdSeconds,
   offerFilled,
+  splitIssue,
   type AdCombo,
   copyKey,
-  type AdSeconds,
   type AdsState,
+  type Budget,
   type CombineRules,
   type Cta,
   type Hook,
@@ -29,7 +30,8 @@ import { ads as adsApi, adsAsks, adsFileUrl, api, askPrompt, sendAsk } from "../
 import type { Handoff } from "../ClaudeHandoff.tsx";
 import { concatPieces, renderAdWhole, renderPiece, type PieceLook, type PieceMedia } from "../../lib/adsRender.ts";
 import { blobToDataUrl, readImageFile } from "../../lib/files.ts";
-import type { AdSeed, ExplainerKind } from "../../../shared/adsFromExplainer.ts";
+import type { AdSeed } from "../../../shared/adsFromExplainer.ts";
+import { emptyClipSlots, grokSequence, type ClipPresence } from "../../../shared/adsSequence.ts";
 import type { PastedCopy } from "../../../shared/adsHandoff.ts";
 import { audioDuration } from "../Audio.tsx";
 import { Button, Lazy, Notice, Segmented, Spinner } from "../ui.tsx";
@@ -43,6 +45,8 @@ import { SourcesPanel } from "./SourcesPanel.tsx";
 import { SpeakerBatch } from "./SpeakerBatch.tsx";
 import { SpeakerPanel } from "./SpeakerPanel.tsx";
 import { storyFonts } from "../../../shared/brandFonts.ts";
+import { lookPhrase } from "../../../shared/prompt.ts";
+import { AdLength } from "./AdLength.tsx";
 
 // "Estáticos de la tanda" downloads only when opened (it brings the still renderer).
 const StaticsPanel = lazy(() => import("./StaticsPanel.tsx").then((m) => ({ default: m.StaticsPanel })));
@@ -66,7 +70,7 @@ type Props = {
   // Generated voices (OpenAI speech): whether the key is there, and the app's default voice.
   voice: { available: boolean; defaultVoice: string };
   onToPlaybook: (text: string) => void;
-  // "Hacelo como explicativo": a new explainer of this series prefilled with a meat's or CTA's text.
+  // "Hacelo como explicativo": a new explainer of this series prefilled with a hook's, meat's or CTA's text.
   onToExplainer?: (seed: AdSeed) => void;
 };
 
@@ -83,16 +87,39 @@ function clipDuration(url: string): Promise<number> {
   });
 }
 
-const SETTINGS_KEY = "playbook-studio.ads.v1";
-type Settings = { seconds: AdSeconds; levels: number[]; format: "vertical" | "horizontal"; tool: string; provider: string };
+const SETTINGS_KEY = ADS_SETTINGS_KEY;
+type Settings = {
+  seconds: number;
+  split: Budget | null;
+  // A length already saved in this browser is a choice: a later suggestion does not replace it.
+  lengthTouched: boolean;
+  levels: number[];
+  format: "vertical" | "horizontal";
+  tool: string;
+  provider: string;
+};
 function loadSettings(): Settings {
+  const base: Settings = { seconds: 15, split: null, lengthTouched: false, levels: [], format: "vertical", tool: "", provider: "" };
   try {
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null");
-    if (saved) return { seconds: 15, levels: [], format: "vertical", tool: "", provider: "", ...saved };
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null") as Partial<Settings> | null;
+    if (!saved || typeof saved !== "object") return base;
+    const seconds = isAdSeconds(Number(saved.seconds)) ? Number(saved.seconds) : 15;
+    const raw = saved.split;
+    const split = raw && splitIssue(seconds, raw) === null ? raw : null;
+    return {
+      ...base,
+      levels: Array.isArray(saved.levels) ? saved.levels : [],
+      format: saved.format === "horizontal" ? "horizontal" : "vertical",
+      tool: typeof saved.tool === "string" ? saved.tool : "",
+      provider: typeof saved.provider === "string" ? saved.provider : "",
+      seconds,
+      split,
+      lengthTouched: isAdSeconds(Number(saved.seconds)),
+    };
   } catch {
     // Storage unavailable: defaults.
   }
-  return { seconds: 15, levels: [], format: "vertical", tool: "", provider: "" };
+  return base;
 }
 
 export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPlaybook, onToExplainer }: Props) {
@@ -115,12 +142,14 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   // "Generar tanda" asked for, which the tabs' copy-and-paste boxes start from.
   const [pastedCopies, setPastedCopies] = useState<Record<string, PastedCopy>>({});
   const [preset, setPreset] = useState<{ hooks?: number; meats?: number; ctas?: number }>({});
+  const [motionMade, setMotionMade] = useState("");
   useEffect(() => {
     setPastedCopies({});
     setPreset({});
   }, [series.id]);
   const renders = useRef(new Map<string, Blob>());
   const urls = useRef<string[]>([]);
+  const motionLock = useRef(false);
   const toolId = settings.tool && tools.some((t) => t.id === settings.tool) ? settings.tool : (tools[0]?.id ?? "");
   const toolName = tools.find((t) => t.id === toolId)?.name ?? "la herramienta";
   const realProviders = imageProviders.filter((p) => p.available && p.id !== "placeholder");
@@ -181,10 +210,28 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
                 if (cancel) return;
                 const url = URL.createObjectURL(blob);
                 urls.current.push(url);
-                setMedia((prev) => ({ ...prev, [id]: { ...prev[id], [kind]: { url, blob, name: saved.name, duration: saved.duration } } }));
+                const from = "from" in saved ? saved.from : undefined;
+                setMedia((prev) => ({ ...prev, [id]: { ...prev[id], [kind]: { url, blob, name: saved.name, duration: saved.duration, ...(from !== undefined ? { from } : {}) } } }));
               })
               .catch(() => undefined);
           }
+          (m.clips ?? []).forEach((saved, index) => {
+            if (!saved) return;
+            fetch(adsFileUrl(series.id, saved.file))
+              .then((r) => r.blob())
+              .then((blob) => {
+                if (cancel) return;
+                const url = URL.createObjectURL(blob);
+                urls.current.push(url);
+                setMedia((prev) => {
+                  const clips = [...(prev[id]?.clips ?? [])];
+                  while (clips.length <= index) clips.push(null);
+                  clips[index] = { url, blob, name: saved.name, duration: saved.duration, from: saved.from };
+                  return { ...prev, [id]: { ...prev[id], clips } };
+                });
+              })
+              .catch(() => undefined);
+          });
         }
       })
       .catch((e) => !cancel && setError(message(e)));
@@ -248,14 +295,23 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     }
   }
 
-  async function uploadClip(piece: Piece, file: File) {
+  async function uploadClip(piece: Piece, file: File, index?: number) {
     if (!file.type.startsWith("video/")) return setPieceMedia(piece.id, { error: "Ese archivo no es un video." });
     const url = URL.createObjectURL(file);
     try {
       const duration = await clipDuration(url);
       urls.current.push(url);
-      setPieceMedia(piece.id, { clip: { url, blob: file, name: file.name, duration }, error: undefined });
-      const r = await adsApi.uploadPieceMedia(series.id, piece.id, "clip", file, { name: file.name, duration });
+      if (index === undefined) {
+        setPieceMedia(piece.id, { clip: { url, blob: file, name: file.name, duration }, error: undefined });
+      } else {
+        setMedia((prev) => {
+          const clips = [...(prev[piece.id]?.clips ?? [])];
+          while (clips.length <= index) clips.push(null);
+          clips[index] = { url, blob: file, name: file.name, duration, from: 0 };
+          return { ...prev, [piece.id]: { ...prev[piece.id], clips, error: undefined } };
+        });
+      }
+      const r = await adsApi.uploadPieceMedia(series.id, piece.id, "clip", file, { name: file.name, duration, ...(index !== undefined && { index }) });
       setState(r.state);
       renders.current.delete(piece.id);
     } catch (e) {
@@ -328,14 +384,20 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     }
   }
 
-  async function removeMedia(piece: Piece, kind: "image" | "clip" | "voice") {
+  async function removeMedia(piece: Piece, kind: "image" | "clip" | "voice", index?: number) {
     setMedia((prev) => {
       const next = { ...prev[piece.id] };
-      delete next[kind];
+      if (kind === "clip" && index !== undefined) {
+        const clips = [...(next.clips ?? [])];
+        clips[index] = null;
+        next.clips = clips;
+      } else {
+        delete next[kind];
+      }
       return { ...prev, [piece.id]: next };
     });
     renders.current.delete(piece.id);
-    await act("media", () => adsApi.removePieceMedia(series.id, piece.id, kind));
+    await act("media", () => adsApi.removePieceMedia(series.id, piece.id, kind, index));
   }
 
   const flagsFor = (id: string) => (flags ?? []).filter((f) => f.pieceId === id).map((f) => ({ kind: f.kind, note: f.note, fix: f.fix }));
@@ -356,6 +418,9 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       onRemove={() => confirm(`¿Borrar ${piece.id}?`) && act("remove", () => adsApi.removePiece(series.id, piece.id))}
       onUploadImage={(f) => uploadImage(piece, f)}
       onUploadClip={(f) => uploadClip(piece, f)}
+      onUploadClipAt={(index, f) => uploadClip(piece, f, index)}
+      onRemoveClipAt={(index) => removeMedia(piece, "clip", index)}
+      look={lookPhrase(series.look)}
       onGenerateImage={() => generateImage(piece)}
       onRemoveMedia={(k) => removeMedia(piece, k)}
       onUploadVoice={(f) => uploadVoice(piece, f)}
@@ -364,8 +429,8 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       flags={flagsFor(piece.id)}
       explainer={state?.media[piece.id]?.clip?.explainer ? { title: state.media[piece.id]!.clip!.explainer!.title, from: state.media[piece.id]!.clip!.from ?? 0 } : undefined}
       onMakeExplainer={
-        onToExplainer && piece.kind !== "hook"
-          ? () => onToExplainer({ id: piece.id, kind: piece.kind as ExplainerKind, text: piece.text, onScreenText: piece.onScreenText, seconds: piece.seconds })
+        onToExplainer
+          ? () => onToExplainer({ id: piece.id, kind: piece.kind, text: piece.text, onScreenText: piece.onScreenText, seconds: piece.seconds })
           : undefined
       }
       speakerPanel={
@@ -375,7 +440,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           series={series}
           tool={tools.find((t) => t.id === toolId)}
           format={settings.format}
-          hasClip={Boolean(media[piece.id]?.clip)}
+          hasClip={Boolean(media[piece.id]?.clip) || Boolean(media[piece.id]?.clips?.some(Boolean))}
           hasVoice={Boolean(media[piece.id]?.voice)}
           onSave={async (speaker) => {
             const r = await act("patch", () => adsApi.patchPiece(series.id, piece.id, { speaker }));
@@ -399,20 +464,95 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   );
 
   // ── Generation ──────────────────────────────────────────────────────────────
-  async function generateHooks(count: number, levels = settings.levels, seconds = settings.seconds) {
-    const r = await act("hooks", () => adsApi.hooks(series.id, { levels, count, seconds, tool: toolId, language: lang }));
+  const lengthBody = () => ({ seconds: settings.seconds, ...(settings.split ? { split: settings.split } : {}) });
+  async function generateHooks(count: number, levels = settings.levels, seconds = settings.seconds, split = settings.split) {
+    const r = await act("hooks", () => adsApi.hooks(series.id, { levels, count, seconds, ...(split ? { split } : {}), tool: toolId, language: lang }));
     if (r) setNotes((n) => ({ ...n, hooks: r.note }));
     return r;
   }
-  async function generateMeats(count: number, formats: MeatFormat[], levels = settings.levels, seconds = settings.seconds) {
-    const r = await act("meats", () => adsApi.meats(series.id, { levels, formats, count, seconds, tool: toolId, language: lang }));
+  async function generateMeats(count: number, formats: MeatFormat[], levels = settings.levels, seconds = settings.seconds, split = settings.split) {
+    const r = await act("meats", () => adsApi.meats(series.id, { levels, formats, count, seconds, ...(split ? { split } : {}), tool: toolId, language: lang }));
     if (r) setNotes((n) => ({ ...n, meats: r.note }));
     return r;
   }
-  async function generateCtas(count: number, levels = settings.levels, seconds = settings.seconds) {
-    const r = await act("ctas", () => adsApi.ctas(series.id, { levels, count, seconds, tool: toolId, language: lang }));
+  async function generateCtas(count: number, levels = settings.levels, seconds = settings.seconds, split = settings.split) {
+    const r = await act("ctas", () => adsApi.ctas(series.id, { levels, count, seconds, ...(split ? { split } : {}), tool: toolId, language: lang }));
     if (r) setNotes((n) => ({ ...n, ctas: r.note }));
     return r;
+  }
+
+  // "Hacer en motion graphics": one explainer project per approved piece of this tab, up to 20. They stay in
+  // Proyectos; none of them is opened here. A piece that already has one is skipped. A save that fails removes the
+  // empty folder. A later failure keeps the ones already written.
+  async function makeMotionBatch(pieces: Piece[]) {
+    if (motionLock.current || busy) return;
+    const approved = pieces.filter((p) => p.status === "approved");
+    if (!approved.length) {
+      setError("No hay piezas aprobadas en esta pestaña.");
+      return;
+    }
+    const { MOTION_BATCH_MAX, projectForPiece, seedNotes, starterPiece } = await import("../../../shared/adsFromExplainer.ts");
+    let batch = approved;
+    if (approved.length > MOTION_BATCH_MAX) {
+      if (!confirm(`Son ${approved.length} piezas aprobadas. En un clic armo hasta ${MOTION_BATCH_MAX}. ¿Armo las primeras ${MOTION_BATCH_MAX}? El resto queda para otro clic.`)) return;
+      batch = approved.slice(0, MOTION_BATCH_MAX);
+    } else if (!confirm(`¿Armar ${approved.length} explicativo${approved.length === 1 ? "" : "s"}, uno por pieza aprobada? Cada uno queda en Proyectos.`)) {
+      return;
+    }
+    motionLock.current = true;
+    setError("");
+    setBusy("motion");
+    const lines: string[] = [];
+    try {
+      const [{ pieceMarkdown }, { EMPTY_BRIEF }, listed] = await Promise.all([
+        import("../../lib/motionMarkdown.ts"),
+        import("../../../shared/example.ts"),
+        api.projects(),
+      ]);
+      const known = listed.projects.map((p) => ({ id: p.id, series: p.series }));
+      const tone = state?.offer.tone ?? "warm";
+      for (const piece of batch) {
+        const existing = projectForPiece(known, series.id, piece.id);
+        if (existing) {
+          lines.push(`${piece.id}: ya hay un explicativo (${existing.id}). No armé otro.`);
+          continue;
+        }
+        const seed: AdSeed = { id: piece.id, kind: piece.kind, text: piece.text, onScreenText: piece.onScreenText, seconds: piece.seconds };
+        let id: string | null = null;
+        try {
+          const motion = starterPiece(seed, settings.format, tone);
+          const pieceBrief = {
+            ...EMPTY_BRIEF,
+            series: series.id,
+            format: settings.format,
+            piece: "explainer" as const,
+            tone,
+            tool: toolId || EMPTY_BRIEF.tool,
+            product: state?.offer.product ?? "",
+            notes: seedNotes(seed),
+            narrator: "with" as const,
+          };
+          id = (await api.createProject(series.id, piece.id.toLowerCase())).id;
+          await api.saveProject(id, { version: 1, kind: "motion", step: "motion", pieceBrief, motion }, pieceMarkdown(motion, motion.script?.scenes ?? []));
+          known.push({ id, series: series.id });
+          lines.push(`${piece.id} → ${id}`);
+        } catch (e) {
+          if (id) await api.deleteProject(id).catch(() => undefined);
+          lines.push(`${piece.id}: no se pudo (${message(e)})`);
+        }
+      }
+      const ok = lines.filter((l) => l.includes("→")).length;
+      const left = approved.length - batch.length;
+      setMotionMade(
+        [`Listos ${ok} explicativos. Abrilos desde Proyectos.`, ...(left > 0 ? [`Quedaron ${left} sin armar: otro clic sigue con las siguientes.`] : []), ...lines].join("\n"),
+      );
+    } catch (e) {
+      setError(message(e));
+      if (lines.length) setMotionMade(lines.join("\n"));
+    } finally {
+      motionLock.current = false;
+      setBusy(null);
+    }
   }
 
   // ── "Sin clave": the same requests by copy and paste with claude.ai (shared/adsHandoff.ts) ─────
@@ -422,7 +562,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     prompt: () => askPrompt(ask),
     paste: async (reply) => done(await sendAsk(ask, reply)),
   });
-  const body = (count: number, part: number) => ({ levels: settings.levels, count, seconds: settings.seconds, tool: toolId, language: lang, part });
+  const body = (count: number, part: number) => ({ levels: settings.levels, count, ...lengthBody(), tool: toolId, language: lang, part });
   const handoffs = demo
     ? {
         hooks: (count: number) => (part: number) =>
@@ -453,11 +593,11 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   // Without a key the wizard does not fill the tabs with samples: it opens each tab with its count, where the
   // copy-and-paste box is.
   async function startWizard(w: Wizard) {
-    setSettings((s) => ({ ...s, levels: w.levels, seconds: w.seconds }));
+    setSettings((s) => ({ ...s, levels: w.levels, seconds: w.seconds, split: w.split, lengthTouched: true }));
     setWizard(w);
     setTab("hooks");
     if (demo) return setPreset({ hooks: w.hooks, meats: w.meats, ctas: w.ctas });
-    await generateHooks(w.hooks, w.levels, w.seconds);
+    await generateHooks(w.hooks, w.levels, w.seconds, w.split);
   }
   async function nextWizard() {
     if (!wizard) return;
@@ -465,12 +605,12 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       setTab("meats");
       setWizard({ ...wizard, stage: "meats" });
       if (demo) return;
-      await generateMeats(wizard.meats, [...new Set(levelsOf(wizard.levels).flatMap((l) => LEVEL_INFO[l].meats))], wizard.levels, wizard.seconds);
+      await generateMeats(wizard.meats, [...new Set(levelsOf(wizard.levels).flatMap((l) => LEVEL_INFO[l].meats))], wizard.levels, wizard.seconds, wizard.split);
     } else if (wizard.stage === "meats") {
       setTab("ctas");
       setWizard({ ...wizard, stage: "ctas" });
       if (demo) return;
-      await generateCtas(wizard.ctas, wizard.levels, wizard.seconds);
+      await generateCtas(wizard.ctas, wizard.levels, wizard.seconds, wizard.split);
     } else if (wizard.stage === "ctas") {
       setTab("combine");
       setWizard({ ...wizard, stage: "combine" });
@@ -505,6 +645,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       voice: media[id]?.voice?.blob,
       clipFrom: saved?.from ?? speaker?.from ?? 0,
       finished: Boolean(saved?.explainer),
+      clips: (media[id]?.clips ?? []).map((c) => (c ? { blob: c.blob, from: c.from ?? 0 } : null)),
       ...(speaker && !saved?.explainer && { clipGain: speaker.sound === "voice" ? 0 : 1 }),
     };
   };
@@ -572,14 +713,38 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       setBusy(null);
     }
   }
+  function clipPresence(piece: Piece): ClipPresence {
+    const saved = state?.media[piece.id];
+    const local = media[piece.id];
+    const explainer = Boolean(saved?.clip?.explainer);
+    const n = explainer ? 1 : Math.max(1, grokSequence(piece.seconds).length);
+    return {
+      id: piece.id,
+      seconds: piece.seconds,
+      approved: piece.status === "approved",
+      explainer,
+      clip: Boolean(local?.clip || saved?.clip),
+      slots: Array.from({ length: n }, (_, i) => Boolean(local?.clips?.[i] || saved?.clips?.[i])),
+    };
+  }
   async function runBatch(combos: AdCombo[], mode: "full" | "stage", rules: CombineRules) {
     if (!state) return;
+    const pieceIds = [...new Set(combos.flatMap((a) => [a.hookId, a.meatId, a.ctaId]))];
+    const holes = emptyClipSlots(pieceIds.flatMap((id) => {
+      const piece = pieceById.get(id);
+      return piece ? [clipPresence(piece)] : [];
+    }));
+    if (holes.length) {
+      const detail = holes.map((h) => `${h.id}: ${h.clips.map((n) => `clip ${n}`).join(", ")}`).join("\n");
+      if (!confirm(`Faltan clips en piezas aprobadas. Esos lugares salen con la imagen de la pieza, o con una tarjeta de color si no hay imagen:\n\n${detail}\n\n¿Seguir con la tanda igual?`)) return;
+    }
     setError("");
     setBusy("run");
     const errors: string[] = [];
     try {
       const created = await adsApi.createBatch(series.id, {
         seconds: settings.seconds,
+        ...(settings.split ? { split: settings.split } : {}),
         mode,
         rules,
         ads: combos,
@@ -591,7 +756,6 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       setPastedCopies((prev) => Object.fromEntries(Object.entries(prev).filter(([key]) => !used.has(key))));
       const batch = created.batch;
       let current = created.state;
-      const pieceIds = [...new Set(combos.flatMap((a) => [a.hookId, a.meatId, a.ctaId]))];
 
       setProgress({ stage: "pieces", done: 0, total: pieceIds.length, current: "", errors });
       for (let i = 0; i < pieceIds.length; i++) {
@@ -657,19 +821,10 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     ctas: state.ctas.length,
     ctasApproved: state.ctas.filter((c) => c.status === "approved").length,
   };
-  const budget = BUDGETS[settings.seconds];
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-white p-3 text-sm">
         <span className="font-semibold">{series.name}</span>
-        <label className="flex items-center gap-2">
-          <span className="text-muted">Duración</span>
-          <Segmented value={String(settings.seconds)} options={AD_SECONDS.map((s) => ({ value: String(s), label: `${s} s` }))} onChange={(v) => setSettings({ ...settings, seconds: Number(v) as AdSeconds })} />
-        </label>
-        <span className="text-xs text-muted">
-          hook {budget.hook} s · meat {budget.meat} s · CTA {budget.cta} s
-        </span>
         <label className="flex items-center gap-2">
           <span className="text-muted">Formato</span>
           <Segmented
@@ -721,7 +876,22 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
         </span>
       </div>
 
-      <BatchWizard wizard={wizard} defaults={{ levels: settings.levels, seconds: settings.seconds }} counts={counts} busy={busy !== null} onStart={startWizard} onNext={nextWizard} onStop={() => setWizard(null)} />
+      <div className="rounded-xl border border-line bg-white p-3">
+        <p className="mb-2 text-sm font-semibold">Duración del anuncio</p>
+        <AdLength
+          seconds={settings.seconds}
+          split={settings.split}
+          levels={settings.levels}
+          onChange={(next) => setSettings({ ...settings, ...next, lengthTouched: true })}
+        />
+      </div>
+      {motionMade && (
+        <Notice tone="info">
+          <span className="whitespace-pre-line">{motionMade}</span>
+        </Notice>
+      )}
+
+      <BatchWizard wizard={wizard} defaults={{ levels: settings.levels, seconds: settings.seconds, split: settings.split, lengthTouched: settings.lengthTouched }} counts={counts} busy={busy !== null} onStart={startWizard} onNext={nextWizard} onStop={() => setWizard(null)} />
 
       <nav className="flex gap-1 overflow-x-auto border-b border-line">
         {TABS.map((t) => {
@@ -789,7 +959,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           onHookFromClip={async (clipId) => {
             const clip = state.clips.find((c) => c.id === clipId);
             if (!clip) return;
-            await act("hook", () => adsApi.organicHook(series.id, clip.hook, clip.level, settings.seconds, `De “${clip.name}”`));
+            await act("hook", () => adsApi.organicHook(series.id, clip.hook, clip.level, settings.seconds, `De “${clip.name}”`, settings.split ?? undefined));
             setTab("hooks");
           }}
           onOpenOffer={() => setTab("offer")}
@@ -802,6 +972,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           hooks={state.hooks}
           levels={settings.levels}
           seconds={settings.seconds}
+          split={settings.split}
           busy={busy === "hooks"}
           demo={demo}
           note={notes.hooks ?? ""}
@@ -812,6 +983,8 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           onStatus={setStatus}
           renderCard={(h: Hook) => renderCard(h)}
           extra={<SpeakerBatch pieces={state.hooks} series={series} format={settings.format} label="hooks" />}
+          onMotionBatch={onToExplainer ? () => void makeMotionBatch(state.hooks) : undefined}
+          motionBusy={busy === "motion"}
           handoff={handoffs?.hooks ?? null}
           presetCount={preset.hooks}
           walkKey={series.id}
@@ -824,6 +997,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           hooks={state.hooks}
           levels={settings.levels}
           seconds={settings.seconds}
+          split={settings.split}
           busy={busy === "meats"}
           demo={demo}
           note={notes.meats ?? ""}
@@ -833,6 +1007,8 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           }}
           renderCard={(m) => renderCard(m)}
           extra={<SpeakerBatch pieces={state.meats} series={series} format={settings.format} label="meats" />}
+          onMotionBatch={onToExplainer ? () => void makeMotionBatch(state.meats) : undefined}
+          motionBusy={busy === "motion"}
           handoff={handoffs?.meats ?? null}
           presetCount={preset.meats}
           walkKey={series.id}
@@ -845,6 +1021,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           hooks={state.hooks}
           levels={settings.levels}
           seconds={settings.seconds}
+          split={settings.split}
           busy={busy === "ctas"}
           demo={demo}
           note={notes.ctas ?? ""}
@@ -854,6 +1031,8 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           }}
           renderCard={(c) => renderCard(c)}
           extra={<SpeakerBatch pieces={state.ctas} series={series} format={settings.format} label="ctas" />}
+          onMotionBatch={onToExplainer ? () => void makeMotionBatch(state.ctas) : undefined}
+          motionBusy={busy === "motion"}
           handoff={handoffs?.ctas ?? null}
           presetCount={preset.ctas}
           walkKey={series.id}
@@ -864,6 +1043,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           series={series.id}
           state={state}
           seconds={settings.seconds}
+          split={settings.split}
           folder={folder}
           busy={busy}
           flags={flags}

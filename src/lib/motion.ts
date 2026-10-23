@@ -23,6 +23,8 @@ import {
   slotsPlan,
   statCountText,
   timeScenes,
+  KINETIC_FALL,
+  kineticLeave,
   typingSeconds,
   type MotionScene,
   type MotionScript,
@@ -30,7 +32,7 @@ import {
   type MotionTone,
   type TimedScene,
 } from "../../shared/motion.ts";
-import { BUTTONS_FROM, PHONE_SAFE, isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
+import { BUTTONS_FROM, PHONE_SAFE, clampDelta, isPhoneFrame, safeRect } from "../../shared/safeZone.ts";
 import { stepDownColour, type Brand, type BrandMotion } from "../../shared/series.ts";
 import { cueAt, litWord, type SubtitleCue } from "../../shared/subtitles.ts";
 import { sceneClip, videoAssetOf } from "../../shared/screenVideo.ts";
@@ -295,8 +297,10 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, max: number): string[
   return lines;
 }
 
-// Words rise out of a mask one after the other; the last word takes the accent.
-function kineticTitle(f: Frame, text: string, x: number, y: number, size: number, max: number, lt: number, start: number) {
+// Words rise out of a mask one after the other; the last word takes the accent. `leaveAt` (a Publicidad hook) drops
+// them after they have been read: the move is applied before the clip so the word and its mask fall together, and a
+// missing leave is the old path exactly (no extra transform).
+function kineticTitle(f: Frame, text: string, x: number, y: number, size: number, max: number, lt: number, start: number, leaveAt?: number | null) {
   const { ctx } = f;
   ctx.font = display(f, size);
   const lines = wrap(ctx, text, max);
@@ -304,6 +308,7 @@ function kineticTitle(f: Frame, text: string, x: number, y: number, size: number
   const width = Math.max(0, ...lines.map((l) => ctx.measureText(l).width));
   let k = 0;
   const total = text.split(/\s+/).filter(Boolean).length;
+  const fall = leaveAt == null ? 0 : span(lt, leaveAt, KINETIC_FALL);
   lines.forEach((line, li) => {
     let cx = x;
     const baseline = y + li * lh;
@@ -311,6 +316,25 @@ function kineticTitle(f: Frame, text: string, x: number, y: number, size: number
       const p = outCubic(span(lt, start + k * 0.11, 0.45));
       const ww = ctx.measureText(word).width;
       ctx.save();
+      if (fall > 0) {
+        // The words fade as they fall, and on a phone frame they stay inside the safe zone (the button column included).
+        ctx.globalAlpha *= 1 - fall;
+        const sign = k % 2 === 0 ? -1 : 1;
+        const mid = (total - 1) / 2;
+        let dx = (k - mid) * fall * size * 0.22;
+        let dy = fall * fall * size * 1.35;
+        const angle = sign * fall * 0.4;
+        if (isPhoneFrame(f.w, f.h)) {
+          const safe = safeRect(f.w, f.h);
+          const pad = size * Math.sin(Math.abs(angle));
+          dx = clampDelta(cx - pad, ww + pad * 2, safe.x, safe.x + safe.w, dx);
+          dy = clampDelta(baseline - size * 0.95 - pad, size * 1.25 + pad * 2, safe.y, safe.y + safe.h, dy);
+        }
+        ctx.translate(dx, dy);
+        ctx.translate(cx + ww / 2, baseline);
+        ctx.rotate(angle);
+        ctx.translate(-(cx + ww / 2), -baseline);
+      }
       ctx.beginPath();
       ctx.rect(cx - size * 0.05, baseline - size * 0.95, ww + size * 0.1, size * 1.25);
       ctx.clip();
@@ -1093,11 +1117,11 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
-  // A title that rises in word by word, with its box.
-  const title = (x: number, y: number, size: number, max: number, extra?: (r: { w: number; h: number }) => void) => {
+  // A title that rises in word by word, with its box. `leaveAt` is only the Publicidad hook's fall.
+  const title = (x: number, y: number, size: number, max: number, extra?: (r: { w: number; h: number }) => void, leaveAt?: number | null) => {
     let height = 0;
     put("title", x, y, () => {
-      const r = kineticTitle(f, s.title, x, y, size, max, lt, at("title"));
+      const r = kineticTitle(f, s.title, x, y, size, max, lt, at("title"), leaveAt);
       height = r.h;
       extra?.(r);
       return titleBox(x, y, size, r);
@@ -1153,12 +1177,13 @@ function drawScene(f: Frame, s: TimedScene, lt: number) {
     }
     case "hook": {
       const ty = vertical ? h * 0.36 : h * 0.4;
+      const leaveAt = s.kineticExit ? kineticLeave(s.title, s.seconds, at("title")) : null;
       const hTitle = title(m, ty, unit * (vertical ? 0.13 : 0.11), w - m * 2, (r) => {
         // The accent bar draws under the title.
         const bar = outCubic(span(lt, at("title") + 0.45, 0.5));
         ctx.fillStyle = world.brand.accent;
         ctx.fillRect(m, ty + r.h - unit * 0.05, (w - m * 2) * 0.35 * bar, unit * 0.014);
-      });
+      }, leaveAt);
       text(m, ty + hTitle + unit * 0.04, unit * 0.045, w - m * 2, outCubic(span(lt, at("text"), 0.5)));
       if (asset && lay) {
         const p = enter("media", 0.6);

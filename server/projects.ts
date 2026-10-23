@@ -126,10 +126,14 @@ function stamp(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}`;
 }
 
-export async function createProject(series: string): Promise<ProjectFile> {
+export async function createProject(series: string, slug?: string): Promise<ProjectFile> {
   await mkdir(PROJECTS_DIR, { recursive: true });
   const now = new Date();
-  const base = `${stamp(now)}-${series.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "pieza"}`;
+  const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const extra = clean(slug ?? "");
+  // The id stays within 80 characters, with room for a collision suffix (-2, -3…).
+  let base = `${stamp(now)}-${clean(series) || "pieza"}${extra ? `-${extra}` : ""}`;
+  if (base.length > 76) base = base.slice(0, 76).replace(/-$/, "");
   let id = base;
   for (let n = 2; ; n++) {
     try {

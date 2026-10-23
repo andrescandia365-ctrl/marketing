@@ -7,7 +7,7 @@ import { STAT_COUNT, blankScene, figureIssues, normalizeMotion, readingIssues, f
 import { checkStreams, probeStreams } from "../scripts/renderCheck.mjs";
 import { ROOM_DIP, levelGain, median, roomWindows, sampleShape } from "../shared/sound.ts";
 import { DEFAULT_BRAND, brandContrast, contrastRatio } from "../shared/series.ts";
-import { BUTTONS_FROM, OVERLAP, PHONE_SAFE, isPhoneFrame, overlapShare, safeBands, safeRect } from "../shared/safeZone.ts";
+import { BUTTONS_FROM, OVERLAP, PHONE_SAFE, clampDelta, isPhoneFrame, overlapShare, safeBands, safeRect } from "../shared/safeZone.ts";
 
 const stat = (title: string, text = "", seconds = 4): MotionScene => ({ ...blankScene("stat"), title, text, seconds });
 
@@ -58,6 +58,13 @@ test("the safe zone is only for 9:16 and leaves the platform's bars out", () => 
   // The button column only covers the lower part of the right edge.
   assert.deepEqual(safeBands({ x: 600, y: 250, w: 450, h: 100 }, 1080, 1920), []);
   assert.deepEqual(safeBands({ x: 600, y: 1920 * BUTTONS_FROM, w: 450, h: 100 }, 1080, 1920), ["right"]);
+});
+
+test("a fallen word stays inside the room it is given", () => {
+  assert.equal(clampDelta(10, 200, 0, 100, 5), -10, "a span wider than the room pins to the start");
+  assert.equal(clampDelta(40, 20, 0, 100, 5), 5, "a move that stays inside is left as it is");
+  assert.equal(clampDelta(40, 20, 0, 100, 50), 40, "the far edge stops at the end of the room");
+  assert.equal(clampDelta(40, 20, 0, 100, -50), -40, "the near edge stops at the start of the room");
 });
 
 test("overlap is measured on the smaller box", () => {
