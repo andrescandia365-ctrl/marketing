@@ -1,16 +1,16 @@
 // The next batch is pure code: rank what the CSV already measured, say why, archive on apply, restore on undo.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AdsStateSchema, EMPTY_OFFER, emptyAds, pieceStats, type MetricRow, type PieceStatus } from "../shared/ads.ts";
+import { AdsStateSchema, EMPTY_OFFER, emptyAds, MIN_IMPRESSIONS, pieceStats, type MetricRow, type PieceStatus } from "../shared/ads.ts";
 import {
   DEFAULT_KEEP_SHARE,
-  MIN_IMPRESSIONS,
   keepCount,
   planApply,
   proposeNext,
   rowsForVoice,
   undoChanges,
   variantFacts,
+  variantWinnerRefusal,
   type NextPiece,
   type NextVoice,
 } from "../shared/adsNext.ts";
@@ -23,6 +23,8 @@ function row(adId: string, extra: Partial<MetricRow> = {}): MetricRow {
     adId,
     impressions: 4200,
     views3s: 0,
+    views2s: 0,
+    views6s: 0,
     views: 0,
     avgWatch: 0,
     clicks: 0,
@@ -241,10 +243,66 @@ test("apply archives a loser and approves a pending winner, and undo restores a 
   assert.deepEqual(planApply(missing, [{ id: "H8", status: "approved" }], {}, {}).status, []);
 });
 
+test("TikTok rows with only 2 s views rank on those views, and a real 3 s count stays 3 s", () => {
+  const proposal = proposeNext({
+    pieces: [hook("H5"), hook("H6")],
+    rows: [
+      row("H5-M2-C1", { impressions: 3000, views3s: 0, views2s: 2100, views6s: 900, views: 2400 }),
+      row("H6-M2-C1", { impressions: 3000, views3s: 0, views2s: 300, views: 2400 }),
+    ],
+    keepShare: 0.5,
+  });
+  const h5 = proposal.lines.find((l) => l.id === "H5");
+  const h6 = proposal.lines.find((l) => l.id === "H6");
+  assert.equal(h5?.verdict, "ganador");
+  assert.equal(h6?.verdict, "perdedor");
+  assert.match(h5?.why ?? "", /70 % de retención a 2 s con 3\.000 impresiones/);
+  assert.doesNotMatch(h5?.why ?? "", /a 3 s/);
+  assert.match(h6?.why ?? "", /10 % de retención a 2 s/);
+  const voices = proposeNext({
+    pieces: [hook("H5")],
+    voices: [
+      { pieceId: "H5", id: "v1", name: "Baja" },
+      { pieceId: "H5", id: "v2", name: "Alta" },
+    ],
+    rows: [
+      row("H5v2-M2-C1", { impressions: 3000, views3s: 0, views2s: 2100 }),
+      row("H5v1-M2-C1", { impressions: 3000, views3s: 0, views2s: 300 }),
+    ],
+  });
+  const alta = voices.voices.find((v) => v.voiceId === "v2");
+  assert.equal(alta?.verdict, "ganador");
+  assert.equal(voices.voices.find((v) => v.voiceId === "v1")?.verdict, "perdedor");
+  assert.match(alta?.why ?? "", /70 % de retención a 2 s/);
+  assert.doesNotMatch(alta?.why ?? "", /a 3 s/);
+  const both = proposeNext({
+    pieces: [hook("H7")],
+    rows: [row("H7-M1-C1", { impressions: 3000, views3s: 900, views2s: 2100 })],
+  });
+  assert.match(both.lines[0].why, /30 % de retención a 3 s/);
+  const facts = variantFacts(
+    { id: "H5", text: "Llega tarde", level: 3, angle: "pain", formula: "question" },
+    { impressions: 3000, views3s: 0, views2s: 2100, hookRate: 0.7 },
+    2,
+  );
+  assert.match(facts.line, /70% ven 2 s, 2100 vistas de 2 s, 3000 impresiones/);
+  assert.doesNotMatch(facts.line, /ven 3 s/);
+});
+
+test("a variant under the impression floor cannot be sent as a winner", () => {
+  assert.equal(variantWinnerRefusal("H9", { impressions: 1000 }), null);
+  assert.equal(variantWinnerRefusal("H9", { impressions: 400 }, 400), null);
+  const thin = variantWinnerRefusal("H9", { impressions: 400 });
+  assert.match(thin ?? "", /H9 tiene 400 impresiones/);
+  assert.match(thin ?? "", /mínimo para mandarlo como ganador es 1000/);
+  assert.match(thin ?? "", /No se puede mandar como ganador/);
+  assert.match(variantWinnerRefusal("H3", undefined) ?? "", /H3 tiene 0 impresiones/);
+});
+
 test("variant facts quote the stored numbers, and the hook task locks the angle only when asked", () => {
   const facts = variantFacts(
     { id: "H12", text: "Otra vez tarde", level: 2, angle: "pain", formula: "question" },
-    { impressions: 4200, views3s: 1596, hookRate: 0.38 },
+    { impressions: 4200, views3s: 1596, views2s: 0, hookRate: 0.38 },
     3,
   );
   assert.equal(facts.count, 3);

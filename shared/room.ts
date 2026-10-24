@@ -63,28 +63,46 @@ export function storyCard(id: string, updatedAt: string, story: LooseStory | nul
   };
 }
 
+// A non-empty list is the pieces the audience has already seen. Empty or omitted: every card counts, and the
+// text is the one the room has always written. The list is passed in; this file does not read a published-piece store.
+function countedCards<T extends { id?: string }>(cards: T[], publishedIds?: readonly string[]): T[] {
+  if (!publishedIds?.length) return cards;
+  const gate = new Set(publishedIds);
+  return cards.filter((c) => c.id !== undefined && gate.has(c.id));
+}
+
 // Moves used by more than half the pieces of the series (at least three pieces): the series leans on them.
-export function overusedMoves(cards: Pick<RoomCard, "moves">[]): { move: Move; label: string; pieces: number }[] {
-  if (cards.length < 3) return [];
-  const counts = moveCounts(cards.map((c) => c.moves ?? []));
-  return MOVES.filter((m) => counts[m] > cards.length / 2).map((m) => ({ move: m, label: MOVE_LABEL[m], pieces: counts[m] }));
+// With published ids, only those pieces are counted, and "half" is half of that set.
+export function overusedMoves(cards: (Pick<RoomCard, "moves"> & { id?: string })[], publishedIds?: readonly string[]): { move: Move; label: string; pieces: number }[] {
+  const counted = countedCards(cards, publishedIds);
+  if (counted.length < 3) return [];
+  const counts = moveCounts(counted.map((c) => c.moves ?? []));
+  return MOVES.filter((m) => counts[m] > counted.length / 2).map((m) => ({ move: m, label: MOVE_LABEL[m], pieces: counts[m] }));
 }
 
 // What the writer sees. Empty when this is the first piece.
-export function roomBrief(cards: RoomCard[]): string {
+// publishedIds omitted or empty: identical to the room with no published piece. Once at least one id is passed,
+// moves are counted on the published pieces only, and a card that is not among them is still in drafts.
+export function roomBrief(cards: RoomCard[], publishedIds?: readonly string[]): string {
   if (cards.length === 0) return "";
+  const gate = publishedIds?.length ? new Set(publishedIds) : null;
+  const counted = countedCards(cards, publishedIds);
   // Moves the other pieces keep using (the Turn and the Button are in every piece on purpose).
-  const leaning = overusedMoves(cards).filter((m) => m.move !== "turn" && m.move !== "button");
+  const leaning = overusedMoves(counted).filter((m) => m.move !== "turn" && m.move !== "button");
   const moves = leaning.length
-    ? `\nMoves most earlier pieces already lean on (open or escalate differently this time): ${leaning.map((m) => `${m.move} (${m.pieces} of ${cards.length})`).join(", ")}.`
+    ? `\nMoves most earlier pieces already lean on (open or escalate differently this time): ${leaning.map((m) => `${m.move} (${m.pieces} of ${counted.length})`).join(", ")}.`
     : "";
   return cards
     .slice(0, 8)
     .map((c) => {
+      const draft = Boolean(gate && !gate.has(c.id));
       const bits = [
         c.tease && `Still hanging (pay it, or move it one step; do not open it as if it were new): ${c.tease}`,
         c.open.length && `Open loops (pay one only when it is this episode's problem): ${c.open.join(" | ")}`,
-        c.canon.length && `Already true for the audience: ${c.canon.join(" | ")}`,
+        c.canon.length &&
+          (draft
+            ? `Still in drafts (the audience has not seen it): ${c.canon.join(" | ")}`
+            : `Already true for the audience: ${c.canon.join(" | ")}`),
         c.runner && `Runner already used (invent a different bit): ${c.runner}`,
         c.paid.length && `Already paid off: ${c.paid.join(" | ")}`,
       ].filter(Boolean);

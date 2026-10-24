@@ -129,6 +129,9 @@ test("ad ids add the variant only for a piece with more than one voice, and v10 
   assert.equal(parseAdId("H12v10-M3v1-C2")?.hookVoice, "v10");
   assert.notEqual(parseAdId("H12v10-M3-C2")?.hookVoice, "v1");
   assert.equal(parseAdId("H12-M3-C2")?.hookVoice, undefined);
+  assert.equal(parseAdId("IMAN_N2_H12-M3-C2_15s_9x16 - Copy")?.hookId, "H12");
+  assert.equal(parseAdId("XH12-M3-C2"), null);
+  assert.equal(parseAdId("H12-M3-C2extra"), null);
   assert.equal(isAdId("H12v3-M3v1-C2v2"), true);
   assert.equal(isAdId("H12-M3-C2"), true);
   assert.equal(isAdId("H12v01-M3-C2"), false);

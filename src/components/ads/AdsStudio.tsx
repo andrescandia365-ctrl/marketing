@@ -10,6 +10,7 @@ import {
   currentRender,
   isAdSeconds,
   offerFilled,
+  MIN_IMPRESSIONS,
   splitIssue,
   type AdCombo,
   copyKey,
@@ -34,7 +35,7 @@ import { blobToDataUrl, readImageFile } from "../../lib/files.ts";
 import type { AdSeed } from "../../../shared/adsFromExplainer.ts";
 import { emptyClipSlots, grokSequence, type ClipPresence } from "../../../shared/adsSequence.ts";
 import type { BulkPiece } from "../../../shared/adsBulk.ts";
-import { DEFAULT_KEEP_SHARE, MIN_IMPRESSIONS, planApply, proposeNext, undoChanges, type NextPiece, type StatusChange, type VoiceChange } from "../../../shared/adsNext.ts";
+import { DEFAULT_KEEP_SHARE, planApply, proposeNext, undoChanges, type NextPiece, type StatusChange, type VoiceChange } from "../../../shared/adsNext.ts";
 import type { PastedCopy } from "../../../shared/adsHandoff.ts";
 import { audioDuration } from "../Audio.tsx";
 import { Button, Lazy, Notice, Segmented, Spinner } from "../ui.tsx";
@@ -195,6 +196,7 @@ function loadSettings(): Settings {
 export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPlaybook, onToExplainer }: Props) {
   const [state, setState] = useState<AdsState | null>(null);
   const [ranking, setRanking] = useState<RankedHook[]>([]);
+  const [minImpressions, setMinImpressions] = useState(MIN_IMPRESSIONS);
   const [transcription, setTranscription] = useState(false);
   const [folder, setFolder] = useState("");
   const [tab, setTab] = useState<Tab>("offer");
@@ -214,7 +216,6 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   const [pastedCopies, setPastedCopies] = useState<Record<string, PastedCopy>>({});
   const [preset, setPreset] = useState<{ hooks?: number; meats?: number; ctas?: number }>({});
   const [motionMade, setMotionMade] = useState("");
-  const [minImpressions, setMinImpressions] = useState(MIN_IMPRESSIONS);
   const [keepPercent, setKeepPercent] = useState(Math.round(DEFAULT_KEEP_SHARE * 100));
   const [nextUndo, setNextUndo] = useState<{ status: StatusChange[]; voices: VoiceChange[] } | null>(null);
   useEffect(() => {
@@ -807,7 +808,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   // ── Generation ──────────────────────────────────────────────────────────────
   const lengthBody = () => ({ seconds: settings.seconds, ...(settings.split ? { split: settings.split } : {}) });
   async function generateHooks(count: number, levels = settings.levels, seconds = settings.seconds, split = settings.split) {
-    const r = await act("hooks", () => adsApi.hooks(series.id, { levels, count, seconds, ...(split ? { split } : {}), tool: toolId, language: lang }));
+    const r = await act("hooks", () => adsApi.hooks(series.id, { levels, count, seconds, ...(split ? { split } : {}), tool: toolId, language: lang, minImpressions }));
     if (r) setNotes((n) => ({ ...n, hooks: r.note }));
     return r;
   }
@@ -904,7 +905,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     paste: async (reply) => done(await sendAsk(ask, reply)),
   });
   const body = (count: number, part: number) => ({ levels: settings.levels, count, ...lengthBody(), tool: toolId, language: lang, part });
-  const variantBody = (id: string, count: number) => ({ ...body(count, 1), variant: { id, count } });
+  const variantBody = (id: string, count: number) => ({ ...body(count, 1), variant: { id, count }, minImpressions });
   async function variantPrompt(id: string, count: number) {
     return (await askPrompt(adsAsks.hooks(series.id, variantBody(id, count)))).prompt;
   }
@@ -980,7 +981,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   const handoffs = demo
     ? {
         hooks: (count: number) => (part: number) =>
-          via(adsAsks.hooks(series.id, body(count, part)), (r) => {
+          via(adsAsks.hooks(series.id, { ...body(count, part), minImpressions }), (r) => {
             setState(r.state);
             setNotes((n) => ({ ...n, hooks: pastedNote(r) }));
           }),
@@ -1526,6 +1527,8 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           series={series.id}
           state={state}
           ranking={ranking}
+          minImpressions={minImpressions}
+          onMinImpressions={setMinImpressions}
           transcription={transcription}
           demo={demo}
           busy={busy}

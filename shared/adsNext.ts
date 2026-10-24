@@ -1,10 +1,9 @@
 // The next batch, from the metrics already imported. Pure code: nothing here calls a model or deletes a piece.
 // A piece under MIN_IMPRESSIONS is "sin datos suficientes", never a winner or a loser. Of the ones with enough
 // data, the top share stays (and is approved) and the rest are archived. Voices are read off the ad id (H12v3).
-import { pieceStats, type MetricRow, type PieceKind, type PieceStats, type PieceStatus } from "./ads.ts";
+import { enoughData, hookWatch, MIN_IMPRESSIONS, pieceStats, type MetricRow, type PieceKind, type PieceStats, type PieceStatus } from "./ads.ts";
 import { parseAdId } from "./voiceVariants.ts";
 
-export const MIN_IMPRESSIONS = 1000;
 export const DEFAULT_KEEP_SHARE = 0.2;
 
 export type Verdict = "ganador" | "perdedor" | "sin datos suficientes";
@@ -62,7 +61,7 @@ export function keepCount(withData: number, share: number): number {
 }
 
 function sumRows(id: string, rows: MetricRow[]): PieceStats {
-  const s = { id, ads: 0, impressions: 0, views: 0, views3s: 0, hookRate: 0, avgWatch: 0, clicks: 0, ctr: 0, conversions: 0, convRate: 0, spend: 0 };
+  const s: PieceStats = { id, ads: 0, impressions: 0, views: 0, views3s: 0, views2s: 0, views6s: 0, hookRate: 0, avgWatch: 0, clicks: 0, ctr: 0, conversions: 0, convRate: 0, spend: 0 };
   let watch = 0;
   let weight = 0;
   for (const r of rows) {
@@ -70,6 +69,8 @@ function sumRows(id: string, rows: MetricRow[]): PieceStats {
     s.impressions += r.impressions;
     s.views += r.views;
     s.views3s += r.views3s;
+    s.views2s += r.views2s ?? 0;
+    s.views6s += r.views6s ?? 0;
     s.clicks += r.clicks;
     s.conversions += r.conversions;
     s.spend += r.spend;
@@ -77,7 +78,7 @@ function sumRows(id: string, rows: MetricRow[]): PieceStats {
     weight += r.impressions || 1;
   }
   s.avgWatch = weight ? watch / weight : 0;
-  s.hookRate = s.impressions ? s.views3s / s.impressions : 0;
+  s.hookRate = s.impressions ? hookWatch(s).views / s.impressions : 0;
   s.ctr = s.impressions ? s.clicks / s.impressions : 0;
   s.convRate = s.impressions ? s.conversions / s.impressions : 0;
   return s;
@@ -103,7 +104,10 @@ function scoreOf(kind: PieceKind, stats: PieceStats): number {
 }
 
 function metricText(kind: PieceKind, stats: PieceStats): string {
-  if (kind === "hook") return `${pct(stats.hookRate)} de retención a 3 s con ${esInt(stats.impressions)} impresiones`;
+  if (kind === "hook") {
+    const watch = hookWatch(stats);
+    return `${pct(stats.hookRate)} de retención a ${watch.seconds} s con ${esInt(stats.impressions)} impresiones`;
+  }
   if (kind === "meat") return `${secs(stats.avgWatch)} de visionado promedio con ${esInt(stats.impressions)} impresiones`;
   return `${esInt(stats.conversions)} conversiones y ${esInt(stats.clicks)} clics en ${esInt(stats.impressions)} impresiones`;
 }
@@ -277,18 +281,27 @@ export function undoChanges(applied: { status: StatusChange[]; voices: VoiceChan
 // for. The route looks the hook up; this only formats facts it was given.
 export function variantFacts(
   hook: { id: string; text: string; level: number; angle: string; formula: string },
-  stats: Pick<PieceStats, "impressions" | "views3s" | "hookRate"> | undefined,
+  stats: Pick<PieceStats, "impressions" | "views3s" | "views2s" | "hookRate"> | undefined,
   count: number,
 ): { angle: string; formula: string; level: number; count: number; line: string } {
   const impressions = stats?.impressions ?? 0;
   const views3s = stats?.views3s ?? 0;
   const rate = stats?.hookRate ?? 0;
+  const watch = hookWatch({ views3s, views2s: stats?.views2s ?? 0 });
+  const shown = watch.seconds === 2 ? watch.views : views3s;
   const n = Math.max(1, Math.round(count));
   return {
     angle: hook.angle,
     formula: hook.formula,
     level: hook.level,
     count: n,
-    line: `${hook.text} (${hook.id}, N${hook.level}, angle ${hook.angle}, formula ${hook.formula}, ${Math.round(rate * 100)}% ven 3 s, ${Math.round(views3s)} vistas de 3 s, ${Math.round(impressions)} impresiones). Write ${n} new hooks in this same angle and formula. Never reuse these words.`,
+    line: `${hook.text} (${hook.id}, N${hook.level}, angle ${hook.angle}, formula ${hook.formula}, ${Math.round(rate * 100)}% ven ${watch.seconds} s, ${Math.round(shown)} vistas de ${watch.seconds} s, ${Math.round(impressions)} impresiones). Write ${n} new hooks in this same angle and formula. Never reuse these words.`,
   };
+}
+
+// A variant asks for more hooks in one winner's angle. Under the floor it is not a winner, so the route refuses.
+export function variantWinnerRefusal(id: string, stats: { impressions: number } | undefined, min = MIN_IMPRESSIONS): string | null {
+  if (enoughData(stats ?? { impressions: 0 }, min)) return null;
+  const n = Math.round(stats?.impressions ?? 0);
+  return `${id} tiene ${n} impresiones y el mínimo para mandarlo como ganador es ${min}. No se puede mandar como ganador: subí el mínimo en Fuentes o elegí un gancho que ya lo pase.`;
 }

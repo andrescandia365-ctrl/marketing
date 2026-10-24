@@ -262,8 +262,9 @@ export function campaignCsv(
   ctas: Cta[],
   statics: Record<string, HookStatic>,
   media?: Record<string, AdsMedia>,
+  seriesId?: string,
 ): string {
-  const videos = exportCsv(batch, hooks, meats, ctas, media);
+  const videos = exportCsv(batch, hooks, meats, ctas, media, seriesId);
   const rows = staticRows({ hooks, ctas, statics, copies: batch.copies, prefix: "../../estaticos/", only: new Set(batch.ads.map((a) => a.hookId)) });
   return rows.length ? `${videos}\n${rows.map(line).join("\n")}` : videos;
 }

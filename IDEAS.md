@@ -5,6 +5,7 @@ Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
 ## Construido
 - **Subir clips en lote y próxima tanda (24 Oct 2026, idea 70):** los prompts de Grok terminan con el nombre del archivo, se suben de a muchos, y las métricas proponen qué se queda, qué se archiva y qué voces entran.
+- **Métricas, nombres y la sala (24 Oct 2026, idea 70):** el CSV de Meta ya no toma el costo por vista ni ThruPlay como vistas de 3 segundos, y el de TikTok lee vistas de 2 s, de 6 s, el costo y los clics. Por debajo del mínimo de impresiones (1000, se puede cambiar en Fuentes) la fila dice «sin datos suficientes» y no es un ganador. Los hooks que llegan de Playbook quedan «del orgánico, sin medir» hasta que tengan métricas de verdad. El nombre que sale en el CSV de la tanda lleva el id de la serie en mayúsculas y sin acentos (`IMAN_N2_H12-M3-C2_45s_9x16`); el archivo en disco sigue siendo el id pelado. Al importar se compara sin distinguir mayúsculas, los nombres viejos sin prefijo se leen, y los de otra serie no entran. La sala cuenta igual que antes hasta que haya una pieza publicada. «Traer la marca desde su web» en una serie que todavía no se guardó no abre la biblia de IMAN. El recorrido en el navegador (`npm run e2e`) cubre Playbook, un explicativo y una tanda de 2 anuncios con estos CSV.
 
 - **Variantes de voz (23 Oct 2026, idea 69):** hasta 10 voces subidas por pieza de Publicidad; el id del anuncio suma la voz solo cuando la pieza tiene más de una.
 

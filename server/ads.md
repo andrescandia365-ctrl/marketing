@@ -39,8 +39,9 @@ Levels 1–3 run to cold audiences; 4–5 to people who already know the brand (
 - Each hook has an **angle** (pain, desire, objection, myth, curiosity, proof) and a **formula** (question, "dejá de hacer
   X", number, before/after). When asked for a grid, cover it: different angles and formulas within each level, never
   fifty variations of one line.
-- Use the winners given (hooks with good metrics, hooks from the organic content) as patterns to learn from: borrow
-  their structure and angle, never repeat their words. Use the audience's own words (their comments and questions).
+- Use the winners given (hooks measured above the impression minimum) as patterns to learn from: borrow
+  their structure and angle, never repeat their words. Hooks from the organic content that are not measured yet are
+  listed apart and are not winners. Use the audience's own words (their comments and questions).
 - Never a hook you were told already exists.
 
 ## Meats (3–5 per run)
