@@ -135,7 +135,7 @@ export const askPrompt = (ask: WriterAsk<unknown>) => call<PromptOnly>(ask.path,
 // prompt of a request split in several; the prompt's answer says how many there are.
 type Parted = { part?: number; parts?: number };
 export type PartPrompt = PromptOnly & Parted & { keys?: string[] };
-type PieceBody = { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; part: number; split?: { hook: number; meat: number; cta: number } };
+type PieceBody = { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; part: number; split?: { hook: number; meat: number; cta: number }; minImpressions?: number };
 export const adsAsks = {
   hooks: (series: string, body: PieceBody) => writerAsk<{ state: AdsState; hooks: Hook[]; note: string } & Demo & Parted>(`/api/ads/${enc(series)}/hooks`, body),
   meats: (series: string, body: PieceBody & { formats: MeatFormat[] }) =>
@@ -177,8 +177,8 @@ export const ads = {
     call<{ state: AdsState; clip: ClipRecord } & Demo>(`/api/ads/${enc(series)}/clips/text`, { name, transcript }),
   removeClip: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/clips/${enc(id)}`, undefined, "DELETE"),
   importMetrics: (series: string, csv: string, replace = true) =>
-    call<{ state: AdsState; ranking: RankedHook[]; rows: number; withId: number; found: string[]; missing: string[] }>(`/api/ads/${enc(series)}/metrics`, { csv, replace }),
-  hooks: (series: string, body: { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; split?: { hook: number; meat: number; cta: number } }) =>
+    call<{ state: AdsState; ranking: RankedHook[]; rows: number; withId: number; found: string[]; missing: string[]; otherSeries: number }>(`/api/ads/${enc(series)}/metrics`, { csv, replace }),
+  hooks: (series: string, body: { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; split?: { hook: number; meat: number; cta: number }; minImpressions?: number }) =>
     call<{ state: AdsState; hooks: Hook[]; note: string } & Demo>(`/api/ads/${enc(series)}/hooks`, body),
   organicHook: (series: string, text: string, level: number, seconds: number, note: string, split?: { hook: number; meat: number; cta: number }) =>
     call<{ state: AdsState; hook: Hook }>(`/api/ads/${enc(series)}/hooks/organic`, { text, level, seconds, note, ...(split ? { split } : {}) }),

@@ -1,7 +1,7 @@
 // Where winning hooks come from (this goes first): metrics of previous ads, hooks from the organic content, and the
 // clips of previous ads catalogued by the AI (hook, meat, CTA, level, format).
 import { useState } from "react";
-import { ANGLE_LABEL, FORMULA_LABEL, LEVEL_INFO, MEAT_FORMAT_LABEL, clipStats, pieceStats, type AdsState, type RankedHook } from "../../../shared/ads.ts";
+import { ANGLE_LABEL, FORMULA_LABEL, LEVEL_INFO, MEAT_FORMAT_LABEL, clipStats, enoughData, measuredWinners, pieceStats, type AdsState, type RankedHook } from "../../../shared/ads.ts";
 import { adsFileUrl } from "../../lib/api.ts";
 import { ClaudeHandoff, type Handoff } from "../ClaudeHandoff.tsx";
 import { Button, Notice, Spinner, inputClass } from "../ui.tsx";
@@ -11,13 +11,15 @@ type Props = {
   series: string;
   state: AdsState;
   ranking: RankedHook[];
+  minImpressions: number;
+  onMinImpressions: (n: number) => void;
   transcription: boolean;
   demo: boolean;
   busy: string | null;
   onUploadClip: (file: File) => Promise<void>;
   onClipText: (name: string, transcript: string) => Promise<void>;
   onRemoveClip: (id: string) => Promise<void>;
-  onImportMetrics: (csv: string) => Promise<{ rows: number; withId: number; missing: string[] }>;
+  onImportMetrics: (csv: string) => Promise<{ rows: number; withId: number; missing: string[]; otherSeries?: number }>;
   onHookFromClip: (clipId: string) => Promise<void>;
   onOpenOffer: () => void;
   // "Sin clave": the pasted transcript cut by claude.ai, and a catalogued clip cut again by claude.ai.
@@ -32,6 +34,8 @@ export function SourcesPanel({
   series,
   state,
   ranking,
+  minImpressions,
+  onMinImpressions,
   transcription,
   demo,
   busy,
@@ -47,11 +51,15 @@ export function SourcesPanel({
   const [splitting, setSplitting] = useState<string | null>(null);
   const [pasteName, setPasteName] = useState("");
   const [paste, setPaste] = useState("");
-  const [imported, setImported] = useState<{ rows: number; withId: number; missing: string[] } | null>(null);
+  const [imported, setImported] = useState<{ rows: number; withId: number; missing: string[]; otherSeries?: number } | null>(null);
   const [error, setError] = useState("");
   const stats = pieceStats(state.metrics);
   const byClip = clipStats(state.clips, state.metrics);
   const organic = state.hooks.filter((h) => h.source === "organic");
+  const winnerIds = new Set(measuredWinners(ranking, minImpressions).map((r) => r.id));
+  // Enough-data rows first. The sort is stable, so the score order inside each group stays the one rankHooks wrote.
+  const shown = [...ranking].sort((a, b) => Number(enoughData(b.stats, minImpressions)) - Number(enoughData(a.stats, minImpressions)));
+  const show26 = shown.some((r) => (r.stats.views2s ?? 0) > 0 || (r.stats.views6s ?? 0) > 0);
 
   async function importFile(file: File) {
     setError("");
@@ -93,6 +101,23 @@ export function SourcesPanel({
             {state.metrics.length ? `${state.metrics.length} filas de métricas · ${new Date(state.metricsImportedAt).toLocaleDateString()}` : "Sin métricas todavía"}
           </span>
         </div>
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="text-xs">
+            <span className="font-semibold">Mínimo de impresiones</span>
+            <input
+              type="number"
+              min={1}
+              className={`${inputClass} mt-1 w-28 font-mono`}
+              aria-label="Mínimo de impresiones"
+              value={minImpressions}
+              onChange={(e) => {
+                const n = Math.round(Number(e.target.value));
+                if (Number.isInteger(n) && n >= 1) onMinImpressions(n);
+              }}
+            />
+          </label>
+          <p className="max-w-xl text-xs text-muted">Por debajo de este número la fila dice «sin datos suficientes» y no cuenta como ganador.</p>
+        </div>
         {ranking.length === 0 ? (
           <p className="mt-2 text-sm text-muted">Cuando haya métricas, acá aparecen los hooks de mejor a peor: videos que lo usaron, impresiones, % que ve 3 s, vistas.</p>
         ) : (
@@ -105,26 +130,33 @@ export function SourcesPanel({
                 <th className="py-1 pr-2 text-right font-medium">Impresiones</th>
                 <th className="py-1 pr-2 text-right font-medium">Ven 3 s</th>
                 <th className="py-1 pr-2 text-right font-medium">Vistas</th>
+                {show26 && <th className="py-1 pr-2 text-right font-medium">Ven 2 s</th>}
+                {show26 && <th className="py-1 pr-2 text-right font-medium">Ven 6 s</th>}
               </tr>
             </thead>
             <tbody>
-              {ranking.map((r) => (
-                <tr key={r.id} className="border-t border-line">
-                  <td className="py-1.5 pr-2">
-                    <span className="font-mono text-muted">{r.id}</span> {r.text}
-                    <span className="ml-1 text-muted">
-                      · {ANGLE_LABEL[r.angle]} · {FORMULA_LABEL[r.formula]}
-                    </span>
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    <LevelChip level={r.level} />
-                  </td>
-                  <td className="py-1.5 pr-2 text-right font-mono">{r.stats.ads}</td>
-                  <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.impressions)}</td>
-                  <td className="py-1.5 pr-2 text-right font-mono">{r.stats.impressions ? pct(r.stats.hookRate) : "–"}</td>
-                  <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.views3s || r.stats.views)}</td>
-                </tr>
-              ))}
+              {shown.map((r) => {
+                const enough = enoughData(r.stats, minImpressions);
+                return (
+                  <tr key={r.id} className="border-t border-line">
+                    <td className="py-1.5 pr-2">
+                      <span className="font-mono text-muted">{r.id}</span> {r.text}
+                      <span className="ml-1 text-muted">
+                        · {ANGLE_LABEL[r.angle]} · {FORMULA_LABEL[r.formula]}
+                      </span>
+                    </td>
+                    <td className="py-1.5 pr-2">
+                      <LevelChip level={r.level} />
+                    </td>
+                    <td className="py-1.5 pr-2 text-right font-mono">{r.stats.ads}</td>
+                    <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.impressions)}</td>
+                    <td className="py-1.5 pr-2 text-right font-mono">{enough ? (r.stats.impressions ? pct(r.stats.hookRate) : "–") : "sin datos suficientes"}</td>
+                    <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.views3s || r.stats.views)}</td>
+                    {show26 && <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.views2s ?? 0)}</td>}
+                    {show26 && <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.views6s ?? 0)}</td>}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -133,10 +165,11 @@ export function SourcesPanel({
             Cargar reporte CSV
             <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
           </label>
-          <span className="text-muted">Columnas que lee: nombre del anuncio, impresiones, reproducciones de 3 s, tiempo promedio, clics, resultados, gasto. Reemplaza la carga anterior.</span>
+          <span className="text-muted">Columnas que lee: nombre del anuncio, impresiones, reproducciones de 3 s (no el costo por vista ni ThruPlay), vistas de 2 s y de 6 s si vienen, tiempo promedio, clics, resultados y gasto. Reemplaza la carga anterior.</span>
           {imported && (
             <span className="text-good">
               {imported.rows} filas, {imported.withId} con ID de la app{imported.missing.length ? ` · sin columna: ${imported.missing.join(", ")}` : ""}
+              {imported.otherSeries ? (imported.otherSeries === 1 ? " · 1 fila es de otra serie y no entra." : ` · ${imported.otherSeries} filas son de otra serie y no entran.`) : ""}
             </span>
           )}
           {error && <span className="text-neg">{error}</span>}
@@ -175,6 +208,7 @@ export function SourcesPanel({
                 <LevelChip level={h.level} />
                 <span>{h.text}</span>
                 {h.note && <span className="text-xs text-muted">· {h.note}</span>}
+                {!winnerIds.has(h.id) && h.status !== "rejected" && <Tag>del orgánico, sin medir</Tag>}
                 <Tag>{h.status === "approved" ? "aprobado" : h.status === "rejected" ? "descartado" : "pendiente"}</Tag>
               </li>
             ))}

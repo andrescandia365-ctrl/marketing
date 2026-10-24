@@ -1013,10 +1013,15 @@ export const reviseMotion = (brief: Brief, current: MotionScript, note: string, 
   runTask(reviseMotionTask(brief, current, note, layers));
 
 // "Traer la marca desde su web": the writer reads what the page uses and says, and proposes the brand kit.
-export function brandFromSite(facts: SiteFacts, seriesId: string): Promise<BrandSuggestion> {
-  return ask(
-    { ...EMPTY_BRIEF, series: seriesId },
-    false,
+export function brandFromSite(facts: SiteFacts, seriesId: string | null): Promise<BrandSuggestion> {
+  const who = currentWriter();
+  if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
+  // A new series that is not saved yet has no bible. Do not fall back to another series (EMPTY_BRIEF names IMAN).
+  const series = seriesId ? getSeries(seriesId) : null;
+  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false) : [])];
+  return askWith(
+    who,
+    system,
     `This is the brand's own web page, read by the app (its colours and fonts come from its styles, most used first).
 
 Address: ${facts.url}
