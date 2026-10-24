@@ -135,7 +135,17 @@ export const askPrompt = (ask: WriterAsk<unknown>) => call<PromptOnly>(ask.path,
 // prompt of a request split in several; the prompt's answer says how many there are.
 type Parted = { part?: number; parts?: number };
 export type PartPrompt = PromptOnly & Parted & { keys?: string[] };
-type PieceBody = { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; part: number; split?: { hook: number; meat: number; cta: number } };
+type PieceBody = {
+  levels: number[];
+  count: number;
+  seconds: number;
+  tool: string;
+  language: "es" | "en";
+  part: number;
+  split?: { hook: number; meat: number; cta: number };
+  // N new hooks in one winner's angle and formula. The server reads that hook's stored stats.
+  variant?: { id: string; count: number };
+};
 export const adsAsks = {
   hooks: (series: string, body: PieceBody) => writerAsk<{ state: AdsState; hooks: Hook[]; note: string } & Demo & Parted>(`/api/ads/${enc(series)}/hooks`, body),
   meats: (series: string, body: PieceBody & { formats: MeatFormat[] }) =>

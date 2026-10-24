@@ -20,6 +20,7 @@ import {
   meatsFromWire,
   organicHook,
   parseMetricsCsv,
+  pieceStats,
   rankHooks,
   toLevel,
   toLevels,
@@ -61,6 +62,7 @@ import {
 } from "../shared/voiceVariants.ts";
 import { campaignCsv, defaultStatic, staticBelongs, staticsCsv } from "../shared/adsStatic.ts";
 import { sequenceSlot } from "../shared/adsSequence.ts";
+import { variantFacts } from "../shared/adsNext.ts";
 import { currentWriter, taskFromPaste, taskPrompt } from "./claude.ts";
 import { HandoffSchema } from "../shared/handoff.ts";
 import { PastedCopySchema, copiesFromWire, copyChunks, copyPairs, countParts, freshCopies, withSigs, hookParts, partOf, type PromptPart } from "../shared/adsHandoff.ts";
@@ -378,28 +380,54 @@ export function adsRoutes(app: Hono) {
   // Hooks: the winners (metrics, organic) go in as patterns; existing hooks are not repeated.
   app.post("/api/ads/:series/hooks", async (c) => {
     const id = series(c);
-    const { levels, count, seconds, tool, language, handoff, part, split } = z
-      .object({ levels: Levels, count: z.number().int().min(1).max(60), seconds: Seconds, tool: z.string().max(60), language: Lang, handoff: Handoff, part: Part, split: SplitBody })
+    const { levels, count, seconds, tool, language, handoff, part, split, variant } = z
+      .object({
+        levels: Levels,
+        count: z.number().int().min(1).max(60),
+        seconds: Seconds,
+        tool: z.string().max(60),
+        language: Lang,
+        handoff: Handoff,
+        part: Part,
+        split: SplitBody,
+        // N new hooks in one winner's angle and formula. The numbers are read here, from the stored metrics.
+        variant: z.object({ id: z.string().regex(/^H\d{1,4}$/), count: z.number().int().min(1).max(20) }).optional(),
+      })
       .parse(await c.req.json());
     const hookSeconds = shareFor("hook", seconds, split);
     const state0 = await loadAds(id);
+    const winner = variant ? state0.hooks.find((h) => h.id === variant.id) : undefined;
+    if (variant && !winner) throw new AdsError("Esa pieza no existe.");
+    const facts = winner ? variantFacts(winner, pieceStats(state0.metrics)[winner.id], variant!.count) : null;
     // By copy and paste, 50 hooks are several prompts: this one asks for its share of the levels.
-    const one = handoff ? partOf(hookParts(count, levelsOf(levels)), part) : null;
-    const req = {
-      levels: one ? one.perLevel.map((p) => p.level) : levelsOf(levels),
-      count: one?.count ?? count,
-      ...(one && { perLevel: one.perLevel }),
-      seconds,
-      ...(split && { split }),
-      winners: [
-        ...rankHooks(state0)
-          .slice(0, 12)
-          .map((r) => `${r.text} (N${r.level}, ${Math.round(r.stats.hookRate * 100)}% ven 3 s, ${r.stats.views3s || r.stats.views} vistas)`),
-        ...state0.hooks.filter((h) => h.source === "organic" && h.status !== "rejected").map((h) => `${h.text} (del contenido orgánico)`),
-      ],
-      existing: state0.hooks.filter((h) => h.status !== "rejected").map((h) => h.text),
-      language,
-    };
+    // A variant of one winner is a single prompt: it is not split across parts.
+    const one = facts ? null : handoff ? partOf(hookParts(count, levelsOf(levels)), part) : null;
+    const req = facts
+      ? {
+          levels: [winner!.level],
+          count: facts.count,
+          seconds,
+          ...(split && { split }),
+          winners: [facts.line],
+          existing: state0.hooks.filter((h) => h.status !== "rejected").map((h) => h.text),
+          language,
+          focus: { angle: facts.angle, formula: facts.formula },
+        }
+      : {
+          levels: one ? one.perLevel.map((p) => p.level) : levelsOf(levels),
+          count: one?.count ?? count,
+          ...(one && { perLevel: one.perLevel }),
+          seconds,
+          ...(split && { split }),
+          winners: [
+            ...rankHooks(state0)
+              .slice(0, 12)
+              .map((r) => `${r.text} (N${r.level}, ${Math.round(r.stats.hookRate * 100)}% ven 3 s, ${r.stats.views3s || r.stats.views} vistas)`),
+            ...state0.hooks.filter((h) => h.source === "organic" && h.status !== "rejected").map((h) => `${h.text} (del contenido orgánico)`),
+          ],
+          existing: state0.hooks.filter((h) => h.status !== "rejected").map((h) => h.text),
+          language,
+        };
     if (handoff?.mode === "prompt") return c.json({ ...taskPrompt(hooksTask(id, state0.offer, tool, req)), ...partInfo(one) });
     const wire =
       handoff?.mode === "paste"

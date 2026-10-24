@@ -15,6 +15,7 @@ import {
   type Piece,
   type PieceStatus,
 } from "../../../shared/ads.ts";
+import { imageSaveLine, promptsWithSlots, slotName, videoSaveLine, withSlotLine } from "../../../shared/adsBulk.ts";
 import { continuityNote, grokSequence, sequencePromptText, sequencePromptsFromPiece } from "../../../shared/adsSequence.ts";
 import { unverified } from "../../../shared/adsSpeaker.ts";
 import { formatSeconds, nextVoiceId, voiceLengthWarning, voiceNumber, VOICE_VARIANTS_MAX } from "../../../shared/voiceVariants.ts";
@@ -117,6 +118,7 @@ export function StatusButtons({ status, onStatus, small = false }: { status: Pie
       >
         No
       </button>
+      {status === "archived" && <span className={`${cls} text-muted`}>Archivada</span>}
     </div>
   );
 }
@@ -168,6 +170,8 @@ type CardProps = {
   // The piece's render in the cache: "mp4" (H.264) or "webm" (VP9 or another codec); null if not rendered yet.
   cached: "mp4" | "webm" | null;
   stats?: ReactNode;
+  // The last CSV's line for this piece (verdict plus why). Missing until a CSV is imported.
+  metric?: { verdict: string; why: string };
   flags?: { kind: string; note: string; fix: string }[];
   // The clip came from an explainer of this series ("Usar en Publicidad"): its title and in point.
   explainer?: { title: string; from: number };
@@ -410,6 +414,7 @@ export function PieceCard({
   onGenerateVoice,
   cached,
   stats,
+  metric,
   flags = [],
   explainer,
   onMakeExplainer,
@@ -424,10 +429,14 @@ export function PieceCard({
   const slots = explainer ? [] : grokSequence(piece.seconds);
   const sequence = slots.length > 1;
   const clipSeconds = sequence ? slots[0].length : clipSecondsFor(piece.seconds);
+  const imageLine = imageSaveLine(slotName(piece.id, { image: true }));
+  const videoLine = videoSaveLine(slotName(piece.id, sequence ? { count: slots.length, index: 0 } : { count: 1, index: 0 }));
+  const imageCopy = withSlotLine(buildCopyPrompt(piece.visualPrompt, format), imageLine);
+  const videoCopy = withSlotLine(piece.videoPrompt, videoLine);
   const sequenceText = sequence
-    ? sequencePromptText(sequencePromptsFromPiece({ text: piece.text, seconds: piece.seconds, visualPrompt: piece.visualPrompt, videoPrompt: piece.videoPrompt, look }))
+    ? sequencePromptText(promptsWithSlots(piece.id, sequencePromptsFromPiece({ text: piece.text, seconds: piece.seconds, visualPrompt: piece.visualPrompt, videoPrompt: piece.videoPrompt, look })))
     : "";
-  const dim = piece.status === "rejected" ? "opacity-60" : "";
+  const dim = piece.status === "rejected" || piece.status === "archived" ? "opacity-60" : "";
 
   async function save() {
     setSaving(true);
@@ -486,6 +495,11 @@ export function PieceCard({
       {piece.kind === "cta" && !editing && (
         <p className="mt-1 text-xs text-muted">
           <b>Qué:</b> {piece.what} · <b>Por qué:</b> {piece.why} · <b>Cuándo:</b> {piece.when} · <b>Fácil:</b> {piece.easy}
+        </p>
+      )}
+      {metric && (
+        <p className="mt-1 text-xs text-muted">
+          <span className="font-semibold text-ink">{metric.verdict}</span> · {metric.why}
         </p>
       )}
       {piece.onScreenText && !editing && <p className="mt-1 text-xs text-muted">En pantalla: “{piece.onScreenText}”</p>}
@@ -579,8 +593,8 @@ export function PieceCard({
               )}
             </p>
             <div className="flex flex-wrap gap-2">
-              <CopyButton text={buildCopyPrompt(piece.visualPrompt, format)} idle="Copiar prompt de imagen" />
-              <CopyButton text={piece.videoPrompt} idle="Copiar prompt de video" variant="secondary" />
+              <CopyButton text={imageCopy} idle="Copiar prompt de imagen" />
+              <CopyButton text={videoCopy} idle="Copiar prompt de video" variant="secondary" />
               {sequence &&
                 (unverified(piece.text) ? (
                   <p className="text-neg">El texto tiene un [VERIFY]: confirmalo o cambialo antes de copiar los prompts.</p>
@@ -593,6 +607,7 @@ export function PieceCard({
                 </Button>
               )}
             </div>
+            <p className="text-[11px] text-muted">Al copiar, el prompt termina con «{videoLine}» o «{imageLine}».</p>
             <pre className="whitespace-pre-wrap rounded bg-paper p-2 font-mono text-[11px] text-muted">{piece.visualPrompt || "(sin prompt de imagen)"}</pre>
             <pre className="whitespace-pre-wrap rounded bg-paper p-2 font-mono text-[11px] text-muted">{piece.videoPrompt || "(sin prompt de video)"}</pre>
             <div className="flex flex-wrap gap-2">

@@ -1,7 +1,7 @@
 // Step 4: hook × meat × CTA by code. Two modes (full, or by stages: "Variar hook" on a winner), the combination rule,
 // the review and the estimate before running, then the render by cached pieces and the export (videos with their
 // IDs plus the CSV for the platform).
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   AUDIENCE_LABEL,
   LEVEL_INFO,
@@ -60,6 +60,9 @@ type Props = {
   // The variants this series already picked, kept with the batch settings.
   voiceChoice: Record<string, VoiceSelection>;
   onVoiceChoice: (next: Record<string, VoiceSelection>) => void;
+  // "Próxima tanda" and "Subir clips en lote", owned by the studio so the card and the panel share one proposal.
+  next?: ReactNode;
+  bulk?: ReactNode;
 };
 
 const mins = (s: number) => (s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`);
@@ -87,6 +90,8 @@ export function CombinePanel({
   pastedCopies = {},
   voiceChoice,
   onVoiceChoice,
+  next,
+  bulk,
 }: Props) {
   const [mode, setMode] = useState<"full" | "stage">("full");
   const [rules, setRules] = useState<CombineRules>({ sameLevel: true });
@@ -146,6 +151,8 @@ export function CombinePanel({
 
   return (
     <section className="space-y-4">
+      {next}
+      {bulk}
       <div className="rounded-xl border border-line bg-white p-4">
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-sm font-semibold">Modo</p>

@@ -5,6 +5,7 @@
 // key involved: the prompt is pure code. Grok's lip sync is [NOT SURE] in its profile (server/tools/grok-imagine.md),
 // so the piece can keep the clip's own voice or mute it and play the generated or uploaded voice instead.
 import { ANGLE_LABEL, WORDS_PER_SECOND, clipSecondsFor, countWords, wordsFor, type Piece, type PieceSpeaker, type SpeakerSound } from "./ads.ts";
+import { promptsWithSlots } from "./adsBulk.ts";
 import { clipContinuity, grokSequence, sequencePromptText, stretchText } from "./adsSequence.ts";
 import { audioLine, speakingPrompt } from "./audio.ts";
 import { lookPhrase, PLAIN_VIDEO } from "./prompt.ts";
@@ -283,7 +284,7 @@ export function speakerBatch(input: SpeakerBatchInput): {
       type: input.type,
     };
     const slots = grokSequence(piece.seconds);
-    const prompts = sequenceSpeakerPrompts(promptInput);
+    const prompts = promptsWithSlots(piece.id, sequenceSpeakerPrompts(promptInput));
     entries.push({
       id: piece.id,
       ref: member.ref,

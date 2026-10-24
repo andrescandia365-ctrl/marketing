@@ -283,7 +283,7 @@ export type PieceKind = (typeof PIECE_KINDS)[number];
 export const PIECE_LABEL: Record<PieceKind, string> = { hook: "Hook", meat: "Meat", cta: "CTA" };
 export const PIECE_PREFIX: Record<PieceKind, string> = { hook: "H", meat: "M", cta: "C" };
 
-export const PIECE_STATUS = ["pending", "approved", "rejected"] as const;
+export const PIECE_STATUS = ["pending", "approved", "rejected", "archived"] as const;
 export type PieceStatus = (typeof PIECE_STATUS)[number];
 export const PIECE_SOURCES = ["ai", "organic", "clip", "manual"] as const;
 export type PieceSource = (typeof PIECE_SOURCES)[number];
@@ -886,7 +886,7 @@ export function similarity(a: string, b: string): number {
 }
 export function nearDuplicates(hooks: Hook[], threshold = 0.6): [string, string][] {
   const pairs: [string, string][] = [];
-  const live = hooks.filter((h) => h.status !== "rejected");
+  const live = hooks.filter((h) => h.status !== "rejected" && h.status !== "archived");
   for (let i = 0; i < live.length; i++) {
     for (let j = i + 1; j < live.length; j++) {
       if (similarity(live[i].text, live[j].text) >= threshold) pairs.push([live[i].id, live[j].id]);
@@ -899,7 +899,7 @@ export function nearDuplicates(hooks: Hook[], threshold = 0.6): [string, string]
 export function localFlags(hooks: Hook[], meats: Meat[], ctas: Cta[]): ReviewFlag[] {
   const flags: ReviewFlag[] = [];
   for (const p of [...hooks, ...meats, ...ctas]) {
-    if (p.status === "rejected") continue;
+    if (p.status === "rejected" || p.status === "archived") continue;
     const words = countWords(p.text);
     const budget = wordsFor(p.seconds);
     if (words > budget + 2) {

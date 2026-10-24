@@ -4,6 +4,7 @@
 // explainer where the series' code mascot says it instead.
 import { useMemo, useState } from "react";
 import { wordsFor, type Piece } from "../../../shared/ads.ts";
+import { promptsWithSlots } from "../../../shared/adsBulk.ts";
 import { continuityNote, grokSequence } from "../../../shared/adsSequence.ts";
 import {
   SPEAKER_SOUNDS,
@@ -50,21 +51,10 @@ export function SpeakerPanel({ piece, series, tool, format, hasClip, hasVoice, o
   const issues = speakerIssues(piece.text, piece.seconds);
   const slots = grokSequence(piece.seconds);
   const sequence = slots.length > 1;
-  const prompt =
+  const rawPrompts =
     member && draft
       ? sequence
-        ? sequencePromptText(
-            sequenceSpeakerPrompts({
-              text: piece.text,
-              pieceSeconds: piece.seconds,
-              member,
-              speaker: draft,
-              format,
-              look: series.look,
-              type: series.type,
-            }),
-          )
-        : speakerPrompt({
+        ? sequenceSpeakerPrompts({
             text: piece.text,
             pieceSeconds: piece.seconds,
             member,
@@ -73,7 +63,20 @@ export function SpeakerPanel({ piece, series, tool, format, hasClip, hasVoice, o
             look: series.look,
             type: series.type,
           })
-      : "";
+        : [
+            speakerPrompt({
+              text: piece.text,
+              pieceSeconds: piece.seconds,
+              member,
+              speaker: draft,
+              format,
+              look: series.look,
+              type: series.type,
+            }),
+          ]
+      : [];
+  const slotted = rawPrompts.length ? promptsWithSlots(piece.id, rawPrompts) : [];
+  const prompt = sequence ? sequencePromptText(slotted) : (slotted[0] ?? "");
   const saved = JSON.stringify(piece.speaker ?? null) === JSON.stringify(draft);
   const lip = tool?.lipSync;
 

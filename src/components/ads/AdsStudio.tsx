@@ -33,6 +33,8 @@ import { concatPieces, renderAdWhole, renderPiece, type PieceLook, type PieceMed
 import { blobToDataUrl, readImageFile } from "../../lib/files.ts";
 import type { AdSeed } from "../../../shared/adsFromExplainer.ts";
 import { emptyClipSlots, grokSequence, type ClipPresence } from "../../../shared/adsSequence.ts";
+import type { BulkPiece } from "../../../shared/adsBulk.ts";
+import { DEFAULT_KEEP_SHARE, MIN_IMPRESSIONS, planApply, proposeNext, undoChanges, type NextPiece, type StatusChange, type VoiceChange } from "../../../shared/adsNext.ts";
 import type { PastedCopy } from "../../../shared/adsHandoff.ts";
 import { audioDuration } from "../Audio.tsx";
 import { Button, Lazy, Notice, Segmented, Spinner } from "../ui.tsx";
@@ -43,6 +45,8 @@ import { OfferForm } from "./OfferForm.tsx";
 import { PiecesPanel } from "./PiecesPanel.tsx";
 import { PieceCard, type PieceMediaState, type VoiceClip } from "./pieces.tsx";
 import { nextVoiceId, pieceOfUnit, renderKey, renderUnits, renderVoiceBlock, shouldBlockVoice, voiceCachePlan, voiceNumber, readStoredVoices, type CachePlan, type StoredVoices, type VoiceCheckPiece } from "../../../shared/voiceVariants.ts";
+import { BulkUpload } from "./BulkUpload.tsx";
+import { NextBatch } from "./NextBatch.tsx";
 import { SourcesPanel } from "./SourcesPanel.tsx";
 import { SpeakerBatch } from "./SpeakerBatch.tsx";
 import { SpeakerPanel } from "./SpeakerPanel.tsx";
@@ -77,7 +81,40 @@ type Props = {
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const miles = (n: number) => Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+// The status route takes at most 200 ids. Aplicar sends one status, then the next: a save inside a save deadlocks.
+const STATUS_PAGE = 200;
 const findPieceIn = (state: AdsState | null, id: string): Piece | undefined => (state ? [...state.hooks, ...state.meats, ...state.ctas].find((p) => p.id === id) : undefined);
+
+function asNextPiece(p: Piece): NextPiece {
+  if (p.kind === "hook") return { id: p.id, kind: p.kind, status: p.status, text: p.text, level: p.level, angle: p.angle, formula: p.formula };
+  return { id: p.id, kind: p.kind, status: p.status, text: p.text };
+}
+
+function groupByStatus(changes: StatusChange[]): [PieceStatus, string[]][] {
+  const order: PieceStatus[] = ["approved", "archived", "pending", "rejected"];
+  const map = new Map<PieceStatus, string[]>();
+  for (const change of changes) {
+    const ids = map.get(change.to) ?? [];
+    ids.push(change.id);
+    map.set(change.to, ids);
+  }
+  const out: [PieceStatus, string[]][] = [];
+  for (const status of order) {
+    const ids = map.get(status);
+    if (ids?.length) out.push([status, ids]);
+  }
+  return out;
+}
+
+function applySummary(plan: { status: StatusChange[]; voices: VoiceChange[] }): string {
+  const approve = plan.status.filter((s) => s.to === "approved").length;
+  const archive = plan.status.filter((s) => s.to === "archived").length;
+  const voices = plan.voices.length;
+  if (!approve && !archive && !voices) return "Nada para cambiar.";
+  const bits = [approve ? `aprueba ${approve}` : "", archive ? `archiva ${archive}` : "", voices ? `ajusta las voces de ${voices}` : ""].filter(Boolean);
+  return `${bits.join(" · ")}.`;
+}
 const byVoiceId = (a: { id: string }, b: { id: string }) => voiceNumber(a.id) - voiceNumber(b.id);
 
 function dropSessionPiece(map: Map<string, Blob>, pieceId: string) {
@@ -177,9 +214,13 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   const [pastedCopies, setPastedCopies] = useState<Record<string, PastedCopy>>({});
   const [preset, setPreset] = useState<{ hooks?: number; meats?: number; ctas?: number }>({});
   const [motionMade, setMotionMade] = useState("");
+  const [minImpressions, setMinImpressions] = useState(MIN_IMPRESSIONS);
+  const [keepPercent, setKeepPercent] = useState(Math.round(DEFAULT_KEEP_SHARE * 100));
+  const [nextUndo, setNextUndo] = useState<{ status: StatusChange[]; voices: VoiceChange[] } | null>(null);
   useEffect(() => {
     setPastedCopies({});
     setPreset({});
+    setNextUndo(null);
   }, [series.id]);
   const renders = useRef(new Map<string, Blob>());
   const stopRef = useRef(false);
@@ -370,41 +411,61 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
 
   const setPieceMedia = (id: string, patch: Partial<PieceMediaState>) => setMedia((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
 
+  async function putImage(piece: Piece, file: Blob) {
+    const image = await readImageFile(file instanceof File ? file : new File([file], "imagen.png", { type: file.type || "image/png" }));
+    setPieceMedia(piece.id, { image, error: undefined });
+    const r = await adsApi.uploadPieceMedia(series.id, piece.id, "image", file);
+    setState(r.state);
+    dropSessionPiece(renders.current, piece.id);
+  }
+
   async function uploadImage(piece: Piece, file: File) {
     try {
-      const image = await readImageFile(file);
-      setPieceMedia(piece.id, { image, error: undefined });
-      const r = await adsApi.uploadPieceMedia(series.id, piece.id, "image", file);
-      setState(r.state);
-      dropSessionPiece(renders.current, piece.id);
+      await putImage(piece, file);
     } catch (e) {
       setPieceMedia(piece.id, { error: message(e) });
     }
   }
 
-  async function uploadClip(piece: Piece, file: File, index?: number) {
-    if (!file.type.startsWith("video/")) return setPieceMedia(piece.id, { error: "Ese archivo no es un video." });
+  async function putClip(piece: Piece, file: Blob, index?: number) {
+    if (!file.type.startsWith("video/")) throw new Error("Ese archivo no es un video.");
     const url = URL.createObjectURL(file);
+    const name = file instanceof File ? file.name : "clip.mp4";
     try {
       const duration = await clipDuration(url);
       urls.current.push(url);
       if (index === undefined) {
-        setPieceMedia(piece.id, { clip: { url, blob: file, name: file.name, duration }, error: undefined });
+        setPieceMedia(piece.id, { clip: { url, blob: file, name, duration }, error: undefined });
       } else {
         setMedia((prev) => {
           const clips = [...(prev[piece.id]?.clips ?? [])];
           while (clips.length <= index) clips.push(null);
-          clips[index] = { url, blob: file, name: file.name, duration, from: 0 };
+          clips[index] = { url, blob: file, name, duration, from: 0 };
           return { ...prev, [piece.id]: { ...prev[piece.id], clips, error: undefined } };
         });
       }
-      const r = await adsApi.uploadPieceMedia(series.id, piece.id, "clip", file, { name: file.name, duration, ...(index !== undefined && { index }) });
+      const r = await adsApi.uploadPieceMedia(series.id, piece.id, "clip", file, { name, duration, ...(index !== undefined && { index }) });
       setState(r.state);
       dropSessionPiece(renders.current, piece.id);
     } catch (e) {
       URL.revokeObjectURL(url);
+      throw e;
+    }
+  }
+
+  async function uploadClip(piece: Piece, file: File, index?: number) {
+    try {
+      await putClip(piece, file, index);
+    } catch (e) {
       setPieceMedia(piece.id, { error: message(e) });
     }
+  }
+
+  async function putBulk(job: { pieceId: string; image: boolean; index: number | null; file: File }) {
+    const piece = findPieceIn(stateRef.current, job.pieceId);
+    if (!piece) throw new Error("No encontré la pieza.");
+    if (job.image) await putImage(piece, job.file);
+    else await putClip(piece, job.file, job.index === null ? undefined : job.index);
   }
 
   async function generateImage(piece: Piece) {
@@ -624,6 +685,43 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     await act("media", () => adsApi.removePieceMedia(series.id, piece.id, kind, index));
   }
 
+  const catalogue = useMemo(() => (state ? [...state.hooks, ...state.meats, ...state.ctas] : []), [state]);
+  const proposal = useMemo(
+    () =>
+      proposeNext({
+        pieces: catalogue.map(asNextPiece),
+        rows: state?.metrics ?? [],
+        voices: catalogue.flatMap((p) => (state?.media[p.id]?.voices ?? []).map((v) => ({ pieceId: p.id, id: v.id, name: v.name }))),
+        minImpressions,
+        keepShare: keepPercent / 100,
+        voiceChoice: settings.voices[series.id],
+      }),
+    [catalogue, state, minImpressions, keepPercent, settings.voices, series.id],
+  );
+  const applyPlan = useMemo(() => {
+    const voiceIds: Record<string, string[]> = {};
+    for (const p of catalogue) {
+      const ids = (state?.media[p.id]?.voices ?? []).map((v) => v.id);
+      if (ids.length >= 2) voiceIds[p.id] = ids;
+    }
+    return planApply(
+      proposal,
+      catalogue.map((p) => ({ id: p.id, status: p.status })),
+      settings.voices[series.id] ?? {},
+      voiceIds,
+    );
+  }, [catalogue, state, proposal, settings.voices, series.id]);
+  const bulkPieces = useMemo((): BulkPiece[] => {
+    return catalogue.map((piece) => {
+      const saved = state?.media[piece.id];
+      const local = media[piece.id];
+      const n = Math.max(1, grokSequence(piece.seconds).length);
+      const clips: boolean[] = [];
+      for (let i = 0; i < n; i++) clips.push(n <= 1 ? Boolean(saved?.clip || local?.clip) : Boolean(saved?.clips?.[i] || local?.clips?.[i]));
+      return { id: piece.id, kind: piece.kind, seconds: piece.seconds, image: Boolean(saved?.image || local?.image), clips };
+    });
+  }, [catalogue, state, media]);
+
   const flagsFor = (id: string) => (flags ?? []).filter((f) => f.pieceId === id).map((f) => ({ kind: f.kind, note: f.note, fix: f.fix }));
 
   const renderCard = (piece: Piece): ReactNode => (
@@ -662,6 +760,14 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       cached={cachedFormat(piece.id)}
       cachedDetail={cachedDetail(piece.id)}
       flags={flagsFor(piece.id)}
+      metric={
+        state?.metrics.length
+          ? (proposal.lines.find((l) => l.id === piece.id) ?? {
+              verdict: "sin datos suficientes",
+              why: `${piece.id} sin datos suficientes: 0 impresiones (hacen falta ${miles(minImpressions)}).`,
+            })
+          : undefined
+      }
       explainer={state?.media[piece.id]?.clip?.explainer ? { title: state.media[piece.id]!.clip!.explainer!.title, from: state.media[piece.id]!.clip!.from ?? 0 } : undefined}
       onMakeExplainer={
         onToExplainer
@@ -798,6 +904,79 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     paste: async (reply) => done(await sendAsk(ask, reply)),
   });
   const body = (count: number, part: number) => ({ levels: settings.levels, count, ...lengthBody(), tool: toolId, language: lang, part });
+  const variantBody = (id: string, count: number) => ({ ...body(count, 1), variant: { id, count } });
+  async function variantPrompt(id: string, count: number) {
+    return (await askPrompt(adsAsks.hooks(series.id, variantBody(id, count)))).prompt;
+  }
+  async function askVariant(id: string, count: number, reply?: string) {
+    const r = await act("hooks", () => sendAsk(adsAsks.hooks(series.id, variantBody(id, count)), reply));
+    if (r) setNotes((n) => ({ ...n, hooks: reply === undefined ? r.note : pastedNote(r) }));
+  }
+
+  // Direct setStatus, one status after the other. The studio helper swallows the error, so a failed Aplicar would look done.
+  async function applyNext() {
+    const planned = applyPlan;
+    if (!planned.status.length && !planned.voices.length) return;
+    setError("");
+    setBusy("next");
+    const done: StatusChange[] = [];
+    try {
+      for (const [to, ids] of groupByStatus(planned.status)) {
+        for (let i = 0; i < ids.length; i += STATUS_PAGE) {
+          const slice = ids.slice(i, i + STATUS_PAGE);
+          const r = await adsApi.setStatus(series.id, slice, to);
+          setState(r.state);
+          for (const id of slice) {
+            const change = planned.status.find((s) => s.id === id && s.to === to);
+            if (change) done.push(change);
+          }
+        }
+      }
+      if (planned.voices.length) {
+        setSettings((s) => {
+          const cur = { ...(s.voices[series.id] ?? {}) };
+          for (const change of planned.voices) cur[change.pieceId] = change.after;
+          return { ...s, voices: { ...s.voices, [series.id]: cur } };
+        });
+      }
+      setNextUndo(done.length || planned.voices.length ? { status: done, voices: planned.voices } : null);
+    } catch (e) {
+      if (done.length) setNextUndo({ status: done, voices: [] });
+      setError(message(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function undoNext() {
+    if (!nextUndo) return;
+    const back = undoChanges(nextUndo);
+    setError("");
+    setBusy("next");
+    try {
+      for (const [to, ids] of groupByStatus(back.status)) {
+        for (let i = 0; i < ids.length; i += STATUS_PAGE) {
+          const r = await adsApi.setStatus(series.id, ids.slice(i, i + STATUS_PAGE), to);
+          setState(r.state);
+        }
+      }
+      if (back.voices.length) {
+        setSettings((s) => {
+          const cur = { ...(s.voices[series.id] ?? {}) };
+          for (const change of back.voices) {
+            if (change.restore === null) delete cur[change.pieceId];
+            else cur[change.pieceId] = change.restore;
+          }
+          return { ...s, voices: { ...s.voices, [series.id]: cur } };
+        });
+      }
+      setNextUndo(null);
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(null);
+    }
+  }
   const handoffs = demo
     ? {
         hooks: (count: number) => (part: number) =>
@@ -1392,6 +1571,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           onStatus={setStatus}
           renderCard={(h: Hook) => renderCard(h)}
           extra={<SpeakerBatch pieces={state.hooks} series={series} format={settings.format} label="hooks" />}
+          bulk={<BulkUpload pieces={bulkPieces} scope="hook" onFile={putBulk} />}
           onMotionBatch={onToExplainer ? () => void makeMotionBatch(state.hooks) : undefined}
           motionBusy={busy === "motion"}
           handoff={handoffs?.hooks ?? null}
@@ -1416,6 +1596,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           }}
           renderCard={(m) => renderCard(m)}
           extra={<SpeakerBatch pieces={state.meats} series={series} format={settings.format} label="meats" />}
+          bulk={<BulkUpload pieces={bulkPieces} scope="meat" onFile={putBulk} />}
           onMotionBatch={onToExplainer ? () => void makeMotionBatch(state.meats) : undefined}
           motionBusy={busy === "motion"}
           handoff={handoffs?.meats ?? null}
@@ -1440,6 +1621,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           }}
           renderCard={(c) => renderCard(c)}
           extra={<SpeakerBatch pieces={state.ctas} series={series} format={settings.format} label="ctas" />}
+          bulk={<BulkUpload pieces={bulkPieces} scope="cta" onFile={putBulk} />}
           onMotionBatch={onToExplainer ? () => void makeMotionBatch(state.ctas) : undefined}
           motionBusy={busy === "motion"}
           handoff={handoffs?.ctas ?? null}
@@ -1449,6 +1631,27 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       )}
       {tab === "combine" && (
         <CombinePanel
+          next={
+            <NextBatch
+              hasMetrics={state.metrics.length > 0}
+              proposal={proposal}
+              minImpressions={minImpressions}
+              keepPercent={keepPercent}
+              onMin={setMinImpressions}
+              onKeepPercent={setKeepPercent}
+              applyLabel={applySummary(applyPlan)}
+              canApply={applyPlan.status.length + applyPlan.voices.length > 0}
+              canUndo={Boolean(nextUndo && (nextUndo.status.length > 0 || nextUndo.voices.length > 0))}
+              busy={busy !== null}
+              demo={demo}
+              onApply={() => void applyNext()}
+              onUndo={() => void undoNext()}
+              onPrompt={variantPrompt}
+              onAsk={(id, count) => void askVariant(id, count)}
+              onPaste={(id, count, reply) => void askVariant(id, count, reply)}
+            />
+          }
+          bulk={<BulkUpload pieces={bulkPieces} scope="all" onFile={putBulk} />}
           series={series.id}
           state={state}
           seconds={settings.seconds}

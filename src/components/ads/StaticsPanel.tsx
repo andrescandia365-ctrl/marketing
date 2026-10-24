@@ -4,6 +4,7 @@
 // placements), the same checks as "Imagen fija", and the exports in 9:16, 4:5 and 1:1 saved to
 // publicidad/<series>/estaticos/. All of it works with no AI key: the prompts are copied to Grok by hand.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { imageSaveLine, slotName, withSlotLine } from "../../../shared/adsBulk.ts";
 import { LEVEL_INFO, type AdsState, type Cta, type Hook, type HookStatic, type ReviewFlag } from "../../../shared/ads.ts";
 import {
   adoptSaved,
@@ -211,7 +212,10 @@ export function StaticsPanel({ series, state, tools, flags, folder, onState }: P
     return { variants, problems, blocking: problems.filter((p) => p.blocking), keepOut, jobs: st.formats.length ? staticJobs(h, st) : [] };
   }
 
-  const prompts = hooks.map((hook) => ({ hook, prompt: staticPrompt(hook, state.offer, stOf(hook), { look: series.look, brand: series.brand }) }));
+  const prompts = hooks.map((hook) => ({
+    hook,
+    prompt: withSlotLine(staticPrompt(hook, state.offer, stOf(hook), { look: series.look, brand: series.brand }), imageSaveLine(slotName(hook.id, { image: true }))),
+  }));
 
   async function copy(text: string, what: string, id?: string) {
     try {

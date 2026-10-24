@@ -175,7 +175,7 @@ export function SourcesPanel({
                 <LevelChip level={h.level} />
                 <span>{h.text}</span>
                 {h.note && <span className="text-xs text-muted">· {h.note}</span>}
-                <Tag>{h.status === "approved" ? "aprobado" : h.status === "rejected" ? "descartado" : "pendiente"}</Tag>
+                <Tag>{h.status === "approved" ? "aprobado" : h.status === "rejected" ? "descartado" : h.status === "archived" ? "archivado" : "pendiente"}</Tag>
               </li>
             ))}
           </ul>

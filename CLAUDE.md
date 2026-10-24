@@ -608,6 +608,32 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   a voice select only when that piece has more than one and the clip is not the one speaking). A
   piece's cache shows its format: webm means this browser has no H.264 encoder (the ads would be VP9 in MP4), and
   "Sacarlas de la caché" (DELETE .../pieces/:id/render) lets a browser that has one render them again.
+  "Subir clips en lote" (`shared/adsBulk.ts`, on Hooks, Meats, CTAs and Combinar): every copied Grok prompt ends with
+  "Guardá el video como: SLOT.mp4" or, for a still, "Guardá la imagen como: SLOT.png". SLOT is the piece id for one
+  clip (H12), `M3-c2` for clip 2 of a longer meat (1-based; the route index stays 0-based) or `H12-img` for the piece
+  image. `parseSlotName` takes any case, spaces, dashes or underscores, and extra text after a single code (`M3-c2
+  (1).mp4`). A `c` plus digits immediately after a separator is the clip marker, not a second piece; `M3c2` with
+  nothing between stays piece M3 and does not guess a clip; two codes with words between them (`H12 y C2`) stay
+  ambiguous. The table says nuevo, reemplaza el actual, no encontré la pieza, ese clip no existe en esta pieza,
+  formato no válido, elegí el lugar, hay más de una pieza en el nombre, or esa pieza es de otra pestaña (scope is
+  checked before the type). "Subir N clips" sends one file at a time through the existing piece-media route, with the
+  sniffed type as Content-Type; there is no extra byte cap. A failed file is listed and the rest continue. Parar lets
+  the file already in flight finish. Replacing a clip drops that piece's cached renders the same way a single upload
+  does. An `-img` file goes to the piece image, not to estáticos. "Próxima tanda" (`shared/adsNext.ts`, Combinar,
+  once a metrics CSV is in): pure code ranks hooks, meats, CTAs and, from the ad id, the voices. Under
+  MIN_IMPRESSIONS (1000, editable in the panel) a piece or voice is "sin datos suficientes", including 0 impressions,
+  and is left as it is. Of the rest, the top share (DEFAULT_KEEP_SHARE 0.2, editable) is kept and everyone else with
+  enough data is archived; there is no middle third. Each line says why with the CSV numbers and the unweighted mean
+  of that kind. Nothing is written until Aplicar: a drop becomes status "archived" (not deleted; old campana.json
+  without that status still loads), a keep becomes approved, and the winning voice of a piece is ticked in "Voces de
+  esta tanda" while a losing voice is unticked. A missing id is skipped. Aplicar calls PATCH
+  /api/ads/:series/pieces one status at a time, then writes the voice picks; if a later call fails, Deshacer restores
+  only what succeeded. Deshacer puts back the previous statuses and picks; a pick that was absent (`before: null`) is
+  removed, so every voice of that piece is open again. "Variantes de los ganadores" asks the existing hook writer for
+  N new hooks (1–20) in that winner's angle and formula, with the stored text, level and stats in the request (never
+  invented numbers), by the same copy-and-paste handoff. With a CSV imported, each piece card shows that same verdict
+  under the text; a piece absent from the CSV says "sin datos suficientes". An older ad id without a voice suffix
+  (H12-M3-C2) still matches its pieces and does not name a voice.
 - Audio (`shared/audio.ts`): each line is heard as subtitles only, said by Grok inside the clip (`speakingPrompt`),
   a generated voice (said with the line's written emotion) or the person's recorded/uploaded voice; characters have a
   default, shots can override. Per shot,
