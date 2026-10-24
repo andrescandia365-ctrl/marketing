@@ -575,12 +575,17 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   still `clipSecondsFor`. "Fuentes" ranks winning hooks: a
   platform CSV (`parseMetricsCsv`, Meta headers in Spanish or English; hook = 3 s views / impressions, meat = average
   watch time, CTA = clicks and conversions). A header that starts with "Costo por" or "Cost per", and ThruPlay, are never
-  3-second views. TikTok's 2-second views, 6-second views, Cost and Clicks stay in their own columns. Under the impression
+  3-second views. Meta's "3-second video views" and "video views at 3 seconds" are. TikTok's 2-second views, 6-second
+  views, Cost and Clicks (including "Clicks (Destination)") stay in their own columns. When the 3-second column is
+  missing and 2-second views exist, the hook rate uses those and is labelled "2 s" in Fuentes and in the pattern sent
+  to the writer (never "0% ven 3 s"). Under the impression
   minimum (1000, editable in Fuentes, not saved) the row says "sin datos suficientes" and is not sent as a winner. A hook
-  that arrived from Playbook stays "del orgánico, sin medir" until it clears that minimum. The CSV's id is the platform
+  that arrived from Playbook with no impressions stays "del orgánico, sin medir"; one with some impressions under the
+  minimum says "sin datos suficientes". The CSV's id is the platform
   name `{ID de la serie}_N{nivel}_{anuncio}_{segundos}s_9x16` (the series id in upper case without accents, for example
   IMAN_N2_H12-M3-C2_45s_9x16, or H12v3 when that hook has several voices). The file on disk keeps the raw ad id. Import
-  matches the token in any case, still reads an old name with no prefix, and drops a name from another series (the count
+  matches the token in any case, still reads an old name with no prefix, still reads the id when Meta added
+  " - Copy" or " – Copia" or when words sit in front, and drops a name from another series (the count
   is shown in Spanish). Hooks sent from Playbook ("Enviar a Publicidad") and uploaded clips
   transcribed with whisper-1 (`transcribeClip`, same OPENAI_API_KEY; or a pasted transcript) and split by the writer.
   "Generar tanda" chains hooks → meats → CTAs → combine with a yes/no approval pause per stage. Before a run: local
@@ -654,7 +659,8 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   that the drawing code never reads a clock or `Math.random`).
 - `npm run e2e` — Playwright (`playwright-core`) starts the API and Vite on free ports, with temporary project, ads and
   library folders and no writer keys, and walks Playbook, one explainer, and a Publicidad batch of 2 ads plus the
-  Meta (Spanish and English) and TikTok CSVs. It needs Chrome, or `npx playwright-core install chromium`.
+  Meta (Spanish and English) and TikTok CSVs. It tries `CHROME_PATH`, Chrome, Edge, then Chromium already installed
+  under `PLAYWRIGHT_BROWSERS_PATH` (`chromium-*/chrome-linux*/chrome`). `npx playwright-core install chromium` puts one there.
 - `npm run playbook` — says whether `PLAYBOOK.md` and `server/playbook.md` drifted; `-- --write` records them in step.
 - `npx tsx server/clock-check.ts` — lyric clock harness (kick grid, lyric gate, frames 100 and 400); needs the API on
   8787 and the same `PROJECTS_DIR`.

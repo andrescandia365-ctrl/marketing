@@ -10,12 +10,15 @@ import {
   enoughData,
   exportCsv,
   hookPatterns,
+  hookWatch,
   hooksFromWire,
   measuredWinners,
   organicHook,
+  organicNote,
   parseMetricsCsv,
   pieceStats,
   rankHooks,
+  sameSeriesName,
   seriesToken,
 } from "../shared/ads.ts";
 
@@ -73,8 +76,18 @@ test("TikTok's 2-second and 6-second views, Cost and Clicks stay in their own co
   assert.equal(row.views6s, 900);
   assert.equal(row.views, 2400);
   assert.equal(row.views3s, 0);
-  assert.equal(pieceStats(parsed.rows).H5.hookRate, 0);
-  assert.equal(enoughData(pieceStats(parsed.rows).H5, MIN_IMPRESSIONS), true);
+  const stats = pieceStats(parsed.rows).H5;
+  assert.equal(stats.hookRate, 2100 / 3000);
+  assert.deepEqual(hookWatch(stats), { seconds: 2, views: 2100 });
+  assert.equal(enoughData(stats, MIN_IMPRESSIONS), true);
+  const s = emptyAds("iman");
+  s.hooks.push(
+    ...hooksFromWire(s, { hooks: [{ text: "Se ve en dos segundos", level: 3, angle: "pain", formula: "question", ...prompts }], note: "" }, 3, "ai", "approved"),
+  );
+  s.metrics = [{ ...row, name: "H1-M2-C1", adId: "H1-M2-C1" }];
+  const line = hookPatterns(s).winners[0];
+  assert.match(line, /70% ven 2 s, 2100 vistas/);
+  assert.doesNotMatch(line, /ven 3 s/);
 });
 
 test("a row under the impression minimum is ranked and is not a winner", () => {
@@ -126,6 +139,13 @@ test("an organic hook is not a winner until it is measured, and then it is not l
   assert.equal(after.organic.length, 0);
   assert.match(after.winners.join("\n"), /góndola/);
   assert.match(after.winners.join("\n"), /Medido/);
+  s.metrics = parseMetricsCsv("Ad name,Impressions,3-second video plays\nH1-M1-C1,500,100\n").rows;
+  const thin = hookPatterns(s);
+  assert.match(thin.organic[0], /sin datos suficientes/);
+  assert.doesNotMatch(thin.organic[0], /sin medir/);
+  assert.equal(organicNote({ impressions: 500 }), "sin datos suficientes");
+  assert.equal(organicNote({ impressions: 0 }), "del orgánico, sin medir");
+  assert.equal(organicNote(undefined), "del orgánico, sin medir");
 });
 
 test("an old metrics row without 2 s or 6 s views still parses", () => {
@@ -190,4 +210,44 @@ test("the exported ad name uses the series id, and the file name stays the raw i
     s.ctas,
   );
   assert.ok(plain.split("\n")[1].startsWith("H1-M1-C1,"));
+});
+
+test("a copied or prefixed export name still yields the ad id, and another series stays out", () => {
+  const csv = `Ad name,Impressions,3-second video plays
+"IMAN_N2_H12-M3-C2_15s_9x16 - Copy",2000,800
+"IMAN_N2_H11-M3-C2_15s_9x16 – Copia",1100,400
+"Promo IMAN_N2_H13-M3-C2_15s_9x16",1500,600
+"MASOGAR_N1_H9-M9-C9_15s_9x16 - Copy",9000,100
+H3-M1-C1,400,100
+`;
+  const parsed = parseMetricsCsv(csv, "iman");
+  assert.equal(parsed.otherSeries, 1);
+  assert.deepEqual(
+    parsed.rows.map((r) => r.adId),
+    ["H12-M3-C2", "H11-M3-C2", "H13-M3-C2", "H3-M1-C1"],
+  );
+  assert.equal(parsed.rows[0].impressions, 2000);
+  assert.equal(pieceStats(parsed.rows).H12.impressions, 2000);
+  assert.equal(sameSeriesName("IMAN_N2_H12-M3-C2_15s_9x16 - Copy", "iman"), true);
+  assert.equal(sameSeriesName("MASOGAR_N1_H9-M9-C9_15s_9x16 – Copia", "iman"), false);
+  assert.equal(sameSeriesName("H3-M1-C1", "iman"), true);
+  const accented = parseMetricsCsv("Ad name,Impressions\nMÁSHOGAR_N2_H14-M3-C2_45s_9x16,1200\n");
+  assert.equal(accented.rows[0].adId, "H14-M3-C2");
+  assert.equal(accented.rows[0].impressions, 1200);
+  assert.equal(sameSeriesName("MÁSHOGAR_N2_H14-M3-C2_45s_9x16", "mashogar"), true);
+  assert.equal(sameSeriesName("MÁSHOGAR_N2_H14-M3-C2_45s_9x16", "iman"), false);
+});
+
+test("Meta's English 3-second view headers are views, not a missing column", () => {
+  const views = parseMetricsCsv(fixture("meta-3s-views.csv"), "iman");
+  assert.equal(views.rows[0].adId, "H4-M1-C1");
+  assert.equal(views.rows[0].views3s, 640);
+  assert.equal(views.rows[0].views, 1000);
+  assert.ok(views.found.includes("views3s"));
+  const at = parseMetricsCsv(fixture("meta-3s-at.csv"));
+  assert.equal(at.rows[0].views3s, 250);
+  assert.ok(at.found.includes("views3s"));
+  assert.equal(at.missing.includes("views3s"), false);
+  const singular = parseMetricsCsv("Ad name,Impressions,Video views at 3 second\nH4-M1-C1,1000,180\n");
+  assert.equal(singular.rows[0].views3s, 180);
 });

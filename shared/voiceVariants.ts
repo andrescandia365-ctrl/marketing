@@ -272,8 +272,10 @@ export function cleanVoiceName(name: string, fallback: string): string {
 // ── Ad ids ──────────────────────────────────────────────────────────────────────
 // The variant suffix is added only when that piece has more than one voice. One voice keeps H12-M3-C2.
 // Routes and file names stay uppercase. The metrics import is the only place that accepts either case (`AD_ID`).
+// `\b` never sits between `_` and `H` (`_` is a word character), so an exported name lost its id. A letter or a
+// digit on either side still blocks a match; an underscore, a space or a copy suffix does not.
 const TOKEN = "(H\\d{1,4})(v(?:10|[1-9]))?-(M\\d{1,4})(v(?:10|[1-9]))?-(C\\d{1,4})(v(?:10|[1-9]))?";
-export const AD_ID = new RegExp(`\\b${TOKEN}\\b`, "i");
+export const AD_ID = new RegExp(`(?<![A-Za-z0-9])${TOKEN}(?![A-Za-z0-9])`, "i");
 export const AD_ID_EXACT = new RegExp(`^${TOKEN}$`);
 
 export type ParsedAdId = {

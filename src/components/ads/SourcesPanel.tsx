@@ -1,7 +1,7 @@
 // Where winning hooks come from (this goes first): metrics of previous ads, hooks from the organic content, and the
 // clips of previous ads catalogued by the AI (hook, meat, CTA, level, format).
 import { useState } from "react";
-import { ANGLE_LABEL, FORMULA_LABEL, LEVEL_INFO, MEAT_FORMAT_LABEL, clipStats, enoughData, measuredWinners, pieceStats, type AdsState, type RankedHook } from "../../../shared/ads.ts";
+import { ANGLE_LABEL, FORMULA_LABEL, LEVEL_INFO, MEAT_FORMAT_LABEL, clipStats, enoughData, hookWatch, measuredWinners, organicNote, pieceStats, type AdsState, type RankedHook } from "../../../shared/ads.ts";
 import { adsFileUrl } from "../../lib/api.ts";
 import { ClaudeHandoff, type Handoff } from "../ClaudeHandoff.tsx";
 import { Button, Notice, Spinner, inputClass } from "../ui.tsx";
@@ -29,6 +29,10 @@ type Props = {
 
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n)));
+function rateCell(stats: { hookRate: number; views3s: number; views2s?: number }): string {
+  const rate = pct(stats.hookRate);
+  return hookWatch(stats).seconds === 2 ? `${rate} · 2 s` : rate;
+}
 
 export function SourcesPanel({
   series,
@@ -60,6 +64,7 @@ export function SourcesPanel({
   // Enough-data rows first. The sort is stable, so the score order inside each group stays the one rankHooks wrote.
   const shown = [...ranking].sort((a, b) => Number(enoughData(b.stats, minImpressions)) - Number(enoughData(a.stats, minImpressions)));
   const show26 = shown.some((r) => (r.stats.views2s ?? 0) > 0 || (r.stats.views6s ?? 0) > 0);
+  const rateUses2s = shown.some((r) => hookWatch(r.stats).seconds === 2);
 
   async function importFile(file: File) {
     setError("");
@@ -76,7 +81,7 @@ export function SourcesPanel({
         <h3 className="text-sm font-semibold">Cómo conseguir hooks ganadores</h3>
         <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-muted">
           <li>
-            <b className="text-ink">Datos de anuncios previos:</b> cuántos videos usaron cada hook y qué porcentaje de impresiones vio al menos 3 segundos. Subí el reporte exportado de la plataforma (CSV); los nombres con ID (H12-M3-C2) se asignan solos a cada pieza.
+            <b className="text-ink">Datos de anuncios previos:</b> cuántos videos usaron cada hook y qué porcentaje de impresiones vio al menos 3 segundos (2 segundos, si el reporte no trae las de 3). Subí el reporte exportado de la plataforma (CSV); los nombres con ID (H12-M3-C2) se asignan solos a cada pieza.
           </li>
           <li>
             <b className="text-ink">Hooks del contenido orgánico (Playbook):</b> desde una historia, «Enviar a Publicidad» trae su problema y su gancho como hook candidato.
@@ -128,7 +133,7 @@ export function SourcesPanel({
                 <th className="py-1 pr-2 font-medium">Nivel</th>
                 <th className="py-1 pr-2 text-right font-medium">Videos</th>
                 <th className="py-1 pr-2 text-right font-medium">Impresiones</th>
-                <th className="py-1 pr-2 text-right font-medium">Ven 3 s</th>
+                <th className="py-1 pr-2 text-right font-medium">{rateUses2s ? "Enganche" : "Ven 3 s"}</th>
                 <th className="py-1 pr-2 text-right font-medium">Vistas</th>
                 {show26 && <th className="py-1 pr-2 text-right font-medium">Ven 2 s</th>}
                 {show26 && <th className="py-1 pr-2 text-right font-medium">Ven 6 s</th>}
@@ -150,7 +155,7 @@ export function SourcesPanel({
                     </td>
                     <td className="py-1.5 pr-2 text-right font-mono">{r.stats.ads}</td>
                     <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.impressions)}</td>
-                    <td className="py-1.5 pr-2 text-right font-mono">{enough ? (r.stats.impressions ? pct(r.stats.hookRate) : "–") : "sin datos suficientes"}</td>
+                    <td className="py-1.5 pr-2 text-right font-mono">{enough ? (r.stats.impressions ? rateCell(r.stats) : "–") : "sin datos suficientes"}</td>
                     <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.views3s || r.stats.views)}</td>
                     {show26 && <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.views2s ?? 0)}</td>}
                     {show26 && <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.views6s ?? 0)}</td>}
@@ -208,7 +213,7 @@ export function SourcesPanel({
                 <LevelChip level={h.level} />
                 <span>{h.text}</span>
                 {h.note && <span className="text-xs text-muted">· {h.note}</span>}
-                {!winnerIds.has(h.id) && h.status !== "rejected" && <Tag>del orgánico, sin medir</Tag>}
+                {!winnerIds.has(h.id) && h.status !== "rejected" && <Tag>{organicNote(ranking.find((r) => r.id === h.id)?.stats, minImpressions)}</Tag>}
                 <Tag>{h.status === "approved" ? "aprobado" : h.status === "rejected" ? "descartado" : "pendiente"}</Tag>
               </li>
             ))}
@@ -274,6 +279,7 @@ export function SourcesPanel({
           <ul className="mt-4 space-y-3">
             {state.clips.map((clip) => {
               const s = byClip[clip.id];
+              const watch = s ? hookWatch(s) : null;
               return (
                 <li key={clip.id} className="rounded-lg border border-line p-3 text-sm">
                   <div className="flex flex-wrap items-center gap-2">
@@ -284,7 +290,7 @@ export function SourcesPanel({
                     <Tag>{FORMULA_LABEL[clip.formula]}</Tag>
                     {s && (
                       <Tag title="De las métricas cargadas">
-                        {s.ads} videos · {pct(s.hookRate)} ven 3 s · {fmt(s.views3s || s.views)} vistas
+                        {s.ads} videos · {pct(s.hookRate)} ven {watch?.seconds} s · {fmt(watch?.seconds === 2 ? watch.views : s.views3s || s.views)} vistas
                       </Tag>
                     )}
                     <span className="ml-auto flex gap-2">
@@ -346,7 +352,7 @@ export function SourcesPanel({
         )}
       </div>
       <Notice tone="info">
-        <b>Una métrica por pieza.</b> Hook: % de impresiones que ven 3 s. Meat: tiempo promedio de visualización. CTA: clics y conversión. Las vistas totales dependen de cuánto se invirtió, así que van al lado y no solas. Niveles 1 a 3 → audiencias frías; 4 y 5 → retargeting. {LEVEL_INFO[1].short}–{LEVEL_INFO[5].short} se etiquetan en cada pieza.
+        <b>Una métrica por pieza.</b> Hook: % de impresiones que ven 3 s (2 s si el reporte no trae las de 3). Meat: tiempo promedio de visualización. CTA: clics y conversión. Las vistas totales dependen de cuánto se invirtió, así que van al lado y no solas. Niveles 1 a 3 → audiencias frías; 4 y 5 → retargeting. {LEVEL_INFO[1].short}–{LEVEL_INFO[5].short} se etiquetan en cada pieza.
       </Notice>
     </section>
   );

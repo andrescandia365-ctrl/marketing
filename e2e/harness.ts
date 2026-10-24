@@ -1,6 +1,7 @@
 // Starts the app the way CI will: API and Vite on free ports, temporary folders, no writer keys.
 // Sample mode stays sample mode even when this machine has a .env, because the API is started without --env-file.
 import { spawn, type ChildProcess } from "node:child_process";
+import { readdirSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,12 +47,46 @@ function freePort(): Promise<number> {
   });
 }
 
+// Chromium already installed for Playwright (CI sets this, or a previous `playwright-core install`). Any
+// chromium-*/chrome-linux*/chrome. Skipped when CHROME_PATH is set: that binary is the one to use.
+function playwrightChromiums(): string[] {
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (process.env.CHROME_PATH || !root || root === "0") return [];
+  let names: string[];
+  try {
+    names = readdirSync(root);
+  } catch {
+    return [];
+  }
+  const found: string[] = [];
+  for (const name of names) {
+    if (!name.startsWith("chromium-")) continue;
+    let inner: string[];
+    try {
+      inner = readdirSync(join(root, name));
+    } catch {
+      continue;
+    }
+    for (const sub of inner) {
+      if (!sub.startsWith("chrome-linux")) continue;
+      const exe = join(root, name, sub, "chrome");
+      try {
+        if (statSync(exe).isFile()) found.push(exe);
+      } catch {
+        /* not the binary */
+      }
+    }
+  }
+  return found.sort((a, b) => Number(/chromium-(\d+)/.exec(b)?.[1] ?? 0) - Number(/chromium-(\d+)/.exec(a)?.[1] ?? 0));
+}
+
 function launchBrowser(): Promise<Browser> {
   const tries: LaunchOptions[] = [
     ...(process.env.CHROME_PATH ? [{ executablePath: process.env.CHROME_PATH }] : []),
     { channel: "chrome" },
     { channel: "msedge" },
     {},
+    ...playwrightChromiums().map((executablePath) => ({ executablePath })),
   ];
   const errors: string[] = [];
   const next = async (i: number): Promise<Browser> => {
@@ -140,10 +175,13 @@ export async function startApp(): Promise<Running> {
     url,
     browser,
     stop: async () => {
-      await browser.close();
-      api.kill("SIGTERM");
-      web.kill("SIGTERM");
-      await rm(root, { recursive: true, force: true });
+      try {
+        await browser.close();
+      } finally {
+        api.kill("SIGTERM");
+        web.kill("SIGTERM");
+        await rm(root, { recursive: true, force: true });
+      }
     },
   };
 }

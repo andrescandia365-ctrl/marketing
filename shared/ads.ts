@@ -968,8 +968,10 @@ const VIEWS_2S = [
 ];
 const VIEWS_3S = [
   /^3-?second video plays$/i,
+  /^3-?second video views$/i,
   /^three-?second video plays$/i,
   /^video plays at 3 seconds?$/i,
+  /^video views at 3 seconds?$/i,
   /^reproducciones de v[ií]deo de 3 segundos$/i,
   /^reproducciones de 3 segundos$/i,
   /^vistas de 3 segundos$/i,
@@ -998,7 +1000,7 @@ const HEADERS: Record<MetricField, RegExp[]> = {
   views6s: VIEWS_6S,
   views: [/^(video plays|video views|reproducciones de video|reproducciones de vídeo|views|visualizaciones|vistas|reproducciones)$/i],
   avgWatch: [/average (play|watch) time|tiempo promedio|avg.?watch|retenci[oó]n/i],
-  clicks: [/^(link clicks|clics en el enlace|clicks|clics|clicks \(all\)|clics \(todos\))$/i],
+  clicks: [/^(link clicks|clics en el enlace|clicks|clics|clicks \(all\)|clics \(todos\)|clicks \(destination\)|clics \(destination\))$/i],
   conversions: [/^(results|resultados|purchases|compras|conversions|conversiones|leads|registros|clientes potenciales)$/i],
   spend: [/^(amount spent.*|importe gastado.*|spend|gasto|inversi[oó]n|cost|costo)$/i],
 };
@@ -1019,22 +1021,36 @@ const num = (s: string, esLocale: boolean) => {
 };
 
 // The platform ad name: IMAN_N2_H12-M3-C2_45s_9x16, or IMAN_N2_H12v3-M3-C2_45s_9x16 when a piece has several voices.
-// The token is the series id, upper case and without accents (iman → IMAN, Máshogar would be MASHOGAR). The id on
+// The token is the series id, upper case and without accents (iman → IMAN, masogar → MASOGAR). The id on
 // disk stays the raw ad id: isAdId rejects a prefix, so only the CSV's id column carries this name.
-const EXPORT_NAME = /^([A-Za-z0-9-]+)_N(\d+)_(.+)_(\d+)s_(\d+x\d+)$/i;
+// Not anchored: Meta appends " - Copy" or " – Copia", and a cell can have words in front. Marks are stripped first,
+// so an accented prefix (MÁSHOGAR_) is still the whole token and the ad id in the middle is kept.
+const EXPORTED_AD = "H\\d{1,4}(?:v(?:10|[1-9]))?-M\\d{1,4}(?:v(?:10|[1-9]))?-C\\d{1,4}(?:v(?:10|[1-9]))?";
+const EXPORT_NAME = new RegExp(
+  `(?<![A-Za-z0-9-])([A-Za-z0-9-]+)_N(\\d+)_(${EXPORTED_AD})_(\\d+)s_(\\d+x\\d+)(?![A-Za-z0-9])`,
+  "i",
+);
+
+function stripMarks(text: string): string {
+  return text.normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+function exportMatch(name: string): RegExpExecArray | null {
+  return EXPORT_NAME.exec(stripMarks(name).trim());
+}
 
 export function seriesToken(seriesId: string): string {
-  return seriesId.normalize("NFD").replace(/\p{M}/gu, "").toUpperCase();
+  return stripMarks(seriesId).toUpperCase();
 }
 
 export function adExportName(seriesId: string, level: number, id: string, seconds: number, shape = "9x16"): string {
   return `${seriesToken(seriesId)}_N${level}_${id}_${seconds}s_${shape}`;
 }
 
-// `_` is a word character, so parseAdId's leading \b never fires between `_N2_` and `H12`. Read the id from the
-// middle of an exported name; a plain H12-M3-C2 (or H12v3-M3-C2) is parsed as written.
+// Read the id from the middle of an exported name, including one Meta duplicated (" - Copy", " – Copia") or one
+// with words in front. A plain H12-M3-C2 (or H12v3-M3-C2) is parsed as written.
 function adIdFromName(name: string): string {
-  const wrapped = EXPORT_NAME.exec(name.trim());
+  const wrapped = exportMatch(name);
   const parsed = parseAdId(wrapped ? wrapped[3] : name);
   if (!parsed) return "";
   return adId(parsed.hookId, parsed.meatId, parsed.ctaId, { hook: parsed.hookVoice, meat: parsed.meatVoice, cta: parsed.ctaVoice });
@@ -1042,7 +1058,7 @@ function adIdFromName(name: string): string {
 
 // An old name with no prefix still belongs here. A prefixed name belongs only when its token is this series, in any case.
 export function sameSeriesName(name: string, seriesId: string): boolean {
-  const m = EXPORT_NAME.exec(name.trim());
+  const m = exportMatch(name);
   if (!m) return true;
   return m[1].toUpperCase() === seriesToken(seriesId);
 }
@@ -1148,7 +1164,7 @@ export function pieceStats(rows: MetricRow[]): Record<string, PieceStats> {
     out[id] = {
       ...rest,
       avgWatch: watchWeight ? s.avgWatch / watchWeight : 0,
-      hookRate: s.impressions ? s.views3s / s.impressions : 0,
+      hookRate: hookRateFor(s.impressions, s),
       ctr: s.impressions ? s.clicks / s.impressions : 0,
       convRate: s.impressions ? s.conversions / s.impressions : 0,
     };
@@ -1181,7 +1197,7 @@ export function clipStats(clips: ClipRecord[], rows: MetricRow[]): Record<string
       weight += r.impressions || 1;
     }
     s.avgWatch = weight ? s.avgWatch / weight : 0;
-    s.hookRate = s.impressions ? s.views3s / s.impressions : 0;
+    s.hookRate = hookRateFor(s.impressions, s);
     s.ctr = s.impressions ? s.clicks / s.impressions : 0;
     s.convRate = s.impressions ? s.conversions / s.impressions : 0;
     out[clip.id] = s;
@@ -1220,16 +1236,46 @@ export function measuredWinners(ranked: RankedHook[], min = MIN_IMPRESSIONS): Ra
   return ranked.filter((r) => enoughData(r.stats, min));
 }
 
+// TikTok exports 2-second views and no 3-second column. Those rows use the 2-second views as the hook rate and are
+// labelled "2 s". A real 3-second count, even alongside 2-second views, stays the rate.
+export function hookWatch(stats: { views3s: number; views2s?: number }): { seconds: 2 | 3; views: number } {
+  if ((stats.views3s ?? 0) <= 0 && (stats.views2s ?? 0) > 0) return { seconds: 2, views: stats.views2s ?? 0 };
+  return { seconds: 3, views: stats.views3s ?? 0 };
+}
+
+function hookRateFor(impressions: number, stats: { views3s: number; views2s?: number }): number {
+  return impressions > 0 ? hookWatch(stats).views / impressions : 0;
+}
+
+// A Playbook hook with no impressions is still unmeasured. One with some impressions under the floor has data, just
+// not enough to call it a winner, so it does not say "sin medir".
+export function organicNote(stats: { impressions: number } | undefined, min = MIN_IMPRESSIONS): string {
+  if (stats && stats.impressions > 0 && !enoughData(stats, min)) return "sin datos suficientes";
+  return "del orgánico, sin medir";
+}
+
+function winnerPattern(r: RankedHook): string {
+  const watch = hookWatch(r.stats);
+  const views = watch.seconds === 2 ? watch.views : r.stats.views3s || r.stats.views;
+  return `${r.text} (N${r.level}, ${Math.round(r.stats.hookRate * 100)}% ven ${watch.seconds} s, ${views} vistas)`;
+}
+
 // What the hook writer is given. Winners are measured and above the minimum. Organic hooks that are not in that
 // list are labelled as unmeasured, and one that later clears the minimum is a winner only, not both.
 export function hookPatterns(state: AdsState, min = MIN_IMPRESSIONS): { winners: string[]; organic: string[] } {
-  const measured = measuredWinners(rankHooks(state), min).slice(0, 12);
+  const ranked = rankHooks(state);
+  const measured = measuredWinners(ranked, min).slice(0, 12);
   const winnerIds = new Set(measured.map((r) => r.id));
+  const statsOf = new Map(ranked.map((r) => [r.id, r.stats]));
   return {
-    winners: measured.map((r) => `${r.text} (N${r.level}, ${Math.round(r.stats.hookRate * 100)}% ven 3 s, ${r.stats.views3s || r.stats.views} vistas)`),
+    winners: measured.map(winnerPattern),
     organic: state.hooks
       .filter((h) => h.source === "organic" && h.status !== "rejected" && !winnerIds.has(h.id))
-      .map((h) => `${h.text} (del orgánico, sin medir)`),
+      .map((h) => {
+        const note = organicNote(statsOf.get(h.id), min);
+        const label = note === "sin datos suficientes" ? "del orgánico, sin datos suficientes" : note;
+        return `${h.text} (${label})`;
+      }),
   };
 }
 
