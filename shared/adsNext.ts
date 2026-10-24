@@ -5,6 +5,8 @@ import { enoughData, hookWatch, MIN_IMPRESSIONS, pieceStats, type MetricRow, typ
 import { parseAdId } from "./voiceVariants.ts";
 
 export const DEFAULT_KEEP_SHARE = 0.2;
+// Below this many pieces with data, the panel only shows the ranking. Nothing is archived.
+export const MIN_ARCHIVE = 3;
 
 export type Verdict = "ganador" | "perdedor" | "sin datos suficientes";
 export type NextAction = "keep" | "drop" | "leave";
@@ -17,6 +19,8 @@ export type NextPiece = {
   level?: number;
   angle?: string;
   formula?: string;
+  // The line is said inside the character clip. Those pieces have no voice pick.
+  clipSpeaker?: boolean;
 };
 
 export type NextVoice = { pieceId: string; id: string; name: string };
@@ -49,7 +53,27 @@ export type VoiceChange = { pieceId: string; before: VoiceSelectionLike | null; 
 
 const esInt = (n: number) => Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 const pct = (rate: number) => `${Math.round(rate * 100)} %`;
+const ratePct = (rate: number) => `${(rate * 100).toFixed(1).replace(".", ",")} %`;
 const secs = (n: number) => `${(Math.round(n * 10) / 10).toString().replace(".", ",")} s`;
+
+// H2 before H10. A text sort would put H10 first and split a tie across the cut.
+export function pieceIdOrder(a: string, b: string): number {
+  const pa = /^([A-Za-z]+)(\d+)$/.exec(a);
+  const pb = /^([A-Za-z]+)(\d+)$/.exec(b);
+  if (pa && pb) {
+    const d = Number(pa[2]) - Number(pb[2]);
+    if (d) return d;
+    return pa[1].toUpperCase().localeCompare(pb[1].toUpperCase());
+  }
+  return a.localeCompare(b, "es");
+}
+
+function voiceIdOrder(a: string, b: string): number {
+  const na = /(\d+)$/.exec(a);
+  const nb = /(\d+)$/.exec(b);
+  if (na && nb && na[1] !== nb[1]) return Number(na[1]) - Number(nb[1]);
+  return a.localeCompare(b, "es");
+}
 
 // How many of the pieces that have data stay. 0 keeps none. 1 keeps all. Anything in between rounds up, and at
 // least one, so three hooks do not all get archived.
@@ -109,50 +133,84 @@ function metricText(kind: PieceKind, stats: PieceStats): string {
     return `${pct(stats.hookRate)} de retención a ${watch.seconds} s con ${esInt(stats.impressions)} impresiones`;
   }
   if (kind === "meat") return `${secs(stats.avgWatch)} de visionado promedio con ${esInt(stats.impressions)} impresiones`;
-  return `${esInt(stats.conversions)} conversiones y ${esInt(stats.clicks)} clics en ${esInt(stats.impressions)} impresiones`;
+  return `${ratePct(stats.convRate)} de conversión y ${ratePct(stats.ctr)} de clics en ${esInt(stats.impressions)} impresiones`;
 }
 
 function meanText(kind: PieceKind, rows: PieceStats[]): string {
   const n = rows.length || 1;
   if (kind === "hook") return pct(rows.reduce((a, s) => a + s.hookRate, 0) / n);
   if (kind === "meat") return secs(rows.reduce((a, s) => a + s.avgWatch, 0) / n);
-  const conversions = Math.round(rows.reduce((a, s) => a + s.conversions, 0) / n);
-  const clicks = Math.round(rows.reduce((a, s) => a + s.clicks, 0) / n);
-  return `${esInt(conversions)} conversiones y ${esInt(clicks)} clics`;
+  const conv = rows.reduce((a, s) => a + s.convRate, 0) / n;
+  const ctr = rows.reduce((a, s) => a + s.ctr, 0) / n;
+  return `${ratePct(conv)} de conversión y ${ratePct(ctr)} de clics`;
 }
 
-function rankKind(pieces: NextPiece[], byId: Record<string, PieceStats>, minImpressions: number, keepShare: number): NextLine[] {
+// The column this kind is ranked by is missing, or every row has it at 0. Empty rows are not this case:
+// those stay the impression message. Hooks rank on the hook rate, which is views over impressions.
+export function metricColumnGap(kind: PieceKind, rows: MetricRow[]): string | null {
+  if (rows.length === 0 || kind === "hook") return null;
+  if (kind === "meat" && rows.every((r) => !(r.avgWatch > 0))) return "tiempo promedio";
+  if (kind === "cta" && rows.every((r) => !(r.clicks > 0)) && rows.every((r) => !(r.conversions > 0))) return "clics y resultados";
+  return null;
+}
+
+function thinLine(piece: NextPiece, kind: PieceKind, impressions: number, why: string): NextLine {
+  return { id: piece.id, kind, action: "leave", verdict: "sin datos suficientes", impressions, why };
+}
+
+function rankKind(pieces: NextPiece[], byId: Record<string, PieceStats>, rows: MetricRow[], minImpressions: number, keepShare: number): NextLine[] {
   const kind = pieces[0]?.kind;
   if (!kind) return [];
+  const gap = metricColumnGap(kind, rows);
+  if (gap) {
+    return pieces.map((piece) => {
+      const stats = byId[piece.id] ?? sumRows(piece.id, []);
+      return thinLine(piece, kind, stats.impressions, `${piece.id} sin datos suficientes: el CSV no trae la columna ${gap}.`);
+    });
+  }
   const enough: { piece: NextPiece; stats: PieceStats }[] = [];
   const lines: NextLine[] = [];
   for (const piece of pieces) {
     const stats = byId[piece.id] ?? sumRows(piece.id, []);
-    if (stats.impressions < minImpressions) {
-      lines.push({
-        id: piece.id,
-        kind,
-        action: "leave",
-        verdict: "sin datos suficientes",
-        impressions: stats.impressions,
-        why: `${piece.id} sin datos suficientes: ${esInt(stats.impressions)} impresiones (hacen falta ${esInt(minImpressions)}).`,
-      });
+    if (!(stats.impressions > 0) || stats.impressions < minImpressions) {
+      lines.push(thinLine(piece, kind, stats.impressions, `${piece.id} sin datos suficientes: ${esInt(stats.impressions)} impresiones (hacen falta ${esInt(minImpressions)}).`));
     } else enough.push({ piece, stats });
   }
-  enough.sort((a, b) => scoreOf(kind, b.stats) - scoreOf(kind, a.stats) || a.piece.id.localeCompare(b.piece.id));
-  const kept = keepCount(enough.length, keepShare);
+  enough.sort((a, b) => scoreOf(kind, b.stats) - scoreOf(kind, a.stats) || pieceIdOrder(a.piece.id, b.piece.id));
+  const archive = enough.length >= MIN_ARCHIVE && keepShare > 0;
+  const kept = keepShare > 0 ? keepCount(enough.length, keepShare) : 0;
+  let cut = kept;
+  if (archive && kept > 0 && kept < enough.length) {
+    const boundary = scoreOf(kind, enough[kept - 1].stats);
+    while (cut < enough.length && scoreOf(kind, enough[cut].stats) === boundary) cut++;
+  }
+  const widened = archive && cut > kept;
   const mean = meanText(kind, enough.map((e) => e.stats));
   enough.forEach((e, i) => {
-    const keep = i < kept;
-    const rank = `${i + 1} de ${enough.length} con datos; se quedan ${kept}`;
-    lines.push({
-      id: e.piece.id,
-      kind,
-      action: keep ? "keep" : "drop",
-      verdict: keep ? "ganador" : "perdedor",
-      impressions: e.stats.impressions,
-      why: `${e.piece.id} ${keep ? "sigue" : "se archiva"}: ${metricText(kind, e.stats)} (la media de la tanda es ${mean}). Es la ${rank}.`,
-    });
+    const metric = metricText(kind, e.stats);
+    const rank = `${i + 1} de ${enough.length} con datos`;
+    let action: NextAction = "leave";
+    let verdict: Verdict = "ganador";
+    let why: string;
+    if (!(keepShare > 0)) {
+      verdict = i === 0 ? "ganador" : "perdedor";
+      why = `${e.piece.id} queda ${rank}: ${metric} (la media de la tanda es ${mean}). Quedarse con el 0 % no aprueba ni archiva.`;
+    } else if (!archive) {
+      const keep = i < kept;
+      action = keep ? "keep" : "leave";
+      verdict = keep ? "ganador" : "perdedor";
+      why = keep
+        ? `${e.piece.id} sigue: ${metric} (la media de la tanda es ${mean}). Es la ${rank}; se quedan ${kept}. Con menos de 3 piezas con datos no se archiva nada.`
+        : `${e.piece.id} queda ${rank}: ${metric} (la media de la tanda es ${mean}). Con menos de 3 piezas con datos no se archiva nada.`;
+    } else {
+      const keep = i < cut;
+      const tied = widened && scoreOf(kind, e.stats) === scoreOf(kind, enough[kept - 1].stats);
+      action = keep ? "keep" : "drop";
+      verdict = keep ? "ganador" : "perdedor";
+      const tie = tied ? " Empata con el último que se queda y se quedan juntos." : "";
+      why = `${e.piece.id} ${keep ? "sigue" : "se archiva"}: ${metric} (la media de la tanda es ${mean}). Es la ${rank}; se quedan ${cut}.${tie}`;
+    }
+    lines.push({ id: e.piece.id, kind, action, verdict, impressions: e.stats.impressions, why });
   });
   return lines;
 }
@@ -169,17 +227,29 @@ function voiceLinesFor(
   minImpressions: number,
   current: VoiceSelectionLike | undefined,
 ): VoiceLine[] {
+  if (piece.clipSpeaker) return [];
   const mine = voices.filter((v) => v.pieceId === piece.id);
   if (mine.length < 2) return [];
   const ids = mine.map((v) => v.id);
   const scored = mine.map((v) => ({ voice: v, stats: sumRows(v.id, rowsForVoice(rows, piece.id, v.id)) }));
-  const enough = scored.filter((s) => s.stats.impressions >= minImpressions);
-  enough.sort((a, b) => scoreOf(piece.kind, b.stats) - scoreOf(piece.kind, a.stats) || a.voice.id.localeCompare(b.voice.id));
+  const gap = metricColumnGap(piece.kind, rows);
+  if (gap) {
+    return scored.map((s) => ({
+      pieceId: piece.id,
+      voiceId: s.voice.id,
+      name: s.voice.name,
+      verdict: "sin datos suficientes" as const,
+      pick: pickedNow(ids, current, s.voice.id),
+      why: `${piece.id} ${s.voice.id}${s.voice.name ? ` (${s.voice.name})` : ""} sin datos suficientes: el CSV no trae la columna ${gap}. Queda como estaba.`,
+    }));
+  }
+  const enough = scored.filter((s) => s.stats.impressions > 0 && s.stats.impressions >= minImpressions);
+  enough.sort((a, b) => scoreOf(piece.kind, b.stats) - scoreOf(piece.kind, a.stats) || voiceIdOrder(a.voice.id, b.voice.id));
   const winner = enough[0]?.voice.id;
   const mean = enough.length ? meanText(piece.kind, enough.map((e) => e.stats)) : "";
   return scored.map((s) => {
     const was = pickedNow(ids, current, s.voice.id);
-    if (s.stats.impressions < minImpressions) {
+    if (!(s.stats.impressions > 0) || s.stats.impressions < minImpressions) {
       return {
         pieceId: piece.id,
         voiceId: s.voice.id,
@@ -216,12 +286,13 @@ export function proposeNext(input: {
   const minImpressions = input.minImpressions ?? MIN_IMPRESSIONS;
   const keepShare = input.keepShare ?? DEFAULT_KEEP_SHARE;
   const byId = pieceStats(input.rows);
+  const ranked = input.pieces.filter((p) => p.status === "pending" || p.status === "approved" || p.status === "archived");
   const lines: NextLine[] = [];
   for (const kind of ["hook", "meat", "cta"] as const) {
-    lines.push(...rankKind(input.pieces.filter((p) => p.kind === kind), byId, minImpressions, keepShare));
+    lines.push(...rankKind(ranked.filter((p) => p.kind === kind), byId, input.rows, minImpressions, keepShare));
   }
   const voices: VoiceLine[] = [];
-  for (const piece of input.pieces) {
+  for (const piece of ranked) {
     voices.push(...voiceLinesFor(piece, input.voices ?? [], input.rows, minImpressions, input.voiceChoice?.[piece.id]));
   }
   return { lines, voices };
@@ -239,7 +310,7 @@ export function planApply(
   const byId = Object.fromEntries(pieces.map((p) => [p.id, p.status]));
   for (const line of proposal.lines) {
     const from = byId[line.id];
-    if (!from) continue;
+    if (!from || from === "rejected") continue;
     const to: PieceStatus | null = line.action === "keep" ? "approved" : line.action === "drop" ? "archived" : null;
     if (to && to !== from) status.push({ id: line.id, from, to });
   }
@@ -304,4 +375,68 @@ export function variantWinnerRefusal(id: string, stats: { impressions: number } 
   if (enoughData(stats ?? { impressions: 0 }, min)) return null;
   const n = Math.round(stats?.impressions ?? 0);
   return `${id} tiene ${n} impresiones y el mínimo para mandarlo como ganador es ${min}. No se puede mandar como ganador: subí el mínimo en Fuentes o elegí un gancho que ya lo pase.`;
+}
+
+// Status, the impression floor, then a hook this ranking would archive. Under three pieces with data nobody is
+// archived, so the best of a short list can still be a variant. The floor is the person's own setting.
+export function variantHookRefusal(input: {
+  id: string;
+  status: PieceStatus;
+  stats: { impressions: number } | undefined;
+  pieces: NextPiece[];
+  rows: MetricRow[];
+  min?: number;
+  keepShare?: number;
+}): string | null {
+  if (input.status === "rejected") return `${input.id} está descartado. Aprobá el gancho o elegí un ganador.`;
+  if (input.status === "archived") return `${input.id} está archivado. Aprobá el gancho o elegí un ganador.`;
+  const min = input.min ?? MIN_IMPRESSIONS;
+  const floor = variantWinnerRefusal(input.id, input.stats, min);
+  if (floor) return floor;
+  const line = proposeNext({
+    pieces: input.pieces,
+    rows: input.rows,
+    minImpressions: min,
+    keepShare: input.keepShare ?? DEFAULT_KEEP_SHARE,
+  }).lines.find((l) => l.id === input.id);
+  if (line?.action === "drop") return `${input.id} quedó como perdedor de la próxima tanda. No se puede pedir variantes de un gancho que se archiva: elegí un ganador.`;
+  return null;
+}
+
+// Deshacer only reverts a piece whose status is still the one Aplicar wrote. The rest are named and left as they are.
+export function undoStatusPlan(applied: StatusChange[], current: { id: string; status: PieceStatus }[]): { revert: StatusChange[]; skipped: string[] } {
+  const byId = new Map(current.map((p) => [p.id, p.status]));
+  const revert: StatusChange[] = [];
+  const skipped: string[] = [];
+  for (const change of applied) {
+    if (byId.get(change.id) === change.to) revert.push({ id: change.id, from: change.to, to: change.from });
+    else skipped.push(change.id);
+  }
+  return { revert, skipped };
+}
+
+function sameVoice(current: VoiceSelectionLike | null | undefined, after: VoiceSelectionLike): boolean {
+  if (!current || current.picked.length !== after.picked.length) return false;
+  const picked = new Set(current.picked);
+  return after.picked.every((id) => picked.has(id));
+}
+
+export function undoVoicePlan(
+  applied: VoiceChange[],
+  current: Record<string, VoiceSelectionLike | undefined>,
+): { revert: { pieceId: string; restore: VoiceSelectionLike | null }[]; skipped: string[] } {
+  const revert: { pieceId: string; restore: VoiceSelectionLike | null }[] = [];
+  const skipped: string[] = [];
+  for (const change of applied) {
+    if (sameVoice(current[change.pieceId], change.after)) revert.push({ pieceId: change.pieceId, restore: change.before });
+    else skipped.push(change.pieceId);
+  }
+  return { revert, skipped };
+}
+
+export function undoSkipNote(statusSkipped: string[], voiceSkipped: string[]): string {
+  const bits: string[] = [];
+  if (statusSkipped.length) bits.push(`No volví ${statusSkipped.join(", ")}: el estado ya no es el que dejó Aplicar.`);
+  if (voiceSkipped.length) bits.push(`No volví la voz de ${voiceSkipped.join(", ")}: la elección ya no es la que dejó Aplicar.`);
+  return bits.join(" ");
 }

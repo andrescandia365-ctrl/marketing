@@ -24,6 +24,7 @@ import {
   rankHooks,
   hookPatterns,
   MIN_IMPRESSIONS,
+  NextUndoSchema,
   toLevel,
   toLevels,
   HookStaticSchema,
@@ -64,7 +65,7 @@ import {
 } from "../shared/voiceVariants.ts";
 import { campaignCsv, defaultStatic, staticBelongs, staticsCsv } from "../shared/adsStatic.ts";
 import { sequenceSlot } from "../shared/adsSequence.ts";
-import { variantFacts, variantWinnerRefusal } from "../shared/adsNext.ts";
+import { variantFacts, variantHookRefusal } from "../shared/adsNext.ts";
 import { currentWriter, taskFromPaste, taskPrompt } from "./claude.ts";
 import { HandoffSchema } from "../shared/handoff.ts";
 import { PastedCopySchema, copiesFromWire, copyChunks, copyPairs, countParts, freshCopies, withSigs, hookParts, partOf, type PromptPart } from "../shared/adsHandoff.ts";
@@ -278,9 +279,20 @@ export function adsRoutes(app: Hono) {
 
   app.put("/api/ads/:series/settings", async (c) => {
     const id = series(c);
-    const { weeklyLimit } = z.object({ weeklyLimit: z.number().int().min(1).max(5000) }).parse(await c.req.json());
+    const patch = z
+      .object({
+        weeklyLimit: z.number().int().min(1).max(5000).optional(),
+        keepPercent: z.number().int().min(0).max(100).optional(),
+        nextUndo: NextUndoSchema.nullable().optional(),
+      })
+      .parse(await c.req.json());
+    if (patch.weeklyLimit === undefined && patch.keepPercent === undefined && patch.nextUndo === undefined) {
+      throw new AdsError("No hay nada para guardar. Mandá el límite, el porcentaje o el deshacer.");
+    }
     const { state } = await updateAds(id, (s) => {
-      s.weeklyLimit = weeklyLimit;
+      if (patch.weeklyLimit !== undefined) s.weeklyLimit = patch.weeklyLimit;
+      if (patch.keepPercent !== undefined) s.keepPercent = patch.keepPercent;
+      if (patch.nextUndo !== undefined) s.nextUndo = patch.nextUndo;
     });
     return c.json({ state });
   });
@@ -394,6 +406,7 @@ export function adsRoutes(app: Hono) {
         split: SplitBody,
         // N new hooks in one winner's angle and formula. The numbers are read here, from the stored metrics.
         variant: z.object({ id: z.string().regex(/^H\d{1,4}$/), count: z.number().int().min(1).max(20) }).optional(),
+        // The floor is the person's own setting (Fuentes / Próxima tanda). It defaults to MIN_IMPRESSIONS and is never below 1.
         minImpressions: z.number().int().min(1).max(1_000_000_000).optional(),
       })
       .parse(await c.req.json());
@@ -403,14 +416,24 @@ export function adsRoutes(app: Hono) {
     const winner = variant ? state0.hooks.find((h) => h.id === variant.id) : undefined;
     if (variant && !winner) throw new AdsError("Esa pieza no existe.");
     const winnerStats = winner ? pieceStats(state0.metrics)[winner.id] : undefined;
-    const refusal = winner ? variantWinnerRefusal(winner.id, winnerStats, floor) : null;
+    const refusal = winner
+      ? variantHookRefusal({
+          id: winner.id,
+          status: winner.status,
+          stats: winnerStats,
+          pieces: state0.hooks.map((h) => ({ id: h.id, kind: "hook" as const, status: h.status, text: h.text, level: h.level, angle: h.angle, formula: h.formula })),
+          rows: state0.metrics,
+          min: floor,
+          keepShare: state0.keepPercent / 100,
+        })
+      : null;
     if (refusal) throw new AdsError(refusal);
     // A variant of one winner is a single prompt: it is not split across parts.
     const facts = winner && variant ? variantFacts(winner, winnerStats, variant.count) : null;
     // By copy and paste, 50 hooks are several prompts: this one asks for its share of the levels.
     const one = facts ? null : handoff ? partOf(hookParts(count, levelsOf(levels)), part) : null;
     const patterns = facts ? null : hookPatterns(state0, floor);
-    const existing = state0.hooks.filter((h) => h.status !== "rejected").map((h) => h.text);
+    const existing = state0.hooks.map((h) => h.text);
     const req = facts && winner
       ? {
           levels: [winner.level],

@@ -15,6 +15,7 @@ type Props = {
   applyLabel: string;
   canApply: boolean;
   canUndo: boolean;
+  undoNote?: string;
   busy: boolean;
   demo: boolean;
   onApply: () => void;
@@ -40,6 +41,7 @@ export function NextBatch({
   applyLabel,
   canApply,
   canUndo,
+  undoNote = "",
   busy,
   demo,
   onApply,
@@ -82,17 +84,17 @@ export function NextBatch({
         <div>
           <p className="text-sm font-semibold">Próxima tanda</p>
           <p className="mt-1 max-w-xl text-xs text-muted">
-            Con las métricas que ya importaste. Lo que no llega a las impresiones mínimas queda como está. Del resto se queda el porcentaje de arriba y el resto se archiva: no se borra, y sigue en Fuentes. Nada cambia hasta Aplicar.
+            Con las métricas que ya importaste. Un gancho descartado no entra. Lo que no llega a las impresiones mínimas queda como está. Si hay al menos 3 con datos, se queda el porcentaje de arriba y el resto se archiva: no se borra, y sigue en Fuentes. Con menos de 3, o con 0 %, solo se muestra el ranking. Nada cambia hasta Aplicar.
           </p>
         </div>
         <label className="text-xs">
           <span className="font-semibold">Impresiones mínimas</span>
           <input
             type="number"
-            min={0}
+            min={1}
             className="ml-2 w-24 rounded-lg border border-line px-2 py-1"
             value={minImpressions}
-            onChange={(e) => onMin(Math.max(0, Math.round(Number(e.target.value) || 0)))}
+            onChange={(e) => onMin(Math.max(1, Math.round(Number(e.target.value) || 1)))}
           />
         </label>
         <label className="text-xs">
@@ -108,6 +110,7 @@ export function NextBatch({
           <span className="ml-1">%</span>
         </label>
       </div>
+      {keepPercent === 0 && <p className="mt-2 text-xs text-neg">Quedarse con el 0 % no aprueba ni archiva. Subí el porcentaje para poder aplicar.</p>}
       {GROUPS.map((g) => {
         const lines = proposal.lines.filter((l) => l.kind === g.kind);
         if (!lines.length) return null;
@@ -188,6 +191,7 @@ export function NextBatch({
         </Button>
         <span className="text-xs text-muted">{applyLabel}</span>
       </div>
+      {undoNote && <p className="mt-2 text-xs text-muted">{undoNote}</p>}
       {note && <p className="mt-2 text-xs text-muted">{note}</p>}
     </div>
   );

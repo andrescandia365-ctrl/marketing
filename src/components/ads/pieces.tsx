@@ -15,7 +15,7 @@ import {
   type Piece,
   type PieceStatus,
 } from "../../../shared/ads.ts";
-import { imageSaveLine, promptsWithSlots, slotName, videoSaveLine, withSlotLine } from "../../../shared/adsBulk.ts";
+import { imageSaveLine, slotName, videoSaveLine } from "../../../shared/adsBulk.ts";
 import { continuityNote, grokSequence, sequencePromptText, sequencePromptsFromPiece } from "../../../shared/adsSequence.ts";
 import { unverified } from "../../../shared/adsSpeaker.ts";
 import { formatSeconds, nextVoiceId, voiceLengthWarning, voiceNumber, VOICE_VARIANTS_MAX } from "../../../shared/voiceVariants.ts";
@@ -429,12 +429,18 @@ export function PieceCard({
   const slots = explainer ? [] : grokSequence(piece.seconds);
   const sequence = slots.length > 1;
   const clipSeconds = sequence ? slots[0].length : clipSecondsFor(piece.seconds);
-  const imageLine = imageSaveLine(slotName(piece.id, { image: true }));
-  const videoLine = videoSaveLine(slotName(piece.id, sequence ? { count: slots.length, index: 0 } : { count: 1, index: 0 }));
-  const imageCopy = withSlotLine(buildCopyPrompt(piece.visualPrompt, format), imageLine);
-  const videoCopy = withSlotLine(piece.videoPrompt, videoLine);
+  const imageName = imageSaveLine(slotName(piece.id, { image: true }));
+  const videoName = videoSaveLine(slotName(piece.id, { count: 1, index: 0 }));
+  const imageCopy = buildCopyPrompt(piece.visualPrompt, format);
+  const videoCopy = piece.videoPrompt;
+  const clipPrompts = sequence
+    ? sequencePromptsFromPiece({ text: piece.text, seconds: piece.seconds, visualPrompt: piece.visualPrompt, videoPrompt: piece.videoPrompt, look })
+    : [];
   const sequenceText = sequence
-    ? sequencePromptText(promptsWithSlots(piece.id, sequencePromptsFromPiece({ text: piece.text, seconds: piece.seconds, visualPrompt: piece.visualPrompt, videoPrompt: piece.videoPrompt, look })))
+    ? sequencePromptText(
+        clipPrompts,
+        clipPrompts.map((_, i) => videoSaveLine(slotName(piece.id, { count: slots.length, index: i }))),
+      )
     : "";
   const dim = piece.status === "rejected" || piece.status === "archived" ? "opacity-60" : "";
 
@@ -592,9 +598,11 @@ export function PieceCard({
                 </>
               )}
             </p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <CopyButton text={imageCopy} idle="Copiar prompt de imagen" />
+              <span className="font-mono text-[11px] text-muted">{imageName}</span>
               <CopyButton text={videoCopy} idle="Copiar prompt de video" variant="secondary" />
+              {!sequence && <span className="font-mono text-[11px] text-muted">{videoName}</span>}
               {sequence &&
                 (unverified(piece.text) ? (
                   <p className="text-neg">El texto tiene un [VERIFY]: confirmalo o cambialo antes de copiar los prompts.</p>
@@ -607,7 +615,7 @@ export function PieceCard({
                 </Button>
               )}
             </div>
-            <p className="text-[11px] text-muted">Al copiar, el prompt termina con «{videoLine}» o «{imageLine}».</p>
+            <p className="text-[11px] text-muted">El nombre del archivo va al lado del botón. El texto que lee Grok no lo incluye.</p>
             <pre className="whitespace-pre-wrap rounded bg-paper p-2 font-mono text-[11px] text-muted">{piece.visualPrompt || "(sin prompt de imagen)"}</pre>
             <pre className="whitespace-pre-wrap rounded bg-paper p-2 font-mono text-[11px] text-muted">{piece.videoPrompt || "(sin prompt de video)"}</pre>
             <div className="flex flex-wrap gap-2">
@@ -645,6 +653,8 @@ export function PieceCard({
                         pedí {slot.length} s{slot.play < slot.length ? ` (el anuncio usa los primeros ${slot.play} s)` : ""}
                       </span>
                       {i > 0 && <span className="basis-full text-muted">{continuityNote(i)}</span>}
+                      {!unverified(piece.text) && <CopyButton text={clipPrompts[i] ?? ""} idle={`Copiar prompt del clip ${i + 1}`} />}
+                      <span className="font-mono text-muted">{slotName(piece.id, { count: slots.length, index: i })}.mp4</span>
                       <label className="cursor-pointer rounded border border-line bg-white px-2 py-0.5 font-semibold hover:border-ink">
                         {file ? "Cambiar" : "Subir"}
                         <input type="file" accept="video/*" className="hidden" onChange={(e) => e.target.files?.[0] && onUploadClipAt?.(i, e.target.files[0])} />

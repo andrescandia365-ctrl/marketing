@@ -7,12 +7,14 @@ import {
   bulkMimeOf,
   bulkWillUpload,
   imageSaveLine,
+  markRepeated,
   matchBulkFile,
   parseSlotName,
-  promptsWithSlots,
+  pendingUploads,
   slotChoices,
   slotName,
   videoSaveLine,
+  webmContainer,
   withSlotLine,
   type BulkFile,
   type BulkPiece,
@@ -28,12 +30,13 @@ const hook = (id: string, extra: Partial<BulkPiece> = {}): BulkPiece => ({
   clips: [false],
   ...extra,
 });
-const meat = (id: string, seconds: number, clips: boolean[]): BulkPiece => ({
+const meat = (id: string, seconds: number, clips: boolean[], singleClip = false): BulkPiece => ({
   id,
   kind: "meat",
   seconds,
   image: false,
   clips,
+  ...(singleClip && { singleClip }),
 });
 
 test("slot names round-trip: one clip is the id, clip 2 is 1-based, a still is -img", () => {
@@ -55,6 +58,9 @@ test("names are tolerant, and two codes or a missing separator are not a guess",
   assert.deepEqual(parseSlotName("m3_c2-final.mp4"), { ok: true, pieceId: "M3", image: false, clip: 2 });
   assert.deepEqual(parseSlotName("carpeta/m3 c2.mov"), { ok: true, pieceId: "M3", image: false, clip: 2 });
   assert.deepEqual(parseSlotName("H12-imagen.jpg"), { ok: true, pieceId: "H12", image: true, clip: null });
+  assert.deepEqual(parseSlotName("H12-image.png"), { ok: true, pieceId: "H12", image: true, clip: null });
+  assert.deepEqual(parseSlotName("H12-estatico.png"), { ok: true, pieceId: "H12", image: false, clip: null });
+  assert.deepEqual(parseSlotName("clip-H12.mp4"), { ok: true, pieceId: "H12", image: false, clip: null });
   assert.deepEqual(parseSlotName("M3c2.mp4"), { ok: true, pieceId: "M3", image: false, clip: null });
   assert.deepEqual(parseSlotName("H12 y M3.mp4"), { ok: false, reason: "ambiguous" });
   assert.deepEqual(parseSlotName("H12-c2-c3.mp4"), { ok: false, reason: "clips" });
@@ -63,17 +69,12 @@ test("names are tolerant, and two codes or a missing separator are not a guess",
   assert.deepEqual(parseSlotName("H12 y C2.mp4"), { ok: false, reason: "ambiguous" });
 });
 
-test("the save line is appended once, one prompt per clip", () => {
+test("the save line is appended once, and it is not how a prompt is built", () => {
   assert.equal(withSlotLine("Look.", "Guardá el video como: H12.mp4"), "Look.\nGuardá el video como: H12.mp4");
   assert.equal(withSlotLine("Look.\nGuardá el video como: H12.mp4\n", "Guardá el video como: H12.mp4"), "Look.\nGuardá el video como: H12.mp4");
   assert.equal(withSlotLine("", "Guardá el video como: H12.mp4"), "Guardá el video como: H12.mp4");
-  const one = promptsWithSlots("h12", ["a prompt"]);
-  assert.equal(one.length, 1);
-  assert.match(one[0], /Guardá el video como: H12\.mp4$/);
-  assert.doesNotMatch(one[0], /-c1/);
-  const two = promptsWithSlots("M3", ["first", "second"]);
-  assert.match(two[0], /M3-c1\.mp4$/);
-  assert.match(two[1], /M3-c2\.mp4$/);
+  assert.equal(slotName("M3", { count: 2, index: 0 }), "M3-c1");
+  assert.equal(slotName("M3", { count: 2, index: 1 }), "M3-c2");
 });
 
 test("the preview table: new, replace, missing, wrong clip, bad type, pick, other tab", () => {
@@ -138,14 +139,95 @@ test("type comes from the first bytes: png, jpeg, webp, mp4, mov, webm", () => {
   const webm = new Uint8Array(64);
   webm.set([0x1a, 0x45, 0xdf, 0xa3], 0);
   webm.set(text("webm"), 20);
+  webm.set([0x83, 0x81, 0x01], 40);
+  const audioWebm = new Uint8Array(64);
+  audioWebm.set([0x1a, 0x45, 0xdf, 0xa3], 0);
+  audioWebm.set(text("webm"), 20);
+  audioWebm.set([0x83, 0x81, 0x02], 40);
+  const bareWebm = new Uint8Array(64);
+  bareWebm.set([0x1a, 0x45, 0xdf, 0xa3], 0);
+  bareWebm.set(text("webm"), 20);
+  const m4a = text("\0\0\0\x18ftypM4A ");
+  const heic = text("\0\0\0\x18ftypheic");
+  const avif = text("\0\0\0\x18ftypavif");
+  const mp41 = text("\0\0\0\x18ftypmp41");
   assert.equal(bulkMimeOf(png), "image/png");
   assert.equal(bulkMimeOf(jpeg), "image/jpeg");
   assert.equal(bulkMimeOf(webp), "image/webp");
   assert.equal(bulkMimeOf(mp4), "video/mp4");
   assert.equal(bulkMimeOf(mov), "video/quicktime");
   assert.equal(bulkMimeOf(webm), "video/webm");
+  assert.equal(bulkMimeOf(audioWebm), null);
+  assert.equal(bulkMimeOf(bareWebm), null);
+  assert.equal(webmContainer(audioWebm), true);
+  assert.equal(webmContainer(bareWebm), true);
+  assert.equal(bulkMimeOf(m4a), null);
+  assert.equal(bulkMimeOf(heic), null);
+  assert.equal(bulkMimeOf(avif), null);
+  assert.equal(bulkMimeOf(mp41), "video/mp4");
   assert.equal(bulkMimeOf(text("hola")), null);
   assert.equal(bulkKindOf(png), "image");
   assert.equal(bulkKindOf(mp4), "video");
+  assert.equal(bulkKindOf(audioWebm), null);
   assert.equal(bulkKindOf(Uint8Array.of()), null);
+});
+
+test("a Grok download or a camera name is not a piece, even when that code exists", () => {
+  const pieces = [hook("C41"), hook("C3"), hook("M100"), hook("H12")];
+  for (const name of ["grok-video-3f2c41a9-8b2e-4d10-a1f0.mp4", "grok_8a1c3e.mp4", "DSC_M100.mp4"]) {
+    assert.equal(parseSlotName(name).ok, false);
+    assert.equal(matchBulkFile(video(name), pieces, "hook").status, "no encontré la pieza");
+  }
+});
+
+test("a file that is not a picture or a video says formato no válido before the name is read", () => {
+  const pieces = [hook("H12")];
+  const bad = (name: string) => matchBulkFile({ name, size: 20, kind: null }, pieces, "hook").status;
+  assert.equal(bad("notas.txt"), "formato no válido");
+  assert.equal(bad("H12.txt"), "formato no válido");
+  assert.equal(bad("H12-voz-v1.webm"), "formato no válido");
+  assert.equal(matchBulkFile(image("H12-estatico.png"), pieces, "hook").status, "formato no válido");
+  assert.equal(matchBulkFile(image("H12-image.png"), pieces, "hook").status, "nuevo");
+  assert.equal(matchBulkFile(image("H12-image.png"), pieces, "hook").slot, "H12-img");
+});
+
+test("a second file for the same slot is repetido, and a row already listo is not uploaded again", () => {
+  const pieces = [hook("H12")];
+  const matches = markRepeated([
+    matchBulkFile(video("H12.mp4"), pieces, "hook"),
+    matchBulkFile(video("H12 (1).mp4"), pieces, "hook"),
+    matchBulkFile(video("H4.mp4"), pieces, "hook"),
+  ]);
+  assert.equal(matches[0].status, "nuevo");
+  assert.equal(matches[1].status, "repetido");
+  assert.equal(matches[1].pick, true);
+  assert.equal(bulkWillUpload(matches[1].status), false);
+  assert.equal(matches[2].status, "no encontré la pieza");
+  const rows = matches.map((m, i) => ({ key: String(i), status: m.status }));
+  assert.deepEqual(
+    pendingUploads(rows, { "0": "listo" }).map((r) => r.key),
+    [],
+  );
+  const again = pendingUploads(
+    [
+      { key: "a", status: "reemplaza el actual" as const },
+      { key: "b", status: "nuevo" as const },
+    ],
+    { a: "listo" },
+  );
+  assert.deepEqual(again.map((r) => r.key), ["b"]);
+});
+
+test("an explainer clip is one slot, even when the meat is longer than 15 s", () => {
+  const pieces = [meat("M3", 22, [false, false], true)];
+  assert.equal(matchBulkFile(video("M3.mp4"), pieces, "meat").status, "nuevo");
+  assert.equal(matchBulkFile(video("M3.mp4"), pieces, "meat").slot, "M3");
+  assert.equal(matchBulkFile(video("M3-c1.mp4"), pieces, "meat").slot, "M3");
+  assert.equal(matchBulkFile(video("M3-c2.mp4"), pieces, "meat").status, "ese clip no existe en esta pieza");
+  assert.deepEqual(
+    slotChoices(pieces, "meat")
+      .filter((s) => !s.image)
+      .map((s) => s.label),
+    ["M3 · clip"],
+  );
 });

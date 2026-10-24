@@ -5,7 +5,7 @@
 // key involved: the prompt is pure code. Grok's lip sync is [NOT SURE] in its profile (server/tools/grok-imagine.md),
 // so the piece can keep the clip's own voice or mute it and play the generated or uploaded voice instead.
 import { ANGLE_LABEL, WORDS_PER_SECOND, clipSecondsFor, countWords, wordsFor, type Piece, type PieceSpeaker, type SpeakerSound } from "./ads.ts";
-import { promptsWithSlots } from "./adsBulk.ts";
+import { slotName, videoSaveLine } from "./adsBulk.ts";
 import { clipContinuity, grokSequence, sequencePromptText, stretchText } from "./adsSequence.ts";
 import { audioLine, speakingPrompt } from "./audio.ts";
 import { lookPhrase, PLAIN_VIDEO } from "./prompt.ts";
@@ -284,14 +284,15 @@ export function speakerBatch(input: SpeakerBatchInput): {
       type: input.type,
     };
     const slots = grokSequence(piece.seconds);
-    const prompts = promptsWithSlots(piece.id, sequenceSpeakerPrompts(promptInput));
+    const raw = sequenceSpeakerPrompts(promptInput);
+    const lines = raw.map((_, i) => videoSaveLine(slotName(piece.id, { count: raw.length, index: i })));
     entries.push({
       id: piece.id,
       ref: member.ref,
       pieceSeconds: piece.seconds,
       clip: slots.length > 1 ? slots.length : speakerFit(piece.text, piece.seconds).clip,
       ...(slots.length > 1 && { clips: slots.length }),
-      prompt: slots.length > 1 ? sequencePromptText(prompts) : prompts[0],
+      prompt: slots.length > 1 ? sequencePromptText(raw, lines) : raw[0],
     });
   }
   return { entries, skipped };
@@ -302,7 +303,8 @@ export function speakerBatchText(entries: SpeakerBatchEntry[]): string {
   return entries
     .map((e) => {
       const length = e.clips && e.clips > 1 ? `${e.clips} clips` : `clip de ${e.clip} s`;
-      return `${e.id} · adjuntá @${e.ref} · ${length} (la pieza usa ${e.pieceSeconds} s)\n${e.prompt}`;
+      const file = e.clips && e.clips > 1 ? "" : `\n${videoSaveLine(slotName(e.id, { count: 1, index: 0 }))}`;
+      return `${e.id} · adjuntá @${e.ref} · ${length} (la pieza usa ${e.pieceSeconds} s)${file}\n${e.prompt}`;
     })
     .join("\n\n———\n\n");
 }

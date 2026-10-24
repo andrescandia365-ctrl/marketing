@@ -1,6 +1,8 @@
 // Names a Grok file so a later drop finds its slot. One clip is the piece id (H12). Clip 2 of a long meat is
-// M3-c2 (the number the person sees, so the file is 1-based). A still is H12-img. The copied prompt ends with the
-// line that says so. Parsing is tolerant and never guesses between two piece codes.
+// M3-c2 (the number the person sees, so the file is 1-based). A still of the piece is H12-img. The file name is
+// shown next to the copy button and in the batch header, never inside the text Grok reads. Parsing is tolerant
+// and never guesses between two piece codes. A letter stuck to other letters or digits (a Grok download, DSC_M100)
+// is not a piece id.
 import { grokSequence } from "./adsSequence.ts";
 import type { PieceKind } from "./ads.ts";
 
@@ -22,27 +24,23 @@ export function imageSaveLine(slot: string): string {
   return `Guardá la imagen como: ${slot}.png`;
 }
 
-// Appends the save line once. A prompt that already ends with it is left as it is.
+// Appends the save line once. The studios do not use this on the text Grok reads: the name stays outside that text.
 export function withSlotLine(prompt: string, line: string): string {
   const trimmed = prompt.replace(/\s+$/, "");
   if (trimmed.endsWith(line)) return trimmed;
   return trimmed ? `${trimmed}\n${line}` : line;
 }
 
-// One video prompt per clip, each closed with its own file name. One prompt is the piece id, not `<id>-c1`.
-export function promptsWithSlots(pieceId: string, prompts: string[]): string[] {
-  const count = Math.max(1, prompts.length);
-  return prompts.map((p, i) => withSlotLine(p, videoSaveLine(slotName(pieceId, { count, index: i }))));
-}
-
 export type SlotParse =
   | { ok: true; pieceId: string; image: boolean; clip: number | null }
   | { ok: false; reason: "none" | "ambiguous" | "clips" };
 
-const PIECE_RE = /[HMC]\d{1,4}(?!\d)/gi;
-// A separator, then c/clip plus a number, or img/imagen. The separator is required, so "M3c2" stays piece M3
-// with trailing text and does not become clip 2.
-const MARKER_RE = /[\s_-](?:(?:c|clip)[\s_-]*(\d{1,2})(?!\d)|(img|imagen)\b)/gi;
+// The lookbehind includes "_" so DSC_M100 and grok_8a1c3e are not piece ids. A digit before the letter
+// (grok-video-3f2c41a9) is the same idea. The right side stays (?!\d) so M3c2 is still piece M3.
+const PIECE_RE = /(?<![A-Za-z0-9_])[HMC]\d{1,4}(?!\d)/gi;
+// A separator, then c/clip plus a number, or img/imagen/image. The separator is required, so "M3c2" stays piece M3
+// with trailing text and does not become clip 2. "estatico" is not the piece image: that file belongs to Estáticos.
+const MARKER_RE = /[\s_-](?:(?:c|clip)[\s_-]*(\d{1,2})(?!\d)|(img|imagen|image)\b)/gi;
 
 // A c+digits token is the clip marker (M3-c2), not a second piece, when a separator is all that stands between it
 // and the piece id. Glued on (M3c2) it is trailing text. A c-code with words in between (H12 y C2) is another piece.
@@ -89,6 +87,7 @@ export const BULK_STATUSES = [
   "elegí el lugar",
   "hay más de una pieza en el nombre",
   "esa pieza es de otra pestaña",
+  "repetido",
 ] as const;
 export type BulkStatus = (typeof BULK_STATUSES)[number];
 
@@ -104,6 +103,8 @@ export type BulkPiece = {
   image: boolean;
   // One entry per Grok clip, true when that slot already has a file. Index 0 is the single clip.
   clips: boolean[];
+  // A finished explainer is one clip, even when the piece is longer than 15 s.
+  singleClip?: boolean;
 };
 
 export type BulkFile = { name: string; size: number; kind: "video" | "image" | null };
@@ -123,8 +124,27 @@ export type BulkMatch = {
 export type SlotChoice = { pieceId: string; image: boolean; index: number | null; label: string };
 
 function clipCount(piece: BulkPiece): number {
+  if (piece.singleClip) return 1;
   const n = grokSequence(piece.seconds).length;
   return n > 0 ? n : 1;
+}
+
+// Two files for one slot in the same drop: the first keeps its status, every later one is "repetido" and waits
+// for a hand pick. Only a row that would upload occupies the slot.
+export function markRepeated(matches: BulkMatch[]): BulkMatch[] {
+  const seen = new Set<string>();
+  return matches.map((m) => {
+    if (!bulkWillUpload(m.status) || !m.pieceId || m.image === undefined) return m;
+    const key = `${m.pieceId}|${m.image ? "i" : "c"}|${m.index ?? ""}`;
+    if (seen.has(key)) return { ...m, status: "repetido", pick: true };
+    seen.add(key);
+    return m;
+  });
+}
+
+// A row already marked listo is not uploaded again. The preview can still say "reemplaza el actual".
+export function pendingUploads<T extends { key: string; status: BulkStatus }>(rows: T[], done: Readonly<Record<string, string>>): T[] {
+  return rows.filter((r) => bulkWillUpload(r.status) && done[r.key] !== "listo");
 }
 
 function hasFile(piece: BulkPiece, image: boolean, index: number | null): boolean {
@@ -194,7 +214,10 @@ function checkSlot(piece: BulkPiece, file: BulkFile, image: boolean, index: numb
 }
 
 // The preview row. `forced` is the dropdown: the name is ignored and the type is still checked.
+// A file that is not a video or a picture says "formato no válido" before the name is read, so a .txt or a
+// voice memo does not become "no encontré la pieza" or a hook's clip.
 export function matchBulkFile(file: BulkFile, pieces: BulkPiece[], scope: PieceKind | "all", forced?: ForcedSlot): BulkMatch {
+  if (!file.size || !file.kind) return { status: "formato no válido", pick: true };
   if (forced) {
     const piece = pieces.find((p) => p.id === forced.pieceId);
     if (!piece) return { status: "no encontré la pieza", pick: true };
@@ -211,7 +234,29 @@ export function matchBulkFile(file: BulkFile, pieces: BulkPiece[], scope: PieceK
   return checkSlot(piece, file, parsed.image, index, scope);
 }
 
-// mp4, webm, mov, png, jpeg or webp, from the first bytes. The piece route still checks the type it is sent.
+// Major brands that are a video. M4A, M4B, HEIC and AVIF are the same ftyp box and are not.
+const VIDEO_BRAND = /^(isom|iso2|iso4|iso5|iso6|mp41|mp42|mp71|mp4v|avc1|dash|msnv|av01|3gp\d|3g2a|3ge6|3gg6)$/i;
+
+// EBML + the "webm" doctype. A voice memo is this and has no video track.
+export function webmContainer(bytes: Uint8Array): boolean {
+  if (bytes.length < 4 || bytes[0] !== 0x1a || bytes[1] !== 0x45 || bytes[2] !== 0xdf || bytes[3] !== 0xa3) return false;
+  const n = Math.min(bytes.length, 64);
+  let head = "";
+  for (let i = 0; i < n; i++) head += String.fromCharCode(bytes[i]);
+  return head.includes("webm");
+}
+
+// Matroska TrackType (0x83), one-byte value, 0x01 = video. Audio-only is 0x02 and does not count.
+function webmHasVideo(bytes: Uint8Array): boolean {
+  for (let i = 0; i + 2 < bytes.length; i++) {
+    if (bytes[i] === 0x83 && bytes[i + 1] === 0x81 && bytes[i + 2] === 0x01) return true;
+  }
+  return false;
+}
+
+// mp4, webm, mov, png, jpeg or webp, from the bytes given. The piece route still checks the type it is sent.
+// A WebM without a video track in these bytes is null; the uploader may still accept it when the file itself
+// reports videoWidth > 0.
 export function bulkMimeOf(bytes: Uint8Array): "video/mp4" | "video/webm" | "video/quicktime" | "image/png" | "image/jpeg" | "image/webp" | null {
   if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
@@ -219,11 +264,13 @@ export function bulkMimeOf(bytes: Uint8Array): "video/mp4" | "video/webm" | "vid
   if (bytes.length >= 12 && ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "image/webp";
   if (bytes.length < 12) return null;
   const box = ascii(4, 8);
-  if (box === "ftyp") return ascii(8, 12) === "qt  " ? "video/quicktime" : "video/mp4";
-  if (box === "moov" || box === "mdat" || box === "wide" || box === "free") return "video/quicktime";
-  if (bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
-    return ascii(0, 64).includes("webm") ? "video/webm" : null;
+  if (box === "ftyp") {
+    const brand = ascii(8, 12);
+    if (brand === "qt  ") return "video/quicktime";
+    return VIDEO_BRAND.test(brand) ? "video/mp4" : null;
   }
+  if (box === "moov" || box === "mdat" || box === "wide" || box === "free") return "video/quicktime";
+  if (webmContainer(bytes)) return webmHasVideo(bytes) ? "video/webm" : null;
   return null;
 }
 

@@ -4,7 +4,7 @@
 // placements), the same checks as "Imagen fija", and the exports in 9:16, 4:5 and 1:1 saved to
 // publicidad/<series>/estaticos/. All of it works with no AI key: the prompts are copied to Grok by hand.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { imageSaveLine, slotName, withSlotLine } from "../../../shared/adsBulk.ts";
+import { imageSaveLine } from "../../../shared/adsBulk.ts";
 import { LEVEL_INFO, type AdsState, type Cta, type Hook, type HookStatic, type ReviewFlag } from "../../../shared/ads.ts";
 import {
   adoptSaved,
@@ -17,6 +17,7 @@ import {
   staticJobs,
   staticOf,
   staticPrompt,
+  staticSaveStem,
   staticVariants,
 } from "../../../shared/adsStatic.ts";
 import type { Reference } from "../../../shared/reference.ts";
@@ -214,7 +215,8 @@ export function StaticsPanel({ series, state, tools, flags, folder, onState }: P
 
   const prompts = hooks.map((hook) => ({
     hook,
-    prompt: withSlotLine(staticPrompt(hook, state.offer, stOf(hook), { look: series.look, brand: series.brand }), imageSaveLine(slotName(hook.id, { image: true }))),
+    prompt: staticPrompt(hook, state.offer, stOf(hook), { look: series.look, brand: series.brand }),
+    saveLine: imageSaveLine(staticSaveStem(hook.id)),
   }));
 
   async function copy(text: string, what: string, id?: string) {
@@ -312,8 +314,9 @@ export function StaticsPanel({ series, state, tools, flags, folder, onState }: P
         <h3 className="font-semibold">Estáticos de la tanda</h3>
         <p className="text-muted">
           Cada hook aprobado como imagen fija. Copiá su prompt, hacé la imagen en Grok en 9:16 y sin texto, bajala entera y subila en su casillero: la app pone la
-          frase del hook (y, si querés, un llamado) con las letras y los colores de {series.name}, fuera de la marca de agua y de lo que tapa la plataforma. Sale en
-          9:16, 4:5 y 1:1 a <span className="font-mono text-xs">{folder}/estaticos/</span> y entra en el CSV de la tanda, al lado de los videos.
+          frase del hook (y, si querés, un llamado) con las letras y los colores de {series.name}, fuera de la marca de agua y de lo que tapa la plataforma. El nombre
+          para guardarla va al lado de cada botón (H12-estatico.png) y no entra en el prompt. Sale en 9:16, 4:5 y 1:1 a <span className="font-mono text-xs">{folder}/estaticos/</span> y
+          entra en el CSV de la tanda, al lado de los videos.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => copy(allStaticPrompts(prompts), `Los ${prompts.length} prompts`)}>
@@ -337,12 +340,13 @@ export function StaticsPanel({ series, state, tools, flags, folder, onState }: P
       {error && <Notice tone="error">{error}</Notice>}
       {status && <p className="text-sm text-muted">{status}</p>}
       <ol className="space-y-3">
-        {prompts.map(({ hook, prompt }) => (
+        {prompts.map(({ hook, prompt, saveLine }) => (
           <StaticRow
             key={hook.id}
             hook={hook}
             st={stOf(hook)}
             prompt={prompt}
+            saveLine={saveLine}
             ctas={ctas}
             picture={pictures[hook.id] ?? null}
             review={review(hook)}
@@ -370,6 +374,7 @@ function StaticRow({
   hook,
   st,
   prompt,
+  saveLine,
   ctas,
   picture,
   review,
@@ -385,6 +390,7 @@ function StaticRow({
   hook: Hook;
   st: HookStatic;
   prompt: string;
+  saveLine: string;
   ctas: Cta[];
   picture: HTMLImageElement | null;
   review: Review;
@@ -440,6 +446,7 @@ function StaticRow({
             <Button variant={copied ? "ghost" : "secondary"} className="px-3 py-1 text-xs" onClick={onCopy}>
               {copied ? "Copiado ✓ (copiar de nuevo)" : "Copiar el prompt para Grok"}
             </Button>
+            <span className="font-mono text-[11px] text-muted">{saveLine}</span>
             <label className="cursor-pointer rounded-lg border border-line px-3 py-1 text-xs hover:bg-paper">
               {busy === `upload:${hook.id}` ? <Spinner /> : null} {st.picture ? "Cambiar la imagen" : "Subir la imagen"}
               <input

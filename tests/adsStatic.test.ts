@@ -86,7 +86,9 @@ test("the Grok prompt is the still builder's: no text, clear space where the wor
   const bottom = staticPrompt(h, offer, { ...defaultStatic(h), placements: ["bottom", "top"] }, { brand });
   assert.match(bottom, /bottom third of the frame stays calm/);
   const all = allStaticPrompts([{ hook: h, prompt: top }, { hook: s.hooks[1], prompt: "p2" }]);
-  assert.equal(all, `H1 · Cerró antes del pedido\n${top}\n\nH2 · Antes: tres cuadernos.\np2`);
+  assert.equal(all, `H1 · Cerró antes del pedido\nGuardá la imagen como: H1-estatico.png\n${top}\n\nH2 · Antes: tres cuadernos.\nGuardá la imagen como: H2-estatico.png\np2`);
+  assert.doesNotMatch(top, /Guardá/);
+  assert.match(top, /9:16/);
 });
 
 test("files are <hookId>-<format>.png, later variants -vN-, and never mix H1 with H12", () => {

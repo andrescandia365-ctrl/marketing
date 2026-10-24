@@ -35,7 +35,7 @@ import { blobToDataUrl, readImageFile } from "../../lib/files.ts";
 import type { AdSeed } from "../../../shared/adsFromExplainer.ts";
 import { emptyClipSlots, grokSequence, type ClipPresence } from "../../../shared/adsSequence.ts";
 import type { BulkPiece } from "../../../shared/adsBulk.ts";
-import { DEFAULT_KEEP_SHARE, planApply, proposeNext, undoChanges, type NextPiece, type StatusChange, type VoiceChange } from "../../../shared/adsNext.ts";
+import { planApply, proposeNext, undoSkipNote, undoStatusPlan, undoVoicePlan, type NextPiece, type StatusChange, type VoiceChange } from "../../../shared/adsNext.ts";
 import type { PastedCopy } from "../../../shared/adsHandoff.ts";
 import { audioDuration } from "../Audio.tsx";
 import { Button, Lazy, Notice, Segmented, Spinner } from "../ui.tsx";
@@ -46,7 +46,7 @@ import { OfferForm } from "./OfferForm.tsx";
 import { PiecesPanel } from "./PiecesPanel.tsx";
 import { PieceCard, type PieceMediaState, type VoiceClip } from "./pieces.tsx";
 import { nextVoiceId, pieceOfUnit, renderKey, renderUnits, renderVoiceBlock, shouldBlockVoice, voiceCachePlan, voiceNumber, readStoredVoices, type CachePlan, type StoredVoices, type VoiceCheckPiece } from "../../../shared/voiceVariants.ts";
-import { BulkUpload } from "./BulkUpload.tsx";
+import { BulkUpload, useBulkQueue } from "./BulkUpload.tsx";
 import { NextBatch } from "./NextBatch.tsx";
 import { SourcesPanel } from "./SourcesPanel.tsx";
 import { SpeakerBatch } from "./SpeakerBatch.tsx";
@@ -88,8 +88,9 @@ const STATUS_PAGE = 200;
 const findPieceIn = (state: AdsState | null, id: string): Piece | undefined => (state ? [...state.hooks, ...state.meats, ...state.ctas].find((p) => p.id === id) : undefined);
 
 function asNextPiece(p: Piece): NextPiece {
-  if (p.kind === "hook") return { id: p.id, kind: p.kind, status: p.status, text: p.text, level: p.level, angle: p.angle, formula: p.formula };
-  return { id: p.id, kind: p.kind, status: p.status, text: p.text };
+  const clipSpeaker = p.speaker?.sound === "clip" ? true : undefined;
+  if (p.kind === "hook") return { id: p.id, kind: p.kind, status: p.status, text: p.text, level: p.level, angle: p.angle, formula: p.formula, ...(clipSpeaker && { clipSpeaker }) };
+  return { id: p.id, kind: p.kind, status: p.status, text: p.text, ...(clipSpeaker && { clipSpeaker }) };
 }
 
 function groupByStatus(changes: StatusChange[]): [PieceStatus, string[]][] {
@@ -216,12 +217,16 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   const [pastedCopies, setPastedCopies] = useState<Record<string, PastedCopy>>({});
   const [preset, setPreset] = useState<{ hooks?: number; meats?: number; ctas?: number }>({});
   const [motionMade, setMotionMade] = useState("");
-  const [keepPercent, setKeepPercent] = useState(Math.round(DEFAULT_KEEP_SHARE * 100));
-  const [nextUndo, setNextUndo] = useState<{ status: StatusChange[]; voices: VoiceChange[] } | null>(null);
+  const [undoNote, setUndoNote] = useState("");
+  const bulkQueue = useBulkQueue();
   useEffect(() => {
     setPastedCopies({});
     setPreset({});
-    setNextUndo(null);
+    setUndoNote("");
+    if (bulkQueue.busy) bulkQueue.stop.current = true;
+    else bulkQueue.clear();
+    // The queue object is stable enough for a series change: clear only drops a finished list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [series.id]);
   const renders = useRef(new Map<string, Blob>());
   const stopRef = useRef(false);
@@ -468,6 +473,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     if (job.image) await putImage(piece, job.file);
     else await putClip(piece, job.file, job.index === null ? undefined : job.index);
   }
+  bulkQueue.onFile.current = putBulk;
 
   async function generateImage(piece: Piece) {
     if (!provider) return;
@@ -687,6 +693,8 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   }
 
   const catalogue = useMemo(() => (state ? [...state.hooks, ...state.meats, ...state.ctas] : []), [state]);
+  const keepPercent = state?.keepPercent ?? 20;
+  const nextUndo = state?.nextUndo ?? null;
   const proposal = useMemo(
     () =>
       proposeNext({
@@ -716,10 +724,11 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     return catalogue.map((piece) => {
       const saved = state?.media[piece.id];
       const local = media[piece.id];
-      const n = Math.max(1, grokSequence(piece.seconds).length);
+      const singleClip = Boolean(saved?.clip?.explainer);
+      const n = singleClip ? 1 : Math.max(1, grokSequence(piece.seconds).length);
       const clips: boolean[] = [];
       for (let i = 0; i < n; i++) clips.push(n <= 1 ? Boolean(saved?.clip || local?.clip) : Boolean(saved?.clips?.[i] || local?.clips?.[i]));
-      return { id: piece.id, kind: piece.kind, seconds: piece.seconds, image: Boolean(saved?.image || local?.image), clips };
+      return { id: piece.id, kind: piece.kind, seconds: piece.seconds, image: Boolean(saved?.image || local?.image), clips, ...(singleClip && { singleClip }) };
     });
   }, [catalogue, state, media]);
 
@@ -940,9 +949,15 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           return { ...s, voices: { ...s.voices, [series.id]: cur } };
         });
       }
-      setNextUndo(done.length || planned.voices.length ? { status: done, voices: planned.voices } : null);
+      const record = done.length || planned.voices.length ? { status: done, voices: planned.voices } : null;
+      const saved = await adsApi.saveNextSettings(series.id, { nextUndo: record });
+      setState(saved.state);
+      setUndoNote("");
     } catch (e) {
-      if (done.length) setNextUndo({ status: done, voices: [] });
+      if (done.length) {
+        const saved = await adsApi.saveNextSettings(series.id, { nextUndo: { status: done, voices: [] } }).catch(() => null);
+        if (saved) setState(saved.state);
+      }
       setError(message(e));
     } finally {
       setBusy(null);
@@ -950,28 +965,35 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   }
 
   async function undoNext() {
-    if (!nextUndo) return;
-    const back = undoChanges(nextUndo);
+    const record = state?.nextUndo;
+    if (!record || !state) return;
+    const piecesNow = [...state.hooks, ...state.meats, ...state.ctas].map((p) => ({ id: p.id, status: p.status }));
+    const statusPlan = undoStatusPlan(record.status, piecesNow);
+    const voicePlan = undoVoicePlan(record.voices, settings.voices[series.id] ?? {});
+    setUndoNote("");
     setError("");
     setBusy("next");
     try {
-      for (const [to, ids] of groupByStatus(back.status)) {
+      for (const [to, ids] of groupByStatus(statusPlan.revert)) {
         for (let i = 0; i < ids.length; i += STATUS_PAGE) {
           const r = await adsApi.setStatus(series.id, ids.slice(i, i + STATUS_PAGE), to);
           setState(r.state);
         }
       }
-      if (back.voices.length) {
+      if (voicePlan.revert.length) {
         setSettings((s) => {
           const cur = { ...(s.voices[series.id] ?? {}) };
-          for (const change of back.voices) {
+          for (const change of voicePlan.revert) {
             if (change.restore === null) delete cur[change.pieceId];
             else cur[change.pieceId] = change.restore;
           }
           return { ...s, voices: { ...s.voices, [series.id]: cur } };
         });
       }
-      setNextUndo(null);
+      const saved = await adsApi.saveNextSettings(series.id, { nextUndo: null });
+      setState(saved.state);
+      const note = undoSkipNote(statusPlan.skipped, voicePlan.skipped);
+      if (note) setUndoNote(note);
     } catch (e) {
       setError(message(e));
     } finally {
@@ -1574,7 +1596,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           onStatus={setStatus}
           renderCard={(h: Hook) => renderCard(h)}
           extra={<SpeakerBatch pieces={state.hooks} series={series} format={settings.format} label="hooks" />}
-          bulk={<BulkUpload pieces={bulkPieces} scope="hook" onFile={putBulk} />}
+          bulk={<BulkUpload pieces={bulkPieces} scope="hook" queue={bulkQueue} />}
           onMotionBatch={onToExplainer ? () => void makeMotionBatch(state.hooks) : undefined}
           motionBusy={busy === "motion"}
           handoff={handoffs?.hooks ?? null}
@@ -1599,7 +1621,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           }}
           renderCard={(m) => renderCard(m)}
           extra={<SpeakerBatch pieces={state.meats} series={series} format={settings.format} label="meats" />}
-          bulk={<BulkUpload pieces={bulkPieces} scope="meat" onFile={putBulk} />}
+          bulk={<BulkUpload pieces={bulkPieces} scope="meat" queue={bulkQueue} />}
           onMotionBatch={onToExplainer ? () => void makeMotionBatch(state.meats) : undefined}
           motionBusy={busy === "motion"}
           handoff={handoffs?.meats ?? null}
@@ -1624,7 +1646,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           }}
           renderCard={(c) => renderCard(c)}
           extra={<SpeakerBatch pieces={state.ctas} series={series} format={settings.format} label="ctas" />}
-          bulk={<BulkUpload pieces={bulkPieces} scope="cta" onFile={putBulk} />}
+          bulk={<BulkUpload pieces={bulkPieces} scope="cta" queue={bulkQueue} />}
           onMotionBatch={onToExplainer ? () => void makeMotionBatch(state.ctas) : undefined}
           motionBusy={busy === "motion"}
           handoff={handoffs?.ctas ?? null}
@@ -1641,10 +1663,14 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
               minImpressions={minImpressions}
               keepPercent={keepPercent}
               onMin={setMinImpressions}
-              onKeepPercent={setKeepPercent}
+              onKeepPercent={(n) => {
+                setState((s) => (s ? { ...s, keepPercent: n } : s));
+                void adsApi.saveNextSettings(series.id, { keepPercent: n }).then((r) => setState(r.state)).catch((e) => setError(message(e)));
+              }}
               applyLabel={applySummary(applyPlan)}
-              canApply={applyPlan.status.length + applyPlan.voices.length > 0}
+              canApply={keepPercent > 0 && applyPlan.status.length + applyPlan.voices.length > 0}
               canUndo={Boolean(nextUndo && (nextUndo.status.length > 0 || nextUndo.voices.length > 0))}
+              undoNote={undoNote}
               busy={busy !== null}
               demo={demo}
               onApply={() => void applyNext()}
@@ -1654,7 +1680,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
               onPaste={(id, count, reply) => void askVariant(id, count, reply)}
             />
           }
-          bulk={<BulkUpload pieces={bulkPieces} scope="all" onFile={putBulk} />}
+          bulk={<BulkUpload pieces={bulkPieces} scope="all" queue={bulkQueue} />}
           series={series.id}
           state={state}
           seconds={settings.seconds}

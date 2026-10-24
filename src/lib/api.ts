@@ -31,7 +31,7 @@ import type { Reference } from "../../shared/reference.ts";
 import type { ScreenDevice } from "../../shared/screenBatch.ts";
 import type { ClipFit, ExplainerKind, ExplainerVideo } from "../../shared/adsFromExplainer.ts";
 import type { PastedCopy } from "../../shared/adsHandoff.ts";
-import type { AdCombo, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, Offer, PieceSpeaker, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
+import type { AdCombo, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, NextUndo, Offer, PieceSpeaker, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 import type { BrandFont } from "../../shared/brandFonts.ts";
 
 // Demucs on this computer (Modelos → Demucs).
@@ -175,6 +175,8 @@ export const ads = {
   load: (series: string) => call<AdsView>(`/api/ads/${enc(series)}`),
   saveOffer: (series: string, offer: Offer) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/offer`, { offer }, "PUT"),
   saveSettings: (series: string, weeklyLimit: number) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/settings`, { weeklyLimit }, "PUT"),
+  saveNextSettings: (series: string, patch: { keepPercent?: number; nextUndo?: NextUndo | null }) =>
+    call<{ state: AdsState }>(`/api/ads/${enc(series)}/settings`, patch, "PUT"),
   uploadClip: async (series: string, file: File, language: "es" | "en") => {
     const form = new FormData();
     form.append("file", file, file.name);
