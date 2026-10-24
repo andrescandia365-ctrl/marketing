@@ -69,6 +69,21 @@ test("names are tolerant, and two codes or a missing separator are not a guess",
   assert.deepEqual(parseSlotName("H12 y C2.mp4"), { ok: false, reason: "ambiguous" });
 });
 
+test("an exported ad is not one meat clip, even with a series prefix or a Meta copy suffix", () => {
+  const pieces = [meat("M3", 22, [true, true])];
+  const names = [
+    "IMAN_N2_H12-M3-C2_45s_9x16.mp4",
+    "IMAN_N2_H12v3-M3-C2_45s_9x16.mp4",
+    "H12-M3-C2.mp4",
+    "IMAN_N2_H12-M3-C2_15s_9x16 - Copy.mp4",
+    "IMAN_N2_H12-M3-C2_15s_9x16 – Copia.mp4",
+  ];
+  for (const name of names) {
+    assert.deepEqual(parseSlotName(name), { ok: false, reason: "ambiguous" });
+    assert.equal(matchBulkFile(video(name), pieces, "meat").status, "hay más de una pieza en el nombre");
+  }
+});
+
 test("the save line is appended once, and it is not how a prompt is built", () => {
   assert.equal(withSlotLine("Look.", "Guardá el video como: H12.mp4"), "Look.\nGuardá el video como: H12.mp4");
   assert.equal(withSlotLine("Look.\nGuardá el video como: H12.mp4\n", "Guardá el video como: H12.mp4"), "Look.\nGuardá el video como: H12.mp4");

@@ -633,7 +633,9 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   even when the meat is longer than 15 s. `parseSlotName` takes any case, spaces, dashes or underscores, and extra text
   after a single code (`M3-c2 (1).mp4`). A letter stuck to letters, digits or "_" (a Grok download, DSC_M100) is not a
   piece id. A `c` plus digits right after a separator is the clip marker; `M3c2` stays piece M3; two codes with words
-  between them stay ambiguous. The table says nuevo, reemplaza el actual, no encontré la pieza, ese clip no existe en
+  between them stay ambiguous. A whole ad id in the name (H12-M3-C2, with or without a series prefix like
+  IMAN_N2_, a voice suffix, the _45s_9x16 ending, or Meta's " - Copy" / " – Copia") is ambiguous too, so it is
+  not uploaded as one piece's clip. The table says nuevo, reemplaza el actual, no encontré la pieza, ese clip no existe en
   esta pieza, formato no válido, elegí el lugar, hay más de una pieza en el nombre, esa pieza es de otra pestaña, or
   repetido. Two files for one slot: every later one is repetido and waits for a hand pick. A row already listo is not
   uploaded again. A file that is not a picture or a video (a .txt, M4A, HEIC, AVIF, or a WebM with no video track) says

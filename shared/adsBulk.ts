@@ -5,6 +5,7 @@
 // is not a piece id.
 import { grokSequence } from "./adsSequence.ts";
 import type { PieceKind } from "./ads.ts";
+import { AD_ID } from "./voiceVariants.ts";
 
 export type SlotSpec = { image: true } | { count: number; index: number };
 
@@ -53,9 +54,14 @@ function clipToken(token: string, gap: string): "marker" | "glued" | "piece" {
 
 // The reverse of slotName. Any case; spaces, dashes or underscores; extra text after one code
 // ("M3-c2 (1).mp4", "m3_c2-final.mp4"). Two piece codes, or two clip/image marks, are not a guess.
+// A whole ad id (H12-M3-C2, with a series prefix, a voice suffix or the _45s_9x16 ending) is the
+// same refusal: PIECE_RE's lookbehind hides the hook behind "_", and the rest would be M3 clip 2.
 // `clip` is the 1-based number written in the name, or null when the name does not say which clip.
 export function parseSlotName(name: string): SlotParse {
   const base = (name.split(/[/\\]/).pop() ?? name).replace(/\.[a-z0-9]{1,5}$/i, "");
+  // Before piece codes. AD_ID allows "_" on either side, so IMAN_N2_H12-M3-C2_45s_9x16 and Meta's
+  // " - Copy" match here. A single slot (H12, M3-c2) does not.
+  if (AD_ID.test(base)) return { ok: false, reason: "ambiguous" };
   const found = [...base.matchAll(PIECE_RE)];
   if (found.length === 0) return { ok: false, reason: "none" };
   const ids: { id: string; end: number }[] = [];
