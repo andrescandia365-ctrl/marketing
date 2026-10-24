@@ -3,6 +3,10 @@
 // assembling the ads. Shared by the server (validation, storage) and the browser (UI, render).
 import { z } from "zod";
 import { ALIGNS, CORNERS, PLACEMENTS, STILL_FORMATS } from "./stillLayout.ts";
+import { AD_ID, adId, parseAdId, pieceOfUnit, renderUnits, settleVoices, voiceAxis, voiceColumn, type VoicePicks } from "./voiceVariants.ts";
+
+export { AD_ID, adId, isAdId, parseAdId } from "./voiceVariants.ts";
+export type { ParsedAdId, VoicePicks } from "./voiceVariants.ts";
 
 // ── Awareness levels ──────────────────────────────────────────────────────────────
 export const LEVELS = [1, 2, 3, 4, 5] as const;
@@ -382,8 +386,8 @@ export type ClipRecord = Omit<z.infer<typeof ClipRecordSchema>, "level"> & { lev
 // ── Metrics (a CSV exported from the ads platform) ────────────────────────────────
 export const MetricRowSchema = z.object({
   name: z.string().max(300),
-  // H12-M3-C2 when the name carries the app's id; empty for ads made elsewhere.
-  adId: z.string().max(20),
+  // H12-M3-C2, or H12v3-M3v1-C2v2 when a piece has more than one voice. Empty for ads made elsewhere.
+  adId: z.string().max(40),
   impressions: z.number().min(0),
   views3s: z.number().min(0),
   views: z.number().min(0),
@@ -396,11 +400,15 @@ export type MetricRow = z.infer<typeof MetricRowSchema>;
 
 // ── Batches ("tandas") ─────────────────────────────────────────────────────────────
 export const AdComboSchema = z.object({
-  id: z.string().max(20),
+  id: z.string().max(40),
   hookId: z.string(),
   meatId: z.string(),
   ctaId: z.string(),
   level: levelField,
+  // Set only when that piece has more than one voice. Old batches have none, and their ids stay H12-M3-C2.
+  hookVoice: z.string().regex(/^v(?:10|[1-9])$/).optional(),
+  meatVoice: z.string().regex(/^v(?:10|[1-9])$/).optional(),
+  ctaVoice: z.string().regex(/^v(?:10|[1-9])$/).optional(),
 });
 export type AdCombo = Omit<z.infer<typeof AdComboSchema>, "level"> & { level: Level };
 
@@ -470,7 +478,22 @@ export const AdsMediaSchema = z.object({
     .max(24)
     .optional(),
   voice: z.object({ file: z.string(), name: z.string(), duration: z.number() }).optional(),
-});
+  // Up to 10 uploaded voices (shared/voiceVariants.ts). Missing on old files: `voice` becomes v1 when it is read.
+  voices: z
+    .array(
+      z.object({
+        id: z.string().regex(/^v(?:10|[1-9])$/),
+        file: z.string().max(200),
+        name: z.string().max(200),
+        seconds: z.number().min(0).max(7200),
+        cutOk: z.boolean().optional(),
+      }),
+    )
+    .max(10)
+    .optional(),
+  // Highest variant number ever given out. A deleted id is not reused. Old files have none.
+  voiceSeq: z.number().int().min(0).max(10).optional(),
+}).transform(settleVoices);
 export type AdsMedia = z.infer<typeof AdsMediaSchema>;
 
 // "Versión estática" of a hook (shared/adsStatic.ts): the picture made in Grok with no text, the words the app sets on
@@ -754,12 +777,7 @@ export function flagsFromWire(wire: ReviewWire, ids: Set<string>): ReviewFlag[] 
 }
 
 // ── Combining (pure code, no AI) ─────────────────────────────────────────────────
-export const adId = (hookId: string, meatId: string, ctaId: string) => `${hookId}-${meatId}-${ctaId}`;
-export const AD_ID = /\b(H\d{1,4})-(M\d{1,4})-(C\d{1,4})\b/i;
-export function parseAdId(text: string): { hookId: string; meatId: string; ctaId: string } | null {
-  const m = AD_ID.exec(text);
-  return m ? { hookId: m[1].toUpperCase(), meatId: m[2].toUpperCase(), ctaId: m[3].toUpperCase() } : null;
-}
+// adId / parseAdId live in shared/voiceVariants.ts and are re-exported above. A piece with one voice keeps H12-M3-C2.
 
 const approved = <T extends Piece>(pieces: T[]) => pieces.filter((p) => p.status === "approved");
 const serves = (piece: Meat | Cta, level: Level, rules: CombineRules) => !rules.sameLevel || piece.levels.includes(level);
@@ -771,9 +789,21 @@ const SHARE_EPS = 0.05;
 const fitsShare = (seconds: number, kind: "hook" | "meat" | "cta", length: CombineLength) =>
   Math.abs(seconds - pieceShare(length.seconds, kind, length.split)) <= SHARE_EPS;
 
+const withVoices = (hookId: string, meatId: string, ctaId: string, level: Level, hv?: string, mv?: string, cv?: string): AdCombo => ({
+  id: adId(hookId, meatId, ctaId, { hook: hv, meat: mv, cta: cv }),
+  hookId,
+  meatId,
+  ctaId,
+  level,
+  ...(hv && { hookVoice: hv }),
+  ...(mv && { meatVoice: mv }),
+  ...(cv && { ctaVoice: cv }),
+});
+
 // Every approved hook with every approved meat and CTA (that serve its level, when the rule is on) whose seconds
-// match this batch.
-export function combine(hooks: Hook[], meats: Meat[], ctas: Cta[], rules: CombineRules, length: CombineLength): AdCombo[] {
+// match this batch. `picks` is the voice axis: only pieces with more than one voice are listed, each with the
+// variants that enter this batch. Without it, every piece combines once and the ids stay H12-M3-C2.
+export function combine(hooks: Hook[], meats: Meat[], ctas: Cta[], rules: CombineRules, length: CombineLength, picks?: VoicePicks): AdCombo[] {
   const out: AdCombo[] = [];
   for (const h of approved(hooks)) {
     if (!fitsShare(h.seconds, "hook", length)) continue;
@@ -781,7 +811,11 @@ export function combine(hooks: Hook[], meats: Meat[], ctas: Cta[], rules: Combin
       if (!fitsShare(m.seconds, "meat", length) || !serves(m, h.level, rules)) continue;
       for (const c of approved(ctas)) {
         if (!fitsShare(c.seconds, "cta", length) || !serves(c, h.level, rules)) continue;
-        out.push({ id: adId(h.id, m.id, c.id), hookId: h.id, meatId: m.id, ctaId: c.id, level: h.level });
+        for (const hv of voiceAxis(h.id, picks)) {
+          for (const mv of voiceAxis(m.id, picks)) {
+            for (const cv of voiceAxis(c.id, picks)) out.push(withVoices(h.id, m.id, c.id, h.level, hv, mv, cv));
+          }
+        }
       }
     }
   }
@@ -789,11 +823,19 @@ export function combine(hooks: Hook[], meats: Meat[], ctas: Cta[], rules: Combin
 }
 
 // "Variar hook": keep a winner's meat and CTA, change only the hook. The meat and the CTA themselves have to fit.
-export function varyHook(meat: Meat, cta: Cta, hooks: Hook[], rules: CombineRules, length: CombineLength): AdCombo[] {
+export function varyHook(meat: Meat, cta: Cta, hooks: Hook[], rules: CombineRules, length: CombineLength, picks?: VoicePicks): AdCombo[] {
   if (!fitsShare(meat.seconds, "meat", length) || !fitsShare(cta.seconds, "cta", length)) return [];
   return approved(hooks)
     .filter((h) => fitsShare(h.seconds, "hook", length) && serves(meat, h.level, rules) && serves(cta, h.level, rules))
-    .map((h) => ({ id: adId(h.id, meat.id, cta.id), hookId: h.id, meatId: meat.id, ctaId: cta.id, level: h.level }));
+    .flatMap((h) => {
+      const out: AdCombo[] = [];
+      for (const hv of voiceAxis(h.id, picks)) {
+        for (const mv of voiceAxis(meat.id, picks)) {
+          for (const cv of voiceAxis(cta.id, picks)) out.push(withVoices(h.id, meat.id, cta.id, h.level, hv, mv, cv));
+        }
+      }
+      return out;
+    });
 }
 
 // A piece's cached render carries this version in its file name (`H3.l2.mp4`). l2 plays a long meat as one sequence of
@@ -806,9 +848,10 @@ export const renderedPieces = (renders: Record<string, string>) => new Set(Objec
 // `pieceSeconds` is each piece's own length. A missing id counts as 0. The old call multiplied every piece by the
 // whole ad.
 export function estimate(ads: AdCombo[], rendered: Set<string>, pieceSeconds: Record<string, number>) {
-  const pieces = new Set(ads.flatMap((a) => [a.hookId, a.meatId, a.ctaId]));
+  // One render per piece, or per piece and voice when the ad id carries a variant.
+  const pieces = new Set(ads.flatMap((a) => renderUnits(a)));
   const toRender = [...pieces].filter((id) => !rendered.has(id));
-  const pieceTime = toRender.reduce((n, id) => n + (Number(pieceSeconds[id]) || 0), 0);
+  const pieceTime = toRender.reduce((n, id) => n + (Number(pieceSeconds[pieceOfUnit(id)]) || 0), 0);
   // A piece renders at about twice real time in the browser; cutting an ad from cached pieces takes under a second.
   const renderSeconds = pieceTime * 0.8 + ads.length * 0.6;
   return { pieces: pieces.size, toRender: toRender.length, renderSeconds, ads: ads.length };
@@ -950,7 +993,7 @@ export function parseMetricsCsv(text: string): { rows: MetricRow[]; found: Metri
     const parsed = parseAdId(name);
     return {
       name,
-      adId: parsed ? adId(parsed.hookId, parsed.meatId, parsed.ctaId) : "",
+      adId: parsed ? adId(parsed.hookId, parsed.meatId, parsed.ctaId, { hook: parsed.hookVoice, meat: parsed.meatVoice, cta: parsed.ctaVoice }) : "",
       impressions: n(r, "impressions"),
       views3s: n(r, "views3s"),
       views: n(r, "views"),
@@ -1074,8 +1117,8 @@ export const csvCell = (v: string | number) => {
   return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 // "tipo" is video or imagen (the hooks' static versions, shared/adsStatic.ts); "formato" the length or the shape.
-export const CSV_HEAD = ["id", "archivo", "nivel", "publico", "hook", "meat", "cta", "texto_principal", "titular", "boton", "tipo", "formato"];
-export function exportCsv(batch: Batch, hooks: Hook[], meats: Meat[], ctas: Cta[]): string {
+export const CSV_HEAD = ["id", "archivo", "nivel", "publico", "hook", "meat", "cta", "texto_principal", "titular", "boton", "tipo", "formato", "voz_hook", "voz_meat", "voz_cta"];
+export function exportCsv(batch: Batch, hooks: Hook[], meats: Meat[], ctas: Cta[], media?: Record<string, AdsMedia>): string {
   const by = <T extends Piece>(list: T[]) => Object.fromEntries(list.map((p) => [p.id, p]));
   const H = by(hooks);
   const M = by(meats);
@@ -1096,6 +1139,9 @@ export function exportCsv(batch: Batch, hooks: Hook[], meats: Meat[], ctas: Cta[
       copy?.button ?? "",
       "video",
       `${batch.seconds} s`,
+      voiceColumn(media?.[a.hookId], a.hookVoice),
+      voiceColumn(media?.[a.meatId], a.meatVoice),
+      voiceColumn(media?.[a.ctaId], a.ctaVoice),
     ]
       .map(csvCell)
       .join(",");

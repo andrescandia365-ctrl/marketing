@@ -5,7 +5,8 @@
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { AdsStateSchema, OfferSchema, RENDER_VERSION, emptyAds, offerFilled, type AdsState, type Offer } from "../shared/ads.ts";
+import { AdsStateSchema, OfferSchema, RENDER_VERSION, emptyAds, isAdId, offerFilled, type AdsState, type Offer } from "../shared/ads.ts";
+import { adsMediaType, keptRenderMove, pieceVariantsReferenced, renderNameForKey, voiceFileName, voiceSeqAfterClear, voiceTypeOf, type CachePlan } from "../shared/voiceVariants.ts";
 import { staticBelongs } from "../shared/adsStatic.ts";
 import { checkErrorText } from "../shared/errors.ts";
 
@@ -17,7 +18,14 @@ const BATCH = /^[a-z0-9-]{1,60}$/;
 const FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/;
 const MAX_STATE = 16 * 1024 * 1024;
 
-export class AdsError extends Error {}
+export class AdsError extends Error {
+  readonly status: 400 | 404;
+  constructor(message: string, status: 400 | 404 = 400) {
+    super(message);
+    this.name = "AdsError";
+    this.status = status;
+  }
+}
 
 const TYPES: Record<string, string> = {
   png: "image/png",
@@ -30,6 +38,7 @@ const TYPES: Record<string, string> = {
   wav: "audio/wav",
   m4a: "audio/mp4",
   weba: "audio/webm",
+  ogg: "audio/ogg",
   csv: "text/csv; charset=utf-8",
   json: "application/json",
 };
@@ -64,7 +73,14 @@ function fill(raw: unknown, series: string): AdsState {
   const merged = { ...base, ...(raw && typeof raw === "object" ? (raw as object) : {}), version: 1, series };
   const parsed = AdsStateSchema.safeParse(merged);
   if (!parsed.success) throw new AdsError(checkErrorText(parsed.error, "El archivo de Publicidad de la serie está dañado"));
-  return parsed.data as AdsState;
+  const data = parsed.data as AdsState;
+  // A piece that used v1–v10 and then lost every voice can take voices again, unless a batch still names one.
+  for (const [pieceId, media] of Object.entries(data.media)) {
+    const before = media.voiceSeq ?? 0;
+    const seq = voiceSeqAfterClear(before, media.voices?.length ?? 0, pieceVariantsReferenced(pieceId, data.batches));
+    if (seq !== before) media.voiceSeq = seq;
+  }
+  return data;
 }
 
 export async function loadAds(series: string): Promise<AdsState> {
@@ -164,17 +180,69 @@ export async function removePieceMedia(series: string, file: string) {
   await rm(path, { force: true });
 }
 
-// A piece's render (the cache).
-export async function savePieceRender(series: string, pieceId: string, data: Buffer, type: string): Promise<string> {
+// One uploaded voice of a piece: publicidad/<series>/media/<pieceId>-voz-<vN>.<ext>. The type comes from the bytes.
+export async function saveVoiceFile(series: string, pieceId: string, vid: string, data: Buffer): Promise<string> {
   if (!PIECE.test(pieceId)) throw new AdsError("Esa pieza no existe.");
-  const name = `${pieceId}.${RENDER_VERSION}.${ext(type, VIDEO, "un video")}`;
+  if (!/^v(?:10|[1-9])$/.test(vid)) throw new AdsError("Esa voz no existe.");
+  const kind = voiceTypeOf(data);
+  if (!kind) throw new AdsError("Ese archivo no es un audio (mp3, wav, m4a, ogg o webm).");
+  const name = voiceFileName(pieceId, vid, kind);
+  const dir = join(folder(series), "media");
+  await mkdir(dir, { recursive: true });
+  const prefix = `${pieceId}-voz-${vid}.`;
+  for (const old of await readdir(dir).catch(() => [])) {
+    if (old.startsWith(prefix) && old !== name && !old.includes("/") && !old.includes("\\")) await rm(join(dir, old), { force: true });
+  }
+  await writeFile(join(dir, name), data);
+  return `media/${name}`;
+}
+
+// A piece's render (the cache). One voice keeps `<id>.l2.mp4`. A variant is `<id>.v3.l2.mp4`.
+export async function savePieceRender(series: string, pieceId: string, data: Buffer, type: string, voiceId?: string): Promise<string> {
+  if (!PIECE.test(pieceId)) throw new AdsError("Esa pieza no existe.");
+  if (voiceId && !/^v(?:10|[1-9])$/.test(voiceId)) throw new AdsError("Esa voz no existe.");
+  const key = voiceId ? `${pieceId}.${voiceId}` : pieceId;
+  const name = renderNameForKey(key, ext(type, VIDEO, "un video"), RENDER_VERSION);
   await put(join(folder(series), "piezas"), name, data);
   return `piezas/${name}`;
 }
 
+// Moves a cached render when a piece goes from one voice to several, or back. A missing file is ignored.
+export async function moveAdsFile(series: string, from: string, to: string): Promise<void> {
+  if (from === to) return;
+  const src = resolveFile(series, from);
+  const dest = resolveFile(series, to);
+  try {
+    await mkdir(join(dest.path, ".."), { recursive: true });
+    await rename(src.path, dest.path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+}
+
+export async function applyRenderPlan(series: string, renders: Record<string, string>, plan: CachePlan): Promise<void> {
+  if (plan.move && renders[plan.move.from]) {
+    const fromFile = renders[plan.move.from];
+    const toFile = keptRenderMove(fromFile, plan.move.to, RENDER_VERSION);
+    delete renders[plan.move.from];
+    if (!toFile) {
+      await removePieceMedia(series, fromFile).catch(() => undefined);
+    } else {
+      if (fromFile !== toFile) await moveAdsFile(series, fromFile, toFile);
+      renders[plan.move.to] = toFile;
+    }
+  }
+  for (const key of plan.drop) {
+    if (!renders[key] || key === plan.move?.to) continue;
+    await removePieceMedia(series, renders[key]).catch(() => undefined);
+    delete renders[key];
+  }
+}
+
 export async function saveAdFile(series: string, batch: string, adId: string, data: Buffer, type: string): Promise<string> {
   if (!BATCH.test(batch)) throw new AdsError("Esa tanda no existe.");
-  if (!/^H\d{1,4}-M\d{1,4}-C\d{1,4}$/.test(adId)) throw new AdsError("Ese anuncio no existe.");
+  if (!isAdId(adId)) throw new AdsError("Ese anuncio no existe.");
   const name = `${adId}.${ext(type, VIDEO, "un video")}`;
   await put(join(folder(series), "anuncios", batch), name, data);
   return `anuncios/${batch}/${name}`;
@@ -233,8 +301,9 @@ function resolveFile(series: string, file: string): { path: string; type: string
     (parts.length === 2 && ["clips", "media", "piezas", "estaticos"].includes(parts[0]) && FILE.test(parts[1])) ||
     (parts.length === 3 && parts[0] === "anuncios" && BATCH.test(parts[1]) && FILE.test(parts[2]));
   if (!ok) throw new AdsError("Ese archivo no existe.");
-  const e = parts[parts.length - 1].split(".").pop()?.toLowerCase() ?? "";
-  return { path: join(folder(series), ...parts), type: TYPES[e] ?? "application/octet-stream" };
+  const name = parts[parts.length - 1];
+  const e = name.split(".").pop()?.toLowerCase() ?? "";
+  return { path: join(folder(series), ...parts), type: adsMediaType(name, TYPES[e] ?? "application/octet-stream") };
 }
 
 export async function readAdsFile(series: string, file: string): Promise<{ data: Buffer; type: string }> {

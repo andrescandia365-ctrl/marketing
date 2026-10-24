@@ -182,7 +182,8 @@ app.onError((error, c) => {
     return c.json({ error: error.message }, 400);
   }
   if (error instanceof VoiceError || error instanceof LyricsError) return c.json({ error: error.message }, 502);
-  if (error instanceof ClockError || error instanceof BrandWebError || error instanceof AdsError || error instanceof EpisodeError) return c.json({ error: error.message }, 400);
+  if (error instanceof AdsError) return c.json({ error: error.message }, error.status);
+  if (error instanceof ClockError || error instanceof BrandWebError || error instanceof EpisodeError) return c.json({ error: error.message }, 400);
   // Which field and what is wrong with it: an old project with a renamed field says which one.
   if (error instanceof z.ZodError) return c.json({ error: checkErrorText(error) }, 400);
   console.error(error);

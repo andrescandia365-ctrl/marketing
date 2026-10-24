@@ -176,6 +176,9 @@ test("the campaign CSV lists the statics of the batch's hooks after the videos",
     "Registrarte",
     "imagen",
     "1:1",
+    "",
+    "",
+    "",
   ]);
   assert.equal(v2[11], "9:16");
   // H2 is not in the batch: only in estaticos.csv, with the file next to it and no platform texts.
