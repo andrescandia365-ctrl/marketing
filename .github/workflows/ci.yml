@@ -1,5 +1,5 @@
-# Every push and pull request: types, the tests of the pure logic (tests/), the build, and the lyric clock harness
-# against the API running in sample mode (no AI keys; nothing here calls a paid service).
+# Every push and pull request: types, the tests of the pure logic (tests/), the build, the lyric clock harness
+# against the API in sample mode, and the browser walk (e2e/). Nothing here calls a paid service.
 name: CI
 
 on:
@@ -9,7 +9,7 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       PROJECTS_DIR: ${{ github.workspace }}/.ci/proyectos
       LIBRARY_DIR: ${{ github.workspace }}/.ci/biblioteca
@@ -33,6 +33,10 @@ jobs:
           npx tsx server/index.ts > api.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8787/api/status > /dev/null && break; sleep 0.5; done
           npx tsx server/clock-check.ts
+      - name: Recorrido en el navegador (Playwright, modo de muestra)
+        run: |
+          npx playwright-core install --with-deps chromium
+          npm run e2e
       - name: Log de la API si algo falló
         if: failure()
         run: cat api.log || true

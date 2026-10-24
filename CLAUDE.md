@@ -63,7 +63,9 @@ people and politics. The playbook's 75 s ad template does not drive the app.
 - Every story topic tags the playbook moves it really uses (`moves`, ids from `shared/moves.ts`, PLAYBOOK §2.5;
   `normalizeStory` maps names, old stories get `[]`). The story shows them per topic and as the piece's coverage; a
   tagged story with no Turn or no Button is blocked ("Sin Giro", "Sin Botón"); the writers' room counts moves across
-  the series (`overusedMoves`, also in `roomBrief`). "5 variantes de gancho" (`POST /api/story/hooks`,
+  the series (`overusedMoves`, also in `roomBrief`). With no published piece that count is every saved piece, as before.
+  Once one is published, only the published pieces are counted and an unpublished canon line is still in drafts
+  (`publishedIds`; the published list itself belongs to a later phase). "5 variantes de gancho" (`POST /api/story/hooks`,
   `HookVariants`, PLAYBOOK §3) writes five hooks, each with its move and the viewer's awareness level 1–5: one can
   become the story's hook, and the five go to Publicidad as pending hooks.
 - The writer grades its own story (checklist, open loops, series loop, claims vs "Lo que existe hoy", practices vs
@@ -162,8 +164,9 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   only when `readingIssues` and `quietGaps` do not get worse. An explainer's own track gets its beat grid only from
   its drums stem (`piece.kickGrid` from `trackKicks` = `fitKicks`: a stem the person uploads, or Demucs through
   `PUT /api/motion/kicks`); with no stem it has no grid and nothing snaps, never peaks off the track. "Traer la marca desde su web" (`server/brandWeb.ts`,
-  `/api/brand/from-web`, localhost-only, public addresses only, checked on every redirect) proposes the brand kit;
-  page claims stay [VERIFY] until the person confirms them into "Lo que existe hoy".
+  `/api/brand/from-web`, localhost-only, public addresses only, checked on every redirect) proposes the brand kit.
+  A series that is not saved yet is sent with no id, so that request does not read IMAN's bible.
+  Page claims stay [VERIFY] until the person confirms them into "Lo que existe hoy".
   3D-look characters are cut-out puppets (`src/lib/puppet.ts`): a cast character's `puppet.layers` (roles
   body/head/armL/armR/mouth/eyes/extra; Carpeta de Segmentos splits the front figure into head and body on one canvas)
   or its image as one piece. Grok's Segments crops each part to its own size, so a loose part has a `place` (x, y, w on
@@ -571,7 +574,19 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   tab, skips one that already exists and stops at 20 per click. A single clip of 15 s or less is
   still `clipSecondsFor`. "Fuentes" ranks winning hooks: a
   platform CSV (`parseMetricsCsv`, Meta headers in Spanish or English; hook = 3 s views / impressions, meat = average
-  watch time, CTA = clicks and conversions), hooks sent from Playbook ("Enviar a Publicidad") and uploaded clips
+  watch time, CTA = clicks and conversions). A header that starts with "Costo por" or "Cost per", and ThruPlay, are never
+  3-second views. Meta's "3-second video views" and "video views at 3 seconds" are. TikTok's 2-second views, 6-second
+  views, Cost and Clicks (including "Clicks (Destination)") stay in their own columns. When the 3-second column is
+  missing and 2-second views exist, the hook rate uses those and is labelled "2 s" in Fuentes and in the pattern sent
+  to the writer (never "0% ven 3 s"). Under the impression
+  minimum (1000, editable in Fuentes, not saved) the row says "sin datos suficientes" and is not sent as a winner. A hook
+  that arrived from Playbook with no impressions stays "del orgánico, sin medir"; one with some impressions under the
+  minimum says "sin datos suficientes". The CSV's id is the platform
+  name `{ID de la serie}_N{nivel}_{anuncio}_{segundos}s_9x16` (the series id in upper case without accents, for example
+  IMAN_N2_H12-M3-C2_45s_9x16, or H12v3 when that hook has several voices). The file on disk keeps the raw ad id. Import
+  matches the token in any case, still reads an old name with no prefix, still reads the id when Meta added
+  " - Copy" or " – Copia" or when words sit in front, and drops a name from another series (the count
+  is shown in Spanish). Hooks sent from Playbook ("Enviar a Publicidad") and uploaded clips
   transcribed with whisper-1 (`transcribeClip`, same OPENAI_API_KEY; or a pasted transcript) and split by the writer.
   "Generar tanda" chains hooks → meats → CTAs → combine with a yes/no approval pause per stage. Before a run: local
   flags (length, near-duplicates) plus the writer's review (policy, mismatch, claims), the estimate and a weekly
@@ -642,10 +657,15 @@ people and politics. The playbook's 75 s ad template does not drive the app.
 - `npm run typecheck`, `npm run build`, `npm start`.
 - `npm test` — `node:test` + tsx over `tests/` (the pure logic in `shared/` and the timing in `src/lib`, plus a guard
   that the drawing code never reads a clock or `Math.random`).
+- `npm run e2e` — Playwright (`playwright-core`) starts the API and Vite on free ports, with temporary project, ads and
+  library folders and no writer keys, and walks Playbook, one explainer, and a Publicidad batch of 2 ads plus the
+  Meta (Spanish and English) and TikTok CSVs. It tries `CHROME_PATH`, Chrome, Edge, then Chromium already installed
+  under `PLAYWRIGHT_BROWSERS_PATH` (`chromium-*/chrome-linux*/chrome`). `npx playwright-core install chromium` puts one there.
 - `npm run playbook` — says whether `PLAYBOOK.md` and `server/playbook.md` drifted; `-- --write` records them in step.
 - `npx tsx server/clock-check.ts` — lyric clock harness (kick grid, lyric gate, frames 100 and 400); needs the API on
   8787 and the same `PROJECTS_DIR`.
-- CI (`.github/workflows/ci.yml`) runs typecheck, tests, build, and clock-check against the API in sample mode.
+- CI (`.github/workflows/ci.yml`) runs typecheck, tests, build, clock-check against the API in sample mode, then the
+  browser walk (`npm run e2e`, after installing Playwright's Chromium).
 - `npx tsx server/clock-cli.ts sync|critique --project ID` — write or critique `proyectos/<id>/sync/`.
 
 @PLAYBOOK.md

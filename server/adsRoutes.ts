@@ -21,6 +21,8 @@ import {
   organicHook,
   parseMetricsCsv,
   rankHooks,
+  hookPatterns,
+  MIN_IMPRESSIONS,
   toLevel,
   toLevels,
   HookStaticSchema,
@@ -364,7 +366,7 @@ export function adsRoutes(app: Hono) {
     const { csv, replace } = z.object({ csv: z.string().min(1).max(20_000_000), replace: z.boolean().default(true) }).parse(await c.req.json());
     let parsed: ReturnType<typeof parseMetricsCsv>;
     try {
-      parsed = parseMetricsCsv(csv);
+      parsed = parseMetricsCsv(csv, id);
     } catch (e) {
       throw new AdsError((e as Error).message);
     }
@@ -372,31 +374,38 @@ export function adsRoutes(app: Hono) {
       s.metrics = replace ? parsed.rows : [...s.metrics, ...parsed.rows];
       s.metricsImportedAt = new Date().toISOString();
     });
-    return c.json({ state, ranking: rankHooks(state), rows: parsed.rows.length, withId: parsed.rows.filter((r) => r.adId).length, found: parsed.found, missing: parsed.missing });
+    return c.json({ state, ranking: rankHooks(state), rows: parsed.rows.length, withId: parsed.rows.filter((r) => r.adId).length, found: parsed.found, missing: parsed.missing, otherSeries: parsed.otherSeries });
   });
 
-  // Hooks: the winners (metrics, organic) go in as patterns; existing hooks are not repeated.
+  // Hooks: measured winners go in as patterns. Organic hooks without enough impressions are listed apart, not as winners.
   app.post("/api/ads/:series/hooks", async (c) => {
     const id = series(c);
-    const { levels, count, seconds, tool, language, handoff, part, split } = z
-      .object({ levels: Levels, count: z.number().int().min(1).max(60), seconds: Seconds, tool: z.string().max(60), language: Lang, handoff: Handoff, part: Part, split: SplitBody })
+    const { levels, count, seconds, tool, language, handoff, part, split, minImpressions } = z
+      .object({
+        levels: Levels,
+        count: z.number().int().min(1).max(60),
+        seconds: Seconds,
+        tool: z.string().max(60),
+        language: Lang,
+        handoff: Handoff,
+        part: Part,
+        split: SplitBody,
+        minImpressions: z.number().int().min(1).max(1_000_000_000).optional(),
+      })
       .parse(await c.req.json());
     const hookSeconds = shareFor("hook", seconds, split);
     const state0 = await loadAds(id);
     // By copy and paste, 50 hooks are several prompts: this one asks for its share of the levels.
     const one = handoff ? partOf(hookParts(count, levelsOf(levels)), part) : null;
+    const patterns = hookPatterns(state0, minImpressions ?? MIN_IMPRESSIONS);
     const req = {
       levels: one ? one.perLevel.map((p) => p.level) : levelsOf(levels),
       count: one?.count ?? count,
       ...(one && { perLevel: one.perLevel }),
       seconds,
       ...(split && { split }),
-      winners: [
-        ...rankHooks(state0)
-          .slice(0, 12)
-          .map((r) => `${r.text} (N${r.level}, ${Math.round(r.stats.hookRate * 100)}% ven 3 s, ${r.stats.views3s || r.stats.views} vistas)`),
-        ...state0.hooks.filter((h) => h.source === "organic" && h.status !== "rejected").map((h) => `${h.text} (del contenido orgánico)`),
-      ],
+      winners: patterns.winners,
+      organic: patterns.organic,
       existing: state0.hooks.filter((h) => h.status !== "rejected").map((h) => h.text),
       language,
     };
@@ -939,7 +948,7 @@ export function adsRoutes(app: Hono) {
     const state = await loadAds(id);
     const b = state.batches.find((x) => x.id === batchId);
     if (!b) throw new AdsError("Esa tanda no existe.");
-    const csv = campaignCsv(b, state.hooks, state.meats, state.ctas, state.statics, state.media);
+    const csv = campaignCsv(b, state.hooks, state.meats, state.ctas, state.statics, state.media, id);
     const file = await saveBatchCsv(id, batchId, csv);
     return c.json({ file, csv });
   });

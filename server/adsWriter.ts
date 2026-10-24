@@ -84,6 +84,8 @@ export type HookRequest = {
   // The person's split, when they edited it. Missing: the default for that length.
   split?: Budget;
   winners: string[];
+  // Playbook hooks that have no metrics yet. Optional so a request that only knows winners still typechecks.
+  organic?: string[];
   existing: string[];
   language: "es" | "en";
   // One prompt of a split request (copy and paste): how many hooks of each level this one asks for.
@@ -108,7 +110,8 @@ ${levelQuota(req)}
 
 Cover a grid inside each level: spread the angles (${ANGLES.join(", ")}) and the formulas (${FORMULAS.join(", ")}) so no two hooks of a level share both. Each hook names a different concrete situation from the offer's problem and the audience's words.
 
-${req.winners.length ? `Hooks that already worked (metrics or organic content). Learn their structure and angle; never reuse their words:\n${req.winners.map((w) => `- ${w}`).join("\n")}` : "No winning hooks are known yet."}
+${req.winners.length ? `Hooks that already worked (measured, above the impression minimum). Learn their structure and angle; never reuse their words:\n${req.winners.map((w) => `- ${w}`).join("\n")}` : "No winning hooks are known yet."}
+${req.organic?.length ? `\nHooks from the organic content, not measured yet. They are not winners; do not treat them as proof they worked:\n${req.organic.map((w) => `- ${w}`).join("\n")}` : ""}
 ${req.existing.length ? `\nHooks that already exist; do not write these or near-duplicates:\n${req.existing.map((w) => `- ${w}`).join("\n")}` : ""}
 
 Give every hook its onScreenText, visualPrompt and videoPrompt (one frozen moment with the presenter and setting of the offer, so every piece cuts with every other).`,

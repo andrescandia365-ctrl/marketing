@@ -391,6 +391,9 @@ export const MetricRowSchema = z.object({
   impressions: z.number().min(0),
   views3s: z.number().min(0),
   views: z.number().min(0),
+  // TikTok's 2 s and 6 s views. Old files have neither: they stay 0 and are never read as 3 s views.
+  views2s: z.number().min(0).default(0),
+  views6s: z.number().min(0).default(0),
   avgWatch: z.number().min(0),
   clicks: z.number().min(0),
   conversions: z.number().min(0),
@@ -949,17 +952,64 @@ export function parseCsv(text: string): string[][] {
 }
 
 type MetricField = Exclude<keyof MetricRow, "adId">;
-// Header names the platforms export (Meta in Spanish and English, plus plain names), by field.
+// A cost rate ("Costo por…", "Cost per…") is never a view, whatever number of seconds it names. ThruPlay is a
+// completed view, not a 3-second view. Both are skipped before any view column is chosen.
+const COST_RATE = /^(costo por|cost per)\b/i;
+const THRUPLAY = /thruplay/i;
+const VIEWS_2S = [
+  /^2-?second video views$/i,
+  /^2-?second video plays$/i,
+  /^video views at 2 seconds?$/i,
+  /^video plays at 2 seconds?$/i,
+  /^reproducciones de v[ií]deo de 2 segundos$/i,
+  /^reproducciones de 2 segundos$/i,
+  /^vistas de 2 segundos$/i,
+  /^(views2s|vistas2s|vistas_2s)$/i,
+];
+const VIEWS_3S = [
+  /^3-?second video plays$/i,
+  /^3-?second video views$/i,
+  /^three-?second video plays$/i,
+  /^video plays at 3 seconds?$/i,
+  /^video views at 3 seconds?$/i,
+  /^reproducciones de v[ií]deo de 3 segundos$/i,
+  /^reproducciones de 3 segundos$/i,
+  /^vistas de 3 segundos$/i,
+  /^(views3s|vistas3s|vistas_3s)$/i,
+];
+const VIEWS_6S = [
+  /^6-?second video views$/i,
+  /^6-?second video plays$/i,
+  /^video views at 6 seconds?$/i,
+  /^video plays at 6 seconds?$/i,
+  /^reproducciones de v[ií]deo de 6 segundos$/i,
+  /^reproducciones de 6 segundos$/i,
+  /^vistas de 6 segundos$/i,
+  /^(views6s|vistas6s|vistas_6s)$/i,
+];
+const VIEW_FIELDS = new Set<MetricField>(["views", "views2s", "views3s", "views6s"]);
+// 2 s and 6 s are optional: a Meta file without them is not "missing" a column.
+const OPTIONAL_FIELDS = new Set<MetricField>(["views2s", "views6s"]);
+// Header names the platforms export (Meta in Spanish and English, TikTok, plus plain names), by field.
+// View patterns are the whole header, so "2-second video views" is not also "Video views" and a cost rate is not a view.
 const HEADERS: Record<MetricField, RegExp[]> = {
   name: [/^(ad name|nombre del anuncio|anuncio|ad|name|nombre|video|archivo)$/i],
   impressions: [/^(impressions|impresiones)$/i],
-  views3s: [/3.?s|3 seg|three.?second|thruplay/i, /^(views3s|vistas3s|vistas_3s)$/i],
-  views: [/^(video plays|reproducciones de video|views|visualizaciones|vistas|reproducciones)$/i],
+  views2s: VIEWS_2S,
+  views3s: VIEWS_3S,
+  views6s: VIEWS_6S,
+  views: [/^(video plays|video views|reproducciones de video|reproducciones de vídeo|views|visualizaciones|vistas|reproducciones)$/i],
   avgWatch: [/average (play|watch) time|tiempo promedio|avg.?watch|retenci[oó]n/i],
-  clicks: [/^(link clicks|clics en el enlace|clicks|clics|clicks \(all\)|clics \(todos\))$/i],
+  clicks: [/^(link clicks|clics en el enlace|clicks|clics|clicks \(all\)|clics \(todos\)|clicks \(destination\)|clics \(destination\))$/i],
   conversions: [/^(results|resultados|purchases|compras|conversions|conversiones|leads|registros|clientes potenciales)$/i],
-  spend: [/^(amount spent.*|importe gastado.*|spend|gasto|inversi[oó]n)$/i],
+  spend: [/^(amount spent.*|importe gastado.*|spend|gasto|inversi[oó]n|cost|costo)$/i],
 };
+
+function headerMatches(field: MetricField, header: string): boolean {
+  if (VIEW_FIELDS.has(field) && (COST_RATE.test(header) || THRUPLAY.test(header))) return false;
+  if (field === "views" && [...VIEWS_2S, ...VIEWS_3S, ...VIEWS_6S].some((re) => re.test(header))) return false;
+  return HEADERS[field].some((re) => re.test(header));
+}
 
 // "1.234,56" (a Spanish export, usually with ";" between cells) vs "1,234.56" (an English one). A lone "2.000" is
 // two thousand in a Spanish file and two in an English one, so the file's separator decides.
@@ -970,42 +1020,98 @@ const num = (s: string, esLocale: boolean) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export function parseMetricsCsv(text: string): { rows: MetricRow[]; found: MetricField[]; missing: MetricField[] } {
+// The platform ad name: IMAN_N2_H12-M3-C2_45s_9x16, or IMAN_N2_H12v3-M3-C2_45s_9x16 when a piece has several voices.
+// The token is the series id, upper case and without accents (iman → IMAN, masogar → MASOGAR). The id on
+// disk stays the raw ad id: isAdId rejects a prefix, so only the CSV's id column carries this name.
+// Not anchored: Meta appends " - Copy" or " – Copia", and a cell can have words in front. Marks are stripped first,
+// so an accented prefix (MÁSHOGAR_) is still the whole token and the ad id in the middle is kept.
+const EXPORTED_AD = "H\\d{1,4}(?:v(?:10|[1-9]))?-M\\d{1,4}(?:v(?:10|[1-9]))?-C\\d{1,4}(?:v(?:10|[1-9]))?";
+const EXPORT_NAME = new RegExp(
+  `(?<![A-Za-z0-9-])([A-Za-z0-9-]+)_N(\\d+)_(${EXPORTED_AD})_(\\d+)s_(\\d+x\\d+)(?![A-Za-z0-9])`,
+  "i",
+);
+
+function stripMarks(text: string): string {
+  return text.normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+function exportMatch(name: string): RegExpExecArray | null {
+  return EXPORT_NAME.exec(stripMarks(name).trim());
+}
+
+export function seriesToken(seriesId: string): string {
+  return stripMarks(seriesId).toUpperCase();
+}
+
+export function adExportName(seriesId: string, level: number, id: string, seconds: number, shape = "9x16"): string {
+  return `${seriesToken(seriesId)}_N${level}_${id}_${seconds}s_${shape}`;
+}
+
+// Read the id from the middle of an exported name, including one Meta duplicated (" - Copy", " – Copia") or one
+// with words in front. A plain H12-M3-C2 (or H12v3-M3-C2) is parsed as written.
+function adIdFromName(name: string): string {
+  const wrapped = exportMatch(name);
+  const parsed = parseAdId(wrapped ? wrapped[3] : name);
+  if (!parsed) return "";
+  return adId(parsed.hookId, parsed.meatId, parsed.ctaId, { hook: parsed.hookVoice, meat: parsed.meatVoice, cta: parsed.ctaVoice });
+}
+
+// An old name with no prefix still belongs here. A prefixed name belongs only when its token is this series, in any case.
+export function sameSeriesName(name: string, seriesId: string): boolean {
+  const m = exportMatch(name);
+  if (!m) return true;
+  return m[1].toUpperCase() === seriesToken(seriesId);
+}
+
+export type MetricsParse = { rows: MetricRow[]; found: MetricField[]; missing: MetricField[]; otherSeries: number };
+
+// seriesId, when given, drops rows whose exported name belongs to another series (counted in otherSeries).
+// Omitted, every row is kept, so a file of old names reads as it always did.
+export function parseMetricsCsv(text: string, seriesId?: string): MetricsParse {
   const table = parseCsv(text);
   const esLocale = csvSeparator(text) === ";";
   if (table.length < 2) throw new Error("El CSV no tiene filas de datos.");
   const header = table[0].map((h) => h.trim());
   const col: Partial<Record<MetricField, number>> = {};
   for (const field of Object.keys(HEADERS) as MetricField[]) {
-    const i = header.findIndex((h) => HEADERS[field].some((re) => re.test(h)));
+    const i = header.findIndex((h) => headerMatches(field, h));
     if (i >= 0) col[field] = i;
   }
   if (col.name === undefined) {
-    // Without a name column, the first column that carries an app id is the name.
-    const i = header.findIndex((_, k) => table.slice(1).some((r) => AD_ID.test(r[k] ?? "")));
+    // Without a name column, the first column that carries an app id (plain or IMAN_N2_…_45s_9x16) is the name.
+    const looksLikeAd = (cell: string) => AD_ID.test(cell) || EXPORT_NAME.test(cell);
+    const i = header.findIndex((_, k) => table.slice(1).some((r) => looksLikeAd(r[k] ?? "")));
     if (i >= 0) col.name = i;
   }
   if (col.name === undefined) throw new Error("No encontré la columna del nombre del anuncio (p. ej. «Ad name» o «Nombre del anuncio»).");
   const cell = (r: string[], f: MetricField) => (col[f] === undefined ? "" : (r[col[f]!] ?? ""));
   const n = (r: string[], f: MetricField) => num(cell(r, f), esLocale);
-  const rows: MetricRow[] = table.slice(1).map((r) => {
+  const rows: MetricRow[] = [];
+  let otherSeries = 0;
+  for (const r of table.slice(1)) {
     const name = cell(r, "name").trim();
-    const parsed = parseAdId(name);
-    return {
+    if (!name) continue;
+    if (seriesId && !sameSeriesName(name, seriesId)) {
+      otherSeries++;
+      continue;
+    }
+    rows.push({
       name,
-      adId: parsed ? adId(parsed.hookId, parsed.meatId, parsed.ctaId, { hook: parsed.hookVoice, meat: parsed.meatVoice, cta: parsed.ctaVoice }) : "",
+      adId: adIdFromName(name),
       impressions: n(r, "impressions"),
       views3s: n(r, "views3s"),
       views: n(r, "views"),
+      views2s: n(r, "views2s"),
+      views6s: n(r, "views6s"),
       avgWatch: n(r, "avgWatch"),
       clicks: n(r, "clicks"),
       conversions: n(r, "conversions"),
       spend: n(r, "spend"),
-    };
-  });
+    });
+  }
   const found = (Object.keys(col) as MetricField[]).filter((f) => col[f] !== undefined);
-  const missing = (Object.keys(HEADERS) as MetricField[]).filter((f) => col[f] === undefined);
-  return { rows: rows.filter((r) => r.name), found, missing };
+  const missing = (Object.keys(HEADERS) as MetricField[]).filter((f) => col[f] === undefined && !OPTIONAL_FIELDS.has(f));
+  return { rows, found, missing, otherSeries };
 }
 
 // One metric per piece. Hook: share of impressions that watch 3 s. Meat: average watch time (weighted by
@@ -1016,6 +1122,8 @@ export type PieceStats = {
   impressions: number;
   views: number;
   views3s: number;
+  views2s: number;
+  views6s: number;
   hookRate: number;
   avgWatch: number;
   clicks: number;
@@ -1025,7 +1133,7 @@ export type PieceStats = {
   spend: number;
 };
 function emptyStats(id: string): PieceStats {
-  return { id, ads: 0, impressions: 0, views: 0, views3s: 0, hookRate: 0, avgWatch: 0, clicks: 0, ctr: 0, conversions: 0, convRate: 0, spend: 0 };
+  return { id, ads: 0, impressions: 0, views: 0, views3s: 0, views2s: 0, views6s: 0, hookRate: 0, avgWatch: 0, clicks: 0, ctr: 0, conversions: 0, convRate: 0, spend: 0 };
 }
 export function pieceStats(rows: MetricRow[]): Record<string, PieceStats> {
   const acc: Record<string, PieceStats & { watchWeight: number }> = {};
@@ -1035,6 +1143,8 @@ export function pieceStats(rows: MetricRow[]): Record<string, PieceStats> {
     s.impressions += r.impressions;
     s.views += r.views;
     s.views3s += r.views3s;
+    s.views2s += r.views2s ?? 0;
+    s.views6s += r.views6s ?? 0;
     s.clicks += r.clicks;
     s.conversions += r.conversions;
     s.spend += r.spend;
@@ -1054,7 +1164,7 @@ export function pieceStats(rows: MetricRow[]): Record<string, PieceStats> {
     out[id] = {
       ...rest,
       avgWatch: watchWeight ? s.avgWatch / watchWeight : 0,
-      hookRate: s.impressions ? s.views3s / s.impressions : 0,
+      hookRate: hookRateFor(s.impressions, s),
       ctr: s.impressions ? s.clicks / s.impressions : 0,
       convRate: s.impressions ? s.conversions / s.impressions : 0,
     };
@@ -1078,6 +1188,8 @@ export function clipStats(clips: ClipRecord[], rows: MetricRow[]): Record<string
       s.impressions += r.impressions;
       s.views += r.views;
       s.views3s += r.views3s;
+      s.views2s += r.views2s ?? 0;
+      s.views6s += r.views6s ?? 0;
       s.clicks += r.clicks;
       s.conversions += r.conversions;
       s.spend += r.spend;
@@ -1085,7 +1197,7 @@ export function clipStats(clips: ClipRecord[], rows: MetricRow[]): Record<string
       weight += r.impressions || 1;
     }
     s.avgWatch = weight ? s.avgWatch / weight : 0;
-    s.hookRate = s.impressions ? s.views3s / s.impressions : 0;
+    s.hookRate = hookRateFor(s.impressions, s);
     s.ctr = s.impressions ? s.clicks / s.impressions : 0;
     s.convRate = s.impressions ? s.conversions / s.impressions : 0;
     out[clip.id] = s;
@@ -1111,6 +1223,62 @@ export function rankHooks(state: AdsState): RankedHook[] {
   return ranked.sort((a, b) => score(b.stats) - score(a.stats));
 }
 
+// Below this, a row is measured too thinly to call the hook a winner. The person can raise or lower it in Fuentes;
+// it is not saved. 1000 impressions is a winner; 999 is not.
+export const MIN_IMPRESSIONS = 1000;
+
+export function enoughData(stats: { impressions: number }, min = MIN_IMPRESSIONS): boolean {
+  return stats.impressions >= min;
+}
+
+// rankHooks stays in score order and keeps every hook that has a row. This is the part that may be called a winner.
+export function measuredWinners(ranked: RankedHook[], min = MIN_IMPRESSIONS): RankedHook[] {
+  return ranked.filter((r) => enoughData(r.stats, min));
+}
+
+// TikTok exports 2-second views and no 3-second column. Those rows use the 2-second views as the hook rate and are
+// labelled "2 s". A real 3-second count, even alongside 2-second views, stays the rate.
+export function hookWatch(stats: { views3s: number; views2s?: number }): { seconds: 2 | 3; views: number } {
+  if ((stats.views3s ?? 0) <= 0 && (stats.views2s ?? 0) > 0) return { seconds: 2, views: stats.views2s ?? 0 };
+  return { seconds: 3, views: stats.views3s ?? 0 };
+}
+
+function hookRateFor(impressions: number, stats: { views3s: number; views2s?: number }): number {
+  return impressions > 0 ? hookWatch(stats).views / impressions : 0;
+}
+
+// A Playbook hook with no impressions is still unmeasured. One with some impressions under the floor has data, just
+// not enough to call it a winner, so it does not say "sin medir".
+export function organicNote(stats: { impressions: number } | undefined, min = MIN_IMPRESSIONS): string {
+  if (stats && stats.impressions > 0 && !enoughData(stats, min)) return "sin datos suficientes";
+  return "del orgánico, sin medir";
+}
+
+function winnerPattern(r: RankedHook): string {
+  const watch = hookWatch(r.stats);
+  const views = watch.seconds === 2 ? watch.views : r.stats.views3s || r.stats.views;
+  return `${r.text} (N${r.level}, ${Math.round(r.stats.hookRate * 100)}% ven ${watch.seconds} s, ${views} vistas)`;
+}
+
+// What the hook writer is given. Winners are measured and above the minimum. Organic hooks that are not in that
+// list are labelled as unmeasured, and one that later clears the minimum is a winner only, not both.
+export function hookPatterns(state: AdsState, min = MIN_IMPRESSIONS): { winners: string[]; organic: string[] } {
+  const ranked = rankHooks(state);
+  const measured = measuredWinners(ranked, min).slice(0, 12);
+  const winnerIds = new Set(measured.map((r) => r.id));
+  const statsOf = new Map(ranked.map((r) => [r.id, r.stats]));
+  return {
+    winners: measured.map(winnerPattern),
+    organic: state.hooks
+      .filter((h) => h.source === "organic" && h.status !== "rejected" && !winnerIds.has(h.id))
+      .map((h) => {
+        const note = organicNote(statsOf.get(h.id), min);
+        const label = note === "sin datos suficientes" ? "del orgánico, sin datos suficientes" : note;
+        return `${h.text} (${label})`;
+      }),
+  };
+}
+
 // ── Export CSV (ready for the ads platform) ────────────────────────────────────────
 export const csvCell = (v: string | number) => {
   const s = String(v);
@@ -1118,7 +1286,7 @@ export const csvCell = (v: string | number) => {
 };
 // "tipo" is video or imagen (the hooks' static versions, shared/adsStatic.ts); "formato" the length or the shape.
 export const CSV_HEAD = ["id", "archivo", "nivel", "publico", "hook", "meat", "cta", "texto_principal", "titular", "boton", "tipo", "formato", "voz_hook", "voz_meat", "voz_cta"];
-export function exportCsv(batch: Batch, hooks: Hook[], meats: Meat[], ctas: Cta[], media?: Record<string, AdsMedia>): string {
+export function exportCsv(batch: Batch, hooks: Hook[], meats: Meat[], ctas: Cta[], media?: Record<string, AdsMedia>, seriesId?: string): string {
   const by = <T extends Piece>(list: T[]) => Object.fromEntries(list.map((p) => [p.id, p]));
   const H = by(hooks);
   const M = by(meats);
@@ -1127,7 +1295,7 @@ export function exportCsv(batch: Batch, hooks: Hook[], meats: Meat[], ctas: Cta[
   const lines = batch.ads.map((a) => {
     const copy = batch.copies[copyKey(a.hookId, a.ctaId)];
     return [
-      a.id,
+      seriesId ? adExportName(seriesId, a.level, a.id, batch.seconds) : a.id,
       batch.files[a.id] ?? "",
       `${a.level} · ${LEVEL_INFO[a.level].label}`,
       AUDIENCE_LABEL[LEVEL_INFO[a.level].audience],

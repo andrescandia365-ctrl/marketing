@@ -88,6 +88,20 @@ const hookReq = (o: Partial<HookRequest> = {}): HookRequest => ({
   ...o,
 });
 
+test("organic hooks are not described as winners", () => {
+  const onlyOrganic = taskPrompt(
+    hooksTask("iman", EMPTY_OFFER, "grok-imagine", hookReq({ organic: ["La góndola vacía (del orgánico, sin medir)"] })),
+  ).prompt;
+  assert.match(onlyOrganic, /del orgánico, sin medir/);
+  assert.match(onlyOrganic, /They are not winners/);
+  assert.doesNotMatch(onlyOrganic, /metrics or organic content/);
+  const measured = taskPrompt(hooksTask("iman", EMPTY_OFFER, "grok-imagine", hookReq({ winners: ["Medido (N2, 40% ven 3 s, 800 vistas)"] }))).prompt;
+  const request = measured.split("===== REQUEST =====")[1]?.split("===== ANSWER FORMAT =====")[0] ?? "";
+  assert.match(request, /already worked \(measured, above the impression minimum\)/);
+  // ads.md (in SYSTEM) says organic hooks are "not measured yet". The request for a measured run does not.
+  assert.doesNotMatch(request, /not measured yet/);
+});
+
 test("a hooks prompt part names each level's exact count and closes with the schema", () => {
   const [first] = hookParts(50, ALL);
   const { prompt, chars } = taskPrompt(hooksTask("iman", EMPTY_OFFER, "grok-imagine", hookReq({ count: first.count, perLevel: first.perLevel })));

@@ -61,7 +61,6 @@ import { HandoffSchema, type Handoff } from "../shared/handoff.ts";
 import { NO_SHEET_TEXT, saysNoSheet } from "../shared/motionQuality.ts";
 import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
 import { BrandWebError, bringPictures, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.ts";
-import { EMPTY_BRIEF } from "../shared/example.ts";
 import { ClockError } from "../shared/clock.ts";
 import { roomBrief } from "../shared/room.ts";
 import { buildProjectSync, critiqueProject, loadSync } from "./sync.ts";
@@ -1006,7 +1005,7 @@ app.post("/api/brand/from-web", async (c) => {
         claims: facts.text.split("\n").filter((l) => l.length > 25 && l.length < 160).slice(0, 5),
         note: "Propuesta de muestra: sin clave de IA, salió de contar colores y leer los títulos.",
       }
-    : await brandFromSite(facts, series ?? EMPTY_BRIEF.series);
+    : await brandFromSite(facts, series && getSeries(series) ? series : null);
   const suggestion: BrandSuggestion = {
     ...raw,
     name: raw.name.trim().slice(0, 60),

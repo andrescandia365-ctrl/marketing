@@ -10,6 +10,7 @@ import {
   currentRender,
   isAdSeconds,
   offerFilled,
+  MIN_IMPRESSIONS,
   splitIssue,
   type AdCombo,
   copyKey,
@@ -158,6 +159,7 @@ function loadSettings(): Settings {
 export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPlaybook, onToExplainer }: Props) {
   const [state, setState] = useState<AdsState | null>(null);
   const [ranking, setRanking] = useState<RankedHook[]>([]);
+  const [minImpressions, setMinImpressions] = useState(MIN_IMPRESSIONS);
   const [transcription, setTranscription] = useState(false);
   const [folder, setFolder] = useState("");
   const [tab, setTab] = useState<Tab>("offer");
@@ -701,7 +703,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   // ── Generation ──────────────────────────────────────────────────────────────
   const lengthBody = () => ({ seconds: settings.seconds, ...(settings.split ? { split: settings.split } : {}) });
   async function generateHooks(count: number, levels = settings.levels, seconds = settings.seconds, split = settings.split) {
-    const r = await act("hooks", () => adsApi.hooks(series.id, { levels, count, seconds, ...(split ? { split } : {}), tool: toolId, language: lang }));
+    const r = await act("hooks", () => adsApi.hooks(series.id, { levels, count, seconds, ...(split ? { split } : {}), tool: toolId, language: lang, minImpressions }));
     if (r) setNotes((n) => ({ ...n, hooks: r.note }));
     return r;
   }
@@ -801,7 +803,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
   const handoffs = demo
     ? {
         hooks: (count: number) => (part: number) =>
-          via(adsAsks.hooks(series.id, body(count, part)), (r) => {
+          via(adsAsks.hooks(series.id, { ...body(count, part), minImpressions }), (r) => {
             setState(r.state);
             setNotes((n) => ({ ...n, hooks: pastedNote(r) }));
           }),
@@ -1347,6 +1349,8 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           series={series.id}
           state={state}
           ranking={ranking}
+          minImpressions={minImpressions}
+          onMinImpressions={setMinImpressions}
           transcription={transcription}
           demo={demo}
           busy={busy}

@@ -109,4 +109,24 @@ test("the writers' room counts the moves each piece used and names the ones the 
   assert.deepEqual(overusedMoves(cards).map((m) => m.move), ["clipDrop"]);
   assert.match(roomBrief(cards), /clipDrop \(3 of 3\)/);
   assert.equal(overusedMoves(cards.slice(0, 2)).length, 0);
+  assert.equal(roomBrief(cards, []), roomBrief(cards));
+});
+
+test("once a piece is published, drafts stay drafts and only published pieces count", () => {
+  const card = (id: string, moves: string[], fact: string) =>
+    storyCard(id, "2026-10-24", { problem: `Problema ${id}`, topics: [{ moves }], canon: [{ fact }] })!;
+  const cards = [
+    card("a", ["clipDrop"], "el pedido ya cerró"),
+    card("b", ["clipDrop"], "el local abre a las 8"),
+    card("c", ["clipDrop"], "el proveedor corta a las 18"),
+    card("d", ["clipDrop"], "el cuaderno sigue en el cajón"),
+  ];
+  assert.equal(overusedMoves(cards)[0].pieces, 4);
+  assert.equal(overusedMoves(cards, ["a", "b", "c"])[0].pieces, 3);
+  assert.match(roomBrief(cards), /clipDrop \(4 of 4\)/);
+  const published = roomBrief(cards, ["a", "b", "c"]);
+  assert.match(published, /clipDrop \(3 of 3\)/);
+  assert.match(published, /Already true for the audience: el pedido ya cerró/);
+  assert.match(published, /Still in drafts \(the audience has not seen it\): el cuaderno sigue en el cajón/);
+  assert.doesNotMatch(published, /Already true for the audience: el cuaderno/);
 });
