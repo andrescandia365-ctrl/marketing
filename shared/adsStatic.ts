@@ -19,6 +19,7 @@ import {
   type Meat,
   type Offer,
 } from "./ads.ts";
+import { imageSaveLine } from "./adsBulk.ts";
 import type { Reference } from "./reference.ts";
 import type { SeriesLook } from "./series.ts";
 import { stillChecks, stillImagePrompt, type StillConcept, type StillFamily, type StillProblem } from "./still.ts";
@@ -89,9 +90,14 @@ export function staticPrompt(h: Hook, offer: Pick<Offer, "problem" | "promise">,
   return stillImagePrompt(hookConcept(h, offer, placement), { ...o, placement });
 }
 
-// Every prompt, one after another, to paste into Grok in a row.
+// The file the person saves from Grok. It is not the piece image (H12-img) and it is not inside the prompt.
+export function staticSaveStem(hookId: string): string {
+  return `${hookId.toUpperCase()}-estatico`;
+}
+
+// Every prompt, one after another, to paste into Grok in a row. The file name is its own line, above the prompt.
 export function allStaticPrompts(items: { hook: Hook; prompt: string }[]): string {
-  return items.map(({ hook, prompt }) => `${hook.id} · ${hookHeadline(hook)}\n${prompt}`).join("\n\n");
+  return items.map(({ hook, prompt }) => `${hook.id} · ${hookHeadline(hook)}\n${imageSaveLine(staticSaveStem(hook.id))}\n${prompt}`).join("\n\n");
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────────────────────────────────────────

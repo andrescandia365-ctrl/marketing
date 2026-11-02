@@ -38,6 +38,7 @@ type Props<T extends Meat | Cta> = {
   renderCard: (piece: T) => ReactNode;
   // "Que lo digan los personajes": the approved pieces' character prompts in one go.
   extra?: ReactNode;
+  bulk?: ReactNode;
   onMotionBatch?: () => void;
   motionBusy?: boolean;
   // "Sin clave": the prompts for claude.ai for this count (and, for meats, these formats).
@@ -47,7 +48,7 @@ type Props<T extends Meat | Cta> = {
   walkKey: string;
 };
 
-export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels, seconds, split, busy, demo, note, onLevels, onGenerate, renderCard, extra, onMotionBatch, motionBusy = false, handoff = null, presetCount, walkKey }: Props<T>) {
+export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels, seconds, split, busy, demo, note, onLevels, onGenerate, renderCard, extra, bulk, onMotionBatch, motionBusy = false, handoff = null, presetCount, walkKey }: Props<T>) {
   const isMeat = kind === "meat";
   const chosen = levelsOf(levels);
   const recipe = [...new Set(chosen.flatMap((l) => LEVEL_INFO[l].meats))];
@@ -168,6 +169,7 @@ export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels,
           </div>
         )}
       </div>
+      {bulk}
       {approvedHooks.length === 0 && hooks.length > 0 && <Notice tone="warn">Aprobá primero algunos hooks: el meat y el CTA se escriben con el hook elegido como contexto para que sean coherentes.</Notice>}
       <div className="space-y-2">{pieces.map((p) => renderCard(p))}</div>
       {pieces.length === 0 && <p className="text-sm text-muted">Todavía no hay {isMeat ? "meats" : "CTAs"}.</p>}

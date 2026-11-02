@@ -283,7 +283,7 @@ export type PieceKind = (typeof PIECE_KINDS)[number];
 export const PIECE_LABEL: Record<PieceKind, string> = { hook: "Hook", meat: "Meat", cta: "CTA" };
 export const PIECE_PREFIX: Record<PieceKind, string> = { hook: "H", meat: "M", cta: "C" };
 
-export const PIECE_STATUS = ["pending", "approved", "rejected"] as const;
+export const PIECE_STATUS = ["pending", "approved", "rejected", "archived"] as const;
 export type PieceStatus = (typeof PIECE_STATUS)[number];
 export const PIECE_SOURCES = ["ai", "organic", "clip", "manual"] as const;
 export type PieceSource = (typeof PIECE_SOURCES)[number];
@@ -522,6 +522,28 @@ export const HookStaticSchema = z.object({
 });
 export type HookStatic = z.infer<typeof HookStaticSchema>;
 
+const VoicePickSchema = z.object({
+  picked: z.array(z.string().max(12)).max(20),
+  known: z.array(z.string().max(12)).max(20),
+});
+
+// The last Aplicar, stored in campana.json. Deshacer reads it after a reload.
+export const NextUndoSchema = z.object({
+  status: z
+    .array(z.object({ id: z.string().max(12), from: z.enum(PIECE_STATUS), to: z.enum(PIECE_STATUS) }))
+    .max(500),
+  voices: z
+    .array(
+      z.object({
+        pieceId: z.string().max(12),
+        before: VoicePickSchema.nullable(),
+        after: VoicePickSchema,
+      }),
+    )
+    .max(500),
+});
+export type NextUndo = z.infer<typeof NextUndoSchema>;
+
 export const AdsStateSchema = z.object({
   version: z.literal(1),
   series: z.string(),
@@ -541,6 +563,10 @@ export const AdsStateSchema = z.object({
   renders: z.record(z.string(), z.string()),
   // Per hook: its static version (older files have none).
   statics: z.record(z.string(), HookStaticSchema).default({}),
+  // "Próxima tanda": how much of each kind to keep (0–100). Older files stay at 20.
+  keepPercent: z.number().int().min(0).max(100).default(20),
+  // What the last Aplicar changed, so Deshacer survives a reload. Null when there is nothing to undo.
+  nextUndo: NextUndoSchema.nullable().default(null),
 });
 export type AdsState = Omit<z.infer<typeof AdsStateSchema>, "hooks" | "meats" | "ctas" | "clips" | "batches"> & {
   hooks: Hook[];
@@ -567,6 +593,8 @@ export function emptyAds(series: string): AdsState {
     media: {},
     renders: {},
     statics: {},
+    keepPercent: 20,
+    nextUndo: null,
   };
 }
 
@@ -889,7 +917,7 @@ export function similarity(a: string, b: string): number {
 }
 export function nearDuplicates(hooks: Hook[], threshold = 0.6): [string, string][] {
   const pairs: [string, string][] = [];
-  const live = hooks.filter((h) => h.status !== "rejected");
+  const live = hooks.filter((h) => h.status !== "rejected" && h.status !== "archived");
   for (let i = 0; i < live.length; i++) {
     for (let j = i + 1; j < live.length; j++) {
       if (similarity(live[i].text, live[j].text) >= threshold) pairs.push([live[i].id, live[j].id]);
@@ -902,7 +930,7 @@ export function nearDuplicates(hooks: Hook[], threshold = 0.6): [string, string]
 export function localFlags(hooks: Hook[], meats: Meat[], ctas: Cta[]): ReviewFlag[] {
   const flags: ReviewFlag[] = [];
   for (const p of [...hooks, ...meats, ...ctas]) {
-    if (p.status === "rejected") continue;
+    if (p.status === "rejected" || p.status === "archived") continue;
     const words = countWords(p.text);
     const budget = wordsFor(p.seconds);
     if (words > budget + 2) {
@@ -1206,14 +1234,14 @@ export function clipStats(clips: ClipRecord[], rows: MetricRow[]): Record<string
 }
 
 // The hooks that worked, from best to worst: the app's hooks and the clips' hooks with metrics attached.
-export type RankedHook = { id: string; text: string; level: Level; angle: Angle; formula: Formula; source: string; stats: PieceStats };
+export type RankedHook = { id: string; text: string; level: Level; angle: Angle; formula: Formula; source: string; stats: PieceStats; status?: PieceStatus };
 export function rankHooks(state: AdsState): RankedHook[] {
   const byPiece = pieceStats(state.metrics);
   const byClip = clipStats(state.clips, state.metrics);
   const ranked: RankedHook[] = [];
   for (const h of state.hooks) {
     const s = byPiece[h.id];
-    if (s) ranked.push({ id: h.id, text: h.text, level: h.level, angle: h.angle, formula: h.formula, source: "app", stats: s });
+    if (s) ranked.push({ id: h.id, text: h.text, level: h.level, angle: h.angle, formula: h.formula, source: "app", stats: s, status: h.status });
   }
   for (const c of state.clips) {
     const s = byClip[c.id];
@@ -1231,9 +1259,15 @@ export function enoughData(stats: { impressions: number }, min = MIN_IMPRESSIONS
   return stats.impressions >= min;
 }
 
+// Archived and rejected hooks stay in the ranking (and in `existing`, so the writer does not repeat them) and are
+// not called winners. A clip has no piece status and can still be a winner.
+export function openForWinners(status: PieceStatus | undefined): boolean {
+  return status !== "rejected" && status !== "archived";
+}
+
 // rankHooks stays in score order and keeps every hook that has a row. This is the part that may be called a winner.
 export function measuredWinners(ranked: RankedHook[], min = MIN_IMPRESSIONS): RankedHook[] {
-  return ranked.filter((r) => enoughData(r.stats, min));
+  return ranked.filter((r) => enoughData(r.stats, min) && openForWinners(r.status));
 }
 
 // TikTok exports 2-second views and no 3-second column. Those rows use the 2-second views as the hook rate and are
@@ -1270,7 +1304,7 @@ export function hookPatterns(state: AdsState, min = MIN_IMPRESSIONS): { winners:
   return {
     winners: measured.map(winnerPattern),
     organic: state.hooks
-      .filter((h) => h.source === "organic" && h.status !== "rejected" && !winnerIds.has(h.id))
+      .filter((h) => h.source === "organic" && openForWinners(h.status) && !winnerIds.has(h.id))
       .map((h) => {
         const note = organicNote(statsOf.get(h.id), min);
         const label = note === "sin datos suficientes" ? "del orgánico, sin datos suficientes" : note;
