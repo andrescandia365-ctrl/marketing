@@ -1,0 +1,351 @@
+===== 3fff6123-f96e-80ea-ad1a-f11d69accea8
+page | Episode 4: Over The Shoulder Zoom Prompt
+text | Effect of the Day, EP. 04. One prompt. Claude Code pushes in on you, looks to a card over one shoulder, whips across to a card over the other (or turns the first card's text into light and streaks it into the second), and hands you back a finished video of your own clip, ready to drop on your timeline.
+sub_header | What you need
+bulleted_list | Claude Code (the desktop app or the terminal).
+bulleted_list | One vertical clip of you talking (9:16), chest up, your face near the middle of the frame, already colour graded, ideally 5 to 30 seconds around the moment you want the zoom.
+sub_header | How to use it
+numbered_list | Copy the prompt below. Hover over the code block and click Copy.
+numbered_list | Paste it into a new Claude Code chat.
+numbered_list | Give it your settings and drag in your clip. The very top of the prompt (MY ZOOM) holds them. Claude Code shrinks a long paste into one block, so type yours on the line under it, like this: STYLE: transition START CARD: OLD WAY | 4 hours | per edit END CARD: NEW WAY | 4 minutes | per edit WHEN: 2 COLOUR: gold
+bulleted_list | STYLE: "normal" for the two cards, or "transition" to have the first card's big text fly into the second at light speed.
+bulleted_list | START CARD / END CARD: a small label, the big text and a small line, split by the | sign. They show exactly as you type them. Short big text (up to about 9 characters) hits hardest.
+bulleted_list | WHEN: the second in your clip where the zoom starts. The whole move takes 4.6 seconds.
+bulleted_list | COLOUR: a hex code (like #7CFFA0) or a colour name, for the outlines, labels and the light.
+bulleted_list | Your clip: drag the video file straight into the chat. No file path needed. Skip this and Claude asks you for them. Or edit the MY ZOOM lines in a notes app before you paste.
+numbered_list | Press Enter. Claude asks before it installs anything. Say yes to the free tools it needs (Node.js and Remotion, on your own computer).
+numbered_list | Check your framing. Claude measures where your face is and shows you two check frames, so the cards sit beside your head, never over it.
+numbered_list | Grab your video. It lands in the EffectOfTheDay folder in your home folder, under renders/over-the-shoulder. Drop it straight on your timeline.
+text | Want to tweak it? Ask Claude in the same chat: "start it at 3 seconds", "change the end card to ...", "use the transition". It edits the settings and renders again.
+text | Good to know: everything stays in one folder on your computer (EffectOfTheDay). Nothing is uploaded, nothing needs admin rights, and your original video is never touched. The first run takes a few minutes while the tools download; after that it is quick.
+sub_header | The prompt
+code | ==================== MY ZOOM ====================
+Replace what is inside each [ ] with your own.
+
+STYLE: [normal]
+→ "normal" = two cards, the camera looks at one, then whips to the other. 
+→ "transition" = the start card's big text flies into the end card at light speed.
+
+START CARD: [BEFORE | $3,200 | per month]
+→ Small label | big text | small line under it. The card over your left shoulder, shown first.
+
+END CARD: [AFTER | $32,000 | per month]
+→ The same three parts, for the card over your right shoulder, shown second.
+
+WHEN: [1]
+→ The second in your clip where the zoom starts. The whole move takes 4.6 seconds.
+
+COLOUR: [#B03926]
+→ A hex code like #7CFFA0, or a colour name.
+=================================================
+
+Build me an "over-the-shoulder zoom" effect on my own video, using MY ZOOM above. My video is the file I drag into this chat (Claude Code gives you its path).
+
+What it is: the camera pushes in on me and looks to one side, where a white card lands over my left shoulder (a small label, big bold text, a small line under it, a thin coloured outline and a soft glow). Then the camera whips across to the other side, where the second card lands over my right shoulder. Then the cards go and the camera eases back out to my normal shot. With STYLE "transition", the start card's big text shivers and glows, breaks into tiny points of light, streaks across the frame at light speed in the same moment the camera whips, and rebuilds as the end card's big text with a soft flash. The cards sit beside my head, never over my face. My audio plays underneath the whole time, untouched. I get my whole clip back with the effect in it, ready to drop on my editing timeline.
+
+APPLY MY ZOOM TO THE SETTINGS
+
+Start from the default settings file below and change only these. If I typed my values in my message after this prompt (for example: STYLE: transition START CARD: OLD WAY | 4 hours | per edit END CARD: NEW WAY | 4 minutes | per edit WHEN: 2 COLOUR: gold), those win over the brackets. If MY ZOOM still shows the examples above and I gave you nothing after the prompt, ask me for my style, both cards, when and colour in one short question (offer the examples as the defaults) before you build anything.
+- style: "normal" or "transition", as I wrote it.
+- start and end: each card's three parts split on the | sign, in order label, big, small, each EXACTLY as I typed it (same spelling, capitals and punctuation; never correct or re-case my text). Escape any \" or \\ so the file still compiles. If I gave only one part, it is the big text and the other two are empty strings. The big text reads best short (up to about 9 characters); a longer one is shrunk to fit its card.
+- startAt: the number in WHEN. The whole move needs 4.6 seconds after it; if my clip is too short for that, move startAt earlier and tell me.
+- accent: my COLOUR as a six-digit hex code. A hex is used exactly as I typed it (add the # if I left it off; write a 3-digit one out in full, #F80 = #FF8800). A colour name becomes a clean six-digit hex (clay = #B03926, gold = #E8B44A, green = #3FA66A, blue = #3D7BFF, red = #D9412B, purple = #7B5CFF); tell me the hex you used.
+- Fill in the three clip values and the three face values yourself from my video (steps 3 and 4 of the build).
+
+DEFAULT SETTINGS
+
+The settings file, before my values go in (it is one of the files to create in step 2):
+
+=== FILE: EffectOfTheDay/kit/src/effects/over-the-shoulder.settings.ts ===
+// ===================== YOUR SETTINGS =====================
+// Change anything here, then render again. Times are seconds into your clip. Colours are hex codes.
+export const OVER_THE_SHOULDER = {
+  // Your clip. Claude fills these in from the video you give it.
+  clipFile: "input/my-clip.mp4",  // the copy inside EffectOfTheDay/kit/public/
+  clipSeconds: 10,                // the clip's length
+  clipFps: 30,                    // the clip's frame rate (the output matches it)
+
+  // "normal"     = the camera pushes in and looks at the start card over one shoulder, whips across to the end card
+  //                over the other shoulder, and pulls back out.
+  // "transition" = the same, and the start card's big text breaks into light, streaks across the frame at light speed
+  //                and rebuilds as the end card's big text.
+  style: "normal" as "normal" | "transition",
+
+  // The two cards: a small label, the big text, a small line under it. The start card shows first (left), the end card second (right).
+  start: { label: "BEFORE", big: "$3,200", small: "per month" },
+  end: { label: "AFTER", big: "$32,000", small: "per month" },
+
+  startAt: 1.0,        // when the camera starts to push in (seconds into your clip). The whole move takes 4.6 s.
+  accent: "#B03926",   // the cards' outline, their labels, the end card's big text and the light streaks
+
+  // Where your face is, so your clip is framed the way the effect was designed (head about a third of the frame wide, eyes
+  // about a quarter of the way down, face in the middle). Claude measures these from a frame of your clip.
+  faceX: 0.5,          // the middle of your face across the frame (0 = left edge, 1 = right edge)
+  faceWidth: 0.32,     // your head's width, ear to ear, as a share of the frame's width
+  eyeY: 0.255,         // your eyes' height in the frame (0 = top, 1 = bottom)
+};
+// =========================================================
+=== END OF FILE ===
+
+WHAT TO DELIVER
+
+One file in ~/EffectOfTheDay/renders/over-the-shoulder/: <my clip's name>-over-the-shoulder.mp4. 1080x1920, at my clip's frame rate, H.264, with my clip's audio. When it is rendered, open the folder and tell me where it is.
+
+TOOLS AND FOLDER
+
+- Built with Remotion, a free, open-source video renderer that runs on my computer (free for individuals and companies of up to 3 people). Remotion downloads its own ffmpeg and a headless browser the first time it renders.
+- Ask me before installing anything.
+- Keep everything in a folder called EffectOfTheDay in my home folder: the Remotion project in EffectOfTheDay/kit, the renders in EffectOfTheDay/renders. If that folder already exists from a previous Effect of the Day, reuse what is there: add this effect next to the others and do not reinstall or remove anything.
+- Node.js 20 or newer is needed. If it is missing, install it without admin rights: download the official Node.js LTS archive for my operating system and processor from nodejs.org and unpack it into EffectOfTheDay/tools/node, then use that node and npm by their full path. No Homebrew, no sudo, nothing that asks for my password.
+- Never change or move my original video. Work on a copy.
+
+THE BUILD
+
+1. If I have not given you a clip, ask me to drag one in. It should be a vertical talking-head video, chest up, already colour graded, with my face near the middle of the frame and some space beside my head, ideally trimmed to the 5 to 30 seconds around the moment I want the zoom.
+2. Create the files exactly as written: the settings file above and the files below (each one sits between its === FILE line and its === END OF FILE line). Then put my values into the settings file as described above, and run npm install inside EffectOfTheDay/kit. If the kit already has a package.json from an earlier episode, add any dependency below that it is missing (same exact version) and keep the rest. If it already has a Root.tsx with other effects in it, add the OverTheShoulder composition to it and keep the others.
+3. Copy my clip into EffectOfTheDay/kit/public/input/ and read its length and frame rate:
+   npx remotion ffprobe -v error -show_entries format=duration:stream=codec_type,r_frame_rate,width,height -of json "public/input/<clip>"
+   Put the copy's path (relative to public/), its length in seconds and its frame rate (the video stream's r_frame_rate as a decimal, for example 24000/1001 = 23.976) into the settings. If the clip is not vertical 9:16, tell me it will be cropped to fill a 1080x1920 frame.
+4. Measure my face. Save one frame from the moment the zoom starts and look at it:
+   npx remotion ffmpeg -y -ss <startAt> -i "public/input/<clip>" -frames:v 1 -vf scale=1080:1920 ../renders/over-the-shoulder/face.png
+   Set faceX (the middle of my face, from 0 at the left edge to 1 at the right edge), faceWidth (my head's width from ear to ear, as a share of the frame's width) and eyeY (the height of my eyes, from 0 at the top to 1 at the bottom). Tell me the three values. The effect frames my clip from them so my face sits where the design expects it.
+5. Render two check frames and look at them before rendering the video:
+   npx remotion still src/index.ts OverTheShoulder ../renders/over-the-shoulder/check-start.png --frame=<round((startAt + 1.9) x frame rate)>
+   npx remotion still src/index.ts OverTheShoulder ../renders/over-the-shoulder/check-end.png --frame=<round((startAt + 3.3) x frame rate)>
+   Check: the picture fills the frame (no black edge on any side); each card sits beside my head with clear space between the card and my face, never over it; my hair is not cut off at the top; both cards show my text exactly, on one line each, inside the card. If a card touches my face or my hair is cut, measure my face again (it is probably wider, lower or further over than you set) and render the checks again. If it still touches, my face is too far to one side or too close to the camera in this clip: tell me, and say that filming with my face in the middle and a little more space around me fixes it.
+6. Render the video, then delete face.png and the two check frames so the folder holds only the finished video:
+   npx remotion render src/index.ts OverTheShoulder "../renders/over-the-shoulder/<clip name>-over-the-shoulder.mp4" --codec=h264 --crf=16
+
+=== FILE: EffectOfTheDay/kit/package.json ===
+{
+  "name": "effect-of-the-day-kit",
+  "private": true,
+  "dependencies": {
+    "@remotion/cli": "4.0.535",
+    "@remotion/google-fonts": "4.0.535",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.535"
+  }
+}
+=== END OF FILE ===
+
+=== FILE: EffectOfTheDay/kit/src/index.ts ===
+import { registerRoot } from "remotion";
+import { RemotionRoot } from "./Root";
+registerRoot(RemotionRoot);
+=== END OF FILE ===
+
+=== FILE: EffectOfTheDay/kit/src/Root.tsx ===
+import React from "react";
+import { Composition } from "remotion";
+import { OverTheShoulder } from "./effects/OverTheShoulder";
+import { OVER_THE_SHOULDER as OTS } from "./effects/over-the-shoulder.settings";
+
+// Every Effect of the Day effect is registered here. Add new ones below; never remove the others.
+export const RemotionRoot: React.FC = () => (
+  <>
+    <Composition id="OverTheShoulder" component={OverTheShoulder} width={1080} height={1920} fps={OTS.clipFps}
+      durationInFrames={Math.max(1, Math.round(OTS.clipSeconds * OTS.clipFps))} />
+  </>
+);
+=== END OF FILE ===
+
+=== FILE: EffectOfTheDay/kit/src/effects/OverTheShoulder.tsx ===
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { AbsoluteFill, Easing, OffthreadVideo, continueRender, delayRender, interpolate, random, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { loadFont as loadSans } from "@remotion/google-fonts/PlusJakartaSans";
+import { loadFont as loadMono } from "@remotion/google-fonts/DMMono";
+import { OVER_THE_SHOULDER as S } from "./over-the-shoulder.settings";
+
+// Effect of the Day: the over-the-shoulder zoom. The camera pushes in on you, looks to a card over one shoulder, whips across
+// to a card over the other, and pulls back out. Style "transition": the start card's big text breaks into light, streaks across
+// at light speed and rebuilds as the end card's big text.
+
+const sans = loadSans("normal", { weights: ["700", "800"] });
+const mono = loadMono("normal", { weights: ["400"] });
+const W = 1080, H = 1920, RES = 2, INK = "#1F1E1B", GREY = "#8A8A8E";
+const k = (t: number, a: number, b: number, from: number, to: number, ease = Easing.bezier(0.16, 1, 0.3, 1)) =>
+  interpolate(t, [a, b], [from, to], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: ease });
+const useT = () => { const f = useCurrentFrame(), { fps } = useVideoConfig(); return { f, fps, t: f / fps }; };
+
+// ---------- the camera: measured curves (progress per ninth of the move), zoom in log space, every move lands exactly on its value
+type Move = { t: number; kind: "in" | "pan" | "whip" | "drift" | "return"; to: number; x?: number; dur?: number };
+const CURVES = { in: [0, 0.21, 0.43, 0.61, 0.73, 0.83, 0.9, 0.96, 1], out: [0, 0.14, 0.37, 0.57, 0.71, 0.8, 0.87, 0.94, 1] };
+const CURVE_OF: Record<Move["kind"], "in" | "out"> = { in: "in", pan: "in", whip: "in", drift: "out", return: "out" };
+const DUR_OF: Record<Move["kind"], number> = { in: 0.36, pan: 0.42, whip: 0.5, drift: 0.42, return: 0.9 };
+const progress = (kind: Move["kind"], u: number) => {
+  if (u <= 0) return 0; if (u >= 1) return 1;
+  const p = CURVES[CURVE_OF[kind]], x = u * (p.length - 1), i = Math.floor(x), f = x - i;
+  const m = (j: number) => (p[Math.min(j + 1, p.length - 1)] - p[Math.max(j - 1, 0)]) / (Math.min(j + 1, p.length - 1) - Math.max(j - 1, 0));
+  return (2 * f ** 3 - 3 * f ** 2 + 1) * p[i] + (f ** 3 - 2 * f ** 2 + f) * m(i) + (-2 * f ** 3 + 3 * f ** 2) * p[i + 1] + (f ** 3 - f ** 2) * m(i + 1);
+};
+const cameraAt = (moves: Move[], t: number) => {
+  let z = 1, x = 0;
+  for (const m of moves) {
+    if (t < m.t) break;
+    const d = m.dur ?? DUR_OF[m.kind], u = (t - m.t) / d, p = progress(m.kind, u);
+    const from = z, fx = x;
+    z = Math.exp(Math.log(from) + (Math.log(m.to) - Math.log(from)) * p);
+    if (m.x !== undefined) x = fx + (m.x - fx) * p;
+    if (u >= 1) { z = m.to; if (m.x !== undefined) x = m.x; }
+  }
+  return { z, x };
+};
+const T0 = S.startAt;
+const MOVES: Move[] = [
+  { t: T0 + 0.05, kind: "in", to: 1.25, dur: 0.5 },          // push in
+  { t: T0 + 0.9, kind: "pan", to: 1.25, x: 110 },             // look at the start card
+  { t: T0 + 2.4, kind: "whip", to: 1.27, x: -110 },           // whip to the end card, a 2 % scale bump
+  { t: T0 + 2.9, kind: "drift", to: 1.25, dur: 0.2 },         // the bump settles
+  { t: T0 + 3.7, kind: "return", to: 1.0, x: 0 },             // pull back out
+];
+const ANCHOR = { x: 0.5 * W, y: 0.25 * H };                   // the zoom stays centred on the eyes
+
+// your clip, framed the way the effect was designed: head ~0.32 of the frame wide, eyes ~a quarter down, face in the middle
+const FIT = (() => {
+  const s = Math.max(1, 0.32 / S.faceWidth);
+  const tx = Math.min(0, Math.max(W - s * W, W / 2 - s * S.faceX * W));
+  const ty = Math.min(0, Math.max(H - s * H, 0.255 * H - s * S.eyeY * H));
+  return { s, tx, ty };
+})();
+const Footage: React.FC = () => {
+  const { t } = useT();
+  const { z, x: cx } = cameraAt(MOVES, t);
+  const room = (W / 2) * (z - 1);                              // never slide past the picture's edge
+  const x = Math.max(-room, Math.min(room, cx));
+  return (
+    <AbsoluteFill style={{ overflow: "hidden", backgroundColor: "#000" }}>
+      <AbsoluteFill style={{ transform: `translate(${x}px, 0px) scale(${z})`, transformOrigin: `${ANCHOR.x}px ${ANCHOR.y}px` }}>
+        <AbsoluteFill style={{ transform: `translate(${FIT.tx}px, ${FIT.ty}px) scale(${FIT.s})`, transformOrigin: "0 0" }}>
+          <OffthreadVideo src={staticFile(S.clipFile)} style={{ width: W, height: H, objectFit: "cover" }} />
+        </AbsoluteFill>
+      </AbsoluteFill>
+    </AbsoluteFill>
+  );
+};
+
+// ---------- the cards: a white card over each shoulder, a thin outline and a soft warm glow, tilted 4 degrees, springing in
+const CARD = { top: 520, edge: 70, w: 330, padX: 30, padY: 26, radius: 26 };
+const EYE_H = 28, BIG_H = 80, BIG_BASE = 63, SUB_H = 34, INNER = CARD.w - 2 * CARD.padX - 6;
+const CARD_H = 6 + 2 * CARD.padY + EYE_H + BIG_H + SUB_H;
+const bigFont = (size: number) => `800 ${size}px ${sans.fontFamily}`;
+// the big text: 64 px, shrunk only if it would not fit; the SAME drawing feeds the card and the light streaks
+const drawBig = (ctx: CanvasRenderingContext2D, text: string, color: string) => {
+  ctx.setTransform(RES, 0, 0, RES, 0, 0); ctx.clearRect(0, 0, INNER, BIG_H);
+  let size = 64; ctx.font = bigFont(size);
+  while (size > 26 && ctx.measureText(text).width > INNER) { size -= 2; ctx.font = bigFont(size); }
+  ctx.fillStyle = color; ctx.textBaseline = "alphabetic"; ctx.fillText(text, 0, BIG_BASE);
+};
+const Big: React.FC<{ text: string; color: string; visible: boolean }> = ({ text, color, visible }) => {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => { const c = ref.current; if (c) drawBig(c.getContext("2d")!, text, color); }, [text, color]);
+  return <canvas ref={ref} width={INNER * RES} height={BIG_H * RES} style={{ display: "block", width: INNER, height: BIG_H, opacity: visible ? 1 : 0 }} />;
+};
+const Card: React.FC<{ side: "l" | "r"; card: typeof S.start; at: number; out: number; bigVisible: boolean; flash: number }> = ({ side, card, at, out, bigVisible, flash }) => {
+  const { f, fps, t } = useT();
+  if (t < at || t > out + 0.25) return null;
+  const p = spring({ frame: f - Math.round(at * fps), fps, config: { damping: 12, stiffness: 170, mass: 0.7 } }) * (1 - k(t, out, out + 0.2, 0, 1));
+  return (
+    <div style={{ position: "absolute", top: CARD.top, [side === "l" ? "left" : "right"]: CARD.edge, width: CARD.w, padding: `${CARD.padY}px ${CARD.padX}px`, boxSizing: "border-box",
+      borderRadius: CARD.radius, backgroundColor: "#FFFFFF", border: `3px solid ${S.accent}`,
+      boxShadow: `0 22px 50px rgba(0,0,0,0.3), 0 0 ${34 + 50 * flash}px rgba(255,236,220,${0.55 + 0.4 * flash})`, filter: flash > 0 ? `brightness(${1 + 0.35 * flash})` : undefined,
+      transform: `scale(${0.6 + 0.4 * p}) rotate(${side === "l" ? -4 : 4}deg)`, opacity: Math.min(1, p * 2) } as React.CSSProperties}>
+      <div style={{ height: EYE_H, fontFamily: mono.fontFamily, fontSize: 22, letterSpacing: 3, color: S.accent, whiteSpace: "nowrap", overflow: "hidden" }}>{card.label}</div>
+      <Big text={card.big} color={side === "l" ? INK : S.accent} visible={bigVisible} />
+      <div style={{ height: SUB_H, fontFamily: sans.fontFamily, fontWeight: 700, fontSize: 26, color: GREY, whiteSpace: "nowrap", overflow: "hidden" }}>{card.small}</div>
+    </div>
+  );
+};
+
+// ---------- the light-speed transition: every lit pixel of the start text flies to a lit pixel of the end text
+type P = { sx: number; sy: number; gx: number; gy: number; dep: number; fl: number; r: number };
+const DEPART = T0 + 2.38, CHARGE = DEPART - 0.25;
+const samplePts = (text: string, side: "l" | "r") => {
+  const c = document.createElement("canvas"); c.width = INNER * RES; c.height = BIG_H * RES;
+  const ctx = c.getContext("2d")!; drawBig(ctx, text, "#000");
+  const d = ctx.getImageData(0, 0, c.width, c.height).data;
+  const left = side === "l" ? CARD.edge : W - CARD.edge - CARD.w;
+  const cx = left + CARD.w / 2, cy = CARD.top + CARD_H / 2, a = ((side === "l" ? -4 : 4) * Math.PI) / 180;
+  const pts: { x: number; y: number; xn: number }[] = [];
+  for (let y = 0; y < c.height; y += 4) for (let x = 0; x < c.width; x += 4) {
+    if (d[(y * c.width + x) * 4 + 3] > 110) {
+      const lx = left + 3 + CARD.padX + x / RES - cx, ly = CARD.top + 3 + CARD.padY + EYE_H + y / RES - cy;
+      pts.push({ x: cx + lx * Math.cos(a) - ly * Math.sin(a), y: cy + lx * Math.sin(a) + ly * Math.cos(a), xn: x / c.width });
+    }
+  }
+  return pts.sort((p, q) => p.x - q.x);
+};
+// light speed: almost still, then everything at once, then a hard brake
+const warp = (u: number) => (u <= 0 ? 0 : u >= 1 ? 1 : u < 0.5 ? 0.5 * Math.pow(2, 20 * u - 10) : 1 - 0.5 * Math.pow(2, -20 * u + 10));
+const posAt = (p: P, t: number) => {
+  const u = Math.max(0, Math.min(1, (t - p.dep) / p.fl)), e = warp(u), bulge = Math.sin(Math.PI * e);
+  let x = p.sx + (p.gx - p.sx) * e, y = p.sy + (p.gy - p.sy) * e + (p.r - 0.5) * 110 * bulge;
+  const sh = u <= 0 ? k(t, CHARGE, p.dep, 0, 1, Easing.in(Easing.quad)) : 0;   // the charge before take-off
+  x += (random(`x${p.r}${Math.floor(t * 60)}`) - 0.5) * 2.4 * sh; y += (random(`y${p.r}${Math.floor(t * 60)}`) - 0.5) * 2.4 * sh;
+  return { x, y, u, e };
+};
+const Streaks: React.FC<{ ps: P[]; until: number }> = ({ ps, until }) => {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const { t } = useT();
+  useEffect(() => {
+    const ctx = ref.current!.getContext("2d")!;
+    ctx.setTransform(RES, 0, 0, RES, 0, 0); ctx.clearRect(0, 0, W, H);
+    if (t < CHARGE || t >= until) return;
+    const still = new Path2D(), landed = new Path2D(), glow = new Path2D();
+    for (const p of ps) {
+      const a = posAt(p, t), b = posAt(p, t - 0.045);
+      if (a.u <= 0 || a.e < 0.015) still.rect(a.x - 1.2, a.y - 1.2, 2.4, 2.4);
+      else if (a.u >= 1 || a.e > 0.985) landed.rect(a.x - 1.2, a.y - 1.2, 2.4, 2.4);
+      else { glow.moveTo(b.x, b.y); glow.lineTo(a.x + 0.01, a.y); }
+    }
+    const charge = k(t, CHARGE, DEPART, 0, 1, Easing.in(Easing.quad));
+    ctx.fillStyle = INK; ctx.shadowColor = S.accent; ctx.shadowBlur = 36 * charge; ctx.fill(still); ctx.shadowBlur = 0;
+    ctx.fillStyle = S.accent; ctx.fill(landed);
+    ctx.lineCap = "round"; ctx.globalCompositeOperation = "lighter";
+    ctx.strokeStyle = S.accent + "29"; ctx.lineWidth = 5; ctx.stroke(glow);                    // the coloured glow
+    ctx.strokeStyle = "rgba(255,246,236,0.55)"; ctx.lineWidth = 1.3; ctx.stroke(glow);         // the white-hot core
+    ctx.globalCompositeOperation = "source-over";
+  }, [t, ps, until]);
+  return <canvas ref={ref} width={W * RES} height={H * RES} style={{ position: "absolute", left: 0, top: 0, width: W, height: H }} />;
+};
+
+export const OverTheShoulder: React.FC = () => {
+  const { t } = useT();
+  const transition = S.style === "transition";
+  const [ps, setPs] = useState<P[]>([]);
+  const [handle] = useState(() => delayRender("fonts and streaks"));
+  useEffect(() => {
+    Promise.all([sans.waitUntilDone(), mono.waitUntilDone()]).then(() => document.fonts.load(bigFont(64))).then(() => {
+      if (transition) {
+        const A = samplePts(S.start.big, "l"), G = samplePts(S.end.big, "r"), n = Math.max(A.length, G.length), out: P[] = [];
+        for (let i = 0; i < n && A.length && G.length; i++) {
+          const s = A[Math.floor((i * A.length) / n)], g = G[Math.floor((i * G.length) / n)], r = random(`p${i}`);
+          out.push({ sx: s.x, sy: s.y, gx: g.x, gy: g.y, r, fl: 0.34 * (0.85 + 0.3 * random(`q${i}`)), dep: DEPART + 0.1 * (1 - s.xn) + 0.05 * r });
+        }
+        setPs(out);
+      }
+      continueRender(handle);
+    });
+  }, [handle, transition]);
+  const arrive = useMemo(() => (ps.length ? ps.reduce((m, p) => Math.max(m, p.dep + p.fl), 0) : T0 + 2.9), [ps]);
+  const flash = transition && t >= arrive ? Math.max(0, 1 - (t - arrive) / 0.2) : 0;
+  return (
+    <AbsoluteFill style={{ backgroundColor: "#000" }}>
+      <Footage />
+      <Card side="l" card={S.start} at={T0 + 1.0} out={T0 + 2.35} bigVisible={!transition || t < CHARGE} flash={0} />
+      <Card side="r" card={S.end} at={T0 + (transition ? 2.7 : 2.55)} out={T0 + 3.7} bigVisible={!transition || t >= arrive} flash={flash} />
+      {transition && ps.length > 0 && <Streaks ps={ps} until={arrive} />}
+    </AbsoluteFill>
+  );
+};
+=== END OF FILE ===
+
+HOW IT SHOULD LOOK (CHECK THE RENDER AGAINST THIS)
+
+- My clip plays untouched until startAt. Then the camera pushes in to 1.25x in 0.5 s, fast at first and settling softly, centred on my eyes. At startAt + 0.9 it slides 110 px in 0.42 s so I sit to the right and the start card has room. It never slides past the picture's edge, so no black ever shows, and it never tilts.
+- The start card lands at startAt + 1.0: it springs up from 60 % size with a small overshoot, tilted 4 degrees, 330 px wide, its top 520 px down and 70 px from the left edge. White, rounded corners, a thin 3 px outline in my colour and a soft warm glow. The label is small mono capitals in my colour; the big text is 64 px bold (dark on the start card, my colour on the end card); the small line is grey.
+- At startAt + 2.4 the camera whips across in 0.5 s with a 2 % scale bump that settles in 0.2 s. The start card leaves at startAt + 2.35 and the end card, tilted the other way, lands over my right shoulder at startAt + 2.55 (2.7 with "transition", once the whip has nearly arrived).
+- "transition": 0.25 s before the whip the start card's big text shivers and glows in my colour. It breaks into points of light, right edge first, and each crosses in about a third of a second: almost still, then a streak of white light with a coloured glow, then a hard stop in the end card. The end card's big text appears the moment the last point lands, with a 0.2 s soft white flash on the card.
+- The end card leaves at startAt + 3.7 and the camera eases back to my normal shot in 0.9 s. Nothing ever covers my face, and the audio is my clip's own, untouched.
+text | Built with Remotion (remotion.dev), free and open source.

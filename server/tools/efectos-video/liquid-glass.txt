@@ -1,0 +1,331 @@
+===== 3fdf6123-f96e-80be-a1e4-fa89408ab659
+page | Episode 2: Liquid Glass Prompt
+text | Watch the breakdown here: https://www.instagram.com/p/DepA7qLhllE/
+image | image-1792336101016.png
+text | Effect of the Day, EP. 02. One prompt. Claude Code builds a liquid glass graph on your own clip and hands you back a finished video, ready to drop on your timeline.
+sub_header | What you need
+bulleted_list | Claude Code (the desktop app or the terminal).
+bulleted_list | One vertical clip of you talking (9:16), already colour graded, ideally 5 to 30 seconds around the moment you want the graph.
+sub_header | How to use it
+numbered_list | Copy the prompt below. Hover over the code block and click Copy.
+numbered_list | Paste it into a new Claude Code chat.
+numbered_list | Give it your three settings and your clip. The very top of the prompt (MY GRAPH) holds them. Claude Code shrinks a long paste into one block, so type yours on the line under it, like this: TITLE: REVENUE, END NUMBER: $10K, LINE COLOUR: gold
+bulleted_list | TITLE: the small label on the card, e.g. RETENTION, REVENUE, CLIENTS.
+bulleted_list | END NUMBER: where the counter lands, e.g. 82%, $10K, 2.4M.
+bulleted_list | LINE COLOUR: any colour name or hex code. Green is the default.
+bulleted_list | Your clip: drag the video file into the chat. Skip this and Claude asks you for them. Or edit the MY GRAPH lines in a notes app before you paste.
+numbered_list | Press Enter. Claude asks before it installs anything. Say yes to the free tools it needs (Node.js and Remotion).
+numbered_list | Grab your video. It lands in the EffectOfTheDay folder in your home folder, under renders/liquid-glass-graph. Drop it straight on your timeline.
+text | Want to tweak it? Ask Claude in the same chat: "start the graph at 3 seconds", "make the glass more frosted", "hold it longer". It edits the settings and renders again.
+text | Good to know: everything stays in one folder on your computer (EffectOfTheDay). Nothing needs admin rights, and your original video is never touched.
+sub_header | The prompt
+code | TITLE:        [RETENTION]
+END NUMBER:   [82%]
+LINE COLOUR:  [green]
+===================================================================
+
+Build me a "liquid glass velocity graph" effect on my own video, using MY GRAPH above.
+
+What it is: a frosted liquid glass card rises over my footage. The glass really refracts my video behind it: the footage is frosted inside the card, and at the card's edges it bends outward like a lens, with a slight colour split right at the rim and a bright rim of light around the glass. On the glass, a glowing line draws upward on a velocity ramp (it creeps, rushes through the middle, then lands softly), a counter counts up with it, and the dot at the tip of the line always leads it. When the line lands, the card gives a small punch, holds, then sinks away. I get my whole clip back with the effect on it and my audio untouched, ready to drop on my editing timeline.
+
+APPLY MY GRAPH TO THE SETTINGS
+
+Start from the default settings below and change only these, from MY GRAPH. If I typed my values in my message after this prompt (for example "TITLE: REVENUE, END NUMBER: $10K, LINE COLOUR: gold"), those win over the brackets. If MY GRAPH still shows the examples above and I gave you nothing after the prompt, ask me for my title, end number and line colour in one short question (offer the examples as the defaults) before you build anything.
+- title = my TITLE in capitals.
+- endValue, prefix, suffix and decimals come from my END NUMBER: "82%" = endValue 82, suffix "%". "$10K" = prefix "$", endValue 10, suffix "K". "2.4M" = endValue 2.4, suffix "M", decimals 1. "340" = endValue 340, no suffix.
+- startValue = about a fifth of endValue, rounded the same way (82 starts at 18), so the counter has room to climb.
+- lineColour = my LINE COLOUR as a hex code (green = #22C55E). If I gave a name, pick a clean, saturated version of it and tell me the hex you used.
+- Fill in the three clip values yourself from my video.
+
+DEFAULT SETTINGS
+
+// ===================== YOUR SETTINGS =====================
+// Change anything here, then render again. Colours are hex codes.
+export const LIQUID_GLASS_GRAPH = {
+  // Your clip. Claude fills these in from the video you give it.
+  clipFile: "input/my-clip.mp4",  // the copy inside EffectOfTheDay/kit/public/
+  clipSeconds: 10,                // the clip's length
+  clipFps: 30,                    // the clip's frame rate (the output matches it)
+
+  startAt: 1.0,                // seconds into your clip when the glass card rises in
+
+  title: "RETENTION",          // small label, top left of the card
+  startValue: 18,              // the counter starts here...
+  endValue: 82,                // ...and counts up to here as the line draws
+  prefix: "",                  // e.g. "$" for money
+  suffix: "%",                 // e.g. "%", "K", "" for none
+  decimals: 0,                 // 0 = whole numbers, 1 = 82.5
+  lineColour: "#22C55E",       // the line, its glow and the fill under it
+  nodeColour: "#FFFFFF",       // the dot that leads the line (its ring uses lineColour)
+  textColour: "#F4EFE6",       // the label and the counter
+  shape: [0.18, 0.22, 0.26, 0.34, 0.4, 0.52, 0.64, 0.78, 0.92], // the line's heights left to right, 0 = bottom, 1 = top
+  drawSeconds: 1.16,           // how long the line takes to draw
+  holdSeconds: 1.5,            // how long the finished graph stays before it leaves
+  cardTop: 900,                // distance from the top of the 1080x1920 frame (900 keeps it below a face, above the captions)
+
+  frost: 7,                    // how frosted the glass is (0 = clear, 12 = heavy)
+  bend: 1.0,                   // how strongly the glass bends your footage at its edges (0 = flat, 1.5 = strong)
+};
+// =========================================================
+
+WHAT TO DELIVER
+
+One file in ~/EffectOfTheDay/renders/liquid-glass-graph/: <my clip's name>-liquid-glass.mp4. 1080x1920, at my clip's frame rate, H.264, with my clip's audio. When it is rendered, open the folder and tell me where it is.
+
+TOOLS AND FOLDER
+
+- Built with Remotion, a free, open-source video renderer that runs on my computer (free for individuals and companies of up to 3 people). Remotion downloads its own ffmpeg and a headless browser the first time it renders.
+- Ask me before installing anything.
+- Keep everything in a folder called EffectOfTheDay in my home folder: the Remotion project in EffectOfTheDay/kit, the renders in EffectOfTheDay/renders. If that folder already exists from a previous Effect of the Day, reuse what is there: add this effect next to the others and do not reinstall or remove anything.
+- Node.js 20 or newer is needed. If it is missing, install it without admin rights: download the official Node.js LTS archive for my operating system and processor from nodejs.org and unpack it into EffectOfTheDay/tools/node, then use that node and npm by their full path. No Homebrew, no sudo, nothing that asks for my password.
+- Never change or move my original video. Work on a copy.
+
+THE BUILD
+
+1. If I have not given you a clip, ask me to drag one in. It should be a vertical talking-head video that is already colour graded (not flat Log footage), ideally trimmed to the 5 to 30 seconds around the moment I want the graph.
+2. Create the files below exactly as written (each one sits between its === FILE line and its === END OF FILE line), then run npm install inside EffectOfTheDay/kit.
+3. Copy my clip into EffectOfTheDay/kit/public/input/ and read its length and frame rate:
+   npx remotion ffprobe -v error -show_entries format=duration:stream=codec_type,r_frame_rate,width,height -of json "public/input/<clip>"
+   Put the copy's path (relative to public/), its length in seconds and its frame rate (the video stream's r_frame_rate as a decimal, for example 24000/1001 = 23.976) into the settings. If the clip is not vertical 9:16, tell me it will be cropped to fill a 1080x1920 frame.
+4. Make sure startAt plus about 3.5 seconds fits inside the clip. If it does not, move startAt earlier and tell me.
+5. Render one check frame while the graph is on screen, and look at it before rendering the video:
+   npx remotion still src/index.ts LiquidGlassGraph ../renders/liquid-glass-graph/check.png --frame=<round((startAt + 1.6) x frame rate)>
+   Check: the card sits centred below my face, my footage is frosted inside the card and visibly bent at its edges, the line rises left to right, and the dot sits exactly on its tip. If the clip looks flat and grey (Log footage), tell me before going on.
+6. Render the video:
+   npx remotion render src/index.ts LiquidGlassGraph "../renders/liquid-glass-graph/<clip name>-liquid-glass.mp4" --codec=h264 --crf=16
+
+If the kit already has a Root.tsx with other effects in it, add the LiquidGlassGraph composition to it and keep the others.
+
+=== FILE: EffectOfTheDay/kit/package.json ===
+{
+  "name": "effect-of-the-day-kit",
+  "private": true,
+  "dependencies": {
+    "@remotion/cli": "4.0.535",
+    "@remotion/google-fonts": "4.0.535",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.535"
+  }
+}
+=== END OF FILE ===
+
+=== FILE: EffectOfTheDay/kit/src/index.ts ===
+import { registerRoot } from "remotion";
+import { RemotionRoot } from "./Root";
+registerRoot(RemotionRoot);
+=== END OF FILE ===
+
+=== FILE: EffectOfTheDay/kit/src/Root.tsx ===
+import React from "react";
+import { Composition } from "remotion";
+import { LiquidGlassGraph } from "./effects/LiquidGlassGraph";
+import { LIQUID_GLASS_GRAPH as LG } from "./effects/liquid-glass-graph.settings";
+
+// Every Effect of the Day effect is registered here. Add new ones below; never remove the others.
+export const RemotionRoot: React.FC = () => (
+  <>
+    <Composition id="LiquidGlassGraph" component={LiquidGlassGraph} width={1080} height={1920} fps={LG.clipFps}
+      durationInFrames={Math.max(1, Math.floor(LG.clipSeconds * LG.clipFps))} />
+  </>
+);
+=== END OF FILE ===
+
+=== FILE: EffectOfTheDay/kit/src/effects/liquid-glass-graph.settings.ts ===
+(the DEFAULT SETTINGS above, with MY GRAPH and my clip's values applied)
+=== END OF FILE ===
+
+=== FILE: EffectOfTheDay/kit/src/effects/LiquidGlassGraph.tsx ===
+import React, { useMemo } from "react";
+import { AbsoluteFill, Easing, OffthreadVideo, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { loadFont as loadSans } from "@remotion/google-fonts/PlusJakartaSans";
+import { loadFont as loadMono } from "@remotion/google-fonts/DMMono";
+import { LIQUID_GLASS_GRAPH as S } from "./liquid-glass-graph.settings";
+
+/**
+ * Velocity line graph on a liquid glass card, over your own clip.
+ * The glass refracts the footage behind it: a frosted blur, the edges bend the image outward like a lens, with a slight
+ * colour split at the rim. The refraction profile follows liquid-glass-js by Armagan Amcalar (MIT licence).
+ */
+const { fontFamily: SANS } = loadSans("normal", { weights: ["800"] });
+const { fontFamily: MONO } = loadMono("normal", { weights: ["500"] });
+
+const W = 900;          // card width
+const HC = 610;         // card height
+const R = 34;           // corner radius
+const GRAPH_H = 420;    // graph area height
+const PAD = 40;         // the line runs inside the card's side padding
+const MAP_SCALE = 400;  // a refraction-map value of 1.0 moves a pixel 200 px
+
+// Timing (seconds, counted from startAt).
+const T_RISE = 0.22, T_DRAW_START = 0.18, T_PUNCH = 0.28, T_EXIT = 0.3;
+
+const rgb = (hex: string) => {
+  const h = hex.replace("#", "");
+  const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+};
+const formatValue = (v: number) =>
+  `${S.prefix}${v.toLocaleString("en-US", { minimumFractionDigits: S.decimals, maximumFractionDigits: S.decimals })}`;
+
+// The refraction map for the card, built once. Red = sideways offset, green = vertical offset, 128 = none.
+// Offset = outward direction x (a wide edge band + a sharp rim + a faint lens across the middle), scaled by `bend`.
+const useRefractionMap = () =>
+  useMemo(() => {
+    const c = document.createElement("canvas");
+    c.width = W; c.height = HC;
+    const ctx = c.getContext("2d")!;
+    const img = ctx.createImageData(W, HC);
+    const cx = W / 2, cy = HC / 2;
+    for (let y = 0; y < HC; y++) {
+      for (let x = 0; x < W; x++) {
+        const qx = Math.abs(x + 0.5 - cx) - (cx - R), qy = Math.abs(y + 0.5 - cy) - (cy - R);
+        const outside = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - R;
+        const d = Math.max(-outside, 0);                                   // distance in from the edge, px
+        const nx = (x + 0.5 - cx) / cx, ny = (y + 0.5 - cy) / cy;
+        const len = Math.hypot(nx, ny) || 1;
+        const px = S.bend * 1920 * (0.045 * Math.exp(-0.05 * d) + 0.06 * Math.exp(-0.35 * d) + 0.012 * (1 - Math.exp(-0.1 * d)));
+        const i = (y * W + x) * 4;
+        img.data[i] = Math.round(255 * Math.min(1, Math.max(0, 0.5 + (px * nx) / len / MAP_SCALE)));
+        img.data[i + 1] = Math.round(255 * Math.min(1, Math.max(0, 0.5 + (px * ny) / len / MAP_SCALE)));
+        img.data[i + 2] = 128;
+        img.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return c.toDataURL("image/png");
+  }, []);
+
+const Clip: React.FC<{ muted?: boolean }> = ({ muted }) => (
+  <OffthreadVideo src={staticFile(S.clipFile)} muted={muted}
+    style={{ position: "absolute", left: 0, top: 0, width: 1080, height: 1920, objectFit: "cover" }} />
+);
+
+// The light that sells glass: a bright rim fading round the edge, a soft highlight top left, an inner top highlight.
+const GlassRim: React.FC = () => (
+  <>
+    <div style={{ position: "absolute", inset: 0, borderRadius: R, padding: 2,
+      background: "linear-gradient(140deg, rgba(255,255,255,0.75), rgba(255,255,255,0.10) 32%, rgba(255,255,255,0.04) 62%, rgba(255,255,255,0.38))",
+      WebkitMask: "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)", WebkitMaskComposite: "xor", maskComposite: "exclude" }} />
+    <div style={{ position: "absolute", inset: 0, borderRadius: R,
+      background: "radial-gradient(120% 70% at 12% -10%, rgba(255,255,255,0.20), rgba(255,255,255,0) 50%)",
+      boxShadow: "inset 0 1.5px 1px rgba(255,255,255,0.45), inset 0 -18px 40px rgba(255,255,255,0.05)" }} />
+  </>
+);
+
+export const LiquidGlassGraph: React.FC = () => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const t = frame / fps - S.startAt;     // time since the card started
+  const map = useRefractionMap();
+
+  const drawEnd = T_DRAW_START + S.drawSeconds;
+  const exitStart = drawEnd + S.holdSeconds;
+  const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
+
+  // 1. The card rises in: fast start, long soft landing.
+  const rise = interpolate(t, [0, T_RISE], [0, 1], { ...clamp, easing: Easing.bezier(0.16, 1, 0.3, 1) });
+  // 2. The velocity ramp: the line creeps, rushes through the middle and lands softly.
+  const draw = interpolate(t, [T_DRAW_START, drawEnd], [0, 1], { ...clamp, easing: Easing.bezier(0.7, 0, 0.25, 1) });
+  // 3. A small punch when the line lands, settling exactly back to rest.
+  const punch = interpolate(t, [drawEnd - 0.04, drawEnd + 0.08, drawEnd + T_PUNCH], [0, 1, 0], { ...clamp, easing: Easing.bezier(0.33, 0, 0.2, 1) });
+  // 4. The exit: the card sinks a little and fades, accelerating away.
+  const exit = interpolate(t, [exitStart, exitStart + T_EXIT], [0, 1], { ...clamp, easing: Easing.bezier(0.5, 0, 0.9, 0.4) });
+
+  const visible = t >= 0 && exit < 1;
+  const s = (0.96 + 0.04 * rise) * (1 + 0.035 * punch);
+  const dy = (1 - rise) * 60 + exit * 40;
+  const op = rise * (1 - exit);
+
+  // Where the card is on screen this frame (scaled about its centre), so the glass lines up with it.
+  const cx = 540, cy = S.cardTop + HC / 2 + dy;
+  const rx = cx - (W * s) / 2, ry = cy - (HC * s) / 2, rw = W * s, rh = HC * s;
+
+  // The node always leads: find the head by arc length and cut the line and fill exactly there.
+  const pts = S.shape.map((y, i) => [PAD + (i / (S.shape.length - 1)) * (W - 2 * PAD), (1 - y) * GRAPH_H]);
+  const seg = pts.slice(1).map((p, i) => Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]));
+  const total = seg.reduce((a, b) => a + b, 0);
+  let left = draw * total, k = 0;
+  while (k < seg.length - 1 && left > seg[k]) { left -= seg[k]; k++; }
+  const u = seg[k] ? Math.min(1, left / seg[k]) : 0;
+  const head = [pts[k][0] + (pts[k + 1][0] - pts[k][0]) * u, pts[k][1] + (pts[k + 1][1] - pts[k][1]) * u];
+  const d = [...pts.slice(0, k + 1), head].map((p, i) => `${i ? "L" : "M"}${p[0]},${p[1]}`).join(" ");
+  const value = S.startValue + (S.endValue - S.startValue) * draw;
+  const text = rgb(S.textColour), line = rgb(S.lineColour);
+
+  return (
+    <AbsoluteFill style={{ backgroundColor: "#000" }}>
+      <Clip />
+
+      {visible && (
+        <>
+          <svg width={0} height={0} style={{ position: "absolute" }}>
+            <filter id="liquid-glass" filterUnits="userSpaceOnUse" x={0} y={0} width={1080} height={1920} colorInterpolationFilters="sRGB">
+              <feImage href={map} x={rx} y={ry} width={rw} height={rh} preserveAspectRatio="none" result="map" />
+              <feGaussianBlur in="SourceGraphic" stdDeviation={S.frost} result="frost" />
+              {/* three passes, each bent a little less, give the slight colour split at the rim */}
+              <feDisplacementMap in="frost" in2="map" scale={MAP_SCALE * s} xChannelSelector="R" yChannelSelector="G" result="dR" />
+              <feDisplacementMap in="frost" in2="map" scale={MAP_SCALE * s * 0.96} xChannelSelector="R" yChannelSelector="G" result="dG" />
+              <feDisplacementMap in="frost" in2="map" scale={MAP_SCALE * s * 0.92} xChannelSelector="R" yChannelSelector="G" result="dB" />
+              <feColorMatrix in="dR" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r" />
+              <feColorMatrix in="dG" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="g" />
+              <feColorMatrix in="dB" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="b" />
+              <feComposite in="r" in2="g" operator="arithmetic" k2={1} k3={1} result="rg" />
+              <feComposite in="rg" in2="b" operator="arithmetic" k2={1} k3={1} />
+            </filter>
+          </svg>
+
+          {/* your clip again, refracted, cut to the card's shape */}
+          <div style={{ position: "absolute", inset: 0, opacity: op,
+            clipPath: `inset(${ry}px ${1080 - rx - rw}px ${1920 - ry - rh}px ${rx}px round ${R * s}px)` }}>
+            <div style={{ position: "absolute", inset: 0, filter: "url(#liquid-glass)" }}><Clip muted /></div>
+          </div>
+
+          {/* the glass surface, the light on it and the graph */}
+          <div style={{ position: "absolute", left: (1080 - W) / 2, top: S.cardTop, width: W, height: HC, borderRadius: R,
+            background: "linear-gradient(180deg, rgba(255,255,255,0.10), rgba(180,180,180,0.03) 60%, rgba(0,0,0,0.12))",
+            boxShadow: "0 30px 70px rgba(0,0,0,0.45)",
+            opacity: op, transform: `translateY(${dy}px) scale(${s})`, transformOrigin: "50% 50%" }}>
+            <GlassRim />
+            <div style={{ position: "relative", padding: "34px 0 0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "0 40px 18px" }}>
+                <span style={{ fontFamily: MONO, fontSize: 32, letterSpacing: 4, color: `rgba(${text},0.8)`, textShadow: "0 1px 8px rgba(0,0,0,0.45)" }}>{S.title}</span>
+                <span style={{ fontFamily: SANS, fontWeight: 800, fontSize: 84, color: S.textColour, letterSpacing: -2, textShadow: "0 2px 18px rgba(0,0,0,0.45)" }}>
+                  {formatValue(value)}<span style={{ fontSize: 46 }}>{S.suffix}</span>
+                </span>
+              </div>
+              <svg width={W} height={GRAPH_H} style={{ display: "block", overflow: "visible" }}>
+                <defs>
+                  <linearGradient id="lg-fill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0" stopColor={S.lineColour} stopOpacity={0.45} />
+                    <stop offset="1" stopColor={S.lineColour} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                {[0.25, 0.5, 0.75].map((g) => (
+                  <line key={g} x1={PAD} x2={W - PAD} y1={g * GRAPH_H} y2={g * GRAPH_H} stroke={`rgba(${text},0.1)`} strokeWidth={2} />
+                ))}
+                <path d={`${d} L${head[0]},${GRAPH_H} L${PAD},${GRAPH_H} Z`} fill="url(#lg-fill)" opacity={Math.min(1, draw * 4)} />
+                <path d={d} fill="none" stroke={S.lineColour} strokeWidth={9} strokeLinecap="round" strokeLinejoin="round"
+                  style={{ filter: `drop-shadow(0 0 10px rgba(${line},0.8))` }} />
+                <circle cx={head[0]} cy={head[1]} r={13} fill={S.nodeColour} stroke={S.lineColour} strokeWidth={6} opacity={draw > 0.01 ? 1 : 0} />
+              </svg>
+            </div>
+          </div>
+        </>
+      )}
+    </AbsoluteFill>
+  );
+};
+=== END OF FILE ===
+
+HOW IT SHOULD LOOK (CHECK THE RENDER AGAINST THIS)
+
+- My clip plays untouched until startAt. Then the glass card rises 60 px and scales from 96% to 100% in 0.22 s, fast at first and landing softly.
+- Inside the card my footage is frosted; at the card's edges it bends outward like looking through the rim of a glass lens, with a faint red and blue fringe right at the edge. A bright rim of light runs round the card, strongest top left, with a soft highlight in that corner.
+- The line starts drawing 0.18 s after the card appears and takes drawSeconds; its speed follows a strong ease-in-out (cubic-bezier 0.7, 0, 0.25, 1).
+- The dot leads: the line and the fill under it are cut exactly at the dot, measured along the line, so the line never pokes out in front of it.
+- The counter counts from startValue to endValue in step with the line.
+- On landing the card punches to 103.5% and settles back to exactly 100%, and the glass bends with it.
+- It holds for holdSeconds, then sinks 40 px and fades out in 0.3 s. After that my clip plays on untouched to its end.
+- Credit: the refraction is adapted from liquid-glass-js by Armagan Amcalar (MIT licence).
+text | The glass refraction is adapted from liquid-glass-js by Armagan Amcalar (MIT licence).
