@@ -1,7 +1,9 @@
 # Roadmap: de construir a publicar
 
 Escrito el 8 nov 2026. La app ya hace historias, explicativos, imágenes fijas, videos de letra y Publicidad (50-5-3).
-El cuello de botella ya no es la app: es publicar. Este plan es de producción, no de funciones.
+Ya hay una primera pieza terminada: el Reel de la almohada de Máshogar (`material/reel-almohada/`, con sus datos
+verificados en `facts.md`). ¿Publicado? ________. El cuello de botella ya no es la app: es publicar seguido. Este plan
+es de producción, no de funciones.
 
 **Cómo trabajamos:** vos ponés el criterio (guion, texto, avatar, gusto final) y la IA pone la ejecución (imagen y
 voz). El aviso "hecho con IA" queda prendido siempre; las plataformas piden etiquetar el contenido realista hecho con IA.
@@ -9,6 +11,8 @@ voz). El aviso "hecho con IA" queda prendido siempre; las plataformas piden etiq
 ## Semanas 1–2 · Congelar y producir
 - **Nada de funciones nuevas.** Lo que moleste mientras producís va a `IDEAS.md` y seguís.
 - **Una sola serie: Máshogar.** IMAN espera sus capturas y su "Lo que existe hoy" al día.
+- **El Reel de la almohada es el molde:** un producto por pieza, con sus datos sacados de la web y del proveedor,
+  y lo que no figura marcado "no informado". Las próximas piezas repiten ese proceso con otros productos.
 - **Un ritmo fijo que puedas sostener**, por ejemplo una pieza corta por día. El número lo elegís vos; lo que importa
   es no cortar.
 - **Voz:** la de la app (OpenAI) o archivos hechos afuera, con "Importar narración" (historias) o subidos en
