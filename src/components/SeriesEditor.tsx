@@ -16,6 +16,7 @@ import {
   DEFAULT_BRAND,
 } from "../../shared/series.ts";
 import { afterFontRemoved } from "../../shared/brandFonts.ts";
+import { libraryWithout } from "../../shared/hookElements.ts";
 import { inDays, momentLine, upcomingMoments } from "../../shared/calendar.ts";
 import { addWebCast, webCastMember } from "../../shared/webCast.ts";
 import { SheetBuilder } from "./SheetBuilder.tsx";
@@ -82,7 +83,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
 
   const music = fields.type === "music";
   const set = <K extends keyof SeriesFields>(key: K, value: SeriesFields[K]) => setFields({ ...fields, [key]: value });
-  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "moments" | "type" | "textStyle" | "lyricStyle" | "look" | "brand" | "cast" | "references" | "mascot">, rows = 4) => (
+  const text = (key: Exclude<keyof SeriesFields, "worksToday" | "practices" | "loop" | "moments" | "type" | "textStyle" | "lyricStyle" | "look" | "brand" | "cast" | "references" | "mascot" | "hookLibrary" | "hookPrevious">, rows = 4) => (
     <textarea className={inputClass} rows={rows} value={fields[key]} onChange={(e) => set(key, e.target.value)} />
   );
 
@@ -584,6 +585,24 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
           )}
         </Field>
       )}
+
+      <Field label="Elementos de la serie" group hint="Cosas que ya frenaron el scroll. El escritor no las repite dos veces seguidas.">
+        {(fields.hookLibrary ?? []).length === 0 ? (
+          <p className="text-xs text-muted">Todavía no hay ninguno. Se suman desde el gancho, con «Guardar en la biblioteca».</p>
+        ) : (
+          <ul className="space-y-1">
+            {(fields.hookLibrary ?? []).map((el) => (
+              <li key={el.id} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-semibold">{el.label}</span>
+                <span className="text-xs text-muted">{el.what}</span>
+                <Button variant="ghost" className="px-2 py-0.5 text-xs" onClick={() => set("hookLibrary", libraryWithout(fields.hookLibrary ?? [], el.id))}>
+                  Borrar
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Field>
 
       <Field label="Reglas de la serie (opcional)" hint="Lo que nunca se dice o se muestra, el tono, los límites.">
         {text("rules")}

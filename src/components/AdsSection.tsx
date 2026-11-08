@@ -20,9 +20,10 @@ type Props = {
   setShowModels: (show: boolean) => void;
   // "Hacelo como explicativo": back to Playbook with a new explainer prefilled with the piece's text.
   onToExplainer: (seed: AdSeed) => void;
+  onSeries?: (series: SeriesInfo[]) => void;
 };
 
-export function AdsSection({ brief, setBrief, status, currentSeries, setSection, setStep, setShowModels, onToExplainer }: Props) {
+export function AdsSection({ brief, setBrief, status, currentSeries, setSection, setStep, setShowModels, onToExplainer, onSeries }: Props) {
   return (
     <div className="mt-6 space-y-4">
       <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -66,6 +67,7 @@ export function AdsSection({ brief, setBrief, status, currentSeries, setSection,
             setStep("brief");
           }}
           onToExplainer={onToExplainer}
+          onSeries={onSeries}
         />
         </Lazy>
       ) : (

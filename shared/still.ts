@@ -7,6 +7,7 @@
 // the strict format below (parseStillPaste). With a key, the same prompt goes to the writer and its reply is read by the
 // same parser. Offers, press and testimonials only when real: otherwise [VERIFY] and the export is blocked.
 import { borrowedNames } from "./checks.ts";
+import { hookElementRules, normalizeHookElements, stillSlotText, type HookElement } from "./hookElements.ts";
 import { embudoMarkdown, funnelBlock, funnelProblems, isFloor } from "./funnel.ts";
 import { PLAIN_PHOTO, lookPhrase } from "./prompt.ts";
 import { oneLine, type Reference } from "./reference.ts";
@@ -111,6 +112,8 @@ export type StillConcept = {
   // Claims the writer could not check ([VERIFY]): shown, and while the words carry [VERIFY] the export is blocked.
   verify: string[];
   caption: string;
+  // Hook elements for this picture. Missing: the prompt is exactly as before.
+  hookElements?: HookElement[];
 };
 
 const MAX_CONCEPTS = 24;
@@ -126,6 +129,7 @@ export function normalizeConcept(raw: Partial<Record<keyof StillConcept | "headl
   const verify = Array.isArray(raw.verify) ? raw.verify.map((v) => s(v)).filter(Boolean).slice(0, 6) : [];
   if (PROOF_FAMILIES.includes(family) && !proof && !verify.some((v) => /prueba|real/i.test(v)))
     verify.push(`[VERIFY] ${FAMILY_LABEL[family]}: falta la prueba real (${FAMILY_HOW[family]}).`);
+  const hookElements = normalizeHookElements(raw.hookElements);
   return {
     id,
     family,
@@ -148,6 +152,7 @@ export function normalizeConcept(raw: Partial<Record<keyof StillConcept | "headl
     proofOk: raw.proofOk === true && Boolean(proof),
     verify,
     caption: s(raw.caption, 600),
+    ...(hookElements.length ? { hookElements } : {}),
   };
 }
 
@@ -179,13 +184,13 @@ export function stillPromptSlots(c: StillConcept, o: { look?: SeriesLook; brand:
   const look = lookPhrase(o.look);
   const placement = o.placement ?? c.copy.placement;
   return [
-    { n: 1, label: "Sujeto y acción (un solo momento congelado)", text: sentence(c.picture), inPrompt: true },
+    { n: 1, label: "Sujeto y acción (un solo momento congelado)", text: stillSlotText(sentence(c.picture), c.hookElements, 1), inPrompt: true },
     { n: 2, label: "Estilo", text: look ? `Look: ${sentence(look)}` : PLAIN_PHOTO, inPrompt: true },
     { n: 3, label: "Luz y clima", text: sentence(c.light || o.look?.light || "soft daylight from a window, the room's own light"), inPrompt: true },
     { n: 4, label: "Cámara y ángulo", text: sentence(c.camera || o.look?.camera || "eye-level phone photo, 26mm, the whole scene in focus"), inPrompt: true },
     { n: 5, label: "Composición y lugar para el texto", text: `Composition: ${CLEAR_SPACE[placement]}`, inPrompt: true },
     { n: 6, label: "Colores de la marca", text: `One small real detail in a colour close to ${o.brand.accent} (a cushion, a mug, a towel); the rest in the room's own colours`, inPrompt: true },
-    { n: 7, label: "Cómo aparece el producto", text: sentence(c.product || "the product in use, real size, nothing staged"), inPrompt: true },
+    { n: 7, label: "Cómo aparece el producto", text: stillSlotText(sentence(c.product || "the product in use, real size, nothing staged"), c.hookElements, 7), inPrompt: true },
     { n: 8, label: "Texto en la imagen", text: "Bare surfaces, blank labels and packaging, no signage, no lettering, no logos anywhere in the picture", inPrompt: true },
     { n: 9, label: "Legibilidad", text: "No aplica: la imagen va sin texto. La app pone las palabras encima con las letras de la marca, sin errores.", inPrompt: false },
     { n: 10, label: "Formato", text: "Vertical 9:16 (choose 9:16 in Grok's controls)", inPrompt: true },
@@ -228,6 +233,7 @@ export const CONCEPT_KEYS: { key: string; field: string; required: boolean; what
   { key: "prueba", field: "proof", required: false, what: "solo oferta, prensa o testimonio: la oferta real con sus condiciones, el link de la nota o la cita textual del cliente; si no hay, vacío" },
   { key: "verificar", field: "verify", required: false, what: "lo que no se pudo confirmar, separado con |" },
   { key: "compartir", field: "caption", required: false, what: "el texto para compartir: 1 a 3 oraciones" },
+  { key: "elementos", field: "hookElements", required: false, what: "2 o 3 elementos del gancho en JSON: [{\"what\",\"label\",\"why\",\"tie\",\"placement\"}]" },
 ];
 export const COPY_KEYS: { key: string; field: keyof OverlayCopy; required: boolean; what: string }[] = [
   { key: "titulo", field: "headline", required: true, what: "3 a 8 palabras" },
@@ -271,7 +277,7 @@ const RULES = (lang: "es" | "en") => `Reglas (no negociables):
 - «compartir»: 1 a 3 oraciones para publicar tal cual, específicas de esta pieza, en su tono; nada de «nos emociona compartir» ni frases genéricas.`;
 
 // "Copiar el prompt para Opus": the concept menu.
-export function stillMenuPrompt(o: { brand: StillBrand; brief: StillBriefBits; references: Reference[]; count?: number }): string {
+export function stillMenuPrompt(o: { brand: StillBrand; brief: StillBriefBits; references: Reference[]; count?: number; library?: readonly HookElement[]; previous?: readonly string[] }): string {
   const count = Math.min(12, Math.max(3, o.count ?? 8));
   const b = o.brand;
   return `Hola Opus. Armo anuncios de imagen fija (una sola imagen, sin video) para ${b.name} en mi app. Necesito un menú de ${count} conceptos para elegir. Respondé SOLO con los bloques en el formato de abajo, sin nada antes ni después.
@@ -303,7 +309,9 @@ El foco: mostrar cómo el producto calma un dolor real de la casa y hace que se 
 ${RULES(o.brief.language)}
 
 Formato de la respuesta (estricto). ${STILL_FORMAT_HELP}
-${conceptFormatDoc()}${isFloor(o.brief.funnel) ? `\n\n${funnelBlock(o.brief.funnel)}` : ""}`;
+${conceptFormatDoc()}
+
+${hookElementRules(o.library ?? [], o.previous ?? [])}${isFloor(o.brief.funnel) ? `\n\n${funnelBlock(o.brief.funnel)}` : ""}`;
 }
 
 // "Copiar el prompt para Opus": more words for the picked concept (QUANTITY: one picture, many texts).

@@ -33,7 +33,7 @@ export function withSlotLine(prompt: string, line: string): string {
 }
 
 export type SlotParse =
-  | { ok: true; pieceId: string; image: boolean; clip: number | null }
+  | { ok: true; pieceId: string; image: boolean; clip: number | null; element?: "e1" | "e2" | "e3" }
   | { ok: false; reason: "none" | "ambiguous" | "clips" };
 
 // The lookbehind includes "_" so DSC_M100 and grok_8a1c3e are not piece ids. A digit before the letter
@@ -76,11 +76,16 @@ export function parseSlotName(name: string): SlotParse {
   if (ids.length > 1) return { ok: false, reason: "ambiguous" };
   const pieceId = ids[0].id;
   const rest = base.slice(ids[0].end);
-  const marks = [...rest.matchAll(MARKER_RE)];
+  // H12e2 and H12e2-img: an element-set clip, only on a hook. Absent on every old name.
+  const elementHit = /^e([1-3])(?![a-z0-9])/i.exec(rest);
+  const element = elementHit ? (`e${elementHit[1]}` as "e1" | "e2" | "e3") : undefined;
+  const after = elementHit ? rest.slice(elementHit[0].length) : rest;
+  const marks = [...after.matchAll(MARKER_RE)];
   if (marks.length > 1) return { ok: false, reason: "clips" };
-  if (marks.length === 0) return { ok: true, pieceId, image: false, clip: null };
-  if (marks[0][2]) return { ok: true, pieceId, image: true, clip: null };
-  return { ok: true, pieceId, image: false, clip: Number(marks[0][1]) };
+  const tagged = element ? { element } : {};
+  if (marks.length === 0) return { ok: true, pieceId, image: false, clip: null, ...tagged };
+  if (marks[0][2]) return { ok: true, pieceId, image: true, clip: null, ...tagged };
+  return { ok: true, pieceId, image: false, clip: Number(marks[0][1]), ...tagged };
 }
 
 // What the preview table says. The five named by the upload, plus the two cases a name can leave open.
@@ -116,13 +121,14 @@ export type BulkPiece = {
 export type BulkFile = { name: string; size: number; kind: "video" | "image" | null };
 
 // A slot the person picked because the name did not. `index` null is the single clip (the route without ?index).
-export type ForcedSlot = { pieceId: string; image: boolean; index: number | null };
+export type ForcedSlot = { pieceId: string; image: boolean; index: number | null; element?: "e1" | "e2" | "e3" };
 
 export type BulkMatch = {
   status: BulkStatus;
   pieceId?: string;
   image?: boolean;
   index?: number | null;
+  element?: "e1" | "e2" | "e3";
   slot?: string;
   pick: boolean;
 };
@@ -141,7 +147,7 @@ export function markRepeated(matches: BulkMatch[]): BulkMatch[] {
   const seen = new Set<string>();
   return matches.map((m) => {
     if (!bulkWillUpload(m.status) || !m.pieceId || m.image === undefined) return m;
-    const key = `${m.pieceId}|${m.image ? "i" : "c"}|${m.index ?? ""}`;
+    const key = `${m.pieceId}|${m.element ?? ""}|${m.image ? "i" : "c"}|${m.index ?? ""}`;
     if (seen.has(key)) return { ...m, status: "repetido", pick: true };
     seen.add(key);
     return m;
@@ -189,19 +195,20 @@ function typeStatus(file: BulkFile, image: boolean): BulkStatus | null {
   return null;
 }
 
-function matched(piece: BulkPiece, image: boolean, index: number | null): BulkMatch {
+function matched(piece: BulkPiece, image: boolean, index: number | null, element?: "e1" | "e2" | "e3"): BulkMatch {
   const count = clipCount(piece);
   return {
     status: hasFile(piece, image, index) ? "reemplaza el actual" : "nuevo",
     pieceId: piece.id,
     image,
     index,
+    ...(element ? { element } : {}),
     slot: slotOf(piece.id, image, index, count),
     pick: false,
   };
 }
 
-function checkSlot(piece: BulkPiece, file: BulkFile, image: boolean, index: number | null, scope: PieceKind | "all"): BulkMatch {
+function checkSlot(piece: BulkPiece, file: BulkFile, image: boolean, index: number | null, scope: PieceKind | "all", element?: "e1" | "e2" | "e3"): BulkMatch {
   if (scope !== "all" && piece.kind !== scope) {
     return { status: "esa pieza es de otra pestaña", pieceId: piece.id, pick: true };
   }
@@ -215,8 +222,8 @@ function checkSlot(piece: BulkPiece, file: BulkFile, image: boolean, index: numb
     if (count <= 1) at = null;
   }
   const wrong = typeStatus(file, image);
-  if (wrong) return { status: wrong, pieceId: piece.id, image, index: at, slot: slotOf(piece.id, image, at, count), pick: true };
-  return matched(piece, image, at);
+  if (wrong) return { status: wrong, pieceId: piece.id, image, index: at, ...(element ? { element } : {}), slot: slotOf(piece.id, image, at, count), pick: true };
+  return matched(piece, image, at, element);
 }
 
 // The preview row. `forced` is the dropdown: the name is ignored and the type is still checked.
@@ -237,7 +244,7 @@ export function matchBulkFile(file: BulkFile, pieces: BulkPiece[], scope: PieceK
   const piece = pieces.find((p) => p.id === parsed.pieceId);
   if (!piece) return { status: "no encontré la pieza", pick: true };
   const index = parsed.image || parsed.clip === null ? null : parsed.clip - 1;
-  return checkSlot(piece, file, parsed.image, index, scope);
+  return checkSlot(piece, file, parsed.image, index, scope, parsed.element);
 }
 
 // Major brands that are a video. M4A, M4B, HEIC and AVIF are the same ftyp box and are not.

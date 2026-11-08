@@ -10,6 +10,7 @@ import { extraRefName, memberRefCount, refFileName, seriesRefNames } from "../sh
 import { FONT_TYPES, afterFontRemoved, cleanFamily, fontFileName, fontTypeOf, fontUploadProblems, guessFontFace, keepBrandFonts, BrandFontSchema, FONT_FILE, type BrandFont, type FontRole } from "../shared/brandFonts.ts";
 import { MASCOT_FILE, MascotMetaSchema, mascotSig, validateMascotSource, type MascotMeta } from "../shared/mascot.ts";
 import { SCREEN_MAX_BYTES, reorderSubset, screenMember, screenTypeOf, type ScreenDevice } from "../shared/screenBatch.ts";
+import { libraryAdd, libraryWithout, normalizeHookElements, previousFrom, type HookElement } from "../shared/hookElements.ts";
 import {
   DEFAULT_BRAND,
   CAST_MAX,
@@ -72,6 +73,8 @@ function toSeries(id: string, text: string): Series {
     explainerCharacter: f.explainerCharacter,
     correspondent: f.correspondent,
     mascot: f.mascot,
+    hookLibrary: f.hookLibrary,
+    hookPrevious: f.hookPrevious,
     text,
   };
 }
@@ -157,6 +160,26 @@ export function saveSeriesFromApp(id: string, fields: SeriesFields) {
   // "Fuentes propias de la marca": the files are the server's too; the form may rename them or change their role.
   const brand = { ...fields.brand, fonts: keepBrandFonts(getSeriesFields(id).brand.fonts, fields.brand.fonts) };
   saveSeries(id, { ...fields, brand, mascot, explainerCharacter: host, correspondent, cast: fields.cast.map((m) => ({ ...withoutVideo(m), puppet: keepPuppet(old.find((o) => o.id === m.id), m), rig: keepRig(old.find((o) => o.id === m.id), m), refs: keepRefs(old.find((o) => o.id === m.id)), ...keepVideo(old.find((o) => o.id === m.id), m) })) });
+}
+
+// "Elementos de la serie": one library line in the bible. Adding one also records it as the previous piece's
+// element, unless the caller sends its own previous list (the story or the board being approved).
+export function saveHookLibrary(id: string, change: { add?: HookElement; remove?: string; previous?: string[] }) {
+  const fields = getSeriesFields(id);
+  let library = [...(fields.hookLibrary ?? [])];
+  if (change.remove) library = libraryWithout(library, change.remove);
+  if (change.add) {
+    const [added] = normalizeHookElements([change.add]);
+    if (!added) throw new SeriesError("Ese elemento no tiene qué se ve ni un nombre.");
+    library = libraryAdd(library, added);
+  }
+  const previous = change.previous
+    ? change.previous.map((p) => p.trim()).filter(Boolean).slice(0, 3)
+    : change.add
+      ? previousFrom([change.add])
+      : fields.hookPrevious;
+  saveSeries(id, { ...fields, hookLibrary: library, hookPrevious: previous });
+  return { hookLibrary: library, hookPrevious: previous };
 }
 
 // Adds a cast member to the series, or replaces the one with the same id (keeping its image if none is given).

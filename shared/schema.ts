@@ -8,6 +8,7 @@ import type { KeepOut } from "./stillLayout.ts";
 import type { MascotMeta } from "./mascot.ts";
 import { isFloor, levelsOf as funnelLevels } from "./funnel.ts";
 import { MOVES_FOR_WRITER, pickMove, pickMoves, type Move } from "./moves.ts";
+import { HookElementWireSchema, applyElementsToBoard, normalizeHookElements, type HookElement } from "./hookElements.ts";
 
 export const BEATS = ["negative", "touching", "good"] as const;
 export type Beat = (typeof BEATS)[number];
@@ -66,6 +67,11 @@ export const TopicIdeaSchema = z.object({
   good: z.string().describe("How the Good fixes it on screen (only real features)."),
   peg: z.string().describe("The concrete opening artifact or bridge: a date, a number, a time, a live report."),
   why: z.string().describe("One sentence on why this lands with the audience now."),
+  hookElements: z
+    .array(HookElementWireSchema)
+    .max(3)
+    .optional()
+    .describe("Two or three hook elements for this topic's first 1–2 seconds. Concrete, filmable, tied to the pain. Empty if none."),
 });
 export type TopicIdea = z.infer<typeof TopicIdeaSchema>;
 
@@ -195,10 +201,16 @@ export const StoryWireSchema = z.object({
     )
     .describe("Every way of working the story shows (how people order, count, check, pay, close…), each checked against how people work today."),
   verify: z.array(z.string()).describe("Every claim marked [VERIFY]. Empty if none."),
+  hookElements: z
+    .array(HookElementWireSchema)
+    .max(3)
+    .optional()
+    .describe("Two or three hook elements for the first 1–2 seconds of this piece, each tied to the pain. Empty if none."),
 });
-export type Story = Omit<z.infer<typeof StoryWireSchema>, "characters" | "topics"> & {
+export type Story = Omit<z.infer<typeof StoryWireSchema>, "characters" | "topics" | "hookElements"> & {
   characters: Character[];
   topics: Topic[];
+  hookElements?: HookElement[];
 };
 
 // ── Five hook variants for a story (PLAYBOOK §3: 5 hook variants per script, each naming its move) ──────────
@@ -218,11 +230,16 @@ export const HookVariantsWireSchema = z.object({
             "The viewer's awareness it speaks to, 1 to 5: 1 does not know they have the problem; 2 knows the problem, not the way out; 3 knows ways out exist, not this brand's; 4 knows this brand and doubts; 5 is ready and needs a push.",
           ),
         why: z.string().describe("One line in Spanish: why it stops the scroll."),
+        hookElements: z
+          .array(HookElementWireSchema)
+          .max(3)
+          .optional()
+          .describe("Two or three hook elements for this variant. Empty if none."),
       }),
     )
     .describe("Exactly five variants, each on a different move."),
 });
-export type HookVariant = { title: string; move: Move; level: 1 | 2 | 3 | 4 | 5; why: string };
+export type HookVariant = { title: string; move: Move; level: 1 | 2 | 3 | 4 | 5; why: string; hookElements?: HookElement[] };
 
 export function normalizeHookVariants(wire: z.infer<typeof HookVariantsWireSchema>, floor?: string): HookVariant[] {
   const allowed = isFloor(floor) ? funnelLevels(floor) : null;
@@ -236,7 +253,16 @@ export function normalizeHookVariants(wire: z.infer<typeof HookVariantsWireSchem
   return wire.variants
     .filter((v) => v.title.trim())
     .slice(0, 5)
-    .map((v) => ({ title: v.title.trim().slice(0, 200), move: pickMove(v.move) ?? "curiosityGap", level: level(v.level), why: v.why.trim().slice(0, 300) }));
+    .map((v) => {
+      const hookElements = normalizeHookElements(v.hookElements);
+      return {
+        title: v.title.trim().slice(0, 200),
+        move: pickMove(v.move) ?? "curiosityGap",
+        level: level(v.level),
+        why: v.why.trim().slice(0, 300),
+        ...(hookElements.length ? { hookElements } : {}),
+      };
+    });
 }
 
 // ── Review of an uploaded image or clip frame ───────────────────────────────────
@@ -399,8 +425,13 @@ export const BoardWireSchema = z.object({
     .describe(
       "A strict critic's pass over the finished board: a shot that does not follow the one before (continuity); the brand shown doing something not in its list of what exists today without a concept or simulation label (reality); an image prompt with more than one moment (image); an open loop never paid off (loop); the first 2 seconds do not show or name the pain (hook); the Good never shows the product in use, a real screen or the product doing its job (product). Empty only if none.",
     ),
+  hookElements: z
+    .array(HookElementWireSchema)
+    .max(3)
+    .optional()
+    .describe("The hook elements of shot 1. The app places them. Empty if the story has none."),
 });
-export type Board = { style: string; setups: Setup[]; shots: Shot[]; issues: BoardIssue[] };
+export type Board = { style: string; setups: Setup[]; shots: Shot[]; issues: BoardIssue[]; hookElements?: HookElement[] };
 
 // ── Normalizers: the SDK sends enum choices only as hints, so Claude returns plain strings ──
 function pick<T extends string>(value: string, options: readonly T[], fallback: T): T {
@@ -428,15 +459,18 @@ export function migrateStory(story: Story): Story {
 }
 
 export function normalizeStory(wire: z.infer<typeof StoryWireSchema>): Story {
-  return {
-    ...wire,
-    characters: wire.characters.map((c) => ({ ...c, role: pick(c.role, ROLES, "human") })),
-    topics: wire.topics.map((t) => ({
+  const { hookElements: raw, ...rest } = wire;
+  const hookElements = normalizeHookElements(raw);
+  const story: Story = {
+    ...rest,
+    characters: rest.characters.map((c) => ({ ...c, role: pick(c.role, ROLES, "human") })),
+    topics: rest.topics.map((t) => ({
       ...t,
       moves: pickMoves(t.moves),
       lines: t.lines.map((l) => ({ ...l, beat: pick(l.beat, BEATS, "negative") })),
     })),
   };
+  return hookElements.length ? { ...story, hookElements } : story;
 }
 
 // The shortest Grok clip length that holds the shot.
@@ -473,7 +507,12 @@ export function normalizeShot(wire: z.infer<typeof ShotWireSchema>): Shot {
 }
 
 export function normalizeBoard(wire: z.infer<typeof BoardWireSchema>): Board {
-  return { ...wire, shots: wire.shots.map(normalizeShot) };
+  const { hookElements: raw, ...rest } = wire;
+  const hookElements = normalizeHookElements(raw);
+  const base: Board = { ...rest, shots: rest.shots.map(normalizeShot) };
+  if (!hookElements.length) return base;
+  const applied = applyElementsToBoard(base, hookElements);
+  return { ...applied.board, hookElements };
 }
 
 // Boards saved before a field existed get its empty value, so old projects still open.
@@ -533,6 +572,10 @@ export type SeriesInfo = {
   correspondent?: string;
   // "Mascota en código": its name and description (the code is fetched on its own); null or missing: none.
   mascot?: MascotMeta | null;
+  // "Elementos de la serie": hook elements saved from pieces. Missing: none.
+  hookLibrary?: HookElement[];
+  // The previous piece's elements, so the next one does not repeat them. Missing: none.
+  hookPrevious?: string[];
   // From the series' offer, and only when they are non-empty: what "Abajo" may treat as a real offer.
   proofs?: string[];
   landing?: string;

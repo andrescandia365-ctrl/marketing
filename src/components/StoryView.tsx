@@ -6,6 +6,8 @@ import { LENGTHS, ROLE_LABEL, formatTime, spokenSeconds } from "../../shared/tem
 import { ChecksPanel, LoopsMap } from "./Checks.tsx";
 import { BeatChip, Button, PieceTitle, ROLE_TEXT, Spinner, inputClass } from "./ui.tsx";
 import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
+import { HookElementsPanel } from "./HookElementsPanel.tsx";
+import type { HookElement } from "../../shared/hookElements.ts";
 
 type Props = {
   story: Story;
@@ -25,10 +27,16 @@ type Props = {
   // Without a key: each writer button by copy and paste with claude.ai (the buttons show the sample).
   handoffs?: { revise: (note: string) => Handoff; fix: Handoff; board: Handoff } | null;
   funnel?: string | null;
+  seriesId: string;
+  library?: HookElement[];
+  previous?: string[];
+  noKey?: boolean;
+  onElements: (next: HookElement[]) => void;
+  onLibrary?: (element: HookElement) => void | Promise<void | HookElement[]>;
 };
 
 // Step 2: the story as a Good-vs-Bad script. Notes go back to Claude for another round until you approve it.
-export function StoryView({ story, round, length, busy, problems, dismissed, onRevise, onFix, onDismiss, onApprove, usedRunners = [], seed, handoffs, funnel }: Props) {
+export function StoryView({ story, round, length, busy, problems, dismissed, onRevise, onFix, onDismiss, onApprove, usedRunners = [], seed, handoffs, funnel, seriesId, library = [], previous = [], noKey = false, onElements, onLibrary }: Props) {
   const [note, setNote] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
   const cast = Object.fromEntries(story.characters.map((c) => [c.id, c]));
@@ -79,6 +87,17 @@ export function StoryView({ story, round, length, busy, problems, dismissed, onR
       </div>
 
       <MoveCoverage topics={story.topics} />
+
+      <HookElementsPanel
+        elements={story.hookElements ?? []}
+        onChange={onElements}
+        seriesId={seriesId}
+        pain={story.problem}
+        library={library}
+        previous={previous}
+        noKey={noKey}
+        onLibrary={onLibrary}
+      />
 
       {story.topics.map((topic, i) => (
         <section key={topic.id} className="rounded-xl border border-line bg-white p-4">
