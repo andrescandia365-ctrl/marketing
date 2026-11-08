@@ -270,7 +270,8 @@ test("the batch: approved pieces in order, up to the quantity, own character fir
   );
   const text = speakerBatchText(all.entries);
   assert.equal(text.split("———").length, 3);
-  assert.match(text, /^H1 · adjuntá @Rosa · clip de 6 s \(la pieza usa 3 s\)\n@Rosa, the invented adult/);
+  assert.match(text, /^H1 · adjuntá @Rosa · clip de 6 s \(la pieza usa 3 s\)\nGuardá el video como: H1\.mp4\n@Rosa, the invented adult/);
+  assert.doesNotMatch(all.entries[0].prompt, /Guardá/);
 });
 
 test("the lip-sync line comes from the tool's profile, with its tag", () => {

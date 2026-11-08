@@ -1,0 +1,321 @@
+===== 3fef6123-f96e-80a2-97fb-c6495ec41bf5
+page | Episode 3: Pixel Monitor Prompt
+text | Watch the breakdown here: https://www.instagram.com/p/DerTRodhY60/
+text | Effect of the Day, EP. 03. One prompt. Claude Code cuts from you to an extreme close-up of a monitor that shows your exact text, in your exact colour, one word at a time, on your own clip, and hands you back a finished video, ready to drop on your timeline.
+sub_header | What you need
+bulleted_list | Claude Code (the desktop app or the terminal).
+bulleted_list | One vertical clip of you talking (9:16), already colour graded, ideally 5 to 30 seconds around the moment you want the screen.
+sub_header | How to use it
+numbered_list | Copy the prompt below. Hover over the code block and click Copy.
+numbered_list | Paste it into a new Claude Code chat.
+numbered_list | Give it your three settings and drag in your clip. The very top of the prompt (MY SCREEN) holds them. Claude Code shrinks a long paste into one block, so type yours on the line under it, like this: TEXT: "Stop scrolling." WHEN: when I say it TEXT COLOUR: #FFC46B (Put your text in quotes so it can hold commas.)
+bulleted_list | TEXT: the exact words you want on the screen. They show exactly as you type them: capitals, punctuation, everything. Short lines (3 to 15 words) hit hardest.
+bulleted_list | WHEN: "when I say it" makes each word cut in as you say it in your clip. Or give seconds, like 2-5, to put any text anywhere.
+bulleted_list | TEXT COLOUR: the exact colour as a hex code (like #7CFFA0), or just a colour name. White is the default.
+bulleted_list | Your clip: drag the video file straight into the chat. No file path needed. Skip this and Claude asks you for them. Or edit the MY SCREEN lines in a notes app before you paste.
+numbered_list | Press Enter. Claude asks before it installs anything. Say yes to the free tools it needs (Node.js, Remotion and a small speech model that finds when you say each word, all on your own computer).
+numbered_list | Check the timing. Claude shows you each of your words with the moment it cuts in.
+numbered_list | Grab your video. It lands in the EffectOfTheDay folder in your home folder, under renders/screen-push. Drop it straight on your timeline.
+text | Want to tweak it? Ask Claude in the same chat: "change the text to ...", "make the pixels chunkier", "less zoom so I see more words". It edits the settings and renders again.
+text | Good to know: everything stays in one folder on your computer (EffectOfTheDay). Your audio is never uploaded, nothing needs admin rights, and your original video is never touched. The first run takes a few minutes while the tools download; after that it is quick.
+sub_header | The prompt
+code | ==================== MY SCREEN ====================
+Replace what is inside each [ ] with your own.
+
+TEXT: [Claude sucks at video editing]
+→ The exact words on the screen, shown exactly as you type them.
+
+WHEN: [when I say it]
+→ "when I say it", or seconds in your clip, like 2-5.
+
+TEXT COLOUR: [#FFFFFF]
+→ A hex code like #7CFFA0, or a colour name.
+====================================================
+
+Build me a "screen push" effect on my own video, using MY SCREEN above. My video is the file I drag into this chat (Claude Code gives you its path).
+
+What it is: in the middle of my clip the picture cuts to an extreme close-up of a computer monitor, shot flat on. My TEXT sits on the screen in one long row of big bold letters, and the whole screen is real-looking LCD pixels: tiny red, green and blue capsules with dark gaps, dim dots where nothing is lit, a soft glow where the letters light them up, a thin red and cyan colour split at the letters' edges, and a macro lens look (a sharp band across the middle, soft above and below). The camera hard-cuts to each word in time with my clip, so the screen reads my text one word at a time: cut, cut, cut, no sliding. After the last word it cuts back to me. My audio plays underneath the whole time, untouched. I get my whole clip back with the effect in it, ready to drop on my editing timeline.
+
+APPLY MY SCREEN TO THE SETTINGS
+
+Start from the default settings file below and change only these. If I typed my values in my message after this prompt (for example: TEXT: "Stop scrolling." WHEN: when I say it TEXT COLOUR: #FFC46B), those win over the brackets. Quotes around my TEXT only mark where it starts and ends; they are not part of it (so my text can hold commas). If MY SCREEN still shows the examples above and I gave you nothing after the prompt, ask me for my text, when, and text colour in one short question (offer the examples as the defaults) before you build anything.
+- words: my TEXT split on spaces, each word EXACTLY as I typed it: same spelling, same capitals, same punctuation. Never correct, re-case or re-punctuate my text, and never swap in the transcript's spelling. In the settings file, escape any \" or \\ inside a word so the file still compiles; the screen still shows the character.
+- The start time of each word comes from WHEN and the word timings of my clip (step 4 of the build):
+  - "when I say it" = find my TEXT in my transcript as a run of words, ignoring capitals and punctuation, and give each of my words the start time of the word I say. If my text is not something I say in the clip, tell me and ask for seconds instead.
+  - Seconds like "2-5" = if the words I say inside that range match my TEXT word for word, use their start times; otherwise spread my words evenly across the range (word i starts at 2 + i x (5 - 2) / number of words) and tell me they are spaced evenly.
+  - endAt: for "when I say it", the last word's end plus 0.3 s, and at least 0.9 s after the last word's start; for seconds, the end of the range. Never later than clipSeconds.
+  - It reads best at 3 to 15 words. If my text is longer, build it anyway and tell me it is long.
+- textColour = my TEXT COLOUR. A hex code is used exactly as I typed it (add the # if I left it off). A colour name becomes a bright, clean hex (white = #FFFFFF, green = #7CFFA0, amber = #FFC46B, red = #FF6B6B, blue = #7CC4FF); tell me the hex you used. The lit pixels show the colour through the screen's red, green and blue dots, the way a real monitor does.
+- allCaps stays false: my text is shown exactly as I typed it.
+- Fill in the three clip values yourself from my video.
+
+DEFAULT SETTINGS
+
+The settings file, before my values go in (it is one of the files to create in step 2):
+
+=== FILE: EffectOfTheDay/kit/src/effects/screen-push.settings.ts ===
+// ===================== YOUR SETTINGS =====================
+// Change anything here, then render again. Times are seconds into your clip. Colours are hex codes.
+export const SCREEN_PUSH = {
+  // Your clip. Claude fills these in from the video you give it.
+  clipFile: "input/my-clip.mp4",  // the copy inside EffectOfTheDay/kit/public/
+  clipSeconds: 10,                // the clip's length
+  clipFps: 30,                    // the clip's frame rate (the output matches it)
+
+  // The words on the screen and when you say them. Claude fills these in from your clip's transcript.
+  // The screen cuts in on the first word, cuts to each word the moment you say it, and cuts back to you at endAt.
+  words: [
+    { text: "you", start: 0.3 }, { text: "post", start: 0.55 }, { text: "every", start: 0.85 },
+    { text: "single", start: 1.15 }, { text: "day,", start: 1.5 }, { text: "and", start: 2.0 },
+    { text: "still", start: 2.25 }, { text: "no", start: 2.6 }, { text: "booked", start: 2.85 },
+    { text: "calls.", start: 3.2 },
+  ],
+  endAt: 3.7,                  // when the screen cuts back to your clip (0.3 s after the last word ends, at least 0.9 s after it starts)
+
+  textColour: "#FFFFFF",       // the colour the lit words glow (white = a normal monitor)
+  allCaps: false,              // true = the words in capitals
+
+  zoom: 3.1,                   // how close the camera is to the screen (2 = a few words show, 3.1 = one word fills the frame)
+  pixelSize: 10,               // the size of one screen pixel before the zoom (6 = fine, 14 = chunky)
+  screenColour: "#363636",     // the unlit screen (the dim dots between the words)
+  fringe: 3,                   // the red and cyan colour split at the letters' edges, in px (0 = none, 6 = strong)
+  glow: 0.85,                  // how much the lit pixels bleed into white light (0 = none, 1 = strong)
+  focusFalloff: 5,             // blur above and below the line, like a macro lens (0 = all sharp, 10 = very shallow)
+};
+// =========================================================
+=== END OF FILE ===
+
+WHAT TO DELIVER
+
+One file in ~/EffectOfTheDay/renders/screen-push/: <my clip's name>-screen-push.mp4. 1080x1920, at my clip's frame rate, H.264, with my clip's audio. When it is rendered, open the folder and tell me where it is.
+
+TOOLS AND FOLDER
+
+- Built with Remotion, a free, open-source video renderer that runs on my computer (free for individuals and companies of up to 3 people). Remotion downloads its own ffmpeg and a headless browser the first time it renders.
+- The word timings come from Whisper, a free, open-source speech model, run on my computer by transformers.js (Hugging Face, Apache 2.0 licence). Nothing is uploaded. The first time, it downloads the speech model (about 290 MB) into the kit; after that it is instant.
+- Ask me before installing anything.
+- Keep everything in a folder called EffectOfTheDay in my home folder: the Remotion project in EffectOfTheDay/kit, the renders in EffectOfTheDay/renders. If that folder already exists from a previous Effect of the Day, reuse what is there: add this effect next to the others and do not reinstall or remove anything.
+- Node.js 20 or newer is needed. If it is missing, install it without admin rights: download the official Node.js LTS archive for my operating system and processor from nodejs.org and unpack it into EffectOfTheDay/tools/node, then use that node and npm by their full path. No Homebrew, no sudo, nothing that asks for my password.
+- Never change or move my original video. Work on a copy.
+
+THE BUILD
+
+1. If I have not given you a clip, ask me to drag one in. It should be a vertical talking-head video that is already colour graded, ideally trimmed to the 5 to 30 seconds around the moment I want the screen.
+2. Create the files exactly as written: the settings file above and the files below (each one sits between its === FILE line and its === END OF FILE line). Then put my values into the settings file as described above, and run npm install inside EffectOfTheDay/kit. If the kit already has a package.json from an earlier episode, add any dependency below that it is missing (same exact version) and keep the rest. If it already has a Root.tsx with other effects in it, add the ScreenPush composition to it and keep the others.
+3. Copy my clip into EffectOfTheDay/kit/public/input/ and read its length and frame rate:
+   npx remotion ffprobe -v error -show_entries format=duration:stream=codec_type,r_frame_rate,width,height -of json "public/input/<clip>"
+   Put the copy's path (relative to public/), its length in seconds and its frame rate (the video stream's r_frame_rate as a decimal, for example 24000/1001 = 23.976) into the settings. If the clip is not vertical 9:16, tell me it will be cropped to fill a 1080x1920 frame.
+4. Find when each word is said:
+   node scripts/transcribe-words.mjs "public/input/<clip>" "public/input/<clip name>.words.json"
+   (If I speak a language other than English, add it at the end, for example: spanish.) It prints every word I say with its start time. Time my TEXT from it as described above, then show me each of my words with its start time. Do not wait for an answer: carry on with the build.
+5. Render one check frame while the screen is up, and look at it before rendering the video:
+   npx remotion still src/index.ts ScreenPush ../renders/screen-push/check.png --frame=<round((start + 0.05) x frame rate), where start is the start of the first word in my text with 3 or more letters>
+   Check: the whole frame is screen pixels edge to edge (no black, no bars), that word sits big and centred, flat on, spelled and capitalised exactly as in my TEXT, lit in my colour, with at most a sliver of the words either side, the red and cyan split shows at the letters' edges, and the top and bottom of the frame are a little softer than the middle.
+6. Render the video, then delete check.png so the folder holds only the finished video:
+   npx remotion render src/index.ts ScreenPush "../renders/screen-push/<clip name>-screen-push.mp4" --codec=h264 --crf=16
+
+=== FILE: EffectOfTheDay/kit/package.json ===
+{
+  "name": "effect-of-the-day-kit",
+  "private": true,
+  "dependencies": {
+    "@huggingface/transformers": "4.3.1",
+    "@remotion/cli": "4.0.535",
+    "@remotion/google-fonts": "4.0.535",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.535"
+  }
+}
+=== END OF FILE ===
+
+=== FILE: EffectOfTheDay/kit/src/index.ts ===
+import { registerRoot } from "remotion";
+import { RemotionRoot } from "./Root";
+registerRoot(RemotionRoot);
+=== END OF FILE ===
+
+=== FILE: EffectOfTheDay/kit/src/Root.tsx ===
+import React from "react";
+import { Composition } from "remotion";
+import { ScreenPush } from "./effects/ScreenPush";
+import { SCREEN_PUSH as SP } from "./effects/screen-push.settings";
+
+// Every Effect of the Day effect is registered here. Add new ones below; never remove the others.
+export const RemotionRoot: React.FC = () => (
+  <>
+    <Composition id="ScreenPush" component={ScreenPush} width={1080} height={1920} fps={SP.clipFps}
+      durationInFrames={Math.max(1, Math.round(SP.clipSeconds * SP.clipFps))} />
+  </>
+);
+=== END OF FILE ===
+
+=== FILE: EffectOfTheDay/kit/src/effects/ScreenPush.tsx ===
+import React, { useEffect, useMemo, useState } from "react";
+import { AbsoluteFill, OffthreadVideo, continueRender, delayRender, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { loadFont } from "@remotion/google-fonts/Inter";
+import { SCREEN_PUSH as S } from "./screen-push.settings";
+
+/**
+ * Screen push: a macro shot of a monitor built entirely in code, flat on. The line you say sits on one row of an LCD
+ * (red, green and blue subpixels, dark gaps, a phosphor glow, a sharp band with soft focus above and below), and the
+ * camera hard-cuts to each word the moment you say it. No glide: one word, cut, the next word. Your audio never stops.
+ */
+const { fontFamily: FONT, waitUntilDone } = loadFont("normal", { weights: ["700"], subsets: ["latin"] });
+
+const SIZE = 150;            // type size on the screen plane, px
+const TRACK = -0.01 * SIZE;  // letter spacing, px
+const PAD = 1400;            // screen above and below the row, so the frame is always pixels edge to edge
+
+type Placed = { text: string; start: number; x: number; w: number };
+
+// Lay the words out on one row, measured in the loaded font.
+const layout = (): Placed[] => {
+  const ctx = document.createElement("canvas").getContext("2d")!;
+  ctx.font = `700 ${SIZE}px ${FONT}`;
+  const width = (t: string) => ctx.measureText(t).width + TRACK * t.length;
+  const space = width(" ");
+  let x = 0;
+  return S.words.map((w) => {
+    const text = S.allCaps ? w.text.toUpperCase() : w.text;
+    const p = { text, start: w.start, x, w: width(text) };
+    x += p.w + space;
+    return p;
+  });
+};
+
+const Clip: React.FC = () => (
+  <OffthreadVideo src={staticFile(S.clipFile)}
+    style={{ position: "absolute", left: 0, top: 0, width: 1080, height: 1920, objectFit: "cover" }} />
+);
+
+// One LCD pixel: three rounded subpixel capsules (R, G, B) with dark gaps between pixels and rows.
+const P = S.pixelSize, k = P / 10;
+const SUBPIXELS = [["#ff8a7a", 2], ["#9affb0", 6], ["#8aa8ff", 10]].map(([c, x]) =>
+  `radial-gradient(ellipse ${1.7 * k}px ${4.3 * k}px at ${(x as number) * k}px ${5.5 * k}px, ${c} 70%, transparent 100%)`).join(", ");
+
+const Words: React.FC<{ words: Placed[]; color: string; dx?: number }> = ({ words, color, dx = 0 }) => (
+  <>
+    {words.map((p, i) => (
+      <div key={i} style={{ position: "absolute", left: p.x + dx, top: PAD - SIZE * 0.82, fontFamily: FONT, fontWeight: 700,
+        fontSize: SIZE, lineHeight: 1, color, whiteSpace: "pre", letterSpacing: TRACK }}>{p.text}</div>
+    ))}
+  </>
+);
+
+// The screen: lit text with a red copy left and a cyan copy right, multiplied by the subpixel grid, so the whole
+// screen is dots (dim where nothing is lit). left/width cut a window of the row around the current word.
+const Plane: React.FC<{ words: Placed[]; left: number; width: number }> = ({ words, left, width }) => (
+  <div style={{ position: "absolute", left, top: 0, width, height: 2 * PAD, background: S.screenColour, isolation: "isolate", overflow: "hidden" }}>
+    <div style={{ position: "absolute", left: -left, top: 0 }}>
+      <div style={{ position: "absolute", inset: 0, mixBlendMode: "screen" }}><Words words={words} color="#ff3020" dx={-S.fringe} /></div>
+      <div style={{ position: "absolute", inset: 0, mixBlendMode: "screen" }}><Words words={words} color="#20d8ff" dx={S.fringe} /></div>
+      <Words words={words} color={S.textColour} />
+    </div>
+    <div style={{ position: "absolute", inset: 0, mixBlendMode: "multiply", backgroundColor: "#000",
+      backgroundImage: SUBPIXELS, backgroundSize: `${P}px ${P}px` }} />
+  </div>
+);
+
+export const ScreenPush: React.FC = () => {
+  const frame = useCurrentFrame();
+  const { fps, width, height } = useVideoConfig();
+  const t = frame / fps;
+
+  // Measure only once the font has loaded, so every word is centred on its real width.
+  const [handle] = useState(() => delayRender("Loading the font"));
+  const [ready, setReady] = useState(false);
+  useEffect(() => { waitUntilDone().then(() => { setReady(true); continueRender(handle); }); }, [handle]);
+  const placed = useMemo(() => (ready ? layout() : []), [ready]);
+
+  const on = placed.length > 0 && t >= placed[0].start && t < S.endAt;
+  if (!on) return <AbsoluteFill style={{ backgroundColor: "#000" }}><Clip /></AbsoluteFill>;
+
+  // The word being said right now.
+  let i = 0;
+  while (i < placed.length - 1 && t >= placed[i + 1].start) i++;
+  const cur = placed[i];
+  // A hard cut per word, with a tiny per-word offset (up to 5 px) so the cuts read as separate frames.
+  const jx = ((i * 37) % 11) - 5, jy = ((i * 23) % 9) - 4;
+  const cx = cur.x + cur.w / 2 + jx, cy = PAD - SIZE * 0.36 + jy;
+  // As close as `zoom`, but a long word always fits with a little of the screen either side.
+  const zoom = Math.min(S.zoom, (0.84 * width) / cur.w);
+  // Only the part of the row the camera can see, snapped to the pixel grid so the dots never shift.
+  const half = width / 2 / zoom + 4 * P;
+  const left = Math.floor((cx - half) / P) * P, span = Math.ceil((2 * half) / P + 2) * P;
+  const near = placed.filter((p) => p.x + p.w + 2 * S.fringe > left && p.x - 2 * S.fringe < left + span);
+
+  return (
+    <AbsoluteFill style={{ backgroundColor: S.screenColour, overflow: "hidden" }}>
+      <Clip />
+      <AbsoluteFill style={{ backgroundColor: S.screenColour, filter: "blur(0.4px)" }}>
+        <div style={{ position: "absolute", left: width / 2, top: height / 2, transformOrigin: "0 0",
+          transform: `scale(${zoom}) translate(${-cx}px, ${-cy}px)` }}>
+          <Plane words={near} left={left} width={span} />
+          {/* phosphor bloom: the lit dots bleed into white light, as on a real screen */}
+          <div style={{ position: "absolute", left: 0, top: 0, mixBlendMode: "screen", filter: "blur(4px) brightness(1.6)", opacity: S.glow }}>
+            <Plane words={near} left={left} width={span} />
+          </div>
+        </div>
+      </AbsoluteFill>
+      {/* macro focus fall-off: soft above and below the row */}
+      {S.focusFalloff > 0 && (
+        <AbsoluteFill style={{ backdropFilter: `blur(${S.focusFalloff}px)`,
+          WebkitMaskImage: "linear-gradient(180deg, #000 0%, transparent 34%, transparent 66%, #000 100%)" }} />
+      )}
+    </AbsoluteFill>
+  );
+};
+=== END OF FILE ===
+
+=== FILE: EffectOfTheDay/kit/scripts/transcribe-words.mjs ===
+// Finds when each word is said in a clip, on this computer: Whisper (base), run by transformers.js. Nothing is uploaded.
+// The first run downloads the speech model (about 290 MB) into node_modules; later runs reuse it.
+// Usage: node scripts/transcribe-words.mjs public/input/<clip> public/input/<clip>.words.json [language]
+// language: leave it out for English; otherwise the language spoken in the clip, e.g. spanish, german, french.
+import { execFileSync } from "node:child_process";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { pipeline } from "@huggingface/transformers";
+
+const [clip, out, language] = process.argv.slice(2);
+
+// The clip's sound as a 16 kHz mono WAV, made by Remotion's own ffmpeg, then read as numbers between -1 and 1.
+const wav = out + ".wav";
+execFileSync("npx", ["remotion", "ffmpeg", "-y", "-v", "error", "-i", clip, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav],
+  { stdio: "inherit", shell: process.platform === "win32" });
+const buf = readFileSync(wav);
+rmSync(wav);
+let p = 12;
+while (buf.toString("ascii", p, p + 4) !== "data") p += 8 + buf.readUInt32LE(p + 4);
+const pcm = buf.subarray(p + 8);
+const audio = new Float32Array(pcm.length >> 1);
+for (let i = 0; i < audio.length; i++) audio[i] = pcm.readInt16LE(i * 2) / 32768;
+
+const asr = await pipeline("automatic-speech-recognition", "onnx-community/whisper-base_timestamped", { dtype: "fp32" });
+const result = await asr(audio, { return_timestamps: "word", chunk_length_s: 30, stride_length_s: 5, ...(language ? { language } : {}) });
+
+// Whisper hears each word about 0.1 s late (measured against a forced aligner), so every start moves 0.1 s earlier.
+const EARLY = 0.1;
+let prev = -1;
+const words = [];
+for (const c of result.chunks) {
+  const text = c.text.trim();
+  if (!text) continue;
+  const start = Math.max(0, prev + 0.05, c.timestamp[0] - EARLY);
+  const end = Math.max(start + 0.05, c.timestamp[1] ?? c.timestamp[0]);
+  words.push({ text, start: +start.toFixed(2), end: +end.toFixed(2) });
+  prev = start;
+}
+writeFileSync(out, JSON.stringify(words, null, 1));
+console.log(words.map((w) => `${w.start.toFixed(2)}  ${w.text}`).join("\n"));
+=== END OF FILE ===
+
+HOW IT SHOULD LOOK (CHECK THE RENDER AGAINST THIS)
+
+- My clip plays untouched until the first word's start. Then it hard-cuts to the screen: no fade, no zoom-in.
+- My whole text sits on ONE row, exactly as I typed it. Each word is centred in the frame at up to 3.1x magnification, fitted so a long word never crops (its width is never more than 84% of the frame), with only a sliver of its neighbours showing. A one- or two-letter word ("I", "so") cannot fill the frame at 3.1x, so more of its neighbours show either side: that is right, the same as the original.
+- On each word's start time the camera hard-cuts to that word, with a tiny different offset per word (up to 5 px) so every cut reads as a new frame. No sliding between words.
+- One screen pixel is 10 px before the zoom (31 px on the frame at full zoom): three rounded capsules, red #ff8a7a, green #9affb0, blue #8aa8ff, with dark gaps. The unlit screen is #363636 and shows as dim dots. Lit letters glow softly into the dots around them (a 4 px bloom); a red copy 3 px left and a cyan copy 3 px right make the colour split.
+- The middle third of the frame (from 34% to 66% of its height) is sharp; above and below it blurs by 5 px, like a macro lens. It is subtle on purpose.
+- At endAt it hard-cuts back to my clip, which plays on untouched to its end. My audio never stops or changes.
+text | The word timings come from Whisper (OpenAI, MIT licence), run on your computer by transformers.js (Hugging Face, Apache 2.0 licence). Rendered with Remotion.

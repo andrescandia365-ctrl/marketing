@@ -148,6 +148,11 @@ test("each clip gets its stretch of the words, and the prompts keep the same pla
   const copied = sequencePromptText(made);
   assert.match(copied, /Clip 2 de 2/);
   assert.match(copied, /Usá el último cuadro del clip 1/);
+  assert.doesNotMatch(copied, /Guardá/);
+  const named = sequencePromptText(["alpha prompt", "beta prompt"], ["Guardá el video como: M3-c1.mp4", "Guardá el video como: M3-c2.mp4"]);
+  assert.match(named, /Clip 1 de 2\nGuardá el video como: M3-c1\.mp4\nalpha prompt/);
+  assert.match(named, /Clip 2 de 2\nGuardá el video como: M3-c2\.mp4\n/);
+  assert.ok(named.indexOf("Guardá el video como: M3-c2.mp4") < named.lastIndexOf("beta prompt"));
   assert.equal(continuityNote(0), "");
   assert.match(continuityNote(2), /clip 2/);
 });

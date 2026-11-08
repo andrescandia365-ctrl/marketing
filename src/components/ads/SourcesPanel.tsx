@@ -1,7 +1,7 @@
 // Where winning hooks come from (this goes first): metrics of previous ads, hooks from the organic content, and the
 // clips of previous ads catalogued by the AI (hook, meat, CTA, level, format).
 import { useState } from "react";
-import { ANGLE_LABEL, FORMULA_LABEL, LEVEL_INFO, MEAT_FORMAT_LABEL, clipStats, enoughData, hookWatch, measuredWinners, organicNote, pieceStats, type AdsState, type RankedHook } from "../../../shared/ads.ts";
+import { ANGLE_LABEL, FORMULA_LABEL, LEVEL_INFO, MEAT_FORMAT_LABEL, clipStats, enoughData, hookWatch, measuredWinners, openForWinners, organicNote, pieceStats, type AdsState, type RankedHook } from "../../../shared/ads.ts";
 import { adsFileUrl } from "../../lib/api.ts";
 import { ClaudeHandoff, type Handoff } from "../ClaudeHandoff.tsx";
 import { Button, Notice, Spinner, inputClass } from "../ui.tsx";
@@ -60,7 +60,8 @@ export function SourcesPanel({
   const stats = pieceStats(state.metrics);
   const byClip = clipStats(state.clips, state.metrics);
   const organic = state.hooks.filter((h) => h.source === "organic");
-  const winnerIds = new Set(measuredWinners(ranking, minImpressions).map((r) => r.id));
+  const statusOf = new Map(state.hooks.map((h) => [h.id, h.status]));
+  const winnerIds = new Set(measuredWinners(ranking, minImpressions).filter((r) => openForWinners(statusOf.get(r.id) ?? r.status)).map((r) => r.id));
   // Enough-data rows first. The sort is stable, so the score order inside each group stays the one rankHooks wrote.
   const shown = [...ranking].sort((a, b) => Number(enoughData(b.stats, minImpressions)) - Number(enoughData(a.stats, minImpressions)));
   const show26 = shown.some((r) => (r.stats.views2s ?? 0) > 0 || (r.stats.views6s ?? 0) > 0);
@@ -142,6 +143,8 @@ export function SourcesPanel({
             <tbody>
               {shown.map((r) => {
                 const enough = enoughData(r.stats, minImpressions);
+                const closed = statusOf.get(r.id);
+                const closedLabel = closed === "archived" ? "archivado" : closed === "rejected" ? "descartado" : "";
                 return (
                   <tr key={r.id} className="border-t border-line">
                     <td className="py-1.5 pr-2">
@@ -155,7 +158,7 @@ export function SourcesPanel({
                     </td>
                     <td className="py-1.5 pr-2 text-right font-mono">{r.stats.ads}</td>
                     <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.impressions)}</td>
-                    <td className="py-1.5 pr-2 text-right font-mono">{enough ? (r.stats.impressions ? rateCell(r.stats) : "–") : "sin datos suficientes"}</td>
+                    <td className="py-1.5 pr-2 text-right font-mono">{closedLabel || (enough ? (r.stats.impressions ? rateCell(r.stats) : "–") : "sin datos suficientes")}</td>
                     <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.views3s || r.stats.views)}</td>
                     {show26 && <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.views2s ?? 0)}</td>}
                     {show26 && <td className="py-1.5 pr-2 text-right font-mono">{fmt(r.stats.views6s ?? 0)}</td>}
@@ -214,7 +217,7 @@ export function SourcesPanel({
                 <span>{h.text}</span>
                 {h.note && <span className="text-xs text-muted">· {h.note}</span>}
                 {!winnerIds.has(h.id) && h.status !== "rejected" && <Tag>{organicNote(ranking.find((r) => r.id === h.id)?.stats, minImpressions)}</Tag>}
-                <Tag>{h.status === "approved" ? "aprobado" : h.status === "rejected" ? "descartado" : "pendiente"}</Tag>
+                <Tag>{h.status === "approved" ? "aprobado" : h.status === "rejected" ? "descartado" : h.status === "archived" ? "archivado" : "pendiente"}</Tag>
               </li>
             ))}
           </ul>

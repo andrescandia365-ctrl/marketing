@@ -90,6 +90,8 @@ export type HookRequest = {
   language: "es" | "en";
   // One prompt of a split request (copy and paste): how many hooks of each level this one asks for.
   perLevel?: { level: Level; count: number }[];
+  // "Variantes de los ganadores": every hook stays in this angle and formula. The facts are the winner's own.
+  focus?: { angle: string; formula: string };
 };
 
 const levelQuota = (req: HookRequest) =>
@@ -108,7 +110,7 @@ export function hooksTask(series: string, offer: Offer, tool: string, req: HookR
 
 ${levelQuota(req)}
 
-Cover a grid inside each level: spread the angles (${ANGLES.join(", ")}) and the formulas (${FORMULAS.join(", ")}) so no two hooks of a level share both. Each hook names a different concrete situation from the offer's problem and the audience's words.
+${req.focus ? `Write every hook in this exact angle and formula, and no other: angle ${req.focus.angle}, formula ${req.focus.formula}.` : `Cover a grid inside each level: spread the angles (${ANGLES.join(", ")}) and the formulas (${FORMULAS.join(", ")}) so no two hooks of a level share both.`} Each hook names a different concrete situation from the offer's problem and the audience's words.
 
 ${req.winners.length ? `Hooks that already worked (measured, above the impression minimum). Learn their structure and angle; never reuse their words:\n${req.winners.map((w) => `- ${w}`).join("\n")}` : "No winning hooks are known yet."}
 ${req.organic?.length ? `\nHooks from the organic content, not measured yet. They are not winners; do not treat them as proof they worked:\n${req.organic.map((w) => `- ${w}`).join("\n")}` : ""}

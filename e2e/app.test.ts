@@ -152,7 +152,7 @@ describe("recorrido de la app", { concurrency: 1 }, () => {
       await page.getByRole("button", { name: "Ver un ejemplo", exact: true }).click();
       await page.getByRole("button", { name: "Sí", exact: true }).click();
       await page.getByRole("button", { name: "Producción", exact: true }).click();
-      await page.locator("input[type=file][multiple]").setInputFiles(voices);
+      await page.locator('input[type=file][multiple][accept*="audio"]').setInputFiles(voices);
       await page.getByText("Voces (2/10)").waitFor();
 
       await page.getByRole("button", { name: "2 · Meats" }).click();

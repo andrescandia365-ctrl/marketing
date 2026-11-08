@@ -22,6 +22,8 @@ type Props = {
   renderCard: (hook: Hook) => ReactNode;
   // "Que lo digan los personajes": the approved hooks' character prompts in one go.
   extra?: ReactNode;
+  // "Subir clips en lote" for this tab.
+  bulk?: ReactNode;
   // "Hacer en motion graphics": one explainer folder per approved hook. Missing when the studio cannot open one.
   onMotionBatch?: () => void;
   motionBusy?: boolean;
@@ -33,7 +35,7 @@ type Props = {
   walkKey: string;
 };
 
-export function HooksPanel({ hooks, levels, seconds, split, busy, demo, note, onLevels, onGenerate, onStatus, renderCard, extra, onMotionBatch, motionBusy = false, handoff = null, presetCount, walkKey }: Props) {
+export function HooksPanel({ hooks, levels, seconds, split, busy, demo, note, onLevels, onGenerate, onStatus, renderCard, extra, bulk, onMotionBatch, motionBusy = false, handoff = null, presetCount, walkKey }: Props) {
   const countKey = `${walkKey}:hooks-count`;
   const [count, setCountState] = useState(() => rememberedCount(countKey, presetCount ?? 50));
   const setCount = (n: number) => {
@@ -48,6 +50,8 @@ export function HooksPanel({ hooks, levels, seconds, split, busy, demo, note, on
   const [filter, setFilter] = useState<"all" | PieceStatus>("all");
   const pending = hooks.filter((h) => h.status === "pending");
   const approvedN = hooks.filter((h) => h.status === "approved").length;
+  const rejectedN = hooks.filter((h) => h.status === "rejected").length;
+  const archivedN = hooks.filter((h) => h.status === "archived").length;
   const chosen = levelsOf(levels);
   const share = pieceShare(seconds, "hook", split);
   const blocked = (split ? splitIssue(seconds, split) : null) ?? noShareNote("hook", seconds, split);
@@ -55,7 +59,7 @@ export function HooksPanel({ hooks, levels, seconds, split, busy, demo, note, on
   // The grid: how many live hooks per level and angle, so the 50 come out covering it instead of at random.
   const grid = useMemo(() => {
     const g: Record<string, number> = {};
-    for (const h of hooks) if (h.status !== "rejected") g[`${h.level}-${h.angle}`] = (g[`${h.level}-${h.angle}`] ?? 0) + 1;
+    for (const h of hooks) if (h.status !== "rejected" && h.status !== "archived") g[`${h.level}-${h.angle}`] = (g[`${h.level}-${h.angle}`] ?? 0) + 1;
     return g;
   }, [hooks]);
 
@@ -129,12 +133,14 @@ export function HooksPanel({ hooks, levels, seconds, split, busy, demo, note, on
         )}
       </div>
 
+      {bulk}
+
       {hooks.length > 0 && (
         <div className="rounded-xl border border-line bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold">Grilla nivel × ángulo</p>
             <p className="text-xs text-muted">
-              {approvedN} aprobados · {pending.length} pendientes · {hooks.length - approvedN - pending.length} descartados
+              {approvedN} aprobados · {pending.length} pendientes · {rejectedN} descartados{archivedN ? ` · ${archivedN} archivados` : ""}
             </p>
           </div>
           <table className="mt-2 w-full text-center text-xs">
@@ -210,9 +216,9 @@ export function HooksPanel({ hooks, levels, seconds, split, busy, demo, note, on
       {hooks.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-muted">Ver:</span>
-          {(["all", "pending", "approved", "rejected"] as const).map((f) => (
+          {(["all", "pending", "approved", "rejected", "archived"] as const).map((f) => (
             <button key={f} type="button" onClick={() => setFilter(f)} className={`rounded-md border px-2 py-1 font-semibold ${filter === f ? "border-ink bg-ink text-white" : "border-line bg-white text-muted"}`}>
-              {{ all: "Todos", pending: "Pendientes", approved: "Aprobados", rejected: "Descartados" }[f]}
+              {{ all: "Todos", pending: "Pendientes", approved: "Aprobados", rejected: "Descartados", archived: "Archivados" }[f]}
             </button>
           ))}
         </div>

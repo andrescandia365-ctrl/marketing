@@ -135,9 +135,10 @@ export function sequencePromptsFromPiece(input: SequencePromptInput): string[] {
   });
 }
 
-export function sequencePromptText(prompts: string[]): string {
+// `lines` are file-name lines, one per clip, written above that clip's prompt. They are not part of the prompt.
+export function sequencePromptText(prompts: string[], lines?: string[]): string {
   return prompts
-    .map((p, i) => [`Clip ${i + 1} de ${prompts.length}`, continuityNote(i), p].filter(Boolean).join("\n"))
+    .map((p, i) => [`Clip ${i + 1} de ${prompts.length}`, lines?.[i] ?? "", continuityNote(i), p].filter(Boolean).join("\n"))
     .join("\n\n———\n\n");
 }
 

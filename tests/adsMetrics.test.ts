@@ -13,6 +13,7 @@ import {
   hookWatch,
   hooksFromWire,
   measuredWinners,
+  openForWinners,
   organicHook,
   organicNote,
   parseMetricsCsv,
@@ -121,6 +122,18 @@ H3-M1-C1,999,400,500
   assert.equal(patterns.winners.length, 2);
   assert.match(patterns.winners[0], /Con datos/);
   assert.equal(patterns.organic.length, 0);
+  s.hooks[0].status = "archived";
+  s.hooks[2].status = "rejected";
+  assert.equal(openForWinners(undefined), true);
+  assert.equal(openForWinners("approved"), true);
+  assert.equal(openForWinners("archived"), false);
+  assert.equal(openForWinners("rejected"), false);
+  assert.deepEqual(rankHooks(s).map((r) => r.id).sort(), ["H1", "H2", "H3"]);
+  assert.deepEqual(measuredWinners(rankHooks(s)).map((r) => r.id), ["H2"]);
+  const closed = hookPatterns(s);
+  assert.equal(closed.winners.length, 1);
+  assert.match(closed.winners[0], /Justo mil/);
+  assert.doesNotMatch(closed.winners.join("\n"), /Con datos|Pocas/);
 });
 
 test("an organic hook is not a winner until it is measured, and then it is not listed twice", () => {

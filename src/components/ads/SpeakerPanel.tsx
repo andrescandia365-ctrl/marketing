@@ -4,6 +4,7 @@
 // explainer where the series' code mascot says it instead.
 import { useMemo, useState } from "react";
 import { wordsFor, type Piece } from "../../../shared/ads.ts";
+import { slotName, videoSaveLine } from "../../../shared/adsBulk.ts";
 import { continuityNote, grokSequence } from "../../../shared/adsSequence.ts";
 import {
   SPEAKER_SOUNDS,
@@ -50,21 +51,10 @@ export function SpeakerPanel({ piece, series, tool, format, hasClip, hasVoice, o
   const issues = speakerIssues(piece.text, piece.seconds);
   const slots = grokSequence(piece.seconds);
   const sequence = slots.length > 1;
-  const prompt =
+  const rawPrompts =
     member && draft
       ? sequence
-        ? sequencePromptText(
-            sequenceSpeakerPrompts({
-              text: piece.text,
-              pieceSeconds: piece.seconds,
-              member,
-              speaker: draft,
-              format,
-              look: series.look,
-              type: series.type,
-            }),
-          )
-        : speakerPrompt({
+        ? sequenceSpeakerPrompts({
             text: piece.text,
             pieceSeconds: piece.seconds,
             member,
@@ -73,7 +63,20 @@ export function SpeakerPanel({ piece, series, tool, format, hasClip, hasVoice, o
             look: series.look,
             type: series.type,
           })
-      : "";
+        : [
+            speakerPrompt({
+              text: piece.text,
+              pieceSeconds: piece.seconds,
+              member,
+              speaker: draft,
+              format,
+              look: series.look,
+              type: series.type,
+            }),
+          ]
+      : [];
+  const fileLines = rawPrompts.map((_, i) => videoSaveLine(slotName(piece.id, { count: Math.max(1, rawPrompts.length), index: i })));
+  const prompt = sequence ? sequencePromptText(rawPrompts, fileLines) : (rawPrompts[0] ?? "");
   const saved = JSON.stringify(piece.speaker ?? null) === JSON.stringify(draft);
   const lip = tool?.lipSync;
 
@@ -192,7 +195,10 @@ export function SpeakerPanel({ piece, series, tool, format, hasClip, hasVoice, o
                   )}
                   <li>{sequence ? "Subí cada clip en su lugar, arriba («Clip i de N»)." : "Subí el clip acá arriba con «Subir clip»."}</li>
                 </ol>
-                <CopyButton text={prompt} idle={sequence ? "Copiar todos los prompts" : "Copiar prompt para Grok"} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <CopyButton text={prompt} idle={sequence ? "Copiar todos los prompts" : "Copiar prompt para Grok"} />
+                  {fileLines.length > 0 && <span className="font-mono text-[11px] text-muted">{sequence ? fileLines.join(" · ") : fileLines[0]}</span>}
+                </div>
                 <pre className="whitespace-pre-wrap rounded bg-paper p-2 font-mono text-[11px] text-muted">{prompt}</pre>
               </>
             )}
