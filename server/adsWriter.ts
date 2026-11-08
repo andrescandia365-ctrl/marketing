@@ -35,6 +35,7 @@ import {
   type ReviewWire,
   offerBlock,
 } from "../shared/ads.ts";
+import { funnelBlock, isFloor, type Floor } from "../shared/funnel.ts";
 import { PRACTICES, WORKS_TODAY } from "../shared/series.ts";
 import { momentsForWriter } from "../shared/calendar.ts";
 import { WriterError, runTask, type WriterTask } from "./claude.ts";
@@ -52,7 +53,7 @@ ${METHOD}
 
 ${PLAYBOOK}`;
 
-function blocks(series: string, offer: Offer, tool: string | null): string[] {
+function blocks(series: string, offer: Offer, tool: string | null, funnel?: string | null): string[] {
   const s = getSeries(series);
   if (!s) throw new WriterError(`No existe la serie "${series}".`);
   const out = [
@@ -66,13 +67,14 @@ function blocks(series: string, offer: Offer, tool: string | null): string[] {
     const t = getTool(tool);
     out.push(`The person makes every image and clip by pasting your prompts into ${t.name}. Write visualPrompt and videoPrompt in this tool's format; never rely on anything marked [NOT SURE].\n\n${t.text}`);
   }
+  if (isFloor(funnel)) out.push(funnelBlock(funnel));
   return out;
 }
 
 // One Publicidad request as a writer task (server/claude.ts): it runs on the connected writer, or goes to claude.ai by
 // copy and paste with the same text and schema ("Sin clave", shared/adsHandoff.ts).
-function task<T>(series: string, offer: Offer, tool: string | null, prompt: string, schema: z.ZodType<T>): WriterTask<T, T> {
-  return { system: [SYSTEM, ...blocks(series, offer, tool)], prompt, schema, finish: (wire) => wire };
+function task<T>(series: string, offer: Offer, tool: string | null, prompt: string, schema: z.ZodType<T>, funnel?: string | null): WriterTask<T, T> {
+  return { system: [SYSTEM, ...blocks(series, offer, tool, funnel)], prompt, schema, finish: (wire) => wire };
 }
 
 const levelLines = (levels: Level[]) => levels.map((l) => `${l}. ${LEVEL_INFO[l].label}: ${LEVEL_INFO[l].desc}`).join("\n");
@@ -92,6 +94,8 @@ export type HookRequest = {
   perLevel?: { level: Level; count: number }[];
   // "Variantes de los ganadores": every hook stays in this angle and formula. The facts are the winner's own.
   focus?: { angle: string; formula: string };
+  // Set by the route only when the person picked a floor that covers these levels. Never inferred from the levels.
+  funnel?: Floor;
 };
 
 const levelQuota = (req: HookRequest) =>
@@ -118,6 +122,7 @@ ${req.existing.length ? `\nHooks that already exist; do not write these or near-
 
 Give every hook its onScreenText, visualPrompt and videoPrompt (one frozen moment with the presenter and setting of the offer, so every piece cuts with every other).`,
     HooksWireSchema,
+    req.funnel,
   );
 }
 export const writeHooks = (series: string, offer: Offer, tool: string, req: HookRequest): Promise<HooksWire> => runTask(hooksTask(series, offer, tool, req));
@@ -130,6 +135,7 @@ export type MeatRequest = {
   split?: Budget;
   hooks: Hook[];
   language: "es" | "en";
+  funnel?: Floor;
 };
 
 export function meatsTask(series: string, offer: Offer, tool: string, req: MeatRequest): WriterTask<MeatsWire, MeatsWire> {
@@ -152,11 +158,12 @@ A testimonial quotes only the offer's proofs; a demo shows only what "${WORKS_TO
 
 Give every meat its onScreenText, visualPrompt and videoPrompt, same presenter and setting as the hooks.`,
     MeatsWireSchema,
+    req.funnel,
   );
 }
 export const writeMeats = (series: string, offer: Offer, tool: string, req: MeatRequest): Promise<MeatsWire> => runTask(meatsTask(series, offer, tool, req));
 
-export type CtaRequest = { levels: Level[]; count: number; seconds: AdSeconds; split?: Budget; hooks: Hook[]; language: "es" | "en" };
+export type CtaRequest = { levels: Level[]; count: number; seconds: AdSeconds; split?: Budget; hooks: Hook[]; language: "es" | "en"; funnel?: Floor };
 
 export function ctasTask(series: string, offer: Offer, tool: string, req: CtaRequest): WriterTask<CtasWire, CtasWire> {
   const seconds = pieceShare(req.seconds, "cta", req.split);
@@ -177,6 +184,7 @@ ${req.hooks.map((h) => `- [${h.id} · N${h.level}] ${h.text}`).join("\n") || "- 
 
 No invented deadline, discount or scarcity: if the offer gives none, the urgency is the benefit of starting today. Give every CTA its onScreenText, visualPrompt and videoPrompt, same presenter and setting.`,
     CtasWireSchema,
+    req.funnel,
   );
 }
 export const writeCtas = (series: string, offer: Offer, tool: string, req: CtaRequest): Promise<CtasWire> => runTask(ctasTask(series, offer, tool, req));
@@ -220,7 +228,12 @@ Flag: promises the ad platforms usually reject (health, money, body results, gua
 }
 export const reviewRun = (series: string, offer: Offer, hooks: Hook[], meats: Meat[], ctas: Cta[]): Promise<ReviewWire> => runTask(reviewTask(series, offer, hooks, meats, ctas));
 
-export function copiesTask(series: string, offer: Offer, pairs: { key: string; hook: string; cta: string; level: Level }[]): WriterTask<CopiesWire, CopiesWire> {
+export function copiesTask(
+  series: string,
+  offer: Offer,
+  pairs: { key: string; hook: string; cta: string; level: Level }[],
+  funnel?: Floor,
+): WriterTask<CopiesWire, CopiesWire> {
   return task(
     series,
     offer,
@@ -229,10 +242,15 @@ export function copiesTask(series: string, offer: Offer, pairs: { key: string; h
 
 ${pairs.map((p) => `- ${p.key} (N${p.level})\n  Hook: ${p.hook}\n  CTA: ${p.cta}`).join("\n")}`,
     CopiesWireSchema,
+    funnel,
   );
 }
-export const writeCopies = (series: string, offer: Offer, pairs: { key: string; hook: string; cta: string; level: Level }[]): Promise<CopiesWire> =>
-  runTask(copiesTask(series, offer, pairs));
+export const writeCopies = (
+  series: string,
+  offer: Offer,
+  pairs: { key: string; hook: string; cta: string; level: Level }[],
+  funnel?: Floor,
+): Promise<CopiesWire> => runTask(copiesTask(series, offer, pairs, funnel));
 
 // ── Sample mode (no AI key): fixed examples that show the shape of each step ───────
 const SAMPLE_HOOKS: Record<Level, [string, string, string][]> = {

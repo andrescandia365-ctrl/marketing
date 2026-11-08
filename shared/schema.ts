@@ -6,6 +6,7 @@ import type { Brand, CastMember, SeriesLook, SeriesType, TextStyle } from "./ser
 import type { WebCastPick } from "./webCast.ts";
 import type { KeepOut } from "./stillLayout.ts";
 import type { MascotMeta } from "./mascot.ts";
+import { isFloor, levelsOf as funnelLevels } from "./funnel.ts";
 import { MOVES_FOR_WRITER, pickMove, pickMoves, type Move } from "./moves.ts";
 
 export const BEATS = ["negative", "touching", "good"] as const;
@@ -39,6 +40,8 @@ export const BriefSchema = z.object({
   // How a story is staged (PLAYBOOK §2.5, shared/segment.ts). desk: the story in its own scenes (as before).
   // correspondent: a cut to the series' correspondent "on location" (Remote Stand-up). field: a Field Visit.
   segment: z.enum(["desk", "correspondent", "field"]).default("desk"),
+  // Embudo: which floor this piece speaks to. Missing: the piece is written as before, with no funnel block.
+  funnel: z.enum(["arriba", "medio", "abajo"]).optional(),
 });
 export type Brief = z.infer<typeof BriefSchema>;
 
@@ -221,8 +224,15 @@ export const HookVariantsWireSchema = z.object({
 });
 export type HookVariant = { title: string; move: Move; level: 1 | 2 | 3 | 4 | 5; why: string };
 
-export function normalizeHookVariants(wire: z.infer<typeof HookVariantsWireSchema>): HookVariant[] {
-  const level = (n: number) => (Number.isFinite(n) ? (Math.min(5, Math.max(1, Math.round(n))) as HookVariant["level"]) : 2);
+export function normalizeHookVariants(wire: z.infer<typeof HookVariantsWireSchema>, floor?: string): HookVariant[] {
+  const allowed = isFloor(floor) ? funnelLevels(floor) : null;
+  const fallback = (allowed?.[0] ?? 2) as HookVariant["level"];
+  const level = (n: number): HookVariant["level"] => {
+    if (!Number.isFinite(n)) return fallback;
+    const rounded = Math.min(5, Math.max(1, Math.round(n))) as HookVariant["level"];
+    if (allowed && !allowed.includes(rounded)) return allowed[0] as HookVariant["level"];
+    return rounded;
+  };
   return wire.variants
     .filter((v) => v.title.trim())
     .slice(0, 5)
@@ -523,6 +533,9 @@ export type SeriesInfo = {
   correspondent?: string;
   // "Mascota en código": its name and description (the code is fetched on its own); null or missing: none.
   mascot?: MascotMeta | null;
+  // From the series' offer, and only when they are non-empty: what "Abajo" may treat as a real offer.
+  proofs?: string[];
+  landing?: string;
 };
 export type ImageProviderInfo = { id: string; label: string; available: boolean; hint: string };
 

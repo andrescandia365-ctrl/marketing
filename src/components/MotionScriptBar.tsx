@@ -5,6 +5,7 @@ import { durationChoices, type MotionPiece, type MotionScript } from "../../shar
 import type { SeriesInfo } from "../../shared/schema.ts";
 import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
 import { Button, Field, Segmented, Spinner, inputClass } from "./ui.tsx";
+import { FloorTag } from "./EmbudoPicker.tsx";
 
 type Props = {
   series: SeriesInfo;
@@ -20,16 +21,19 @@ type Props = {
   directorNote: string;
   setDirectorNote: (note: string) => void;
   applyNote: () => Promise<void>;
+  funnel?: string | null;
 };
 
-export function MotionScriptBar({ series, script, total, piece, set, busy, writeScript, handoffs, fitToTarget, directorNote, setDirectorNote, applyNote }: Props) {
+export function MotionScriptBar({ series, script, total, piece, set, busy, writeScript, handoffs, fitToTarget, directorNote, setDirectorNote, applyNote, funnel }: Props) {
   // The field keeps what is being typed. Committing on every key would drop "100" at the "1".
   const [typed, setTyped] = useState(String(piece.target));
   useEffect(() => setTyped(String(piece.target)), [piece.target]);
   return (
     <>
       <div>
-        <p className="font-mono text-xs text-muted">{series.name} · explicativo (motion graphics)</p>
+        <p className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted">
+          {series.name} · explicativo (motion graphics) <FloorTag floor={funnel} />
+        </p>
         <h2 className="text-xl font-bold tracking-tight">{script?.problem || "Explicativo sin guion todavía"}</h2>
         {script && <p className="text-sm text-muted">{script.title} · {total.toFixed(1)} s</p>}
       </div>

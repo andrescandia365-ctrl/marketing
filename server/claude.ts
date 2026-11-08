@@ -65,6 +65,7 @@ import { meter } from "./usage.ts";
 import { claudeUsage } from "../shared/usage.ts";
 import { offerOf } from "./ads.ts";
 import { offerBlock } from "../shared/ads.ts";
+import { funnelBlock, isFloor } from "../shared/funnel.ts";
 import { settleEditFrom, settleScreenShot } from "../shared/transformScreen.ts";
 import { NO_JSON, assemblePrompt, readReply, replyErrorText, type PromptOnly } from "../shared/handoff.ts";
 
@@ -197,6 +198,8 @@ function contextBlocks(brief: Brief, withTool: boolean, opts: { allScreens?: boo
       `The person makes every image and video by pasting your prompts into ${tool.name}. Write visualPrompt and videoPrompt in the format this tool profile describes, and never rely on anything it marks [NOT SURE].\n\n${tool.text}`,
     );
   }
+  // After the cache, and only when this piece picked a floor. No floor: the blocks are exactly as before.
+  if (isFloor(brief.funnel)) blocks.push(funnelBlock(brief.funnel));
   return blocks;
 }
 
@@ -488,7 +491,7 @@ ${JSON.stringify({ problem: story.problem, title: story.title, logline: story.lo
 
 Write five hook variants for this piece: the same problem and story, five different ways into it, each leaning on a different playbook move (§2.5) and naming it. Each one stops the scroll in the first 2 seconds with something concrete (the object, the number, the hour) and makes sense with no context. Punch at the problem, never at the person. Only what the series shows as real; anything unconfirmed carries [VERIFY]. Do not repeat the current hook. Say which awareness level (1–5) of the viewer each one speaks to, so the best ones can also run as paid ads.`,
       HookVariantsWireSchema,
-      normalizeHookVariants,
+      isFloor(brief.funnel) ? (wire) => normalizeHookVariants(wire, brief.funnel) : normalizeHookVariants,
   );
 }
 export const hookVariants = (brief: Brief, story: Story): Promise<HookVariant[]> => runTask(hookVariantsTask(brief, story));

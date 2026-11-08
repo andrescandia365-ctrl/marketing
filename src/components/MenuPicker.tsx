@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { TopicIdea } from "../../shared/schema.ts";
 import { Button, Field, Spinner, inputClass } from "./ui.tsx";
 import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
+import { FloorTag } from "./EmbudoPicker.tsx";
 
 type Props = {
   ideas: TopicIdea[];
@@ -9,6 +10,7 @@ type Props = {
   max: number;
   busy: boolean;
   onWrite: (topics: TopicIdea[]) => void;
+  funnel?: string | null;
   // Without a key: the story by copy and paste with claude.ai, for the chosen topics (the button shows the sample).
   handoff?: ((topics: TopicIdea[]) => Handoff) | null;
 };
@@ -16,7 +18,7 @@ type Props = {
 const BLANK: TopicIdea = { problem: "", title: "", pain: "", bad: "", good: "", peg: "", why: "Tema propio." };
 
 // Step 1: the menu. Pick the topic (a short) or up to four in order (an episode); add your own if none fits.
-export function MenuPicker({ ideas, questions, max, busy, onWrite, handoff }: Props) {
+export function MenuPicker({ ideas, questions, max, busy, onWrite, handoff, funnel }: Props) {
   const [own, setOwn] = useState<TopicIdea[]>([]);
   const [draft, setDraft] = useState<TopicIdea>(BLANK);
   const [chosen, setChosen] = useState<TopicIdea[]>([]);
@@ -38,6 +40,11 @@ export function MenuPicker({ ideas, questions, max, busy, onWrite, handoff }: Pr
 
   return (
     <div className="space-y-5">
+      {funnel && (
+        <p className="flex items-center gap-2 text-sm">
+          <FloorTag floor={funnel} />
+        </p>
+      )}
       <p className="text-sm text-muted">
         {max === 1
           ? "Elegí un tema para el corto."

@@ -7,6 +7,7 @@
 // the strict format below (parseStillPaste). With a key, the same prompt goes to the writer and its reply is read by the
 // same parser. Offers, press and testimonials only when real: otherwise [VERIFY] and the export is blocked.
 import { borrowedNames } from "./checks.ts";
+import { embudoMarkdown, funnelBlock, funnelProblems, isFloor } from "./funnel.ts";
 import { PLAIN_PHOTO, lookPhrase } from "./prompt.ts";
 import { oneLine, type Reference } from "./reference.ts";
 import type { SeriesLook } from "./series.ts";
@@ -206,7 +207,7 @@ export function notFrozen(picture: string): string[] {
 
 // ── The prompts for Opus (or the writer) and the strict format of the reply ─────────────────────────────────────────
 export type StillBrand = { name: string; type: string; what: string; audience: string; rules: string; bad: string; good: string; worksToday: string[]; practices: string[] };
-export type StillBriefBits = { product: string; angle: string; notes: string; tone: string; language: "es" | "en" };
+export type StillBriefBits = { product: string; angle: string; notes: string; tone: string; language: "es" | "en"; funnel?: string };
 
 // The keys of a concept block, in order, with what each holds. The parser reads exactly these.
 export const CONCEPT_KEYS: { key: string; field: string; required: boolean; what: string }[] = [
@@ -302,7 +303,7 @@ El foco: mostrar cómo el producto calma un dolor real de la casa y hace que se 
 ${RULES(o.brief.language)}
 
 Formato de la respuesta (estricto). ${STILL_FORMAT_HELP}
-${conceptFormatDoc()}`;
+${conceptFormatDoc()}${isFloor(o.brief.funnel) ? `\n\n${funnelBlock(o.brief.funnel)}` : ""}`;
 }
 
 // "Copiar el prompt para Opus": more words for the picked concept (QUANTITY: one picture, many texts).
@@ -545,6 +546,10 @@ export function stillChecks(o: {
   caption: string;
   references: Reference[];
   brandName: string;
+  // Missing funnel: the same checks as before.
+  funnel?: string;
+  proofs?: readonly string[];
+  landing?: string;
 }): StillProblem[] {
   const out: StillProblem[] = [];
   const add = (id: string, label: string, detail: string, blocking: boolean) => out.push({ id, label, detail, blocking });
@@ -581,16 +586,30 @@ export function stillChecks(o: {
   if (!o.watermarkWhole) add("marca-de-agua", "La marca de agua se corta", "Con «Recortar» la marca de agua quedaría fuera: usá «Cuadro completo».", true);
   if (!o.caption.trim()) add("compartir", "Falta el texto para compartir", "Escribí 1 a 3 oraciones para publicar con la imagen.", false);
   else if (GENERIC.test(o.caption)) add("compartir-generico", "Texto para compartir genérico", "Que hable de este dolor y esta casa, no frases de folleto.", false);
+  if (isFloor(o.funnel)) {
+    for (const p of funnelProblems({
+      floor: o.funnel,
+      proofs: o.proofs,
+      landing: o.landing,
+      proofOk: Boolean(c?.proofOk),
+      brandName: o.brandName,
+      openingText: o.variants[0]?.headline ?? "",
+      sellText: words.join("\n"),
+    }))
+      add(p.id, p.label, p.detail, true);
+  }
   return out;
 }
 
 // ── pieza.md ───────────────────────────────────────────────────────────────────────────────────────────────────────
-export function stillMarkdown(p: StillPiece, o: { prompt: string; variants: OverlayCopy[] }): string {
+export function stillMarkdown(p: StillPiece, o: { prompt: string; variants: OverlayCopy[]; funnel?: string }): string {
   const c = p.concepts.find((x) => x.id === p.picked) ?? null;
   if (!c) return `# Imagen fija sin concepto todavía\n${p.concepts.length ? `\n${p.concepts.length} conceptos en el menú.\n` : ""}`;
+  const embudo = embudoMarkdown(o.funnel).trim();
   const lines = [
     `# ${c.problem || c.title}`,
     "",
+    ...(embudo ? [embudo, ""] : []),
     `**${c.title}** · ${FAMILY_LABEL[c.family]}`,
     "",
     `- Dolor: ${c.pain}`,

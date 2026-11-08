@@ -331,6 +331,9 @@ const PieceBase = z.object({
   note: z.string().max(600).default(""),
   // "Que lo diga un personaje" (shared/adsSpeaker.ts): the cast character who says the line on camera. Missing: none.
   speaker: PieceSpeakerSchema.optional(),
+  // Set only when this piece was written for one floor. Old pieces have neither key.
+  funnel: z.enum(["arriba", "medio", "abajo"]).optional(),
+  funnelDismissed: z.array(z.string().max(40)).max(20).optional(),
 });
 
 export const HookSchema = PieceBase.extend({
@@ -1319,7 +1322,15 @@ export const csvCell = (v: string | number) => {
   return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 // "tipo" is video or imagen (the hooks' static versions, shared/adsStatic.ts); "formato" the length or the shape.
-export const CSV_HEAD = ["id", "archivo", "nivel", "publico", "hook", "meat", "cta", "texto_principal", "titular", "boton", "tipo", "formato", "voz_hook", "voz_meat", "voz_cta"];
+export const CSV_HEAD = ["id", "archivo", "nivel", "publico", "hook", "meat", "cta", "texto_principal", "titular", "boton", "tipo", "formato", "voz_hook", "voz_meat", "voz_cta", "embudo"];
+
+// The ad's own level, as a floor. A level outside 1–5 is an empty cell. Kept here so ads.ts does not import funnel.ts.
+export function embudoOfLevel(level: number): string {
+  if (level === 1 || level === 2) return "arriba";
+  if (level === 3) return "medio";
+  if (level === 4 || level === 5) return "abajo";
+  return "";
+}
 export function exportCsv(batch: Batch, hooks: Hook[], meats: Meat[], ctas: Cta[], media?: Record<string, AdsMedia>, seriesId?: string): string {
   const by = <T extends Piece>(list: T[]) => Object.fromEntries(list.map((p) => [p.id, p]));
   const H = by(hooks);
@@ -1344,6 +1355,7 @@ export function exportCsv(batch: Batch, hooks: Hook[], meats: Meat[], ctas: Cta[
       voiceColumn(media?.[a.hookId], a.hookVoice),
       voiceColumn(media?.[a.meatId], a.meatVoice),
       voiceColumn(media?.[a.ctaId], a.ctaVoice),
+      embudoOfLevel(a.level),
     ]
       .map(csvCell)
       .join(",");

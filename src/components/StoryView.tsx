@@ -24,10 +24,11 @@ type Props = {
   seed?: { id: number; text: string; on: boolean } | null;
   // Without a key: each writer button by copy and paste with claude.ai (the buttons show the sample).
   handoffs?: { revise: (note: string) => Handoff; fix: Handoff; board: Handoff } | null;
+  funnel?: string | null;
 };
 
 // Step 2: the story as a Good-vs-Bad script. Notes go back to Claude for another round until you approve it.
-export function StoryView({ story, round, length, busy, problems, dismissed, onRevise, onFix, onDismiss, onApprove, usedRunners = [], seed, handoffs }: Props) {
+export function StoryView({ story, round, length, busy, problems, dismissed, onRevise, onFix, onDismiss, onApprove, usedRunners = [], seed, handoffs, funnel }: Props) {
   const [note, setNote] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
   const cast = Object.fromEntries(story.characters.map((c) => [c.id, c]));
@@ -56,7 +57,7 @@ export function StoryView({ story, round, length, busy, problems, dismissed, onR
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-mono text-xs text-muted">Ronda {round}</p>
-          <PieceTitle problem={story.problem} title={story.title} />
+          <PieceTitle problem={story.problem} title={story.title} funnel={funnel} />
           <p className="text-sm text-muted">{story.logline}</p>
         </div>
         <span

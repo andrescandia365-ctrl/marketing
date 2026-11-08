@@ -5,6 +5,7 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import { join, resolve } from "node:path";
 import { APP_SKETCH, SKETCH_BASE, appSketchFile } from "../shared/prompt.ts";
 import { isMetaphorSlot, metaphorFileBase } from "../shared/metaphor.ts";
+import { floorTally, isFloor, type FloorCounts } from "../shared/funnel.ts";
 import { storyCard, type RoomCard } from "../shared/room.ts";
 import { STILL_EXPORT } from "../shared/stillLayout.ts";
 
@@ -44,6 +45,8 @@ export type ProjectSummary = {
   updatedAt: string;
   shots: number;
   hasVideo: boolean;
+  // Set only when the piece's brief names a floor. Missing: the row looks as before.
+  funnel?: "arriba" | "medio" | "abajo";
 };
 
 const TYPES: Record<string, string> = {
@@ -184,10 +187,11 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       const p = await read(name);
       const state = p.state as SavedState & {
         menu?: unknown;
-        pieceBrief?: { series?: string };
+        pieceBrief?: { series?: string; funnel?: string };
         step?: string;
         board?: { shots?: unknown[] };
       };
+      const funnel = isFloor(state.pieceBrief?.funnel) ? state.pieceBrief.funnel : undefined;
       out.push({
         id: p.id,
         title: projectTitle(state),
@@ -196,6 +200,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
         updatedAt: p.updatedAt,
         shots: state.board?.shots?.length ?? 0,
         hasVideo: Boolean(p.video || Object.keys(p.videos ?? {}).length),
+        ...(funnel ? { funnel } : {}),
       });
     } catch {
       // A folder without a readable project.json is not a project; leave it alone.
@@ -206,6 +211,29 @@ export async function listProjects(): Promise<ProjectSummary[]> {
 
 export function getProject(id: string): Promise<ProjectFile> {
   return read(id);
+}
+
+// How many saved pieces of a series sit on each floor. Stories, explainers and stills; a piece with no floor is not counted.
+export async function seriesFloorTally(seriesId: string, except = ""): Promise<FloorCounts> {
+  const floors: string[] = [];
+  let names: string[];
+  try {
+    names = await readdir(PROJECTS_DIR);
+  } catch {
+    return floorTally(floors);
+  }
+  for (const name of names) {
+    if (!ID.test(name) || name === except) continue;
+    try {
+      const p = await read(name);
+      const state = p.state as { pieceBrief?: { series?: string; funnel?: string } };
+      if (state.pieceBrief?.series !== seriesId) continue;
+      if (isFloor(state.pieceBrief.funnel)) floors.push(state.pieceBrief.funnel);
+    } catch {
+      // A folder without a readable project.json is not a piece.
+    }
+  }
+  return floorTally(floors);
 }
 
 // What earlier pieces of a series left on the writers' room board. The open piece is left out.

@@ -5,6 +5,7 @@ import type { Board, Brief, Story } from "../../shared/schema.ts";
 import { appSketchFile, buildCopyPrompt, sketchPrompt } from "../../shared/prompt.ts";
 import { BEAT_INFO, ROLE_LABEL, formatTime, timeShots, totalSeconds } from "../../shared/template.ts";
 import { editsFrom, shotFrames, type FrameSource } from "../../shared/transformScreen.ts";
+import { embudoMarkdown } from "../../shared/funnel.ts";
 
 export type LogEntry = { at: number; shot?: number; text: string; outcome?: string };
 
@@ -18,7 +19,7 @@ export function formatElapsed(ms: number): string {
   return `+${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
 }
 
-export function storyToMarkdown(story: Story): string {
+export function storyToMarkdown(story: Story, floor?: string): string {
   const cast = Object.fromEntries(story.characters.map((c) => [c.id, c]));
   const characters = story.characters
     .map((c) => `- **${c.name}** (${ROLE_LABEL[c.role]}): ${c.voice}\n  - Imagen: ${c.identity}`)
@@ -57,7 +58,7 @@ export function storyToMarkdown(story: Story): string {
   const verify = story.verify.length ? story.verify.map((v) => `- ${v}`).join("\n") : "- Nada.";
 
   return `# ${story.problem || story.title}
-${story.problem ? `\n**Gancho:** ${story.title}\n` : ""}
+${embudoMarkdown(floor)}${story.problem ? `\n**Gancho:** ${story.title}\n` : ""}
 ${story.logline}
 
 ## Personajes
@@ -154,7 +155,7 @@ export function pieceToMarkdown(
         .join("\n\n")
     : "Sin notas todavía.";
 
-  return `${storyToMarkdown(story)}
+  return `${storyToMarkdown(story, brief.funnel)}
 ## Storyboard
 
 ${board.shots.length} tomas · ${formatTime(totalSeconds(board.shots))} · ${toolName} · estilo: ${board.style}

@@ -56,6 +56,7 @@ import { brandFontsKey, ensureBrandFonts } from "../lib/fonts.ts";
 import { download, slug } from "../lib/markdown.ts";
 import { canvasBlob, drawStill, layoutOnly } from "../lib/stillDraw.ts";
 import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
+import { FloorTag } from "./EmbudoPicker.tsx";
 
 export type StillOpen = { key: string; initial: { piece: unknown } | null };
 
@@ -250,7 +251,7 @@ export function StillStudio({ projectId, brief, series, tools, initial, aiReady,
     worksToday: fields?.worksToday ?? [],
     practices: fields?.practices ?? [],
   };
-  const briefBits = { product: brief.product, angle: brief.angle, notes: brief.notes, tone: brief.tone, language: brief.language };
+  const briefBits = { product: brief.product, angle: brief.angle, notes: brief.notes, tone: brief.tone, language: brief.language, funnel: brief.funnel };
   const menuPrompt = () => stillMenuPrompt({ brand: stillBrand, brief: briefBits, references: fields?.references ?? [] });
   const copyPrompt = () => (concept ? stillCopyPrompt({ brand: stillBrand, brief: briefBits, concept }) : "");
   const imagePrompt = concept ? stillImagePrompt(concept, { look: series.look, brand: series.brand }) : "";
@@ -261,7 +262,7 @@ export function StillStudio({ projectId, brief, series, tools, initial, aiReady,
     onSaveStatus("saving");
     const timer = setTimeout(() => {
       api
-        .saveProject(projectId, { version: 1, kind: "still", step: "still", pieceBrief: brief, still: piece }, stillMarkdown(piece, { prompt: imagePrompt, variants }))
+        .saveProject(projectId, { version: 1, kind: "still", step: "still", pieceBrief: brief, still: piece }, stillMarkdown(piece, { prompt: imagePrompt, variants, funnel: brief.funnel }))
         .then(() => onSaveStatus("saved"))
         .catch((e) => {
           onSaveStatus("error");
@@ -297,7 +298,10 @@ export function StillStudio({ projectId, brief, series, tools, initial, aiReady,
     caption: piece.caption,
     references: fields?.references ?? [],
     brandName: series.name,
-  }).filter((p) => p.blocking || !piece.dismissed.includes(p.id));
+    funnel: brief.funnel,
+    proofs: series.proofs,
+    landing: series.landing,
+  }).filter((p) => (p.id.startsWith("embudo:") ? !piece.dismissed.includes(p.id) : p.blocking || !piece.dismissed.includes(p.id)));
   const blocking = problems.filter((p) => p.blocking);
   const jobs = exportJobs(variants, piece.formats, piece.fileType);
 
@@ -426,7 +430,9 @@ export function StillStudio({ projectId, brief, series, tools, initial, aiReady,
   return (
     <section className="space-y-8">
       <header className="space-y-1">
-        <h2 className="text-xl font-semibold">Imagen fija · {series.name}</h2>
+        <h2 className="flex flex-wrap items-center gap-2 text-xl font-semibold">
+          Imagen fija · {series.name} <FloorTag floor={brief.funnel} />
+        </h2>
         <p className="text-sm text-muted">
           Una sola imagen donde se encuentran el dolor y el alivio. La imagen va sin texto (Grok escribe mal); las palabras las pone la app con las letras y los colores
           de la marca.
@@ -692,7 +698,7 @@ export function StillStudio({ projectId, brief, series, tools, initial, aiReady,
               {problems.map((p) => (
                 <li key={p.id} className={p.blocking ? "text-neg" : "text-amber-700"}>
                   <b>{p.label}:</b> {p.detail}
-                  {!p.blocking && (
+                  {(!p.blocking || p.id.startsWith("embudo:")) && (
                     <Button variant="ghost" className="ml-2 px-2 py-0 text-xs" onClick={() => update({ dismissed: [...piece.dismissed, p.id] })}>
                       No es un problema
                     </Button>

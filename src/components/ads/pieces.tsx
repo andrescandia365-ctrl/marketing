@@ -23,6 +23,8 @@ import { buildCopyPrompt } from "../../../shared/prompt.ts";
 import type { Brief } from "../../../shared/schema.ts";
 import { CopyButton } from "../ScriptView.tsx";
 import { Button, Spinner, inputClass } from "../ui.tsx";
+import { FloorTag } from "../EmbudoPicker.tsx";
+import { tagFloor } from "../../../shared/funnel.ts";
 
 export type ClipFile = { url: string; blob: Blob; name: string; duration: number; from?: number };
 export type VoiceClip = ClipFile & { id: string; cutOk?: boolean };
@@ -100,13 +102,14 @@ export function LevelPicker({ value, onChange }: { value: number[]; onChange: (l
   );
 }
 
-export function StatusButtons({ status, onStatus, small = false }: { status: PieceStatus; onStatus: (s: PieceStatus) => void; small?: boolean }) {
+export function StatusButtons({ status, onStatus, small = false, approveDisabled = false }: { status: PieceStatus; onStatus: (s: PieceStatus) => void; small?: boolean; approveDisabled?: boolean }) {
   const cls = small ? "px-2 py-1 text-xs" : "px-3 py-1.5 text-sm";
   return (
     <div className="inline-flex rounded-lg border border-line bg-white p-0.5">
       <button
         type="button"
         onClick={() => onStatus("approved")}
+        disabled={approveDisabled}
         className={`rounded-md font-semibold ${cls} ${status === "approved" ? "bg-good text-white" : "text-muted hover:text-good"}`}
       >
         Sí
@@ -179,6 +182,9 @@ type CardProps = {
   onMakeExplainer?: () => void;
   // "Que lo diga un personaje" (SpeakerPanel), shown under the clip buttons in Producción.
   speakerPanel?: ReactNode;
+  // Open embudo checks for a piece that was written on a floor. Empty for every older piece.
+  notices?: { id: string; detail: string }[];
+  onDismissNotice?: (id: string) => void;
 };
 
 function PlayVoice({ url }: { url: string }) {
@@ -419,6 +425,8 @@ export function PieceCard({
   explainer,
   onMakeExplainer,
   speakerPanel,
+  notices = [],
+  onDismissNotice,
 }: CardProps) {
   const voices = [...(media?.voices ?? [])].sort((a, b) => voiceNumber(a.id) - voiceNumber(b.id));
   const longVoice = voices.find((v) => !v.cutOk && voiceLengthWarning(voiceNumber(v.id), v.duration, piece.seconds));
@@ -473,10 +481,11 @@ export function PieceCard({
             {piece.kind === "meat" && <Tag title="Formato">{MEAT_FORMAT_LABEL[piece.format]}</Tag>}
           </>
         )}
+        <FloorTag floor={piece.funnel ?? tagFloor(piece.kind === "hook" ? [piece.level] : piece.levels)} />
         <WordsBadge text={piece.text} seconds={piece.seconds} />
         <span className="ml-auto flex items-center gap-2">
           {stats}
-          <StatusButtons status={piece.status} onStatus={onStatus} small />
+          <StatusButtons status={piece.status} onStatus={onStatus} small approveDisabled={notices.length > 0} />
         </span>
       </div>
 
@@ -498,6 +507,14 @@ export function PieceCard({
       ) : (
         <p className="mt-2 text-sm leading-snug">{piece.text}</p>
       )}
+      {notices.map((n) => (
+        <p key={n.id} className="mt-2 text-sm text-neg">
+          {n.detail}{" "}
+          <button type="button" className="font-semibold underline" onClick={() => onDismissNotice?.(n.id)}>
+            No es un problema
+          </button>
+        </p>
+      ))}
       {piece.kind === "cta" && !editing && (
         <p className="mt-1 text-xs text-muted">
           <b>Qué:</b> {piece.what} · <b>Por qué:</b> {piece.why} · <b>Cuándo:</b> {piece.when} · <b>Fácil:</b> {piece.easy}

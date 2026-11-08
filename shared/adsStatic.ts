@@ -10,6 +10,7 @@ import {
   LEVEL_INFO,
   copyKey,
   csvCell,
+  embudoOfLevel,
   exportCsv,
   type AdsMedia,
   type Batch,
@@ -252,6 +253,7 @@ export function staticRows(o: {
         "",
         "",
         "",
+        embudoOfLevel(h.level),
       ]);
     }
   }

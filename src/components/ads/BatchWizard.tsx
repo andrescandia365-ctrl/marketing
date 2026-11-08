@@ -2,7 +2,9 @@
 // combinations with an approval pause at each stage. The stages live in the tabs; this is the bar that drives them.
 import { useState } from "react";
 import { LEVEL_INFO, MEAT_FORMAT_LABEL, levelsOf, splitIssue, suggestedSeconds, type Budget } from "../../../shared/ads.ts";
+import { exactFloor, levelsOf as floorLevels } from "../../../shared/funnel.ts";
 import { Button, Field, Spinner } from "../ui.tsx";
+import { EmbudoPicker } from "../EmbudoPicker.tsx";
 import { AdLength } from "./AdLength.tsx";
 import { LevelPicker } from "./pieces.tsx";
 
@@ -113,6 +115,7 @@ export function BatchWizard({ wizard, defaults, counts, busy, onStart, onNext, o
       {open && (
         <div className="mt-3 grid gap-4 border-t border-line pt-3 md:grid-cols-[1fr_auto]">
           <div className="space-y-3">
+            <EmbudoPicker value={exactFloor(draft.levels)} onPick={(floor) => setLevels(floor ? floorLevels(floor) : [])} />
             <Field label="Niveles de conciencia" hint="Uno, varios o todos. Cada nivel trae una receta de meats por defecto." group>
               <LevelPicker value={draft.levels} onChange={setLevels} />
               <p className="mt-1 text-xs text-muted">

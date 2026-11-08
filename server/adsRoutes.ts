@@ -2,6 +2,7 @@
 // batches. State lives in publicidad/<series>/campana.json (ads.ts); the writer is adsWriter.ts.
 import type { Hono } from "hono";
 import { z } from "zod";
+import { floorCovers, isFloor, type Floor } from "../shared/funnel.ts";
 import {
   AD_MAX_SECONDS,
   AdComboSchema,
@@ -42,6 +43,13 @@ import {
   type Batch,
   type Piece,
 } from "../shared/ads.ts";
+
+function attachFunnel<T extends object>(pieces: T[], funnel: Floor | undefined): T[] {
+  return funnel ? pieces.map((p) => ({ ...p, funnel })) : pieces;
+}
+function funnelFor(funnel: unknown, levels: readonly number[]): Floor | undefined {
+  return isFloor(funnel) && floorCovers(funnel, levels) ? funnel : undefined;
+}
 import {
   PIECE_ID,
   VOICE_ID,
@@ -394,7 +402,7 @@ export function adsRoutes(app: Hono) {
   // Hooks: measured winners go in as patterns. Organic hooks without enough impressions are listed apart, not as winners.
   app.post("/api/ads/:series/hooks", async (c) => {
     const id = series(c);
-    const { levels, count, seconds, tool, language, handoff, part, split, variant, minImpressions } = z
+    const { levels, count, seconds, tool, language, handoff, part, split, variant, minImpressions, funnel } = z
       .object({
         levels: Levels,
         count: z.number().int().min(1).max(60),
@@ -408,6 +416,8 @@ export function adsRoutes(app: Hono) {
         variant: z.object({ id: z.string().regex(/^H\d{1,4}$/), count: z.number().int().min(1).max(20) }).optional(),
         // The floor is the person's own setting (Fuentes / Próxima tanda). It defaults to MIN_IMPRESSIONS and is never below 1.
         minImpressions: z.number().int().min(1).max(1_000_000_000).optional(),
+        // Embudo. Named funnel: `floor` below is the impression minimum.
+        funnel: z.enum(["arriba", "medio", "abajo"]).optional(),
       })
       .parse(await c.req.json());
     const hookSeconds = shareFor("hook", seconds, split);
@@ -456,15 +466,17 @@ export function adsRoutes(app: Hono) {
           existing,
           language,
         };
-    if (handoff?.mode === "prompt") return c.json({ ...taskPrompt(hooksTask(id, state0.offer, tool, req)), ...partInfo(one) });
+    const picked = funnelFor(funnel, req.levels);
+    const asked = picked ? { ...req, funnel: picked } : req;
+    if (handoff?.mode === "prompt") return c.json({ ...taskPrompt(hooksTask(id, state0.offer, tool, asked)), ...partInfo(one) });
     const wire =
       handoff?.mode === "paste"
-        ? taskFromPaste(hooksTask(id, state0.offer, tool, req), handoff.reply)
+        ? taskFromPaste(hooksTask(id, state0.offer, tool, asked), handoff.reply)
         : demo()
-          ? sampleHooks(req)
-          : await writeHooks(id, state0.offer, tool, req);
+          ? sampleHooks(asked)
+          : await writeHooks(id, state0.offer, tool, asked);
     const { state, result } = await updateAds(id, (s) => {
-      const hooks = hooksFromWire(s, wire, hookSeconds, "ai");
+      const hooks = attachFunnel(hooksFromWire(s, wire, hookSeconds, "ai"), picked);
       s.hooks.push(...hooks);
       return hooks;
     });
@@ -487,7 +499,7 @@ export function adsRoutes(app: Hono) {
 
   app.post("/api/ads/:series/meats", async (c) => {
     const id = series(c);
-    const { levels, formats, count, seconds, tool, language, handoff, part, split } = z
+    const { levels, formats, count, seconds, tool, language, handoff, part, split, funnel } = z
       .object({
         levels: Levels,
         formats: z.array(z.enum(MEAT_FORMATS)).max(5).default([]),
@@ -498,6 +510,7 @@ export function adsRoutes(app: Hono) {
         handoff: Handoff,
         part: Part,
         split: SplitBody,
+        funnel: z.enum(["arriba", "medio", "abajo"]).optional(),
       })
       .parse(await c.req.json());
     const meatSeconds = shareFor("meat", seconds, split);
@@ -513,15 +526,17 @@ export function adsRoutes(app: Hono) {
       hooks: state0.hooks.filter((h) => h.status === "approved" && lv.includes(h.level)).slice(0, 20),
       language,
     };
-    if (handoff?.mode === "prompt") return c.json({ ...taskPrompt(meatsTask(id, state0.offer, tool, req)), ...partInfo(one) });
+    const picked = funnelFor(funnel, req.levels);
+    const asked = picked ? { ...req, funnel: picked } : req;
+    if (handoff?.mode === "prompt") return c.json({ ...taskPrompt(meatsTask(id, state0.offer, tool, asked)), ...partInfo(one) });
     const wire =
       handoff?.mode === "paste"
-        ? taskFromPaste(meatsTask(id, state0.offer, tool, req), handoff.reply)
+        ? taskFromPaste(meatsTask(id, state0.offer, tool, asked), handoff.reply)
         : demo()
-          ? sampleMeats(req)
-          : await writeMeats(id, state0.offer, tool, req);
+          ? sampleMeats(asked)
+          : await writeMeats(id, state0.offer, tool, asked);
     const { state, result } = await updateAds(id, (s) => {
-      const meats = meatsFromWire(s, wire, meatSeconds, "", lv);
+      const meats = attachFunnel(meatsFromWire(s, wire, meatSeconds, "", lv), picked);
       s.meats.push(...meats);
       return meats;
     });
@@ -530,23 +545,35 @@ export function adsRoutes(app: Hono) {
 
   app.post("/api/ads/:series/ctas", async (c) => {
     const id = series(c);
-    const { levels, count, seconds, tool, language, handoff, part, split } = z
-      .object({ levels: Levels, count: z.number().int().min(1).max(5), seconds: Seconds, tool: z.string().max(60), language: Lang, handoff: Handoff, part: Part, split: SplitBody })
+    const { levels, count, seconds, tool, language, handoff, part, split, funnel } = z
+      .object({
+        levels: Levels,
+        count: z.number().int().min(1).max(5),
+        seconds: Seconds,
+        tool: z.string().max(60),
+        language: Lang,
+        handoff: Handoff,
+        part: Part,
+        split: SplitBody,
+        funnel: z.enum(["arriba", "medio", "abajo"]).optional(),
+      })
       .parse(await c.req.json());
     const ctaSeconds = shareFor("cta", seconds, split);
     const state0 = await loadAds(id);
     const lv = levelsOf(levels);
     const one = handoff ? partOf(countParts("cta", count), part) : null;
     const req = { levels: lv, count: one?.count ?? count, seconds, ...(split && { split }), hooks: state0.hooks.filter((h) => h.status === "approved" && lv.includes(h.level)).slice(0, 20), language };
-    if (handoff?.mode === "prompt") return c.json({ ...taskPrompt(ctasTask(id, state0.offer, tool, req)), ...partInfo(one) });
+    const picked = funnelFor(funnel, req.levels);
+    const asked = picked ? { ...req, funnel: picked } : req;
+    if (handoff?.mode === "prompt") return c.json({ ...taskPrompt(ctasTask(id, state0.offer, tool, asked)), ...partInfo(one) });
     const wire =
       handoff?.mode === "paste"
-        ? taskFromPaste(ctasTask(id, state0.offer, tool, req), handoff.reply)
+        ? taskFromPaste(ctasTask(id, state0.offer, tool, asked), handoff.reply)
         : demo()
-          ? sampleCtas(req)
-          : await writeCtas(id, state0.offer, tool, req);
+          ? sampleCtas(asked)
+          : await writeCtas(id, state0.offer, tool, asked);
     const { state, result } = await updateAds(id, (s) => {
-      const ctas = ctasFromWire(s, wire, ctaSeconds, lv);
+      const ctas = attachFunnel(ctasFromWire(s, wire, ctaSeconds, lv), picked);
       s.ctas.push(...ctas);
       return ctas;
     });
@@ -570,6 +597,8 @@ export function adsRoutes(app: Hono) {
         format: z.enum(MEAT_FORMATS).optional(),
         // "Que lo diga un personaje": null takes it away.
         speaker: PieceSpeakerSchema.nullable().optional(),
+        // Dismissing an embudo check does not change the picture, so the cached render stays.
+        funnelDismissed: z.array(z.string().max(40)).max(20).optional(),
       })
       .parse(await c.req.json());
     const { state } = await updateAds(id, async (s) => {
@@ -594,6 +623,7 @@ export function adsRoutes(app: Hono) {
         else delete piece.speaker;
         changed = true;
       }
+      if (patch.funnelDismissed) piece.funnelDismissed = patch.funnelDismissed;
       if (changed) await dropPictureRenders(id, s, pieceId);
     });
     return c.json({ state });
@@ -897,13 +927,14 @@ export function adsRoutes(app: Hono) {
   // A batch: the combinations (code) and the platform texts (one writer call per 50 hook+CTA pairs).
   app.post("/api/ads/:series/batches", async (c) => {
     const id = series(c);
-    const { seconds, mode, rules, ads, copies: pasted, split } = z
+    const { seconds, mode, rules, ads, copies: pasted, split, funnel } = z
       .object({
         seconds: Seconds,
         split: SplitBody,
         mode: z.enum(["full", "stage"]),
         rules: CombineRulesSchema,
         ads: z.array(AdComboSchema).min(1).max(1000),
+        funnel: z.enum(["arriba", "medio", "abajo"]).optional(),
         // The platform texts already pasted from claude.ai ("Sin clave"), by pair key; the rest are written here.
         // Each carries the sig of the hook + CTA text it was written for; a stale one is written again.
         copies: z.record(z.string(), PastedCopySchema).optional(),
@@ -925,12 +956,13 @@ export function adsRoutes(app: Hono) {
       throw new AdsError(`Esta tanda (${ads.length}) pasa el límite semanal: ya van ${week} de ${state0.weeklyLimit}. Subí el límite o achicá la tanda.`);
     }
     const pairs = copyPairs(ads, state0.hooks, state0.ctas);
+    const picked = funnelFor(funnel, pairs.map((p) => p.level)) && pairs.every((p) => floorCovers(funnel, [p.level])) ? funnel : undefined;
     const copies: Batch["copies"] = freshCopies(pairs, pasted);
     for (const chunk of copyChunks(
       pairs.filter((p) => !copies[p.key]),
       COPIES_PER_CALL,
     )) {
-      const wire = demo() ? sampleCopies(chunk) : await writeCopies(id, state0.offer, chunk);
+      const wire = demo() ? sampleCopies(chunk) : await writeCopies(id, state0.offer, chunk, isFloor(picked) ? picked : undefined);
       Object.assign(copies, copiesFromWire(wire, chunk.map((p) => p.key)));
     }
     const stamp = new Date();
@@ -958,14 +990,22 @@ export function adsRoutes(app: Hono) {
   // the studio keeps the pasted texts and sends them with the run (POST .../batches, `copies`).
   app.post("/api/ads/:series/copies", async (c) => {
     const id = series(c);
-    const { ads, part, handoff } = z.object({ ads: z.array(AdComboSchema).min(1).max(1000), part: Part, handoff: HandoffSchema }).parse(await c.req.json());
+    const { ads, part, handoff, funnel } = z
+      .object({
+        ads: z.array(AdComboSchema).min(1).max(1000),
+        part: Part,
+        handoff: HandoffSchema,
+        funnel: z.enum(["arriba", "medio", "abajo"]).optional(),
+      })
+      .parse(await c.req.json());
     const state0 = await loadAds(id);
     const chunks = copyChunks(copyPairs(ads, state0.hooks, state0.ctas));
     if (!chunks.length) throw new AdsError("Esas combinaciones no tienen hooks ni CTAs que existan.");
     const at = Math.min(chunks.length, part) - 1;
     const chunk = chunks[at];
     const info = { part: at + 1, parts: chunks.length, keys: chunk.map((p) => p.key) };
-    const make = () => copiesTask(id, state0.offer, chunk);
+    const picked = isFloor(funnel) && chunk.every((p) => floorCovers(funnel, [p.level])) ? funnel : undefined;
+    const make = () => copiesTask(id, state0.offer, chunk, picked);
     if (handoff.mode === "prompt") return c.json({ ...taskPrompt(make()), ...info });
     const copies = withSigs(copiesFromWire(taskFromPaste(make(), handoff.reply), info.keys), chunk);
     if (!Object.keys(copies).length) throw new AdsError("La respuesta no trae textos para estos pares: fijate que cada uno tenga su «key» (por ejemplo H1-C1) tal como venía en el prompt.");

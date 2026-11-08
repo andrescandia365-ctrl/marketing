@@ -18,6 +18,8 @@ import {
 } from "../../../shared/ads.ts";
 import { promptCount } from "../../../shared/adsHandoff.ts";
 import type { Handoff } from "../ClaudeHandoff.tsx";
+import { exactFloor, levelsOf as floorLevels } from "../../../shared/funnel.ts";
+import { EmbudoPicker } from "../EmbudoPicker.tsx";
 import { Button, Notice, Spinner } from "../ui.tsx";
 import { PartsHandoff } from "./PartsHandoff.tsx";
 import { rememberCount, rememberedCount, takePreset } from "../../lib/handoffWalk.ts";
@@ -74,6 +76,7 @@ export function PiecesPanel<T extends Meat | Cta>({ kind, pieces, hooks, levels,
       <div className="rounded-xl border border-line bg-white p-4">
         <div className="flex flex-wrap items-end gap-4">
           <div className="space-y-1.5">
+            <EmbudoPicker value={exactFloor(levels)} onPick={(floor) => onLevels(floor ? floorLevels(floor) : [])} />
             <p className="text-sm font-semibold">Niveles</p>
             <LevelPicker value={levels} onChange={onLevels} />
           </div>

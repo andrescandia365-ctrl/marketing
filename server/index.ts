@@ -63,6 +63,7 @@ import { LyricsError, autoSyncAvailable, hearSong } from "./lyrics.ts";
 import { BrandWebError, bringPictures, fetchLogo, guessBrand, readBrandSite } from "./brandWeb.ts";
 import { ClockError } from "../shared/clock.ts";
 import { roomBrief } from "../shared/room.ts";
+import { floorTallyWriter, isFloor } from "../shared/funnel.ts";
 import { buildProjectSync, critiqueProject, loadSync } from "./sync.ts";
 import { checkDemucsBin, demucsAvailable, demucsStatus, separate, speechWav, tryDemucs } from "./demucs.ts";
 import { decodeWav, fitKicks } from "../shared/clock.ts";
@@ -105,6 +106,7 @@ import {
   getProject,
   listProjects,
   listRoom,
+  seriesFloorTally,
   readProjectFile,
   removeMedia,
   removeMusic,
@@ -159,7 +161,7 @@ import { SCREEN_VIDEO_MAX_BYTES } from "../shared/screenVideo.ts";
 import { createReadStream, createWriteStream, rmSync as removeFile } from "node:fs";
 import { Readable } from "node:stream";
 import { listTools, referenceLimit } from "./tools.ts";
-import { AdsError } from "./ads.ts";
+import { AdsError, offerProof } from "./ads.ts";
 import { checkErrorText } from "../shared/errors.ts";
 import { CODE_MAX_CHARS } from "../shared/codeScene.ts";
 import { MAX_ZIP_TOTAL, exportProjectZip, importProjectZip } from "./projectZip.ts";
@@ -258,7 +260,14 @@ app.get("/api/status", (c) => {
     writer: writer && { label: writer.label, model: writer.model },
     imageProviders: listProviders(),
     tools: listTools(),
-    series: listSeries(),
+    series: listSeries().map((s) => {
+      const proof = offerProof(s.id);
+      return {
+        ...s,
+        ...(proof.proofs.length ? { proofs: proof.proofs } : {}),
+        ...(proof.landing ? { landing: proof.landing } : {}),
+      };
+    }),
     projectsDir: PROJECTS_DIR,
     voice: { available: voiceAvailable(), defaultVoice: DEFAULT_VOICE },
     lyrics: { autoSync: autoSyncAvailable() },
@@ -1386,7 +1395,12 @@ app.post("/api/story", async (c) => {
       handoff: HandoffField,
     })
     .parse(await c.req.json());
-  const room = handoff || !demo() ? roomBrief(await listRoom(brief.series, projectId)) : "";
+  const room =
+    handoff || !demo()
+      ? isFloor(brief.funnel)
+        ? roomBrief(await listRoom(brief.series, projectId), undefined, floorTallyWriter(await seriesFloorTally(brief.series, projectId)))
+        : roomBrief(await listRoom(brief.series, projectId))
+      : "";
   return c.json(await viaWriter(handoff, () => storyTask(brief, topics, room, note), () => ({ story: demoStory(brief) }), (story) => ({ story })));
 });
 
@@ -1400,7 +1414,12 @@ app.post("/api/story/revise", async (c) => {
       handoff: HandoffField,
     })
     .parse(await c.req.json());
-  const room = handoff || !demo() ? roomBrief(await listRoom(brief.series, projectId)) : "";
+  const room =
+    handoff || !demo()
+      ? isFloor(brief.funnel)
+        ? roomBrief(await listRoom(brief.series, projectId), undefined, floorTallyWriter(await seriesFloorTally(brief.series, projectId)))
+        : roomBrief(await listRoom(brief.series, projectId))
+      : "";
   return c.json(await viaWriter(handoff, () => reviseStoryTask(brief, story, note, room), () => ({ story }), (revised) => ({ story: revised })));
 });
 

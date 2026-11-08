@@ -13,6 +13,8 @@ type Props = {
   busy: boolean;
   onRetake?: (note: string) => void;
   onClear: () => void;
+  // "arriba 7 · medio 2 · abajo 0", only when some piece of the series has a floor.
+  tally?: string | null;
 };
 
 const TONE = {
@@ -36,7 +38,7 @@ const BAR = {
 } as const;
 
 // The wall of the writers' room: what the other episodes left, newest debt first, season oldest first.
-export function WritersRoom({ seriesName, cards, notes, showBanner, busy, onRetake, onClear }: Props) {
+export function WritersRoom({ seriesName, cards, notes, showBanner, busy, onRetake, onClear, tally }: Props) {
   const season = [...cards].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
   const teases = cards.filter((c) => c.tease);
   const loops = cards.flatMap((c) => c.open.map((question) => ({ card: c, question })));
@@ -52,6 +54,7 @@ export function WritersRoom({ seriesName, cards, notes, showBanner, busy, onReta
         <span className="font-mono text-xs text-muted">{seriesName}</span>
       </div>
       <p className="mt-1 text-xs text-muted">Lo que las otras piezas dejaron para esta.</p>
+      {tally && <p className="mt-1 font-mono text-xs text-muted">Embudo de la serie: {tally}</p>}
       {cards.length > 0 && (
         <ul className="mt-2 flex flex-wrap gap-1.5">
           <Count n={teases.length} label="para el próximo" tone="touch" />

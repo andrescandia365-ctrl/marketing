@@ -1,4 +1,5 @@
 import { Component, Suspense, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { FLOOR_INFO, isFloor } from "../../shared/funnel.ts";
 import type { Beat, Role } from "../../shared/schema.ts";
 import { BEAT_INFO } from "../../shared/template.ts";
 
@@ -136,11 +137,16 @@ export function Lazy({ children }: { children: ReactNode }) {
 }
 
 // Every piece is named by the problem it solves; the hook title comes second. Older pieces have no problem.
-export function PieceTitle({ problem, title }: { problem: string; title: string }) {
-  if (!problem) return <h2 className="text-xl font-bold tracking-tight">{title}</h2>;
+export function PieceTitle({ problem, title, funnel }: { problem: string; title: string; funnel?: string | null }) {
+  const tag = isFloor(funnel) ? (
+    <span className="ml-2 align-middle rounded border border-line bg-paper px-1.5 py-0.5 text-xs font-normal text-muted" title={`${funnel}: ${FLOOR_INFO[funnel].purpose}`}>
+      {FLOOR_INFO[funnel].label}
+    </span>
+  ) : null;
+  if (!problem) return <h2 className="text-xl font-bold tracking-tight">{title}{tag}</h2>;
   return (
     <>
-      <h2 className="text-xl font-bold tracking-tight">{problem}</h2>
+      <h2 className="text-xl font-bold tracking-tight">{problem}{tag}</h2>
       <p className="text-sm font-semibold">
         <span className="font-normal text-muted">Gancho: </span>
         {title}

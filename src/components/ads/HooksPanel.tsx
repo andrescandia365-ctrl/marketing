@@ -6,6 +6,8 @@ import type { Handoff } from "../ClaudeHandoff.tsx";
 import { Button, Spinner } from "../ui.tsx";
 import { PartsHandoff } from "./PartsHandoff.tsx";
 import { rememberCount, rememberedCount, takePreset } from "../../lib/handoffWalk.ts";
+import { exactFloor, levelsOf as floorLevels } from "../../../shared/funnel.ts";
+import { EmbudoPicker } from "../EmbudoPicker.tsx";
 import { LevelChip, LevelPicker, Tag, WordsBadge } from "./pieces.tsx";
 
 type Props = {
@@ -83,6 +85,7 @@ export function HooksPanel({ hooks, levels, seconds, split, busy, demo, note, on
       <div className="rounded-xl border border-line bg-white p-4">
         <div className="flex flex-wrap items-end gap-4">
           <div className="space-y-1.5">
+            <EmbudoPicker value={exactFloor(levels)} onPick={(floor) => onLevels(floor ? floorLevels(floor) : [])} />
             <p className="text-sm font-semibold">Niveles de conciencia</p>
             <LevelPicker value={levels} onChange={onLevels} />
             <p className="text-xs text-muted">Los hooks se reparten entre los niveles elegidos, o se concentran en uno solo.</p>

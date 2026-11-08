@@ -476,7 +476,7 @@ export function CombinePanel({
           </ul>
         )}
         <p className="mt-2 text-xs text-muted">
-          El CSV trae id, archivo, nivel, público (fría / retargeting), hook, meat, CTA, texto principal, titular, botón, tipo, formato, voz_hook, voz_meat y voz_cta (el nombre de cada voz, para cruzar el tono que ganó con las métricas). El id nombra la voz por su lugar (v1, v2): si después borrás v1, H3v1 sigue siendo esa voz y no pasa a la que quedó. Los números no se reusan. Las versiones estáticas de los hooks de la tanda («Estáticos») van al final, como imagen, con su archivo en estaticos/. Si exportás estáticos después, volvé a descargar el CSV. Al subir el reporte de la plataforma con esos nombres, las métricas vuelven a cada pieza solas.
+          El CSV trae id, archivo, nivel, público (fría / retargeting), hook, meat, CTA, texto principal, titular, botón, tipo, formato, voz_hook, voz_meat, voz_cta y embudo (el piso del nivel: arriba, medio o abajo; vacío si el nivel no entra en ninguno). El id nombra la voz por su lugar (v1, v2): si después borrás v1, H3v1 sigue siendo esa voz y no pasa a la que quedó. Los números no se reusan. Las versiones estáticas de los hooks de la tanda («Estáticos») van al final, como imagen, con su archivo en estaticos/. Si exportás estáticos después, volvé a descargar el CSV. Al subir el reporte de la plataforma con esos nombres, las métricas vuelven a cada pieza solas.
         </p>
       </div>
     </section>
