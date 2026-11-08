@@ -4,6 +4,8 @@ import { LENGTHS } from "../../shared/template.ts";
 import { SEGMENT_HINT, SEGMENT_LABEL, SEGMENTS } from "../../shared/segment.ts";
 import { seriesCorrespondent } from "../../shared/series.ts";
 import { Button, Field, Segmented, inputClass } from "./ui.tsx";
+import { EmbudoPicker } from "./EmbudoPicker.tsx";
+import type { Floor } from "../../shared/funnel.ts";
 
 type Props = {
   brief: Brief;
@@ -87,6 +89,21 @@ export function BriefForm({ brief, series, tools, onChange, onEditSeries, onNewS
             ]}
           />
         </Field>
+      </div>
+
+      <div className="md:col-span-2">
+        <EmbudoPicker
+          value={brief.funnel}
+          showExact
+          onPick={(floor: Floor | null) => {
+            if (!floor) {
+              const { funnel: _drop, ...rest } = brief;
+              onChange(rest);
+              return;
+            }
+            onChange({ ...brief, funnel: floor });
+          }}
+        />
       </div>
 
       {!explainer && !still && (

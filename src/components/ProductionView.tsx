@@ -286,7 +286,7 @@ export function ProductionView({
       <div className="min-w-0 space-y-4">
         <div>
           <p className="font-mono text-xs text-muted">{pieceSeries?.name ?? ""}</p>
-          <PieceTitle problem={story.problem} title={story.title} />
+          <PieceTitle problem={story.problem} title={story.title} funnel={pieceBrief.funnel} />
           <p className="text-sm text-muted">{story.logline}</p>
         </div>
         <Timeline board={board} />

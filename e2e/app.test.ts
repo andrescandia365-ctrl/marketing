@@ -116,6 +116,19 @@ describe("recorrido de la app", { concurrency: 1 }, () => {
     }
   });
 
+  test("Brief en Abajo: el ejemplo avisa que falta una prueba o una oferta real", async () => {
+    const page = await openPage(app);
+    try {
+      await page.getByRole("button", { name: /abajo, Decidir/ }).click();
+      await page.getByRole("button", { name: "Ver un ejemplo", exact: true }).click();
+      await page.getByRole("button", { name: /Quedarse sin mercadería a la tarde/ }).click();
+      await page.getByRole("button", { name: "Ver un ejemplo", exact: true }).click();
+      await page.getByText(/falta una prueba confirmada o una oferta real/).waitFor();
+    } finally {
+      await page.context().close();
+    }
+  });
+
   test("un explicativo de ejemplo muestra la vista previa, los checks y la portada", async () => {
     const page = await openPage(app);
     try {

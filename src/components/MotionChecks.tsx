@@ -37,9 +37,10 @@ type Props = {
   openCode?: CodeIssue[];
   // "Escenas metáfora": scenes still waiting for their picture from Grok (they block the render).
   openMetaphor?: MetaphorIssue[];
+  openFunnel?: { id: string; label: string; detail: string }[];
 };
 
-export function MotionChecks({ scenes, piece, set, seek, setSelected, updateScene, openReading, openFigures, openConcepts, openGaps, gapKey, posterRef, posterT, timeRef, vertical, openCode = [], openMetaphor = [] }: Props) {
+export function MotionChecks({ scenes, piece, set, seek, setSelected, updateScene, openReading, openFigures, openConcepts, openGaps, gapKey, posterRef, posterT, timeRef, vertical, openCode = [], openMetaphor = [], openFunnel = [] }: Props) {
   return (
     <>
       {openMetaphor.length > 0 && (
@@ -231,6 +232,24 @@ export function MotionChecks({ scenes, piece, set, seek, setSelected, updateScen
           </div>
         </div>
       </div>
+
+      {openFunnel.length > 0 && (
+        <div className="rounded-xl border border-neg/40 bg-neg-soft p-3 text-sm">
+          <p className="font-semibold text-neg">Embudo: no se puede generar hasta arreglarlo o marcarlo como que no es un problema.</p>
+          <ul className="mt-1 space-y-1">
+            {openFunnel.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  <b>{p.label}:</b> {p.detail}
+                </span>
+                <button type="button" className="text-xs font-semibold text-muted hover:text-ink" onClick={() => set({ dismissed: [...piece.dismissed, p.id] })}>
+                  No es un problema
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className={`rounded-xl border p-3 text-sm ${openGaps.length ? "border-neg/40 bg-neg-soft" : "border-good/30 bg-good-soft"}`}>
         {openGaps.length ? (

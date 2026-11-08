@@ -114,6 +114,16 @@ export function offerOf(series: string): Offer | null {
   return offerFilled(offer) ? offer : null;
 }
 
+// Proofs and landing for the embudo check, including an offer that is not filled in (writers still see null).
+export function offerProof(series: string): { proofs: string[]; landing: string } {
+  offerOf(series);
+  const offer = offers.get(series);
+  return {
+    proofs: (offer?.proofs ?? []).map((p) => p.trim()).filter(Boolean),
+    landing: (offer?.landing ?? "").trim(),
+  };
+}
+
 async function write(series: string, state: AdsState) {
   const dir = folder(series);
   await mkdir(dir, { recursive: true });

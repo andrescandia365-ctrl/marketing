@@ -1,6 +1,7 @@
 import { lazy, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_AUDIO, voiceModeOf, type AudioSettings } from "../shared/audio.ts";
 import { boardProblems, fixNote, storyProblems, type Problem } from "../shared/checks.ts";
+import { shownTally } from "../shared/funnel.ts";
 import { SKETCH_BASE } from "../shared/prompt.ts";
 import { EMPTY_BRIEF, EXAMPLE_BRIEF } from "../shared/example.ts";
 import { migrateBoard, migrateStory, type Board, type Brief, type HookVariant, type Menu, type Status, type Story, type TopicIdea } from "../shared/schema.ts";
@@ -208,7 +209,7 @@ export function App() {
         story && board
           ? pieceToMarkdown(pieceBrief, story, board, toolName, log, audio, { uploaded: sketchUploads })
           : story
-            ? storyToMarkdown(story)
+            ? storyToMarkdown(story, pieceBrief.funnel)
             : undefined;
       return { state, markdown };
     },
@@ -662,8 +663,25 @@ export function App() {
   const maxTopics = pieceBrief.length === "short" ? 1 : 4;
   const open = (p: Problem) => !dismissed.includes(p.id);
   const usedRunners = room.flatMap((c) => (c.runner ? [{ bit: c.runner, problem: c.problem }] : []));
-  const storyIssues = story ? storyProblems(story, pieceBrief, usedRunners) : [];
-  const boardIssues = board ? boardProblems(board, Object.fromEntries((pieceSeries?.cast ?? []).map((m) => [m.id, m.kind]))) : [];
+  const funnelFacts = pieceBrief.funnel
+    ? { floor: pieceBrief.funnel, proofs: pieceSeries?.proofs, landing: pieceSeries?.landing, brandName: pieceSeries?.name }
+    : undefined;
+  const storyIssues = story ? storyProblems(story, pieceBrief, usedRunners, funnelFacts) : [];
+  const firstShot = board?.shots[0];
+  const boardIssues = board
+    ? boardProblems(
+        board,
+        Object.fromEntries((pieceSeries?.cast ?? []).map((m) => [m.id, m.kind])),
+        funnelFacts
+          ? {
+              ...funnelFacts,
+              openingText: [firstShot?.voiceover, firstShot?.onScreenText].filter(Boolean).join(" "),
+              sellText: board.shots.flatMap((s) => [s.voiceover, s.onScreenText]).join("\n"),
+              brandSpeaksFirst: story?.characters.find((c) => c.id === firstShot?.speaker)?.role === "good",
+            }
+          : undefined,
+      )
+    : [];
   const roomSeriesId = step === "brief" ? brief.series : pieceBrief.series;
   const roomSeriesInfo = status?.series.find((s) => s.id === roomSeriesId);
   const showRoom =
@@ -682,6 +700,7 @@ export function App() {
       busy={busy !== null}
       onRetake={step === "board" ? undefined : retake}
       onClear={() => setRoomNotes([])}
+      tally={shownTally(projects.filter((p) => p.series === roomSeriesId).map((p) => p.funnel))}
     />
   ) : null;
 
@@ -962,6 +981,7 @@ export function App() {
               ideas={menu.ideas}
               questions={menu.questions}
               max={maxTopics}
+              funnel={pieceBrief.funnel}
               busy={busy === "story"}
               onWrite={(topics) => writeStory(topics)}
               handoff={
@@ -993,6 +1013,7 @@ export function App() {
               onFix={() => reviseStory(fixNote(storyIssues.filter(open)), "fixStory")}
               onDismiss={dismiss}
               onApprove={() => makeBoard()}
+              funnel={pieceBrief.funnel}
               handoffs={
                 noKey
                   ? {
@@ -1013,7 +1034,7 @@ export function App() {
               <Button
                 variant="secondary"
                 className="w-full"
-                onClick={() => download(new Blob([storyToMarkdown(story)], { type: "text/markdown" }), `${slug(story.problem || story.title)}-historia.md`)}
+                onClick={() => download(new Blob([storyToMarkdown(story, pieceBrief.funnel)], { type: "text/markdown" }), `${slug(story.problem || story.title)}-historia.md`)}
               >
                 Descargar historia .md
               </Button>
@@ -1083,6 +1104,7 @@ export function App() {
             }
             onDismiss={dismiss}
             onApprove={approveBoard}
+            funnel={pieceBrief.funnel}
           />
           </Lazy>
           </div>

@@ -83,8 +83,8 @@ export function overusedMoves(cards: (Pick<RoomCard, "moves"> & { id?: string })
 // What the writer sees. Empty when this is the first piece.
 // publishedIds omitted or empty: identical to the room with no published piece. Once at least one id is passed,
 // moves are counted on the published pieces only, and a card that is not among them is still in drafts.
-export function roomBrief(cards: RoomCard[], publishedIds?: readonly string[]): string {
-  if (cards.length === 0) return "";
+export function roomBrief(cards: RoomCard[], publishedIds?: readonly string[], tally?: string): string {
+  if (cards.length === 0) return tally?.trim() ? tally.trim() : "";
   const gate = publishedIds?.length ? new Set(publishedIds) : null;
   const counted = countedCards(cards, publishedIds);
   // Moves the other pieces keep using (the Turn and the Button are in every piece on purpose).
@@ -109,7 +109,8 @@ export function roomBrief(cards: RoomCard[], publishedIds?: readonly string[]): 
       return `- “${c.problem}”${c.title ? ` (hook: ${c.title})` : ""}\n  ${bits.join("\n  ") || "Nothing left open."}`;
     })
     .join("\n")
-    .concat(moves);
+    .concat(moves)
+    .concat(tally?.trim() ? `\n${tally.trim()}` : "");
 }
 
 export function retakeTease(card: RoomCard): string {

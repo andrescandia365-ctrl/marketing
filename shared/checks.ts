@@ -5,6 +5,7 @@ import type { CastKind } from "./series.ts";
 import { MOVE_LABEL } from "./moves.ts";
 import { SEGMENT_MOVE, segmentOf } from "./segment.ts";
 import { PRACTICES } from "./series.ts";
+import { funnelProblems, isFloor, type FunnelFacts } from "./funnel.ts";
 
 export type Problem = {
   id: string;
@@ -106,6 +107,8 @@ export function storyProblems(
   brief?: Partial<Pick<Brief, "narrator" | "segment" | "piece">>,
   // Runners already used by other pieces of the series. The open piece is not in this list.
   usedRunners: { bit: string; problem: string }[] = [],
+  // The funnel, when this piece has one. Omitted: the same list as before.
+  facts?: FunnelFacts,
 ): Problem[] {
   const problems: Problem[] = [];
   // A piece without a narrator: no line may be the narrator's.
@@ -246,6 +249,21 @@ export function storyProblems(
         detail: `${p.practice.replace(/\.+$/, "")}. No está en "${PRACTICES}" de la serie ni en las notas del brief. ${p.note}`,
       });
   });
+  if (facts && isFloor(facts.floor)) {
+    const spoken = story.topics.flatMap((t) => t.lines.map((l) => l.text));
+    problems.push(
+      ...funnelProblems({
+        floor: facts.floor,
+        proofs: facts.proofs,
+        landing: facts.landing,
+        proofOk: facts.proofOk,
+        brandName: facts.brandName,
+        brandSpeaksFirst: opener?.role === "good",
+        openingText: first?.text ?? "",
+        sellText: [story.close, ...spoken].join("\n"),
+      }),
+    );
+  }
   return problems;
 }
 
@@ -298,8 +316,11 @@ export function boardChecks(board: Board, castKinds: Record<string, CastKind> = 
   return problems;
 }
 
-export function boardProblems(board: Board, castKinds: Record<string, CastKind> = {}): Problem[] {
-  return [...boardChecks(board, castKinds), ...boardIssueProblems(board)];
+export function boardProblems(board: Board, castKinds: Record<string, CastKind> = {}, facts?: FunnelFacts): Problem[] {
+  const problems = [...boardChecks(board, castKinds), ...boardIssueProblems(board)];
+  if (!facts || !isFloor(facts.floor)) return problems;
+  problems.push(...funnelProblems(facts));
+  return problems;
 }
 
 function boardIssueProblems(board: Board): Problem[] {

@@ -1,7 +1,9 @@
 import { useRef, useState } from "react";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import { api, type ProjectSummary } from "../lib/api.ts";
+import { shownTally } from "../../shared/funnel.ts";
 import { Button } from "./ui.tsx";
+import { FloorTag } from "./EmbudoPicker.tsx";
 
 const STEP_LABEL: Record<string, string> = {
   brief: "Brief",
@@ -28,6 +30,10 @@ type Props = {
 // Saved pieces, newest first. Each one is a folder on this computer.
 export function ProjectsPanel({ projects, series, current, folder, onOpen, onDelete, onImported }: Props) {
   const names = Object.fromEntries(series.map((s) => [s.id, s.name]));
+  const tallies = [...new Set(projects.map((p) => p.series))].flatMap((id) => {
+    const line = shownTally(projects.filter((p) => p.series === id).map((p) => p.funnel));
+    return line ? [{ id, line }] : [];
+  });
   const input = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -82,11 +88,21 @@ export function ProjectsPanel({ projects, series, current, folder, onOpen, onDel
           Todavía no hay. Cada pieza se guarda sola en su carpeta desde que abrís el menú de temas.
         </p>
       ) : (
+        <>
+        {tallies.length > 0 && (
+          <ul className="mt-2 space-y-0.5 text-xs text-muted">
+            {tallies.map((t) => (
+              <li key={t.id}>
+                {names[t.id] ?? t.id}: {t.line}
+              </li>
+            ))}
+          </ul>
+        )}
         <ul className="mt-2 divide-y divide-line">
           {projects.map((p) => (
             <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
               <span className="min-w-0 flex-1">
-                <b>{p.title}</b>
+                <b>{p.title}</b> <FloorTag floor={p.funnel} />
                 {p.id === current && <span className="ml-2 rounded bg-good-soft px-1.5 text-xs text-good">abierto</span>}
                 <span className="block text-xs text-muted">
                   {names[p.series] ?? p.series} · {STEP_LABEL[p.step] ?? p.step}
@@ -115,6 +131,7 @@ export function ProjectsPanel({ projects, series, current, folder, onOpen, onDel
             </li>
           ))}
         </ul>
+        </>
       )}
     </section>
   );

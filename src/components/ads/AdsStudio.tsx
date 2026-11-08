@@ -27,6 +27,7 @@ import {
   type RankedHook,
   type ReviewFlag,
 } from "../../../shared/ads.ts";
+import { exactFloor, floorCovers, isFloor, openFunnelProblems } from "../../../shared/funnel.ts";
 import type { ImageProviderInfo, SeriesInfo, ToolInfo } from "../../../shared/schema.ts";
 import { ads as adsApi, adsAsks, adsFileUrl, api, askPrompt, sendAsk } from "../../lib/api.ts";
 import type { Handoff } from "../ClaudeHandoff.tsx";
@@ -404,6 +405,17 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
 
   const setStatus = useCallback(
     async (ids: string[], status: PieceStatus) => {
+      if (status === "approved") {
+        const current = stateRef.current;
+        const pieces = current ? [...current.hooks, ...current.meats, ...current.ctas].filter((p) => ids.includes(p.id)) : [];
+        const open = pieces.flatMap((p) =>
+          openFunnelProblems(p, { proofs: current?.offer.proofs, landing: current?.offer.landing, brandName: series.name }),
+        );
+        if (open.length) {
+          setError(open.map((p) => p.detail).join(" "));
+          return;
+        }
+      }
       setError("");
       try {
         const r = await adsApi.setStatus(series.id, ids, status);
@@ -412,7 +424,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
         setError(message(e));
       }
     },
-    [series.id],
+    [series.id, series.name],
   );
 
   const setPieceMedia = (id: string, patch: Partial<PieceMediaState>) => setMedia((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
@@ -743,6 +755,11 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
       toolName={toolName}
       canGenerate={Boolean(provider)}
       onStatus={(status) => setStatus([piece.id], status)}
+      notices={openFunnelProblems(piece, { proofs: state?.offer.proofs, landing: state?.offer.landing, brandName: series.name })}
+      onDismissNotice={(nid) => {
+        const next = [...new Set([...(piece.funnelDismissed ?? []), nid])].slice(-20);
+        void act("patch", () => adsApi.patchPiece(series.id, piece.id, { funnelDismissed: next }));
+      }}
       onSave={async (patch) => {
         const r = await act("patch", () => adsApi.patchPiece(series.id, piece.id, patch));
         if (r) dropSessionPiece(renders.current, piece.id);
@@ -816,18 +833,22 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
 
   // ── Generation ──────────────────────────────────────────────────────────────
   const lengthBody = () => ({ seconds: settings.seconds, ...(settings.split ? { split: settings.split } : {}) });
+  const funnelOf = (levels: number[]) => {
+    const funnel = exactFloor(levels);
+    return funnel ? { funnel } : {};
+  };
   async function generateHooks(count: number, levels = settings.levels, seconds = settings.seconds, split = settings.split) {
-    const r = await act("hooks", () => adsApi.hooks(series.id, { levels, count, seconds, ...(split ? { split } : {}), tool: toolId, language: lang, minImpressions }));
+    const r = await act("hooks", () => adsApi.hooks(series.id, { levels, count, seconds, ...(split ? { split } : {}), tool: toolId, language: lang, minImpressions, ...funnelOf(levels) }));
     if (r) setNotes((n) => ({ ...n, hooks: r.note }));
     return r;
   }
   async function generateMeats(count: number, formats: MeatFormat[], levels = settings.levels, seconds = settings.seconds, split = settings.split) {
-    const r = await act("meats", () => adsApi.meats(series.id, { levels, formats, count, seconds, ...(split ? { split } : {}), tool: toolId, language: lang }));
+    const r = await act("meats", () => adsApi.meats(series.id, { levels, formats, count, seconds, ...(split ? { split } : {}), tool: toolId, language: lang, ...funnelOf(levels) }));
     if (r) setNotes((n) => ({ ...n, meats: r.note }));
     return r;
   }
   async function generateCtas(count: number, levels = settings.levels, seconds = settings.seconds, split = settings.split) {
-    const r = await act("ctas", () => adsApi.ctas(series.id, { levels, count, seconds, ...(split ? { split } : {}), tool: toolId, language: lang }));
+    const r = await act("ctas", () => adsApi.ctas(series.id, { levels, count, seconds, ...(split ? { split } : {}), tool: toolId, language: lang, ...funnelOf(levels) }));
     if (r) setNotes((n) => ({ ...n, ctas: r.note }));
     return r;
   }
@@ -882,9 +903,10 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
             product: state?.offer.product ?? "",
             notes: seedNotes(seed),
             narrator: "with" as const,
+            ...(isFloor(piece.funnel) ? { funnel: piece.funnel } : {}),
           };
           id = (await api.createProject(series.id, piece.id.toLowerCase())).id;
-          await api.saveProject(id, { version: 1, kind: "motion", step: "motion", pieceBrief, motion }, pieceMarkdown(motion, motion.script?.scenes ?? []));
+          await api.saveProject(id, { version: 1, kind: "motion", step: "motion", pieceBrief, motion }, pieceMarkdown(motion, motion.script?.scenes ?? [], pieceBrief.funnel));
           known.push({ id, series: series.id });
           lines.push(`${piece.id} → ${id}`);
         } catch (e) {
@@ -913,7 +935,7 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
     prompt: () => askPrompt(ask),
     paste: async (reply) => done(await sendAsk(ask, reply)),
   });
-  const body = (count: number, part: number) => ({ levels: settings.levels, count, ...lengthBody(), tool: toolId, language: lang, part });
+  const body = (count: number, part: number) => ({ levels: settings.levels, count, ...lengthBody(), tool: toolId, language: lang, part, ...funnelOf(settings.levels) });
   const variantBody = (id: string, count: number) => ({ ...body(count, 1), variant: { id, count }, minImpressions });
   async function variantPrompt(id: string, count: number) {
     return (await askPrompt(adsAsks.hooks(series.id, variantBody(id, count)))).prompt;
@@ -1023,7 +1045,11 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
           setFlags(r.flags);
           setReviewNote(pastedNote(r));
         }),
-        copies: (combos: AdCombo[], part: number) => via(adsAsks.copies(series.id, combos, part), (r) => setPastedCopies((prev) => ({ ...prev, ...r.copies }))),
+        copies: (combos: AdCombo[], part: number) => {
+          const funnel = exactFloor(settings.levels);
+          const send = funnel && combos.length > 0 && combos.every((a) => floorCovers(funnel, [a.level])) ? funnel : undefined;
+          return via(adsAsks.copies(series.id, combos, part, send), (r) => setPastedCopies((prev) => ({ ...prev, ...r.copies })));
+        },
       }
     : null;
 
@@ -1291,6 +1317,10 @@ export function AdsStudio({ series, tools, imageProviders, writer, voice, onToPl
         rules,
         ads: combos,
         ...(Object.keys(pastedCopies).length > 0 && { copies: pastedCopies }),
+        ...(() => {
+          const funnel = exactFloor(settings.levels);
+          return funnel && combos.every((a) => floorCovers(funnel, [a.level])) ? { funnel } : {};
+        })(),
       });
       setState(created.state);
       // The run took its pasted texts (the server keeps only those still written for the pair's current text).

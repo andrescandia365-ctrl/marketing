@@ -28,6 +28,7 @@ type Props = {
   onSketchRemove: (index: number) => void;
   // Without a key: the revision and "Arreglalo" by copy and paste with claude.ai (the buttons show the sample).
   handoffs?: { revise: (note: string, shotNotes: { index: number; note: string }[]) => Handoff; fix: Handoff } | null;
+  funnel?: string | null;
 };
 
 const BAR = { negative: "bg-neg", touching: "bg-touch", good: "bg-good" };
@@ -269,7 +270,7 @@ function RunnerMark({ story }: { story: Story }) {
   );
 }
 
-export function BoardView({ story, board, round, busy, problems, dismissed, look, onRevise, onFix, onDismiss, onApprove, onSketch, onSketchRemove, handoffs }: Props) {
+export function BoardView({ story, board, round, busy, problems, dismissed, look, onRevise, onFix, onDismiss, onApprove, onSketch, onSketchRemove, handoffs, funnel }: Props) {
   // Bocetos: the drawn storyboard (uploaded sketches, else the app's pencil sketch). Imágenes: the pictures so far.
   const [view, setView] = useState<"sketch" | "image">("sketch");
   const [sketchImages, setSketchImages] = useState<Record<number, HTMLImageElement | null>>({});
@@ -345,7 +346,7 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="font-mono text-xs text-muted">Storyboard · ronda {round}</p>
-          <PieceTitle problem={story.problem} title={story.title} />
+          <PieceTitle problem={story.problem} title={story.title} funnel={funnel} />
           <p className="text-sm text-muted">
             {board.shots.length} tomas · {formatTime(total)} · estilo: {board.style}
           </p>

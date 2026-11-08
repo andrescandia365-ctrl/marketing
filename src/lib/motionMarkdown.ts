@@ -12,12 +12,13 @@ import {
   type MotionScene,
 } from "../../shared/motion.ts";
 import { WORLD_PLACE_LABEL } from "../../shared/world.ts";
+import { embudoMarkdown } from "../../shared/funnel.ts";
 
-export function pieceMarkdown(piece: MotionPiece, scenes: MotionScene[]): string {
+export function pieceMarkdown(piece: MotionPiece, scenes: MotionScene[], floor?: string): string {
   const s = piece.script;
   if (!s) return "# Explicativo sin guion todavía\n";
   return `# ${s.problem}
-
+${embudoMarkdown(floor)}
 **${s.title}** · ${scenes.reduce((n, x) => n + x.seconds, 0).toFixed(1)} s · música: ${piece.music === "synth" ? `sintetizada (${MOTION_MOOD_LABEL[s.music.mood]}, ${s.music.bpm} bpm)` : piece.music === "track" ? "tema propio" : "sin música"}
 
 ${s.caption ? `**Texto para publicar:** ${s.caption}

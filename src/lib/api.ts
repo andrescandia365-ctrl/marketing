@@ -45,6 +45,7 @@ export type ProjectSummary = {
   updatedAt: string;
   shots: number;
   hasVideo: boolean;
+  funnel?: "arriba" | "medio" | "abajo";
 };
 // The final render (render.mjs + ffmpeg) as the server reports it.
 export type FinalJob = { id: string; project: string; formats: string[]; current: string; progress: number; done: boolean; error: string; files: string[]; subtitles?: string[] };
@@ -146,6 +147,7 @@ type PieceBody = {
   minImpressions?: number;
   // N new hooks in one winner's angle and formula. The server reads that hook's stored stats.
   variant?: { id: string; count: number };
+  funnel?: "arriba" | "medio" | "abajo";
 };
 export const adsAsks = {
   hooks: (series: string, body: PieceBody) => writerAsk<{ state: AdsState; hooks: Hook[]; note: string } & Demo & Parted>(`/api/ads/${enc(series)}/hooks`, body),
@@ -156,8 +158,8 @@ export const adsAsks = {
     writerAsk<{ state: AdsState; clip: ClipRecord } & Demo>(`/api/ads/${enc(series)}/clips/text`, { name, transcript }),
   clipSplit: (series: string, clipId: string) => writerAsk<{ state: AdsState; clip: ClipRecord } & Demo>(`/api/ads/${enc(series)}/clips/${enc(clipId)}/split`, {}),
   review: (series: string) => writerAsk<{ flags: ReviewFlag[]; note: string } & Demo>(`/api/ads/${enc(series)}/review`, {}),
-  copies: (series: string, ads: AdCombo[], part: number) =>
-    writerAsk<{ copies: Record<string, PastedCopy>; keys: string[] } & Parted>(`/api/ads/${enc(series)}/copies`, { ads, part }),
+  copies: (series: string, ads: AdCombo[], part: number, funnel?: "arriba" | "medio" | "abajo") =>
+    writerAsk<{ copies: Record<string, PastedCopy>; keys: string[] } & Parted>(`/api/ads/${enc(series)}/copies`, { ads, part, ...(funnel ? { funnel } : {}) }),
 };
 
 export type AdsView = { state: AdsState; transcription: boolean; folder: string; ranking: RankedHook[] };
@@ -168,6 +170,7 @@ type PiecePatch = Partial<Pick<Hook, "status" | "text" | "onScreenText" | "visua
   levels?: number[];
   format?: MeatFormat;
   speaker?: PieceSpeaker | null;
+  funnelDismissed?: string[];
 };
 
 // Publicidad (Método 50-5-3).
@@ -191,13 +194,13 @@ export const ads = {
   removeClip: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/clips/${enc(id)}`, undefined, "DELETE"),
   importMetrics: (series: string, csv: string, replace = true) =>
     call<{ state: AdsState; ranking: RankedHook[]; rows: number; withId: number; found: string[]; missing: string[]; otherSeries: number }>(`/api/ads/${enc(series)}/metrics`, { csv, replace }),
-  hooks: (series: string, body: { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; split?: { hook: number; meat: number; cta: number }; minImpressions?: number }) =>
+  hooks: (series: string, body: { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; split?: { hook: number; meat: number; cta: number }; minImpressions?: number; funnel?: "arriba" | "medio" | "abajo" }) =>
     call<{ state: AdsState; hooks: Hook[]; note: string } & Demo>(`/api/ads/${enc(series)}/hooks`, body),
   organicHook: (series: string, text: string, level: number, seconds: number, note: string, split?: { hook: number; meat: number; cta: number }) =>
     call<{ state: AdsState; hook: Hook }>(`/api/ads/${enc(series)}/hooks/organic`, { text, level, seconds, note, ...(split ? { split } : {}) }),
-  meats: (series: string, body: { levels: number[]; formats: MeatFormat[]; count: number; seconds: number; tool: string; language: "es" | "en"; split?: { hook: number; meat: number; cta: number } }) =>
+  meats: (series: string, body: { levels: number[]; formats: MeatFormat[]; count: number; seconds: number; tool: string; language: "es" | "en"; split?: { hook: number; meat: number; cta: number }; funnel?: "arriba" | "medio" | "abajo" }) =>
     call<{ state: AdsState; meats: Meat[]; note: string } & Demo>(`/api/ads/${enc(series)}/meats`, body),
-  ctas: (series: string, body: { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; split?: { hook: number; meat: number; cta: number } }) =>
+  ctas: (series: string, body: { levels: number[]; count: number; seconds: number; tool: string; language: "es" | "en"; split?: { hook: number; meat: number; cta: number }; funnel?: "arriba" | "medio" | "abajo" }) =>
     call<{ state: AdsState; ctas: Cta[]; note: string } & Demo>(`/api/ads/${enc(series)}/ctas`, body),
   patchPiece: (series: string, id: string, patch: PiecePatch) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}`, patch, "PATCH"),
   setStatus: (series: string, ids: string[], status: PieceStatus) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces`, { ids, status }, "PATCH"),
@@ -238,7 +241,7 @@ export const ads = {
   dropRender: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, undefined, "DELETE"),
   uploadRender: (series: string, id: string, video: Blob, voiceId?: string) =>
     upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render${voiceId ? `?voice=${enc(voiceId)}` : ""}`, video, video.type),
-  createBatch: (series: string, body: { seconds: number; split?: { hook: number; meat: number; cta: number }; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[]; copies?: Record<string, PastedCopy> }) =>
+  createBatch: (series: string, body: { seconds: number; split?: { hook: number; meat: number; cta: number }; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[]; copies?: Record<string, PastedCopy>; funnel?: "arriba" | "medio" | "abajo" }) =>
     call<{ state: AdsState; batch: Batch } & Demo>(`/api/ads/${enc(series)}/batches`, body),
   uploadAd: (series: string, batch: string, adId: string, video: Blob) =>
     upload<{ file: string }>(`/api/ads/${enc(series)}/batches/${enc(batch)}/ads/${enc(adId)}`, video, video.type),

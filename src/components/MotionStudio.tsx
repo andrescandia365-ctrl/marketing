@@ -28,6 +28,7 @@ import {
   voiceOverrun,
   SCENE_SECONDS,
 } from "../../shared/motion.ts";
+import { funnelProblems, isFloor } from "../../shared/funnel.ts";
 import { explainerHost } from "../../shared/series.ts";
 import { generatedVoice, noteSummary } from "../../shared/motionNote.ts";
 import type { Brief, SeriesInfo } from "../../shared/schema.ts";
@@ -403,7 +404,17 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   const openCode = codeIssues(timeScenes(scenes), piece.format, Boolean(world.disclosure), codeSig);
   // "Escenas metáfora": a metaphor scene with no picture from Grok yet (never a placeholder in a video).
   const openMetaphor = metaphorIssues(scenes, (id) => Boolean(assets[id]));
-  const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0 || openConcepts.length > 0 || openCode.length > 0 || openMetaphor.length > 0;
+  const openFunnel = isFloor(brief.funnel)
+    ? funnelProblems({
+        floor: brief.funnel,
+        proofs: series.proofs,
+        landing: series.landing,
+        brandName: series.name,
+        openingText: `${scenes[0]?.title ?? ""} ${scenes[0]?.text ?? ""}`.trim(),
+        sellText: [script?.caption ?? "", ...scenes.flatMap((s) => [s.title, s.text, s.voice])].filter(Boolean).join("\n"),
+      }).filter((p) => !piece.dismissed.includes(p.id))
+    : [];
+  const blocked = openGaps.length > 0 || openReading.length > 0 || openFigures.length > 0 || openConcepts.length > 0 || openCode.length > 0 || openMetaphor.length > 0 || openFunnel.length > 0;
   // The thumbnail: frame 0 of every render.
   const posterT = posterTime(scenes, piece.poster, push);
   const posterRef = useRef<HTMLCanvasElement>(null);
@@ -433,7 +444,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     onSaveStatus("saving");
     const timer = setTimeout(() => {
       api
-        .saveProject(projectId, savedState(piece), pieceMarkdown(piece, scenes))
+        .saveProject(projectId, savedState(piece), pieceMarkdown(piece, scenes, brief.funnel))
         .then(() => onSaveStatus("saved"))
         .catch((e) => {
           onSaveStatus("error");
@@ -904,7 +915,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
     try {
       // The render reads the saved project: save it as it is now first.
       const saving = { ...piece, script: ok.script, quality: ok.quality ?? piece.quality, ...(ok.poster !== undefined && { poster: ok.poster }) };
-      await api.saveProject(projectId, savedState(saving), pieceMarkdown(saving, playable(ok.script).played.scenes));
+      await api.saveProject(projectId, savedState(saving), pieceMarkdown(saving, playable(ok.script).played.scenes, brief.funnel));
       const { job } = await api.startFinal(projectId, formats, location.origin);
       setFinalJob(job);
       let current = job;
@@ -1173,6 +1184,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
         directorNote={directorNote}
         setDirectorNote={setDirectorNote}
         applyNote={() => applyNote()}
+        funnel={brief.funnel}
       />
 
       {error && <Notice tone="error">{error}</Notice>}
@@ -1251,6 +1263,7 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
               vertical={vertical}
               openCode={openCode}
               openMetaphor={openMetaphor}
+              openFunnel={openFunnel}
             />
           </div>
 

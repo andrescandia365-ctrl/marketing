@@ -10,6 +10,7 @@ import {
   defaultSplit,
   emptyAds,
   estimate,
+  embudoOfLevel,
   exportCsv,
   hooksFromWire,
   meatsFromWire,
@@ -17,6 +18,7 @@ import {
   parseMetricsCsv,
   pieceStats,
 } from "../shared/ads.ts";
+import { floorOf } from "../shared/funnel.ts";
 import {
   adId,
   adsCountWarning,
@@ -201,10 +203,13 @@ test("the CSV names each voice and a metrics file still matches the new ids", ()
     s.media,
   );
   const table = parseCsv(csv);
-  assert.deepEqual(table[0].slice(-3), ["voz_hook", "voz_meat", "voz_cta"]);
+  assert.deepEqual(table[0].slice(-4, -1), ["voz_hook", "voz_meat", "voz_cta"]);
+  assert.equal(table[0].at(-1), "embudo");
   assert.equal(voiceColumn(s.media.H1, "v2"), "Firme");
   assert.equal(voiceColumn(s.media.C1), "Cierre");
-  assert.deepEqual(table[1].slice(-3), ["Firme", "", "Cierre"]);
+  assert.deepEqual(table[1].slice(-4, -1), ["Firme", "", "Cierre"]);
+  assert.equal(table[1].at(-1), embudoOfLevel(rowAd.level));
+  assert.equal(embudoOfLevel(rowAd.level), floorOf(rowAd.level) ?? "");
   const report = parseMetricsCsv("Ad name,Impressions,3-second video plays\nH12v10-M3v1-C2v2,100,40\nH1-M1-C1,50,10\n");
   assert.equal(report.rows[0].adId, "H12v10-M3v1-C2v2");
   assert.equal(report.rows[1].adId, "H1-M1-C1");
