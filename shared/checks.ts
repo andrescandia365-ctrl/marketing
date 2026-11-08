@@ -6,6 +6,7 @@ import { MOVE_LABEL } from "./moves.ts";
 import { SEGMENT_MOVE, segmentOf } from "./segment.ts";
 import { PRACTICES } from "./series.ts";
 import { funnelProblems, isFloor, type FunnelFacts } from "./funnel.ts";
+import { elementProblems } from "./hookElements.ts";
 
 export type Problem = {
   id: string;
@@ -264,6 +265,7 @@ export function storyProblems(
       }),
     );
   }
+  problems.push(...elementProblems(story.hookElements, { shot: 0 }));
   return problems;
 }
 
@@ -317,7 +319,7 @@ export function boardChecks(board: Board, castKinds: Record<string, CastKind> = 
 }
 
 export function boardProblems(board: Board, castKinds: Record<string, CastKind> = {}, facts?: FunnelFacts): Problem[] {
-  const problems = [...boardChecks(board, castKinds), ...boardIssueProblems(board)];
+  const problems = [...boardChecks(board, castKinds), ...boardIssueProblems(board), ...elementProblems(board.hookElements, { shot: 0 })];
   if (!facts || !isFloor(facts.floor)) return problems;
   problems.push(...funnelProblems(facts));
   return problems;

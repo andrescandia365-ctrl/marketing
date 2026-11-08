@@ -36,6 +36,7 @@ import {
   offerBlock,
 } from "../shared/ads.ts";
 import { funnelBlock, isFloor, type Floor } from "../shared/funnel.ts";
+import { hookElementRules } from "../shared/hookElements.ts";
 import { PRACTICES, WORKS_TODAY } from "../shared/series.ts";
 import { momentsForWriter } from "../shared/calendar.ts";
 import { WriterError, runTask, type WriterTask } from "./claude.ts";
@@ -53,7 +54,7 @@ ${METHOD}
 
 ${PLAYBOOK}`;
 
-function blocks(series: string, offer: Offer, tool: string | null, funnel?: string | null): string[] {
+function blocks(series: string, offer: Offer, tool: string | null, funnel?: string | null, beforeFunnel?: string): string[] {
   const s = getSeries(series);
   if (!s) throw new WriterError(`No existe la serie "${series}".`);
   const out = [
@@ -67,14 +68,15 @@ function blocks(series: string, offer: Offer, tool: string | null, funnel?: stri
     const t = getTool(tool);
     out.push(`The person makes every image and clip by pasting your prompts into ${t.name}. Write visualPrompt and videoPrompt in this tool's format; never rely on anything marked [NOT SURE].\n\n${t.text}`);
   }
+  if (beforeFunnel) out.push(beforeFunnel);
   if (isFloor(funnel)) out.push(funnelBlock(funnel));
   return out;
 }
 
 // One Publicidad request as a writer task (server/claude.ts): it runs on the connected writer, or goes to claude.ai by
 // copy and paste with the same text and schema ("Sin clave", shared/adsHandoff.ts).
-function task<T>(series: string, offer: Offer, tool: string | null, prompt: string, schema: z.ZodType<T>, funnel?: string | null): WriterTask<T, T> {
-  return { system: [SYSTEM, ...blocks(series, offer, tool, funnel)], prompt, schema, finish: (wire) => wire };
+function task<T>(series: string, offer: Offer, tool: string | null, prompt: string, schema: z.ZodType<T>, funnel?: string | null, beforeFunnel?: string): WriterTask<T, T> {
+  return { system: [SYSTEM, ...blocks(series, offer, tool, funnel, beforeFunnel)], prompt, schema, finish: (wire) => wire };
 }
 
 const levelLines = (levels: Level[]) => levels.map((l) => `${l}. ${LEVEL_INFO[l].label}: ${LEVEL_INFO[l].desc}`).join("\n");
@@ -123,6 +125,7 @@ ${req.existing.length ? `\nHooks that already exist; do not write these or near-
 Give every hook its onScreenText, visualPrompt and videoPrompt (one frozen moment with the presenter and setting of the offer, so every piece cuts with every other).`,
     HooksWireSchema,
     req.funnel,
+    hookElementRules(getSeries(series)?.hookLibrary ?? [], getSeries(series)?.hookPrevious ?? []),
   );
 }
 export const writeHooks = (series: string, offer: Offer, tool: string, req: HookRequest): Promise<HooksWire> => runTask(hooksTask(series, offer, tool, req));

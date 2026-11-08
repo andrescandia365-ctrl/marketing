@@ -20,6 +20,7 @@ import {
   type Meat,
   type Offer,
 } from "./ads.ts";
+import { elementoOf } from "./hookElements.ts";
 import { imageSaveLine } from "./adsBulk.ts";
 import type { Reference } from "./reference.ts";
 import type { SeriesLook } from "./series.ts";
@@ -80,6 +81,7 @@ export function hookConcept(h: Hook, offer: Pick<Offer, "problem" | "promise">, 
     proofOk: false,
     verify: [],
     caption: "",
+    ...(h.hookElements?.length ? { hookElements: h.hookElements } : {}),
   };
 }
 
@@ -254,6 +256,7 @@ export function staticRows(o: {
         "",
         "",
         embudoOfLevel(h.level),
+        elementoOf(undefined, h.hookElements),
       ]);
     }
   }

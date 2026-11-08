@@ -1,6 +1,8 @@
 // The explainer studio's scene list: template, camera, place, entry, what it shows, seconds, the words, the picture
 // and the voice of each scene, in playing order.
 import type { SeriesInfo } from "../../shared/schema.ts";
+import type { HookElement } from "../../shared/hookElements.ts";
+import { HookElementsPanel } from "./HookElementsPanel.tsx";
 import {
   MOTION_CAMERAS,
   MOTION_CAMERA_LABEL,
@@ -70,9 +72,11 @@ type Props = {
   codeTools: CodeTools;
   // "Escenas metáfora": the Grok prompts, the request for Opus and the upload.
   metaphorTools: MetaphorTools;
+  noKey?: boolean;
+  onLibrary?: (element: HookElement) => void | Promise<void | HookElement[]>;
 };
 
-export function MotionSceneList({ script, scenes, selected, setSelected, seek, voices, piece, actors, puppets, series, layers, host, castCharacters, remember, setScript, updateScene, moveScene, fitVoice, generateVoice, keepVoice, voiceAvailable, busy, codeTools, metaphorTools }: Props) {
+export function MotionSceneList({ script, scenes, selected, setSelected, seek, voices, piece, actors, puppets, series, layers, host, castCharacters, remember, setScript, updateScene, moveScene, fitVoice, generateVoice, keepVoice, voiceAvailable, busy, codeTools, metaphorTools, noKey = false, onLibrary }: Props) {
   const metaphors = script.scenes.filter((x) => x.template === "metaphor").length;
   const assetOptions = [
     ...series.cast
@@ -239,6 +243,20 @@ export function MotionSceneList({ script, scenes, selected, setSelected, seek, v
                     </Button>
                   </span>
                 </div>
+                {raw.template === "hook" && (
+                  <div className="mt-2">
+                    <HookElementsPanel
+                      elements={raw.hookElements ?? []}
+                      seriesId={series.id}
+                      pain={script.problem}
+                      library={series.hookLibrary ?? []}
+                      previous={series.hookPrevious ?? []}
+                      noKey={noKey}
+                      onLibrary={onLibrary}
+                      onChange={(next) => updateScene(s.id, { hookElements: next })}
+                    />
+                  </div>
+                )}
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <input className={`${inputClass} py-1.5`} value={raw.title} placeholder={TITLE_HINT[raw.template] ?? "Título (hasta 6 palabras)"} aria-label="Título" onChange={(e) => updateScene(s.id, { title: e.target.value })} />
                   <input className={`${inputClass} py-1.5`} value={raw.text} placeholder="Texto de apoyo" aria-label="Texto" onChange={(e) => updateScene(s.id, { text: e.target.value })} />

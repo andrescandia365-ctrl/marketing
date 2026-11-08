@@ -8,6 +8,7 @@
 // a placeholder with the prompt and a render stops (metaphorIssues). Everything here is pure.
 import type { SeriesLook } from "./series.ts";
 import { PLAIN_PHOTO, lookPhrase } from "./prompt.ts";
+import { withElementPrompt, type HookElement } from "./hookElements.ts";
 
 // What a metaphor scene carries: the moment to draw (English, one frozen moment, no words in it), how the still moves
 // when animated (English, one action and one camera move; empty: no clip), and the cast ids that appear in it (each
@@ -90,7 +91,7 @@ export const NO_TEXT = "Bare surfaces, blank labels and boxes, no signage: no te
 // The full Grok image prompt (the profile's order: subject and moment first, then the cast's one-line identities, the
 // look, the frame): the series look or the plain photo line, never "cinematic", no words in the picture, a simple
 // picture with one idea and room around it. Empty when the scene has no moment written yet.
-export function metaphorImagePrompt(m: SceneMetaphor, opts: { look?: SeriesLook; cast?: readonly MetaphorCast[] } = {}): string {
+export function metaphorImagePrompt(m: SceneMetaphor, opts: { look?: SeriesLook; cast?: readonly MetaphorCast[]; elements?: readonly HookElement[] } = {}): string {
   const moment = clean(m.image);
   if (!moment) return "";
   const members = m.cast.map((id) => opts.cast?.find((c) => c.id === id)).filter((c): c is MetaphorCast => Boolean(c));
@@ -105,31 +106,32 @@ export function metaphorImagePrompt(m: SceneMetaphor, opts: { look?: SeriesLook;
     "No real public figures",
     `${METAPHOR_SHAPE}`,
   ];
-  return `${parts.filter(Boolean).join(". ")}.`;
+  return withElementPrompt(`${parts.filter(Boolean).join(". ")}.`, opts.elements, "image");
 }
 
 // The Grok video prompt that animates the still (image-to-video: the still is the first frame, so nobody is described
 // again): the action, a slow camera, what holds still, and a sound line. The clip plays muted in the explainer (the
 // piece has its own voice and music), so it asks for no speech and no music. Empty: no clip asked for.
-export function metaphorVideoPrompt(m: SceneMetaphor): string {
+export function metaphorVideoPrompt(m: SceneMetaphor, elements?: readonly HookElement[]): string {
   const action = clean(m.video);
   if (!action) return "";
   const camera = /push|zoom|pan|track|locked|static|dolly|camera/i.test(action) ? "" : "Locked-off camera, or one slow push-in.";
-  return [`${action}.`, camera, "Everything else holds still; the square frame stays as it is. No text appears.", "Audio: none needed (the clip plays muted), no music, no speech."]
+  const base = [`${action}.`, camera, "Everything else holds still; the square frame stays as it is. No text appears.", "Audio: none needed (the clip plays muted), no music, no speech."]
     .filter(Boolean)
     .join(" ");
+  return withElementPrompt(base, elements, "video");
 }
 
 // The Grok settings the prompt cannot set (the profile: shape and length are controls).
 export const METAPHOR_SETTINGS = "En Grok: imagen 1:1 (cuadrada). Para el clip: Crear video desde esa imagen, 6 s, sonido apagado.";
 
 // "Copiar todos los prompts de metáforas": every metaphor scene's prompts in order, ready to paste into Grok one by one.
-export type MetaphorBatchScene = { index: number; title: string; metaphor?: SceneMetaphor; asset: string };
+export type MetaphorBatchScene = { index: number; title: string; metaphor?: SceneMetaphor; asset: string; hookElements?: readonly HookElement[] };
 export function metaphorBatch(scenes: readonly MetaphorBatchScene[], opts: { look?: SeriesLook; cast?: readonly MetaphorCast[] } = {}): string {
   const blocks = scenes.map((s) => {
     const m = s.metaphor ?? emptyMetaphor();
-    const image = metaphorImagePrompt(m, opts);
-    const video = metaphorVideoPrompt(m);
+    const image = metaphorImagePrompt(m, { ...opts, elements: s.hookElements });
+    const video = metaphorVideoPrompt(m, s.hookElements);
     const head = `## Escena ${s.index + 1}${s.title.trim() ? ` — «${s.title.trim()}»` : ""}${isMetaphorAsset(s.asset) ? " (ya tiene imagen)" : ""}`;
     return [head, `Imagen (Grok):\n${image || "(falta escribir qué se ve)"}`, ...(video ? [`Video (Grok, opcional):\n${video}`] : [])].join("\n\n");
   });

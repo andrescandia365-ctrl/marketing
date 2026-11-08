@@ -274,7 +274,8 @@ export function cleanVoiceName(name: string, fallback: string): string {
 // Routes and file names stay uppercase. The metrics import is the only place that accepts either case (`AD_ID`).
 // `\b` never sits between `_` and `H` (`_` is a word character), so an exported name lost its id. A letter or a
 // digit on either side still blocks a match; an underscore, a space or a copy suffix does not.
-const TOKEN = "(H\\d{1,4})(v(?:10|[1-9]))?-(M\\d{1,4})(v(?:10|[1-9]))?-(C\\d{1,4})(v(?:10|[1-9]))?";
+// An element set (e1–e3) sits on the hook only, and only in the id when that hook has more than one set.
+const TOKEN = "(H\\d{1,4})(e[1-3])?(v(?:10|[1-9]))?-(M\\d{1,4})(v(?:10|[1-9]))?-(C\\d{1,4})(v(?:10|[1-9]))?";
 export const AD_ID = new RegExp(`(?<![A-Za-z0-9])${TOKEN}(?![A-Za-z0-9])`, "i");
 export const AD_ID_EXACT = new RegExp(`^${TOKEN}$`);
 
@@ -285,6 +286,8 @@ export type ParsedAdId = {
   hookVoice?: string;
   meatVoice?: string;
   ctaVoice?: string;
+  // Set only when the id names an element set (H12e2-M3-C1). Old ids have none.
+  hookElement?: "e1" | "e2" | "e3";
 };
 
 const normVoice = (raw: string | undefined): string | undefined => {
@@ -293,28 +296,44 @@ const normVoice = (raw: string | undefined): string | undefined => {
   return n >= 1 && n <= 10 ? `v${n}` : undefined;
 };
 
+const normElement = (raw: string | undefined): "e1" | "e2" | "e3" | undefined => {
+  const id = raw?.toLowerCase();
+  return id === "e1" || id === "e2" || id === "e3" ? id : undefined;
+};
+
 export function parseAdId(text: string): ParsedAdId | null {
   const m = AD_ID.exec(text);
   if (!m) return null;
-  const hookVoice = normVoice(m[2]);
-  const meatVoice = normVoice(m[4]);
-  const ctaVoice = normVoice(m[6]);
+  const hookElement = normElement(m[2]);
+  const hookVoice = normVoice(m[3]);
+  const meatVoice = normVoice(m[5]);
+  const ctaVoice = normVoice(m[7]);
   return {
     hookId: m[1].toUpperCase(),
-    meatId: m[3].toUpperCase(),
-    ctaId: m[5].toUpperCase(),
+    meatId: m[4].toUpperCase(),
+    ctaId: m[6].toUpperCase(),
+    ...(hookElement && { hookElement }),
     ...(hookVoice && { hookVoice }),
     ...(meatVoice && { meatVoice }),
     ...(ctaVoice && { ctaVoice }),
   };
 }
 
-export function adId(hookId: string, meatId: string, ctaId: string, voices?: { hook?: string; meat?: string; cta?: string }): string {
+export function adId(
+  hookId: string,
+  meatId: string,
+  ctaId: string,
+  voices?: { hook?: string; meat?: string; cta?: string },
+  element?: string,
+): string {
   const token = (id: string, voice?: string) => {
     const base = id.toUpperCase();
     return voice && VOICE_ID.test(voice) ? `${base}${voice}` : base;
   };
-  return `${token(hookId, voices?.hook)}-${token(meatId, voices?.meat)}-${token(ctaId, voices?.cta)}`;
+  const el = normElement(element) ?? "";
+  const hookVoice = voices?.hook && VOICE_ID.test(voices.hook) ? voices.hook : "";
+  const hook = `${hookId.toUpperCase()}${el}${hookVoice}`;
+  return `${hook}-${token(meatId, voices?.meat)}-${token(ctaId, voices?.cta)}`;
 }
 
 export function isAdId(id: string): boolean {
@@ -377,8 +396,20 @@ export function voiceColumn(media: VoiceCarrier | undefined, voiceId?: string): 
 
 // ── Render cache ────────────────────────────────────────────────────────────────
 // One voice: key `H3`, file `H3.l2.mp4`. Several: key `H3.v2`, file `H3.v2.l2.mp4`.
-export function renderKey(pieceId: string, voiceId: string | undefined, multi: boolean): string {
-  return multi && voiceId ? `${pieceId}.${voiceId}` : pieceId;
+// An element set is the same idea, and it sits before the voice: `H12.e2`, `H12.e2.v3`.
+// Old calls (three arguments, or one voice and no element sets) keep the old key.
+export function renderKey(pieceId: string, voiceId: string | undefined, multi: boolean, element?: string, multiElement = false): string {
+  const el = multiElement && element && /^e[1-3]$/.test(element) ? `.${element}` : "";
+  const voice = multi && voiceId ? `.${voiceId}` : "";
+  return `${pieceId}${el}${voice}`;
+}
+
+// H3.v2 → the voice. H12.e2 → the element set. H12.e2.v3 → both. H3 → neither.
+export function unitSuffix(unit: string): { element?: string; voice?: string } {
+  const voice = unit.match(/\.v(?:10|[1-9])$/)?.[0].slice(1);
+  const rest = voice ? unit.slice(0, -(voice.length + 1)) : unit;
+  const element = rest.match(/\.e[1-3]$/)?.[0].slice(1);
+  return { ...(element ? { element } : {}), ...(voice ? { voice } : {}) };
 }
 
 // Which variant a saved render belongs to. A clip speaker is one file even when the piece has several voices:
@@ -410,7 +441,7 @@ export function keptRenderMove(fromFile: string, toKey: string, version = "l2"):
 }
 
 export function pieceRenderKeys(renders: Record<string, string>, pieceId: string): string[] {
-  return Object.keys(renders).filter((k) => k === pieceId || k.startsWith(`${pieceId}.v`));
+  return Object.keys(renders).filter((k) => k === pieceId || k.startsWith(`${pieceId}.v`) || k.startsWith(`${pieceId}.e`));
 }
 
 export type CachePlan = {
@@ -432,16 +463,26 @@ export function voiceCachePlan(pieceId: string, beforeIds: string[], afterIds: s
 }
 
 // A picture, a clip or the text change every variant's render. A voice change does not use this.
-export function pictureCachePlan(pieceId: string, voiceIds: string[]): CachePlan {
-  return { drop: [pieceId, ...voiceIds.map((id) => `${pieceId}.${id}`)] };
+export function pictureCachePlan(pieceId: string, voiceIds: string[], elementIds: string[] = []): CachePlan {
+  const els = elementIds.filter((id) => /^e[1-3]$/.test(id));
+  const drop = [pieceId, ...voiceIds.map((id) => `${pieceId}.${id}`)];
+  for (const el of els) {
+    drop.push(`${pieceId}.${el}`);
+    for (const v of voiceIds) drop.push(`${pieceId}.${el}.${v}`);
+  }
+  return { drop };
 }
 
-export function renderUnits(ad: { hookId: string; meatId: string; ctaId: string; hookVoice?: string; meatVoice?: string; ctaVoice?: string }): string[] {
-  return [renderKey(ad.hookId, ad.hookVoice, Boolean(ad.hookVoice)), renderKey(ad.meatId, ad.meatVoice, Boolean(ad.meatVoice)), renderKey(ad.ctaId, ad.ctaVoice, Boolean(ad.ctaVoice))];
+export function renderUnits(ad: { hookId: string; meatId: string; ctaId: string; hookVoice?: string; meatVoice?: string; ctaVoice?: string; hookElement?: string }): string[] {
+  return [
+    renderKey(ad.hookId, ad.hookVoice, Boolean(ad.hookVoice), ad.hookElement, Boolean(ad.hookElement)),
+    renderKey(ad.meatId, ad.meatVoice, Boolean(ad.meatVoice)),
+    renderKey(ad.ctaId, ad.ctaVoice, Boolean(ad.ctaVoice)),
+  ];
 }
 
 export function pieceOfUnit(unit: string): string {
-  return unit.replace(/\.v(?:10|[1-9])$/, "");
+  return unit.replace(/\.e[1-3](?=\.|$)/, "").replace(/\.v(?:10|[1-9])$/, "");
 }
 
 // Voices the person had not seen when they picked variants. No selection means nothing is "new".

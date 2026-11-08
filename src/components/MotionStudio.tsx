@@ -139,13 +139,14 @@ type Props = {
   // A writer (an AI key) is set up: "Que la IA escriba la animación" for code scenes. Without one, copy and paste.
   aiReady?: boolean;
   onSaveStatus: (status: "saving" | "saved" | "error") => void;
+  onSeries?: (series: SeriesInfo[]) => void;
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 
 
-export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, demucs, autoSync, aiReady = false, onSaveStatus }: Props) {
+export function MotionStudio({ projectId, brief, series, initial, voiceAvailable, defaultVoice, projectsDir, ffmpeg, demucs, autoSync, aiReady = false, onSaveStatus, onSeries }: Props) {
   // "Sin clave": no writer connected, so the writer buttons show a sample and offer copy and paste with claude.ai.
   const noKey = !aiReady;
   const [piece, setPiece] = useState<MotionPiece>(() =>
@@ -584,7 +585,15 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
   function updateScene(id: string, patch: Partial<MotionScene>) {
     if (!script) return;
     remember(`scene-${id}-${Object.keys(patch).join(",")}`);
-    setScript({ ...script, scenes: script.scenes.map((s) => (s.id === id ? { ...s, ...patch } : s)) });
+    setScript({
+      ...script,
+      scenes: script.scenes.map((s) => {
+        if (s.id !== id) return s;
+        const next = { ...s, ...patch };
+        if ("hookElements" in patch && !patch.hookElements?.length) delete next.hookElements;
+        return next;
+      }),
+    });
   }
 
   function moveScene(id: string, by: number) {
@@ -1106,20 +1115,29 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
       editScenes((list) => list.map((x) => (x.id === sceneId ? { ...x, asset: "" } : x)));
     });
   }
+  function metaphorHookElements(sc: { template?: string; hookElements?: MotionScene["hookElements"] }) {
+    if (sc.hookElements?.length) return sc.hookElements;
+    if (sc.template !== "metaphor") return undefined;
+    return script?.scenes.find((s) => s.template === "hook")?.hookElements;
+  }
   const metaphorTools: MetaphorTools = {
-    imagePrompt: (sc) => metaphorImagePrompt(sc.metaphor ?? { image: "", video: "", cast: [] }, { look: series.look, cast: metaphorCast }),
-    videoPrompt: (sc) => metaphorVideoPrompt(sc.metaphor ?? { image: "", video: "", cast: [] }),
+    imagePrompt: (sc) => metaphorImagePrompt(sc.metaphor ?? { image: "", video: "", cast: [] }, { look: series.look, cast: metaphorCast, elements: metaphorHookElements(sc) }),
+    videoPrompt: (sc) => metaphorVideoPrompt(sc.metaphor ?? { image: "", video: "", cast: [] }, metaphorHookElements(sc)),
     opusPrompt: (sc) => metaphorOpusPrompt(sc, { series: series.name, problem: script?.problem ?? "", cast: metaphorCast, look: series.look }),
     parse: (reply) => parseMetaphorReply(reply, metaphorCast.map((c) => c.id)),
     cast: metaphorCast.map((c) => ({ id: c.id, label: `${series.cast.find((m) => m.id === c.id)?.name ?? c.id} (@${c.ref})` })),
     has: (asset) => ({ image: Boolean(metaphorParts[asset]?.still), clip: Boolean(metaphorParts[asset]?.clip) }),
     upload: uploadMetaphor,
     remove: removeMetaphor,
-    batch: () =>
-      metaphorBatch(
-        timeScenes(scenes).filter((x) => x.template === "metaphor"),
+    batch: () => {
+      const hookEls = script?.scenes.find((s) => s.template === "hook")?.hookElements;
+      return metaphorBatch(
+        timeScenes(scenes)
+          .filter((x) => x.template === "metaphor")
+          .map((s) => ({ ...s, hookElements: s.hookElements?.length ? s.hookElements : hookEls })),
         { look: series.look, cast: metaphorCast },
-      ),
+      );
+    },
   };
 
   const codeTools: CodeTools = {
@@ -1381,6 +1399,12 @@ export function MotionStudio({ projectId, brief, series, initial, voiceAvailable
           busy={busy}
           codeTools={codeTools}
           metaphorTools={metaphorTools}
+          noKey={noKey}
+          onLibrary={async (element) => {
+            const saved = await api.saveHookElements(series.id, { add: element });
+            onSeries?.(saved.series);
+            return saved.hookLibrary;
+          }}
         />
       )}
     </section>

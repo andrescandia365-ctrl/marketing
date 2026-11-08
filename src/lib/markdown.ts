@@ -6,6 +6,7 @@ import { appSketchFile, buildCopyPrompt, sketchPrompt } from "../../shared/promp
 import { BEAT_INFO, ROLE_LABEL, formatTime, timeShots, totalSeconds } from "../../shared/template.ts";
 import { editsFrom, shotFrames, type FrameSource } from "../../shared/transformScreen.ts";
 import { embudoMarkdown } from "../../shared/funnel.ts";
+import { elementosMarkdown } from "../../shared/hookElements.ts";
 
 export type LogEntry = { at: number; shot?: number; text: string; outcome?: string };
 
@@ -58,7 +59,7 @@ export function storyToMarkdown(story: Story, floor?: string): string {
   const verify = story.verify.length ? story.verify.map((v) => `- ${v}`).join("\n") : "- Nada.";
 
   return `# ${story.problem || story.title}
-${embudoMarkdown(floor)}${story.problem ? `\n**Gancho:** ${story.title}\n` : ""}
+${embudoMarkdown(floor)}${elementosMarkdown(story.hookElements)}${story.problem ? `\n**Gancho:** ${story.title}\n` : ""}
 ${story.logline}
 
 ## Personajes

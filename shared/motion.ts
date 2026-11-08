@@ -8,6 +8,7 @@ import { pickWorld, type SceneWorld, type WorldPlace } from "./world.ts";
 import { pickClip, type ScreenClip } from "./screenVideo.ts";
 import { codeHolds, codeReveals, codeTexts, type SceneCode } from "./codeScene.ts";
 import { isMetaphorAsset, pickMetaphor, type SceneMetaphor } from "./metaphor.ts";
+import { HookElementWireSchema, normalizeHookElements, type HookElement } from "./hookElements.ts";
 
 export const MOTION_TEMPLATES = ["hook", "screen", "zoom", "type", "character", "callouts", "steps", "beforeAfter", "contradiction", "notify", "flow", "slots", "metaphor", "product", "stat", "logo", "code"] as const;
 export type MotionTemplate = (typeof MOTION_TEMPLATES)[number];
@@ -171,6 +172,11 @@ const SceneWire = z.object({
     .optional()
     .describe("metaphor only, in English, optional: how the still moves when animated (25 to 50 words: one action, one slow camera move or locked camera; the boxes slowly tip over). Empty: a still picture."),
   cast: z.string().optional().describe("metaphor only: the cast ids that appear in the picture, comma separated (each is called by its @reference in Grok), or empty."),
+  hookElements: z
+    .array(HookElementWireSchema)
+    .max(3)
+    .optional()
+    .describe("hook only: 2 or 3 hook elements for the first 1–2 seconds, tied to the pain. Other templates: empty."),
 });
 
 export const MotionScriptSchema = z.object({
@@ -213,10 +219,12 @@ export const MotionNoteSchema = MotionScriptSchema.extend({
 export type Spot = { dx?: number; dy?: number; scale?: number };
 export type Tweak = { at?: number; v?: Spot; h?: Spot };
 
-export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture" | "entry" | "reveal" | "camera" | "disclosure" | "beyondToday" | "world" | "clip" | "imagePrompt" | "videoPrompt" | "cast"> & {
+export type MotionScene = Omit<z.infer<typeof SceneWire>, "template" | "gesture" | "entry" | "reveal" | "camera" | "disclosure" | "beyondToday" | "world" | "clip" | "imagePrompt" | "videoPrompt" | "cast" | "hookElements"> & {
   // "Escenas metáfora" (template "metaphor", shared/metaphor.ts): what Grok draws and how it moves, and the cast in it.
   // The uploaded picture is the scene's asset ("metafora:N"). Other templates have none.
   metaphor?: SceneMetaphor;
+  // Hook elements of a hook scene. Other scenes have none. Missing: the scene is as before.
+  hookElements?: HookElement[];
   id: string;
   template: MotionTemplate;
   // "Videos de la app funcionando": the stretch of its real screen's recording the scene plays (shared/screenVideo.ts).
@@ -556,8 +564,9 @@ export function normalizeMotion(wire: z.infer<typeof MotionScriptSchema>, tone?:
     ...rest,
     ...(pieceWorld && { world: pieceWorld }),
     scenes: planCameras(
-      wire.scenes.map(({ disclosure, beyondToday, world, clip, imagePrompt, videoPrompt, cast, ...s }, i) => withBeyond({
+      wire.scenes.map(({ disclosure, beyondToday, world, clip, imagePrompt, videoPrompt, cast, hookElements: rawElements, ...s }, i) => withBeyond({
         ...s,
+        ...(pickTemplate(s.template) === "hook" && normalizeHookElements(rawElements).length ? { hookElements: normalizeHookElements(rawElements) } : {}),
         // "Escenas metáfora": the picture to make with Grok. The asset is only ever the uploaded picture (metafora:N);
         // a cast id the writer put there joins the picture's cast.
         ...(pickTemplate(s.template) === "metaphor" && {

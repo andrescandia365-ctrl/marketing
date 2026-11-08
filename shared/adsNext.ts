@@ -21,6 +21,8 @@ export type NextPiece = {
   formula?: string;
   // The line is said inside the character clip. Those pieces have no voice pick.
   clipSpeaker?: boolean;
+  // A hook with more than one element set. Missing, or one set: the ad id has no "e".
+  elementSets?: { id: string }[];
 };
 
 export type NextVoice = { pieceId: string; id: string; name: string };
@@ -43,7 +45,15 @@ export type VoiceLine = {
   why: string;
 };
 
-export type NextProposal = { lines: NextLine[]; voices: VoiceLine[] };
+export type ElementLine = {
+  pieceId: string;
+  elementId: string;
+  verdict: Verdict;
+  impressions: number;
+  why: string;
+};
+
+export type NextProposal = { lines: NextLine[]; voices: VoiceLine[]; elements?: ElementLine[] };
 
 export type StatusChange = { id: string; from: PieceStatus; to: PieceStatus };
 
@@ -109,6 +119,15 @@ function sumRows(id: string, rows: MetricRow[]): PieceStats {
 }
 
 // Ads whose id names this voice on this piece. An old id without a suffix matches the piece, not a voice.
+// Ads whose id names this element set on this hook. An old id without an "e" matches the piece, not a set.
+export function rowsForElement(rows: MetricRow[], pieceId: string, elementId: string): MetricRow[] {
+  const id = pieceId.toUpperCase();
+  return rows.filter((r) => {
+    const parsed = parseAdId(r.adId || r.name);
+    return Boolean(parsed && parsed.hookId === id && parsed.hookElement === elementId);
+  });
+}
+
 export function rowsForVoice(rows: MetricRow[], pieceId: string, voiceId: string): MetricRow[] {
   const id = pieceId.toUpperCase();
   return rows.filter((r) => {
@@ -295,7 +314,26 @@ export function proposeNext(input: {
   for (const piece of ranked) {
     voices.push(...voiceLinesFor(piece, input.voices ?? [], input.rows, minImpressions, input.voiceChoice?.[piece.id]));
   }
-  return { lines, voices };
+  const elements: ElementLine[] = [];
+  for (const piece of ranked) {
+    const sets = piece.elementSets ?? [];
+    if (piece.kind !== "hook" || sets.length <= 1) continue;
+    for (const set of sets) {
+      const mine = rowsForElement(input.rows, piece.id, set.id);
+      const impressions = mine.reduce((n, r) => n + (r.impressions || 0), 0);
+      const enough = impressions >= minImpressions;
+      elements.push({
+        pieceId: piece.id,
+        elementId: set.id,
+        verdict: enough ? "ganador" : "sin datos suficientes",
+        impressions,
+        why: enough
+          ? `${piece.id} ${set.id}: ${impressions} impresiones.`
+          : `${piece.id} ${set.id}: sin datos suficientes (${impressions} impresiones, el mínimo es ${minImpressions}).`,
+      });
+    }
+  }
+  return elements.length ? { lines, voices, elements } : { lines, voices };
 }
 
 // What Aplicar changes. A kept piece that is already approved is not touched. A drop becomes archived. Voices

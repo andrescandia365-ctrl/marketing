@@ -189,6 +189,10 @@ ${meta.format === "vertical" ? "9:16" : "16:9"} · ${secs(total)} · ${panels.le
         `- **Entra:** ${p.entry.label}`,
         `- **Cámara:** ${p.camera.label}${p.camera.byAi ? " (la eligió la IA)" : ""}`,
         ...(p.recording ? [`- **Pantalla:** ${p.recording}`] : []),
+        ...((() => {
+          const scene = script.scenes[p.number - 1];
+          return scene?.hookElements?.length ? [`- **Elementos del gancho:** ${scene.hookElements.map((e) => e.label).join(", ")}`] : [];
+        })()),
         ...(p.metaphor ? [`- **Metáfora:** ${p.metaphor}`] : []),
         ...(p.onScreen.length ? [`- **En pantalla:**\n${p.onScreen.map((x) => `  - ${x.label}: “${x.text}”`).join("\n")}`] : []),
         p.voice ? `- **${p.voiceHeard ? "Se dice" : "Subtítulo (la pieza no tiene voz)"}:** “${p.voice}”` : "- **Se dice:** nada",
