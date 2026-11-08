@@ -1,7 +1,7 @@
 // Sample answers used when no Claude key is set, so every step can be tried. They are written for one
 // IMAN short and do not change with what the person types; revisions in sample mode return them unchanged.
 import type { MotionReview } from "../shared/motionQuality.ts";
-import { normalizeMotion, type MotionScript } from "../shared/motion.ts";
+import { normalizeMotion, readingNeed, type MotionScript } from "../shared/motion.ts";
 import { explainerHost, seriesCorrespondent } from "../shared/series.ts";
 import { INVENTED_CORRESPONDENT, segmentOf } from "../shared/segment.ts";
 import type { Board, Brief, HookVariant, Menu, Story } from "../shared/schema.ts";
@@ -333,6 +333,10 @@ export const DEMO_BOARD: Board = {
 };
 
 // Sample explainer: built from the series' cast so it shows real screens or the product when they exist.
+// The closing logo scene holds the series tagline, which the person edits in "Editar serie": give it
+// time to read whatever it says (the entrances before the line takes about 1.5 s of the scene).
+const logoSeconds = (base: number, tagline: string) => Math.max(base, readingNeed(tagline) + 1.5);
+
 export function demoMotion(brief: Brief, target: number | null): MotionScript {
   const series = getSeries(brief.series);
   const cast = series?.cast ?? [];
@@ -347,7 +351,7 @@ export function demoMotion(brief: Brief, target: number | null): MotionScript {
         { template: "product", seconds: 3, title: brief.product.split(/[,.:]/)[0] || "El producto", text: "", items: ["Precio [VERIFY]"], asset: product, camera: "push", voice: "Esto lo frena.", emotion: "segura" },
         { template: "callouts", seconds: 4, title: "Cómo es", text: "", items: ["Se pega en un minuto", "Para cualquier puerta", "Se lava"], asset: product, camera: "hold", voice: "Se pega en un minuto y sirve para cualquier puerta.", emotion: "clara" },
         { template: "beforeAfter", seconds: 3.5, title: "Antes y después", text: "", items: ["Antes", "Después"], asset: "", assetB: product, reveal: "iris", focusX: 0.5, focusY: 0.85, camera: "pull", voice: "Antes entraba el aire; ahora no.", emotion: "aliviada" },
-        { template: "logo", seconds: 3.5, title: series?.name ?? "", text: series?.tagline ?? "", items: ["Mirá el link"], asset: "", camera: "hold", voice: "Tu casa, más tibia.", emotion: "cálida" },
+        { template: "logo", seconds: logoSeconds(3.5, series?.tagline ?? ""), title: series?.name ?? "", text: series?.tagline ?? "", items: ["Mirá el link"], asset: "", camera: "hold", voice: "Tu casa, más tibia.", emotion: "cálida" },
       ]
     : [
         { template: "hook", seconds: 3.5, title: "El corte es a las 18", text: "Y se arma a ojo.", items: [], asset: "", camera: "hold", voice: "El proveedor corta a las seis.", emotion: "apurada" },
@@ -362,7 +366,7 @@ export function demoMotion(brief: Brief, target: number | null): MotionScript {
         { template: "steps", seconds: 4, title: "Pedí antes del corte", text: "", items: ["Abrí Stock", "Marcá lo que falta", "Mandá el pedido"], asset: "", world: "desk", voice: "Tres pasos y el pedido sale.", emotion: "segura" },
         { template: "slots", seconds: 3, title: "Y lo que falta, pedido", text: "", items: [], asset: "", voice: "Y lo que falta, pedido.", emotion: "aliviada" },
         { template: "stat", seconds: 4, title: "3 minutos", text: "para armar el pedido [VERIFY]", items: [], asset: "", voice: "", emotion: "" },
-        { template: "logo", seconds: 4, title: series?.name ?? "IMAN", text: series?.tagline ?? "", items: ["Probalo en tu kiosco"], asset: "", voice: "Números claros.", emotion: "cálida" },
+        { template: "logo", seconds: logoSeconds(4, series?.tagline ?? ""), title: series?.name ?? "IMAN", text: series?.tagline ?? "", items: ["Probalo en tu kiosco"], asset: "", voice: "Números claros.", emotion: "cálida" },
       ];
   // The series' explainer character (or else a character with a 3D puppet, or at least an image) presents what comes
   // next, right after the hook.

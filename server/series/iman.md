@@ -2,8 +2,9 @@
 
 Frase: Números claros. Local que crece.
 Tipo: Software (SaaS)
-Estilo de texto: {"subtitleSize":100,"headlineSize":100,"textColor":"#ffffff","headlineColor":"#ffffff","backing":"shadow","backingColor":"#000000"}
-Marca (logo, colores y fuentes para motion graphics): {"bg":"#111418","text":"#f4f1ea","accent":"#ff5a36","displayFont":"Space Grotesk","uiFont":"Inter","logo":""}
+Estilo de texto: {"subtitleSize":100,"headlineSize":100,"textColor":"#ffffff","headlineColor":"#ffffff","backing":"shadow","backingColor":"#000000","font":"app","fontFamily":"","nameColor":"role","subtitlePosition":"bottom","headlinePosition":"top"}
+Look (cámara y defectos, en todos los prompts): {"camera":"an early-2000s point-and-shoot digicam","flash":"harsh direct on-camera flash that flattens faces and puts sharp highlights on shiny surfaces","grain":"minor digital noise, warm slightly saturated CCD tones, bloom and halation at bright edges","focus":"slightly soft corners, focus a little off on fast moves","light":"the place's own light behind, underexposed against the flash; it never changes","extra":"skin with visible pores, freckles and fine texture, no smoothing, no retouching, no beauty filter"}
+Marca (logo, colores y fuentes para motion graphics): {"bg":"#14130f","text":"#ebe4d4","accent":"#8eae8a","displayFont":"Fraunces","uiFont":"DM Sans","logo":"logo.png","motion":"even","fonts":[]}
 Personaje de los explicativos: mica (Mica)
 
 ## Qué es
@@ -60,7 +61,19 @@ Dueños y empleados de kioscos y almacenes de Argentina.
   "sheet": "",
   "puppet": {
    "layers": []
-  }
+  },
+  "rig": {
+   "file": "",
+   "clips": {
+    "idle": "",
+    "walk": "",
+    "turnL": "",
+    "turnR": "",
+    "point": ""
+   }
+  },
+  "refs": [],
+  "views": []
  },
  {
   "id": "mica",
@@ -77,16 +90,30 @@ Dueños y empleados de kioscos y almacenes de Argentina.
      "file": "mica-p0-muthhio2.png",
      "role": "body",
      "pivot": null,
-     "name": "young-woman-character-1.png · cuerpo"
+     "name": "young-woman-character-1.png · cuerpo",
+     "place": null
     },
     {
      "file": "mica-p1-muthhio2.png",
      "role": "head",
      "pivot": null,
-     "name": "young-woman-character-1.png · cabeza"
+     "name": "young-woman-character-1.png · cabeza",
+     "place": null
     }
    ]
-  }
+  },
+  "rig": {
+   "file": "",
+   "clips": {
+    "idle": "",
+    "walk": "",
+    "turnL": "",
+    "turnR": "",
+    "point": ""
+   }
+  },
+  "refs": [],
+  "views": []
  }
 ]
 ```
