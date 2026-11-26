@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { AdsStateSchema, OfferSchema, RENDER_VERSION, emptyAds, isAdId, offerFilled, type AdsState, type Offer } from "../shared/ads.ts";
-import { adsMediaType, keptRenderMove, pieceVariantsReferenced, renderNameForKey, voiceFileName, voiceSeqAfterClear, voiceTypeOf, type CachePlan } from "../shared/voiceVariants.ts";
+import { adsMediaType, keptRenderMove, pieceVariantsReferenced, renderKey, renderNameForKey, voiceFileName, voiceSeqAfterClear, voiceTypeOf, type CachePlan } from "../shared/voiceVariants.ts";
 import { staticBelongs } from "../shared/adsStatic.ts";
 import { checkErrorText } from "../shared/errors.ts";
 
@@ -165,18 +165,24 @@ export async function saveClipFile(series: string, id: string, data: Buffer, typ
 }
 
 // A piece's own clip, image or voice. `index` is one slot of a long meat (H3-seq-0.mp4): it does not share the
-// single-clip name, so replacing the one clip never deletes the sequence.
-export async function savePieceMedia(series: string, pieceId: string, kind: "image" | "clip" | "voice", data: Buffer, type: string, index?: number): Promise<string> {
+// single-clip name, so replacing the one clip never deletes the sequence. An element set is H12-e2-image.png:
+// that prefix does not match the piece's own H12-image.png.
+export async function savePieceMedia(series: string, pieceId: string, kind: "image" | "clip" | "voice", data: Buffer, type: string, index?: number, element?: string): Promise<string> {
   if (!PIECE.test(pieceId)) throw new AdsError("Esa pieza no existe.");
+  if (element && !/^e[1-3]$/.test(element)) throw new AdsError("Esa variante de elementos no existe.");
+  if (element && index !== undefined) throw new AdsError("Una variante de elementos no usa la secuencia.");
   const table = kind === "image" ? IMAGE : kind === "clip" ? VIDEO : AUDIO;
-  const slot = kind === "clip" && index !== undefined;
+  const slot = !element && kind === "clip" && index !== undefined;
   if (slot && (!Number.isInteger(index) || index < 0 || index > 23)) throw new AdsError("Ese clip de la secuencia no existe.");
-  const name = slot
-    ? `${pieceId}-seq-${index}.${ext(type, table, "un video")}`
-    : `${pieceId}-${kind}.${ext(type, table, kind === "image" ? "una imagen" : kind === "clip" ? "un video" : "un audio")}`;
+  const what = kind === "image" ? "una imagen" : kind === "clip" ? "un video" : "un audio";
+  const name = element
+    ? `${pieceId}-${element}-${kind}.${ext(type, table, what)}`
+    : slot
+      ? `${pieceId}-seq-${index}.${ext(type, table, "un video")}`
+      : `${pieceId}-${kind}.${ext(type, table, what)}`;
   const dir = join(folder(series), "media");
   await mkdir(dir, { recursive: true });
-  const prefix = slot ? `${pieceId}-seq-${index}.` : `${pieceId}-${kind}.`;
+  const prefix = element ? `${pieceId}-${element}-${kind}.` : slot ? `${pieceId}-seq-${index}.` : `${pieceId}-${kind}.`;
   // One file per slot: an older one with another extension goes.
   for (const old of await readdir(dir).catch(() => [])) {
     if (old.startsWith(prefix) && old !== name) await rm(join(dir, old), { force: true });
@@ -208,10 +214,12 @@ export async function saveVoiceFile(series: string, pieceId: string, vid: string
 }
 
 // A piece's render (the cache). One voice keeps `<id>.l2.mp4`. A variant is `<id>.v3.l2.mp4`.
-export async function savePieceRender(series: string, pieceId: string, data: Buffer, type: string, voiceId?: string): Promise<string> {
+// An element set is `<id>.e2.l2.mp4`, and with a voice `<id>.e2.v3.l2.mp4`.
+export async function savePieceRender(series: string, pieceId: string, data: Buffer, type: string, voiceId?: string, element?: string): Promise<string> {
   if (!PIECE.test(pieceId)) throw new AdsError("Esa pieza no existe.");
   if (voiceId && !/^v(?:10|[1-9])$/.test(voiceId)) throw new AdsError("Esa voz no existe.");
-  const key = voiceId ? `${pieceId}.${voiceId}` : pieceId;
+  if (element && !/^e[1-3]$/.test(element)) throw new AdsError("Esa variante de elementos no existe.");
+  const key = renderKey(pieceId, voiceId, Boolean(voiceId), element, Boolean(element));
   const name = renderNameForKey(key, ext(type, VIDEO, "un video"), RENDER_VERSION);
   await put(join(folder(series), "piezas"), name, data);
   return `piezas/${name}`;

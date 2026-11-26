@@ -33,6 +33,7 @@ import type { ClipFit, ExplainerKind, ExplainerVideo } from "../../shared/adsFro
 import type { PastedCopy } from "../../shared/adsHandoff.ts";
 import type { AdCombo, AdsState, Batch, HookStatic, ClipRecord, Cta, Hook, Meat, MeatFormat, NextUndo, Offer, PieceSpeaker, PieceStatus, RankedHook, ReviewFlag, CombineRules } from "../../shared/ads.ts";
 import type { BrandFont } from "../../shared/brandFonts.ts";
+import type { ElementSet, HookElement } from "../../shared/hookElements.ts";
 
 // Demucs on this computer (Modelos → Demucs).
 export type DemucsStatus = { ready: boolean; command: string; model: string; songs: number; envBin: boolean };
@@ -107,6 +108,8 @@ export const asks = {
     writerAsk<{ story: Story } & Demo>("/api/story/revise", { brief, story, note, projectId }),
   board: (brief: Brief, story: Story) => writerAsk<{ board: Board } & Demo>("/api/board", { brief, story }),
   storyHooks: (brief: Brief, story: Story) => writerAsk<{ variants: HookVariant[] } & Demo>("/api/story/hooks", { brief, story }),
+  hookElements: (body: { series: string; pain: string; existing?: HookElement[]; avoid?: string[] }) =>
+    writerAsk<{ elements: HookElement[] } & Demo>("/api/hook-elements", body),
   reviseBoard: (brief: Brief, story: Story, board: Board, note: string, shotNotes: { index: number; note: string }[]) =>
     writerAsk<{ board: Board } & Demo>("/api/board/revise", { brief, story, board, note, shotNotes }),
   rewriteShot: (brief: Brief, story: Story, board: Board, index: number, note: string) =>
@@ -171,6 +174,9 @@ type PiecePatch = Partial<Pick<Hook, "status" | "text" | "onScreenText" | "visua
   format?: MeatFormat;
   speaker?: PieceSpeaker | null;
   funnelDismissed?: string[];
+  hookElements?: HookElement[];
+  elementSets?: ElementSet[];
+  elementDismissed?: string[];
 };
 
 // Publicidad (Método 50-5-3).
@@ -206,16 +212,22 @@ export const ads = {
   setStatus: (series: string, ids: string[], status: PieceStatus) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces`, { ids, status }, "PATCH"),
   removePiece: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}`, undefined, "DELETE"),
   review: (series: string) => call<{ flags: ReviewFlag[]; note: string } & Demo>(`/api/ads/${enc(series)}/review`, {}),
-  uploadPieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice", file: Blob, meta?: { name: string; duration: number; index?: number }) => {
+  uploadPieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice", file: Blob, meta?: { name: string; duration: number; index?: number; element?: string }) => {
     const q = new URLSearchParams();
     if (meta?.name) q.set("name", meta.name);
     if (meta?.duration) q.set("duration", String(meta.duration));
     if (meta?.index !== undefined) q.set("index", String(meta.index));
+    if (meta?.element) q.set("element", meta.element);
     const qs = q.toString();
     return upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/media/${kind}${qs ? `?${qs}` : ""}`, file, file.type);
   },
-  removePieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice", index?: number) =>
-    call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/media/${kind}${index !== undefined ? `?index=${index}` : ""}`, undefined, "DELETE"),
+  removePieceMedia: (series: string, id: string, kind: "image" | "clip" | "voice", index?: number, element?: string) => {
+    const q = new URLSearchParams();
+    if (index !== undefined) q.set("index", String(index));
+    if (element) q.set("element", element);
+    const qs = q.toString();
+    return call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/media/${kind}${qs ? `?${qs}` : ""}`, undefined, "DELETE");
+  },
   addVoice: (series: string, id: string, file: Blob, meta: { name: string; seconds: number }) => {
     const q = new URLSearchParams();
     if (meta.name) q.set("name", meta.name);
@@ -239,8 +251,13 @@ export const ads = {
     body: { project: string; file: string; duration: number; start: number; pieceId?: string; create?: { kind: ExplainerKind; seconds: number; text: string } },
   ) => call<{ state: AdsState; pieceId: string; fit: ClipFit }>(`/api/ads/${enc(series)}/pieces/from-explainer`, body),
   dropRender: (series: string, id: string) => call<{ state: AdsState }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render`, undefined, "DELETE"),
-  uploadRender: (series: string, id: string, video: Blob, voiceId?: string) =>
-    upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render${voiceId ? `?voice=${enc(voiceId)}` : ""}`, video, video.type),
+  uploadRender: (series: string, id: string, video: Blob, voiceId?: string, element?: string) => {
+    const q = new URLSearchParams();
+    if (voiceId) q.set("voice", voiceId);
+    if (element) q.set("element", element);
+    const qs = q.toString();
+    return upload<{ state: AdsState; file: string }>(`/api/ads/${enc(series)}/pieces/${enc(id)}/render${qs ? `?${qs}` : ""}`, video, video.type);
+  },
   createBatch: (series: string, body: { seconds: number; split?: { hook: number; meat: number; cta: number }; mode: "full" | "stage"; rules: CombineRules; ads: AdCombo[]; copies?: Record<string, PastedCopy>; funnel?: "arriba" | "medio" | "abajo" }) =>
     call<{ state: AdsState; batch: Batch } & Demo>(`/api/ads/${enc(series)}/batches`, body),
   uploadAd: (series: string, batch: string, adId: string, video: Blob) =>
@@ -280,6 +297,8 @@ export const api = {
   seriesFields: (id: string) => call<{ fields: SeriesFields }>(`/api/series/${encodeURIComponent(id)}`),
   saveSeries: (id: string, fields: SeriesFields) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${encodeURIComponent(id)}`, { fields }, "PUT"),
+  saveHookElements: (id: string, body: { add?: HookElement; remove?: string; previous?: string[] }) =>
+    call<{ series: SeriesInfo[]; hookLibrary: HookElement[]; hookPrevious: string[] }>(`/api/series/${enc(id)}/hook-elements`, body, "PUT"),
   createSeries: (fields: SeriesFields) => call<{ id: string; series: SeriesInfo[] }>("/api/series", { fields }),
   deleteSeries: (id: string) => call<{ series: SeriesInfo[] }>(`/api/series/${encodeURIComponent(id)}`, undefined, "DELETE"),
   saveSeriesStyle: (id: string, textStyle: TextStyle) =>

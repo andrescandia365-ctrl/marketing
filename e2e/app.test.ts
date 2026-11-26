@@ -108,6 +108,17 @@ describe("recorrido de la app", { concurrency: 1 }, () => {
       await page.getByRole("button", { name: /Quedarse sin mercadería a la tarde/ }).click();
       await page.getByRole("button", { name: "Ver un ejemplo", exact: true }).click();
       await approveWhenClear(page, "Aprobar → storyboard de ejemplo");
+      const panel = page.getByRole("region", { name: "Elementos del gancho" }).first();
+      await panel.getByRole("button", { name: "+ Agregar elemento" }).click();
+      await panel.getByLabel("Qué se ve, en inglés").fill("a bubblegum-pink handheld microphone with glitter, no logo");
+      await panel.getByLabel("Nombre corto").fill("Micrófono rosa");
+      await panel.getByLabel("Por qué frena").fill("El rosa chicle corta el scroll.");
+      await panel.getByLabel("Cómo se ata al dolor").fill("Es el objeto del reclamo de la mercadería.");
+      await panel.getByLabel("Dónde").selectOption("center");
+      await panel.getByRole("button", { name: "Agregar", exact: true }).click();
+      await panel.getByText("a bubblegum-pink handheld microphone with glitter, no logo").waitFor();
+      await page.getByText("Ver detalles").first().click();
+      await page.getByText(/bubblegum-pink/).first().waitFor();
       await approveWhenClear(page, "Aprobar → producción");
       await page.getByRole("button", { name: "5 · Producción" }).click();
       await page.getByRole("button", { name: "Enviar a Publicidad (hook)" }).waitFor();

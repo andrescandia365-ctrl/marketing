@@ -25,6 +25,7 @@ import { CopyButton } from "../ScriptView.tsx";
 import { Button, Spinner, inputClass } from "../ui.tsx";
 import { FloorTag } from "../EmbudoPicker.tsx";
 import { tagFloor } from "../../../shared/funnel.ts";
+import type { ElementSet, HookElement } from "../../../shared/hookElements.ts";
 
 export type ClipFile = { url: string; blob: Blob; name: string; duration: number; from?: number };
 export type VoiceClip = ClipFile & { id: string; cutOk?: boolean };
@@ -40,6 +41,7 @@ export type PieceMediaState = {
   loading?: boolean;
   voiceLoading?: boolean;
   error?: string;
+  elements?: Partial<Record<"e1" | "e2" | "e3", { image?: string; clip?: ClipFile }>>;
 };
 
 // A voice starts 0.15 s into its piece (render.ts) and is cut at the piece's end.
@@ -144,7 +146,15 @@ type CardProps = {
   toolName: string;
   canGenerate: boolean;
   onStatus: (status: PieceStatus) => void;
-  onSave: (patch: Partial<Pick<Piece, "text" | "onScreenText" | "visualPrompt" | "videoPrompt">>) => Promise<void>;
+  onSave: (
+    patch: Partial<Pick<Piece, "text" | "onScreenText" | "visualPrompt" | "videoPrompt">> & {
+      hookElements?: HookElement[];
+      elementSets?: ElementSet[];
+      elementDismissed?: string[];
+    },
+  ) => Promise<void>;
+  // Hook elements, shown with the line (the English `what` stays visible while production is closed).
+  elementPanel?: ReactNode;
   onRemove: () => void;
   onUploadImage: (file: File) => void;
   onUploadClip: (file: File) => void;
@@ -427,6 +437,7 @@ export function PieceCard({
   speakerPanel,
   notices = [],
   onDismissNotice,
+  elementPanel,
 }: CardProps) {
   const voices = [...(media?.voices ?? [])].sort((a, b) => voiceNumber(a.id) - voiceNumber(b.id));
   const longVoice = voices.find((v) => !v.cutOk && voiceLengthWarning(voiceNumber(v.id), v.duration, piece.seconds));
@@ -507,6 +518,7 @@ export function PieceCard({
       ) : (
         <p className="mt-2 text-sm leading-snug">{piece.text}</p>
       )}
+      {elementPanel && <div className="mt-3">{elementPanel}</div>}
       {notices.map((n) => (
         <p key={n.id} className="mt-2 text-sm text-neg">
           {n.detail}{" "}

@@ -59,6 +59,7 @@ import {
   comboIssues,
   nextVoiceId,
   pictureCachePlan,
+  renderKey,
   pieceRenderKeys,
   pieceVariantsReferenced,
   readVoiceSeconds,
@@ -72,6 +73,7 @@ import {
   type VoiceVariant,
 } from "../shared/voiceVariants.ts";
 import { campaignCsv, defaultStatic, staticBelongs, staticsCsv } from "../shared/adsStatic.ts";
+import { ElementSetSchema, HookElementSchema, isElementSetId, type ElementSetId } from "../shared/hookElements.ts";
 import { sequenceSlot } from "../shared/adsSequence.ts";
 import { variantFacts, variantHookRefusal } from "../shared/adsNext.ts";
 import { currentWriter, taskFromPaste, taskPrompt } from "./claude.ts";
@@ -165,9 +167,18 @@ function findPiece(s: AdsState, id: string): Piece | undefined {
 }
 
 // A new picture, clip or line changes every variant's render. A voice change drops only that variant (voiceCachePlan).
+// Element-set keys are dropped only when the hook has more than one set; one set keeps the old file name.
 async function dropPictureRenders(seriesId: string, s: AdsState, pieceId: string) {
   const ids = (s.media[pieceId]?.voices ?? []).map((v) => v.id);
-  await applyRenderPlan(seriesId, s.renders, pictureCachePlan(pieceId, ids));
+  const piece = findPiece(s, pieceId);
+  const elements = piece?.kind === "hook" && (piece.elementSets?.length ?? 0) > 1 ? piece.elementSets!.map((e) => e.id) : [];
+  await applyRenderPlan(seriesId, s.renders, pictureCachePlan(pieceId, ids, elements));
+}
+
+function elementQuery(raw: string | undefined): ElementSetId | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  if (!isElementSetId(raw)) throw new AdsError("Esa variante de elementos no existe.");
+  return raw;
 }
 
 // Writes one voice inside an open updateAds. A new id is chosen by the caller, inside that same lock.
@@ -599,6 +610,10 @@ export function adsRoutes(app: Hono) {
         speaker: PieceSpeakerSchema.nullable().optional(),
         // Dismissing an embudo check does not change the picture, so the cached render stays.
         funnelDismissed: z.array(z.string().max(40)).max(20).optional(),
+        // Hook elements. An empty list removes the key. Dismissing one does not drop the cache.
+        hookElements: z.array(HookElementSchema).max(3).optional(),
+        elementSets: z.array(ElementSetSchema).max(3).optional(),
+        elementDismissed: z.array(z.string().max(80)).max(20).optional(),
       })
       .parse(await c.req.json());
     const { state } = await updateAds(id, async (s) => {
@@ -624,6 +639,25 @@ export function adsRoutes(app: Hono) {
         changed = true;
       }
       if (patch.funnelDismissed) piece.funnelDismissed = patch.funnelDismissed;
+      if (piece.kind === "hook") {
+        if (patch.hookElements) {
+          const next = patch.hookElements;
+          if (JSON.stringify(next) !== JSON.stringify(piece.hookElements ?? [])) {
+            if (next.length) piece.hookElements = next;
+            else delete piece.hookElements;
+            changed = true;
+          }
+        }
+        if (patch.elementSets) {
+          const next = patch.elementSets;
+          if (JSON.stringify(next) !== JSON.stringify(piece.elementSets ?? [])) {
+            if (next.length) piece.elementSets = next;
+            else delete piece.elementSets;
+            changed = true;
+          }
+        }
+        if (patch.elementDismissed) piece.elementDismissed = patch.elementDismissed;
+      }
       if (changed) await dropPictureRenders(id, s, pieceId);
     });
     return c.json({ state });
@@ -648,7 +682,8 @@ export function adsRoutes(app: Hono) {
       s.ctas = s.ctas.filter((p) => p.id !== pieceId);
       const m = s.media[pieceId];
       const files = new Set<string>();
-      for (const f of [m?.image, m?.clip?.file, m?.voice?.file, ...(m?.voices ?? []).map((v) => v.file), ...(m?.clips ?? []).map((c) => c?.file)]) if (f) files.add(f);
+      const elementFiles = (["e1", "e2", "e3"] as const).flatMap((k) => [m?.elements?.[k]?.image, m?.elements?.[k]?.clip?.file]);
+      for (const f of [m?.image, m?.clip?.file, m?.voice?.file, ...(m?.voices ?? []).map((v) => v.file), ...(m?.clips ?? []).map((c) => c?.file), ...elementFiles]) if (f) files.add(f);
       for (const key of pieceRenderKeys(s.renders, pieceId)) {
         if (s.renders[key]) files.add(s.renders[key]);
         delete s.renders[key];
@@ -703,18 +738,29 @@ export function adsRoutes(app: Hono) {
     const duration = Number(c.req.query("duration")) || 0;
     const indexRaw = c.req.query("index");
     const index = indexRaw === undefined || indexRaw === "" ? undefined : Number(indexRaw);
+    const element = elementQuery(c.req.query("element"));
+    if (element && index !== undefined) throw new AdsError("Una variante de elementos no usa la secuencia.");
     if (index !== undefined && kind !== "clip") throw new AdsError("Solo un clip de la secuencia lleva un lugar.");
-    if (kind === "clip" && index !== undefined) {
+    if (kind === "clip" && index !== undefined && !element) {
       const piece = findPiece(await loadAds(id), pieceId);
       if (!piece) throw new AdsError("Esa pieza no existe.");
       const reason = sequenceSlot(piece.seconds, index);
       if (reason) throw new AdsError(reason);
     }
-    const file = await savePieceMedia(id, pieceId, kind, data, c.req.header("content-type") ?? "", index);
+    const file = await savePieceMedia(id, pieceId, kind, data, c.req.header("content-type") ?? "", element ? undefined : index, element);
     const { state } = await updateAds(id, async (s) => {
       if (!findPiece(s, pieceId)) throw new AdsError("Esa pieza no existe.");
       const m = (s.media[pieceId] ??= {});
-      if (kind === "image") m.image = file;
+      if (element) {
+        const slot = { ...(m.elements?.[element] ?? {}) };
+        if (kind === "image") slot.image = file;
+        else {
+          const prev = slot.clip;
+          if (prev?.file && prev.file !== file) await removePieceMedia(id, prev.file).catch(() => undefined);
+          slot.clip = { file, name, duration, from: prev?.from ?? 0 };
+        }
+        m.elements = { ...m.elements, [element]: slot };
+      } else if (kind === "image") m.image = file;
       else if (kind === "clip" && index !== undefined) {
         const clips = [...(m.clips ?? [])];
         while (clips.length <= index) clips.push(null);
@@ -798,8 +844,20 @@ export function adsRoutes(app: Hono) {
     const kind = z.enum(["image", "clip", "voice"]).parse(c.req.param("kind"));
     const indexRaw = c.req.query("index");
     const index = indexRaw === undefined || indexRaw === "" ? undefined : Number(indexRaw);
+    const element = elementQuery(c.req.query("element"));
     const { state } = await updateAds(id, async (s) => {
       const m = s.media[pieceId];
+      if (element) {
+        const slot = m?.elements?.[element];
+        const file = kind === "image" ? slot?.image : slot?.clip?.file;
+        if (file) await removePieceMedia(id, file).catch(() => undefined);
+        if (m?.elements?.[element]) {
+          if (kind === "image") delete m.elements[element]!.image;
+          else delete m.elements[element]!.clip;
+        }
+        await dropPictureRenders(id, s, pieceId);
+        return;
+      }
       if (kind === "voice") {
         const list = [...(m?.voices ?? [])];
         if (list.length > 1) throw new AdsError("Esta pieza tiene varias voces: borralas una por una.");
@@ -891,13 +949,14 @@ export function adsRoutes(app: Hono) {
     const data = Buffer.from(await c.req.arrayBuffer());
     if (!data.length) throw new AdsError("El archivo está vacío.");
     const voiceQ = c.req.query("voice") || undefined;
+    const element = elementQuery(c.req.query("element"));
     const type = c.req.header("content-type") ?? "";
     const { state, result } = await updateAds(id, async (s) => {
       const piece = findPiece(s, pieceId);
       const use = renderVoiceUse(s.media[pieceId]?.voices, voiceQ, piece?.speaker?.sound === "clip");
       if ("error" in use) throw new AdsError(use.error);
-      const file = await savePieceRender(id, pieceId, data, type, use.voice);
-      const key = use.voice ? `${pieceId}.${use.voice}` : pieceId;
+      const file = await savePieceRender(id, pieceId, data, type, use.voice, element);
+      const key = renderKey(pieceId, use.voice, Boolean(use.voice), element, Boolean(element));
       if (s.renders[key] && s.renders[key] !== file) await removePieceMedia(id, s.renders[key]).catch(() => undefined);
       s.renders[key] = file;
       return file;

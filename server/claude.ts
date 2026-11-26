@@ -66,6 +66,7 @@ import { claudeUsage } from "../shared/usage.ts";
 import { offerOf } from "./ads.ts";
 import { offerBlock } from "../shared/ads.ts";
 import { funnelBlock, isFloor } from "../shared/funnel.ts";
+import { HookElementsWireSchema, hookElementRules, hookElementsPrompt, normalizeHookElements, type HookElement } from "../shared/hookElements.ts";
 import { settleEditFrom, settleScreenShot } from "../shared/transformScreen.ts";
 import { NO_JSON, assemblePrompt, readReply, replyErrorText, type PromptOnly } from "../shared/handoff.ts";
 
@@ -176,7 +177,7 @@ function claudeError(error: unknown): Error {
 
 // The series bible and the tool profile come after the cached system block, so switching either never
 // re-bills the engine and playbook.
-function contextBlocks(brief: Brief, withTool: boolean, opts: { allScreens?: boolean } = {}): string[] {
+function contextBlocks(brief: Brief, withTool: boolean, opts: { allScreens?: boolean; hookElements?: boolean } = {}): string[] {
   const series = getSeries(brief.series);
   if (!series) throw new WriterError(`No existe la serie "${brief.series}".`);
   const blocks = [
@@ -198,7 +199,9 @@ function contextBlocks(brief: Brief, withTool: boolean, opts: { allScreens?: boo
       `The person makes every image and video by pasting your prompts into ${tool.name}. Write visualPrompt and videoPrompt in the format this tool profile describes, and never rely on anything it marks [NOT SURE].\n\n${tool.text}`,
     );
   }
-  // After the cache, and only when this piece picked a floor. No floor: the blocks are exactly as before.
+  // After the cache. Hook elements on every task that writes a hook, then the floor only when this piece picked one.
+  // Brand, teardown and screen naming pass hookElements: false, so their prompts stay as they were. The floor stays last.
+  if (opts.hookElements !== false) blocks.push(hookElementRules(series.hookLibrary ?? [], series.hookPrevious ?? []));
   if (isFloor(brief.funnel)) blocks.push(funnelBlock(brief.funnel));
   return blocks;
 }
@@ -405,10 +408,12 @@ export async function testModel(who: Writer, vision: boolean): Promise<string> {
 
 function ideasText(ideas: TopicIdea[]): string {
   return ideas
-    .map(
-      (t, i) =>
-        `${i + 1}. Problem: ${t.problem || "(name it)"}\n   Hook title: "${t.title}"\n   Pain: ${t.pain}\n   The Bad: ${t.bad}\n   The Good: ${t.good}\n   Opening artifact / bridge: ${t.peg}`,
-    )
+    .map((t, i) => {
+      const els = t.hookElements?.length
+        ? `\n   Hook elements (keep them on the story's hookElements): ${t.hookElements.map((e) => `${e.label}: ${e.what}`).join("; ")}`
+        : "";
+      return `${i + 1}. Problem: ${t.problem || "(name it)"}\n   Hook title: "${t.title}"\n   Pain: ${t.pain}\n   The Bad: ${t.bad}\n   The Good: ${t.good}\n   Opening artifact / bridge: ${t.peg}${els}`;
+    })
     .join("\n");
 }
 
@@ -422,7 +427,17 @@ ${describeBrief(brief)}
 
 Propose six topic ideas for this piece, each built on a different concrete pain from the series and named by the problem it solves, ready for the Good-vs-Bad engine. Every pain follows how people really work today (the series' "${PRACTICES}" list and the brief's notes); never invent a way of working. Use the optional peg where it fits. Then list any gaps the person should fill.`,
     MenuSchema,
-    (menu) => menu,
+    (menu) => ({
+      ...menu,
+      ideas: menu.ideas.map((idea) => {
+        const hookElements = normalizeHookElements(idea.hookElements);
+        if (!hookElements.length) {
+          const { hookElements: _drop, ...rest } = idea;
+          return rest;
+        }
+        return { ...idea, hookElements };
+      }),
+    }),
   );
 }
 export const proposeMenu = (brief: Brief): Promise<Menu> => runTask(menuTask(brief));
@@ -495,6 +510,16 @@ Write five hook variants for this piece: the same problem and story, five differ
   );
 }
 export const hookVariants = (brief: Brief, story: Story): Promise<HookVariant[]> => runTask(hookVariantsTask(brief, story));
+
+// "Pedir otros elementos": three new hook elements. A short prompt, not the cached writers' room.
+export function hookElementsTask(o: { pain: string; existing?: readonly HookElement[]; avoid?: readonly string[]; library?: readonly HookElement[] }): WriterTask<z.infer<typeof HookElementsWireSchema>, { elements: HookElement[] }> {
+  return {
+    system: ["Return only the JSON object asked for, with no prose around it."],
+    prompt: hookElementsPrompt(o),
+    schema: HookElementsWireSchema,
+    finish: (wire) => ({ elements: normalizeHookElements(wire.elements) }),
+  };
+}
 
 // What a writers' room keeps across episodes, on top of the callbacks inside this one.
 const ROOM_CRAFT = `Like a series writers' room, also fill:
@@ -1021,7 +1046,7 @@ export function brandFromSite(facts: SiteFacts, seriesId: string | null): Promis
   if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
   // A new series that is not saved yet has no bible. Do not fall back to another series (EMPTY_BRIEF names IMAN).
   const series = seriesId ? getSeries(seriesId) : null;
-  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false) : [])];
+  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false, { hookElements: false }) : [])];
   return askWith(
     who,
     system,
@@ -1050,7 +1075,7 @@ export function teardownAd(seriesId: string | null, picture: string, note: strin
   const who = currentVision() ?? currentWriter();
   if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
   const series = seriesId ? getSeries(seriesId) : null;
-  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false, { allScreens: true }) : [])];
+  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false, { allScreens: true, hookElements: false }) : [])];
   return askWith(
     who,
     system,
@@ -1076,7 +1101,7 @@ export function nameScreen(seriesId: string | null, picture: string, fileName: s
   const who = currentVision() ?? currentWriter();
   if (!who) throw new WriterError("No hay ninguna IA conectada. Cargá una clave en Modelos.");
   const series = seriesId ? getSeries(seriesId) : null;
-  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false, { allScreens: true }) : [])];
+  const system = [SYSTEM, ...(series ? contextBlocks({ ...EMPTY_BRIEF, series: series.id }, false, { allScreens: true, hookElements: false }) : [])];
   return askWith(
     who,
     system,

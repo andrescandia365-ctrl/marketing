@@ -3,6 +3,7 @@
 // assembling the ads. Shared by the server (validation, storage) and the browser (UI, render).
 import { z } from "zod";
 import { ALIGNS, CORNERS, PLACEMENTS, STILL_FORMATS } from "./stillLayout.ts";
+import { elementoOf, elementAxis, normalizeHookElements, withElementPrompt, ElementSetSchema, HookElementSchema, HookElementWireSchema } from "./hookElements.ts";
 import { AD_ID, adId, parseAdId, pieceOfUnit, renderUnits, settleVoices, voiceAxis, voiceColumn, type VoicePicks } from "./voiceVariants.ts";
 
 export { AD_ID, adId, isAdId, parseAdId } from "./voiceVariants.ts";
@@ -336,11 +337,19 @@ const PieceBase = z.object({
   funnelDismissed: z.array(z.string().max(40)).max(20).optional(),
 });
 
+// On hooks only. Missing on an old hook: no elements, and the ad id stays H12-M3-C1.
+const HookElementFields = {
+  hookElements: z.array(HookElementSchema).max(3).optional(),
+  elementSets: z.array(ElementSetSchema).max(3).optional(),
+  elementDismissed: z.array(z.string().max(80)).max(20).optional(),
+};
+
 export const HookSchema = PieceBase.extend({
   kind: z.literal("hook"),
   level: levelField,
   angle: z.enum(ANGLES),
   formula: z.enum(FORMULAS),
+  ...HookElementFields,
 });
 export type Hook = Omit<z.infer<typeof HookSchema>, "level"> & { level: Level };
 
@@ -415,6 +424,8 @@ export const AdComboSchema = z.object({
   hookVoice: z.string().regex(/^v(?:10|[1-9])$/).optional(),
   meatVoice: z.string().regex(/^v(?:10|[1-9])$/).optional(),
   ctaVoice: z.string().regex(/^v(?:10|[1-9])$/).optional(),
+  // Set only when the hook has more than one element set. Old batches have none.
+  hookElement: z.enum(["e1", "e2", "e3"]).optional(),
 });
 export type AdCombo = Omit<z.infer<typeof AdComboSchema>, "level"> & { level: Level };
 
@@ -499,6 +510,14 @@ export const AdsMediaSchema = z.object({
     .optional(),
   // Highest variant number ever given out. A deleted id is not reused. Old files have none.
   voiceSeq: z.number().int().min(0).max(10).optional(),
+  // A hook with more than one element set: each set's own picture and clip. Missing: the piece's image and clip.
+  elements: z
+    .object({
+      e1: z.object({ image: z.string().optional(), clip: z.object({ file: z.string(), name: z.string(), duration: z.number(), from: z.number().min(0).max(3600).optional() }).optional() }).optional(),
+      e2: z.object({ image: z.string().optional(), clip: z.object({ file: z.string(), name: z.string(), duration: z.number(), from: z.number().min(0).max(3600).optional() }).optional() }).optional(),
+      e3: z.object({ image: z.string().optional(), clip: z.object({ file: z.string(), name: z.string(), duration: z.number(), from: z.number().min(0).max(3600).optional() }).optional() }).optional(),
+    })
+    .optional(),
 }).transform(settleVoices);
 export type AdsMedia = z.infer<typeof AdsMediaSchema>;
 
@@ -618,6 +637,7 @@ export const HooksWireSchema = z.object({
       angle: z.string().describe("One of: pain, desire, objection, myth, curiosity, proof."),
       formula: z.string().describe("One of: question, stop, number, beforeAfter."),
       ...PromptFields,
+      hookElements: z.array(HookElementWireSchema).max(3).optional().describe("Two or three hook elements for this hook. Omit only when the hook has none."),
     }),
   ),
   note: z.string().describe("In Spanish: anything to check ([VERIFY] claims, gaps in the offer). Empty if nothing."),
@@ -724,22 +744,26 @@ export function hooksFromWire(state: AdsState, wire: HooksWire, seconds: number,
   const now = new Date().toISOString();
   return wire.hooks
     .filter((h) => h.text.trim())
-    .map((h) => ({
-      id: nextId(state, "hook"),
-      kind: "hook" as const,
-      text: clean(h.text, PIECE_TEXT_MAX),
-      onScreenText: clean(h.onScreenText, 80),
-      visualPrompt: clean(h.visualPrompt, 3000),
-      videoPrompt: clean(h.videoPrompt, 3000),
-      seconds,
-      status,
-      source,
-      createdAt: now,
-      note: "",
-      level: toLevel(h.level),
-      angle: pick(h.angle, ANGLES, "pain"),
-      formula: pick(h.formula, FORMULAS, "question"),
-    }));
+    .map((h) => {
+      const hookElements = normalizeHookElements(h.hookElements);
+      return {
+        id: nextId(state, "hook"),
+        kind: "hook" as const,
+        text: clean(h.text, PIECE_TEXT_MAX),
+        onScreenText: clean(h.onScreenText, 80),
+        visualPrompt: clean(withElementPrompt(h.visualPrompt, hookElements, "image"), 3000),
+        videoPrompt: clean(withElementPrompt(h.videoPrompt, hookElements, "video"), 3000),
+        seconds,
+        status,
+        source,
+        createdAt: now,
+        note: "",
+        level: toLevel(h.level),
+        angle: pick(h.angle, ANGLES, "pain"),
+        formula: pick(h.formula, FORMULAS, "question"),
+        ...(hookElements.length ? { hookElements } : {}),
+      };
+    });
 }
 
 export function meatsFromWire(state: AdsState, wire: MeatsWire, seconds: number, hookId: string, fallbackLevels: Level[]): Meat[] {
@@ -823,8 +847,8 @@ const SHARE_EPS = 0.05;
 const fitsShare = (seconds: number, kind: "hook" | "meat" | "cta", length: CombineLength) =>
   Math.abs(seconds - pieceShare(length.seconds, kind, length.split)) <= SHARE_EPS;
 
-const withVoices = (hookId: string, meatId: string, ctaId: string, level: Level, hv?: string, mv?: string, cv?: string): AdCombo => ({
-  id: adId(hookId, meatId, ctaId, { hook: hv, meat: mv, cta: cv }),
+const withVoices = (hookId: string, meatId: string, ctaId: string, level: Level, hv?: string, mv?: string, cv?: string, element?: string): AdCombo => ({
+  id: adId(hookId, meatId, ctaId, { hook: hv, meat: mv, cta: cv }, element),
   hookId,
   meatId,
   ctaId,
@@ -832,6 +856,7 @@ const withVoices = (hookId: string, meatId: string, ctaId: string, level: Level,
   ...(hv && { hookVoice: hv }),
   ...(mv && { meatVoice: mv }),
   ...(cv && { ctaVoice: cv }),
+  ...(element ? { hookElement: element as AdCombo["hookElement"] } : {}),
 });
 
 // Every approved hook with every approved meat and CTA (that serve its level, when the rule is on) whose seconds
@@ -847,7 +872,9 @@ export function combine(hooks: Hook[], meats: Meat[], ctas: Cta[], rules: Combin
         if (!fitsShare(c.seconds, "cta", length) || !serves(c, h.level, rules)) continue;
         for (const hv of voiceAxis(h.id, picks)) {
           for (const mv of voiceAxis(m.id, picks)) {
-            for (const cv of voiceAxis(c.id, picks)) out.push(withVoices(h.id, m.id, c.id, h.level, hv, mv, cv));
+            for (const cv of voiceAxis(c.id, picks)) {
+              for (const el of elementAxis(h.elementSets?.map((s) => s.id))) out.push(withVoices(h.id, m.id, c.id, h.level, hv, mv, cv, el));
+            }
           }
         }
       }
@@ -865,7 +892,9 @@ export function varyHook(meat: Meat, cta: Cta, hooks: Hook[], rules: CombineRule
       const out: AdCombo[] = [];
       for (const hv of voiceAxis(h.id, picks)) {
         for (const mv of voiceAxis(meat.id, picks)) {
-          for (const cv of voiceAxis(cta.id, picks)) out.push(withVoices(h.id, meat.id, cta.id, h.level, hv, mv, cv));
+          for (const cv of voiceAxis(cta.id, picks)) {
+            for (const el of elementAxis(h.elementSets?.map((s) => s.id))) out.push(withVoices(h.id, meat.id, cta.id, h.level, hv, mv, cv, el));
+          }
         }
       }
       return out;
@@ -1056,7 +1085,7 @@ const num = (s: string, esLocale: boolean) => {
 // disk stays the raw ad id: isAdId rejects a prefix, so only the CSV's id column carries this name.
 // Not anchored: Meta appends " - Copy" or " – Copia", and a cell can have words in front. Marks are stripped first,
 // so an accented prefix (MÁSHOGAR_) is still the whole token and the ad id in the middle is kept.
-const EXPORTED_AD = "H\\d{1,4}(?:v(?:10|[1-9]))?-M\\d{1,4}(?:v(?:10|[1-9]))?-C\\d{1,4}(?:v(?:10|[1-9]))?";
+const EXPORTED_AD = "H\\d{1,4}(?:e[1-3])?(?:v(?:10|[1-9]))?-M\\d{1,4}(?:v(?:10|[1-9]))?-C\\d{1,4}(?:v(?:10|[1-9]))?";
 const EXPORT_NAME = new RegExp(
   `(?<![A-Za-z0-9-])([A-Za-z0-9-]+)_N(\\d+)_(${EXPORTED_AD})_(\\d+)s_(\\d+x\\d+)(?![A-Za-z0-9])`,
   "i",
@@ -1084,7 +1113,7 @@ function adIdFromName(name: string): string {
   const wrapped = exportMatch(name);
   const parsed = parseAdId(wrapped ? wrapped[3] : name);
   if (!parsed) return "";
-  return adId(parsed.hookId, parsed.meatId, parsed.ctaId, { hook: parsed.hookVoice, meat: parsed.meatVoice, cta: parsed.ctaVoice });
+  return adId(parsed.hookId, parsed.meatId, parsed.ctaId, { hook: parsed.hookVoice, meat: parsed.meatVoice, cta: parsed.ctaVoice }, parsed.hookElement);
 }
 
 // An old name with no prefix still belongs here. A prefixed name belongs only when its token is this series, in any case.
@@ -1322,7 +1351,7 @@ export const csvCell = (v: string | number) => {
   return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 // "tipo" is video or imagen (the hooks' static versions, shared/adsStatic.ts); "formato" the length or the shape.
-export const CSV_HEAD = ["id", "archivo", "nivel", "publico", "hook", "meat", "cta", "texto_principal", "titular", "boton", "tipo", "formato", "voz_hook", "voz_meat", "voz_cta", "embudo"];
+export const CSV_HEAD = ["id", "archivo", "nivel", "publico", "hook", "meat", "cta", "texto_principal", "titular", "boton", "tipo", "formato", "voz_hook", "voz_meat", "voz_cta", "embudo", "elemento"];
 
 // The ad's own level, as a floor. A level outside 1–5 is an empty cell. Kept here so ads.ts does not import funnel.ts.
 export function embudoOfLevel(level: number): string {
@@ -1356,6 +1385,7 @@ export function exportCsv(batch: Batch, hooks: Hook[], meats: Meat[], ctas: Cta[
       voiceColumn(media?.[a.meatId], a.meatVoice),
       voiceColumn(media?.[a.ctaId], a.ctaVoice),
       embudoOfLevel(a.level),
+      elementoOf(a.hookElement, H[a.hookId]?.hookElements),
     ]
       .map(csvCell)
       .join(",");

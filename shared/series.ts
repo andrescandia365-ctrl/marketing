@@ -6,6 +6,7 @@ import { BRAND_FONT_MAX, BrandFontSchema, FAMILY } from "./brandFonts.ts";
 import { HEADLINE_POSITIONS, SUBTITLE_POSITIONS } from "./storyText.ts";
 import { MascotMetaSchema, mascotLine, readMascotLine } from "./mascot.ts";
 import { MAX_REFERENCES, REFERENCES, REFERENCES_HEADING, ReferenceSchema, markdownToReferences, referencesToMarkdown } from "./reference.ts";
+import { ELEMENT_LIBRARY_MAX, HookElementSchema, hookLibraryLine, hookPreviousLine, readHookLibraryLine, readHookPreviousLine } from "./hookElements.ts";
 
 // How the type looks on the finished video. Kept with the series so every piece of a brand looks the same.
 export const TextStyleSchema = z.object({
@@ -456,6 +457,10 @@ export const SeriesFieldsSchema = z.object({
   // "Mascota en código" (shared/mascot.ts): its name, description and fingerprint; the code is the library's file
   // (server-owned, like a puppet's). null: the series has none.
   mascot: MascotMetaSchema.nullable().default(null),
+  // "Elementos de la serie": hook elements kept from pieces, one JSON line in the bible. Old bibles have none.
+  hookLibrary: z.array(HookElementSchema).max(ELEMENT_LIBRARY_MAX).default([]),
+  // The previous piece's elements (what and label), so the next hook does not repeat them.
+  hookPrevious: z.array(z.string().max(400)).max(3).default([]),
 });
 export type SeriesFields = z.infer<typeof SeriesFieldsSchema>;
 
@@ -483,6 +488,8 @@ export const EMPTY_SERIES: SeriesFields = {
   correspondent: "",
   references: [],
   mascot: null,
+  hookLibrary: [],
+  hookPrevious: [],
 };
 
 // The heading each field is written under. The writer is told that the WORKS_TODAY list is the only thing
@@ -549,6 +556,8 @@ export function seriesToMarkdown(f: SeriesFields): string {
     ...castLine(f, EXPLAINER_CHARACTER, f.explainerCharacter),
     ...castLine(f, CORRESPONDENT, f.correspondent),
     ...mascotLine(f.mascot),
+    ...hookLibraryLine(f.hookLibrary ?? []),
+    ...hookPreviousLine(f.hookPrevious ?? []),
   ];
   for (const [key, heading] of SECTIONS) {
     const body = isList(key) ? f[key].map((w) => `- ${w}`).join("\n") : f[key].trim();
@@ -621,6 +630,8 @@ export function markdownToSeries(text: string, fallbackName: string): SeriesFiel
   fields.explainerCharacter = text.match(new RegExp(`^${EXPLAINER_CHARACTER}:[ \\t]*([a-z0-9-]{1,40})`, "im"))?.[1].toLowerCase() ?? "";
   fields.correspondent = text.match(new RegExp(`^${CORRESPONDENT}:[ \\t]*([a-z0-9-]{1,40})`, "im"))?.[1].toLowerCase() ?? "";
   fields.mascot = readMascotLine(text);
+  fields.hookLibrary = readHookLibraryLine(text);
+  fields.hookPrevious = readHookPreviousLine(text);
 
   const other: string[] = [];
   const chunks = text.split(/^## /m).slice(1);

@@ -9,6 +9,8 @@ import { copyText } from "../lib/files.ts";
 import { ChecksPanel } from "./Checks.tsx";
 import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
 import { Button, PieceTitle, ROLE_TEXT, Segmented, Spinner, inputClass } from "./ui.tsx";
+import { HookElementsPanel } from "./HookElementsPanel.tsx";
+import { commitHookElements, elementSetup, undoElementEdits, type ElementPromptEdit, type HookElement } from "../../shared/hookElements.ts";
 
 type Props = {
   story: Story;
@@ -29,6 +31,12 @@ type Props = {
   // Without a key: the revision and "Arreglalo" by copy and paste with claude.ai (the buttons show the sample).
   handoffs?: { revise: (note: string, shotNotes: { index: number; note: string }[]) => Handoff; fix: Handoff } | null;
   funnel?: string | null;
+  seriesId: string;
+  library?: HookElement[];
+  previous?: string[];
+  noKey?: boolean;
+  onBoard: (board: Board) => void;
+  onLibrary?: (element: HookElement) => void | Promise<void | HookElement[]>;
 };
 
 const BAR = { negative: "bg-neg", touching: "bg-touch", good: "bg-good" };
@@ -270,7 +278,7 @@ function RunnerMark({ story }: { story: Story }) {
   );
 }
 
-export function BoardView({ story, board, round, busy, problems, dismissed, look, onRevise, onFix, onDismiss, onApprove, onSketch, onSketchRemove, handoffs, funnel }: Props) {
+export function BoardView({ story, board, round, busy, problems, dismissed, look, onRevise, onFix, onDismiss, onApprove, onSketch, onSketchRemove, handoffs, funnel, seriesId, library = [], previous = [], noKey = false, onBoard, onLibrary }: Props) {
   // Bocetos: the drawn storyboard (uploaded sketches, else the app's pencil sketch). Imágenes: the pictures so far.
   const [view, setView] = useState<"sketch" | "image">("sketch");
   const [sketchImages, setSketchImages] = useState<Record<number, HTMLImageElement | null>>({});
@@ -278,7 +286,35 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
   const [note, setNote] = useState("");
   const [shotNotes, setShotNotes] = useState<Record<number, string>>({});
   const [playing, setPlaying] = useState(false);
+  const [elementUndo, setElementUndo] = useState<{ elements: HookElement[]; edits: ElementPromptEdit[] } | null>(null);
+  const [elementMissing, setElementMissing] = useState<string[]>([]);
   const [images, setImages] = useState<Record<number, HTMLImageElement | null>>({});
+  function applyElements(next: HookElement[]) {
+    const before = board.hookElements ?? [];
+    const committed = commitHookElements(board, before, next);
+    setElementUndo({ elements: before, edits: committed.edits });
+    setElementMissing(committed.missing);
+    const { hookElements: _drop, ...rest } = committed.board;
+    onBoard(next.length ? { ...rest, hookElements: next } : rest);
+  }
+
+  function undoElements() {
+    if (!elementUndo) return;
+    const shot0 = board.shots[0];
+    const reverted = shot0 ? undoElementEdits(shot0, elementUndo.edits).shot : shot0;
+    const restored = elementUndo.elements;
+    const setups = [...board.setups.filter((s) => !s.id.startsWith("he-")), ...restored.map(elementSetup)];
+    const shots = board.shots.map((s, index) => {
+      if (index !== 0 || !reverted) return { ...s, setups: s.setups.filter((id) => !id.startsWith("he-")) };
+      const kept = reverted.setups.filter((id) => !id.startsWith("he-"));
+      return { ...s, ...reverted, setups: [...kept, ...restored.map((e) => elementSetup(e).id)] };
+    });
+    const { hookElements: _drop, ...rest } = board;
+    onBoard(restored.length ? { ...rest, setups, shots, hookElements: restored } : { ...rest, setups, shots });
+    setElementUndo(null);
+    setElementMissing([]);
+  }
+
   const cast = Object.fromEntries(story.characters.map((c) => [c.id, c]));
   const speakers = useMemo(
     () => Object.fromEntries(story.characters.map((c) => [c.id, { name: c.name, role: c.role }])) as Record<string, Speaker>,
@@ -462,6 +498,21 @@ export function BoardView({ story, board, round, busy, problems, dismissed, look
                   )}
                 </p>
               </div>
+              {s.index === 0 && (
+                <HookElementsPanel
+                  elements={board.hookElements ?? []}
+                  onChange={applyElements}
+                  seriesId={seriesId}
+                  pain={story.problem}
+                  library={library}
+                  previous={previous}
+                  noKey={noKey}
+                  onLibrary={onLibrary}
+                  missing={elementMissing}
+                  onUndo={undoElements}
+                  canUndo={elementUndo !== null}
+                />
+              )}
               <details className="text-xs">
                 <summary className="cursor-pointer text-muted">Ver detalles</summary>
                 <div className="mt-1.5 space-y-1.5">

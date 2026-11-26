@@ -5,7 +5,7 @@ import type { Setup } from "../../shared/schema.ts";
 import type { TimedShot } from "../../shared/template.ts";
 
 export type SketchKind = "character" | "place" | "product" | "screen" | "other";
-export type SketchSetup = { name: string; kind: SketchKind };
+export type SketchSetup = { name: string; kind: SketchKind; marker?: boolean };
 export type Framing = "close" | "medium" | "wide";
 
 export const FRAMING_LABEL: Record<Framing, string> = { close: "Primer plano", medium: "Plano medio", wide: "Plano general" };
@@ -14,6 +14,7 @@ export const FRAMING_LABEL: Record<Framing, string> = { close: "Primer plano", m
 export function sketchSetups(shot: TimedShot, setups: Record<string, Setup>, castKinds: Record<string, string>): SketchSetup[] {
   const list: SketchSetup[] = shot.setups.flatMap((id) => {
     const s = setups[id];
+    if (id.startsWith("he-")) return [{ name: s?.name || "Elemento", kind: "other" as const, marker: true }];
     if (!s) return [];
     const known = s.castId ? castKinds[s.castId] : undefined;
     // A person first (an owner "of a corner store" is still a person), then a place, else a thing or someone unnamed.
@@ -105,8 +106,8 @@ export function drawSketch(ctx: CanvasRenderingContext2D, shot: TimedShot, setup
     hatch(0, horizon, w, h - horizon, unit * 0.05);
   }
 
-  const people = setups.filter((s) => s.kind === "character" || s.kind === "other").slice(0, 3);
-  const things = setups.filter((s) => s.kind === "product" || s.kind === "screen").slice(0, 2);
+  const people = setups.filter((s) => !s.marker && (s.kind === "character" || s.kind === "other")).slice(0, 3);
+  const things = setups.filter((s) => !s.marker && (s.kind === "product" || s.kind === "screen")).slice(0, 2);
   const scale = framing === "close" ? 2.4 : framing === "medium" ? 1.45 : 0.75;
   const figureH = h * 0.42 * scale;
   const slots = people.length || (things.length ? 0 : 1);
@@ -156,6 +157,22 @@ export function drawSketch(ctx: CanvasRenderingContext2D, shot: TimedShot, setup
       label(t.name, cx, top + bh + unit * 0.01);
     }
   });
+
+  // A hook element is a diamond, drawn without the seeded wobble so a board with none stays pixel-identical.
+  for (const [k, marker] of setups.filter((s) => s.marker).entries()) {
+    const cx = w * (0.5 + (k - (setups.filter((s) => s.marker).length - 1) / 2) * 0.18);
+    const cy = horizon * 0.72;
+    const r = unit * 0.045;
+    pencil(0.006);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r);
+    ctx.lineTo(cx + r, cy);
+    ctx.lineTo(cx, cy + r);
+    ctx.lineTo(cx - r, cy);
+    ctx.closePath();
+    ctx.stroke();
+    label(marker.name, cx, cy + r + unit * 0.012);
+  }
 
   // What kind of shot it is, in the corner the overlay leaves free.
   ctx.font = `700 ${Math.round(unit * 0.03)}px "IBM Plex Sans", system-ui, sans-serif`;

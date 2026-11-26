@@ -18,7 +18,7 @@ import type { PieceKind } from "../../../shared/ads.ts";
 import { Button, Spinner } from "../ui.tsx";
 
 type Item = { key: string; file: File; kind: "video" | "image" | null; mime: ReturnType<typeof bulkMimeOf>; forced?: ForcedSlot };
-type Job = { pieceId: string; image: boolean; index: number | null; file: File };
+type Job = { pieceId: string; image: boolean; index: number | null; file: File; element?: "e1" | "e2" | "e3" };
 type Row = { item: Item; match: BulkMatch };
 
 const HEAD = 262144;
@@ -88,7 +88,7 @@ export function useBulkQueue(): BulkQueue {
       try {
         if (!row.item.mime || !match.pieceId || match.image === undefined) throw new Error(match.status);
         const file = new File([row.item.file], row.item.file.name, { type: row.item.mime });
-        await send({ pieceId: match.pieceId, image: match.image, index: match.index ?? null, file });
+        await send({ pieceId: match.pieceId, image: match.image, index: match.index ?? null, file, ...(match.element ? { element: match.element } : {}) });
         setResults((prev) => ({ ...prev, [row.item.key]: "listo" }));
       } catch (e) {
         failed++;

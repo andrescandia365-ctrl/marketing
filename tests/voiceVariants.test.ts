@@ -35,11 +35,13 @@ import {
   readStoredVoices,
   readVoiceSeconds,
   readVoiceSelection,
+  pieceOfUnit,
   renderKey,
   renderNameForKey,
   renderVoiceBlock,
   renderVoiceUse,
   shouldBlockVoice,
+  unitSuffix,
   usableVoiceIds,
   voiceBodyError,
   voiceCachePlan,
@@ -203,12 +205,14 @@ test("the CSV names each voice and a metrics file still matches the new ids", ()
     s.media,
   );
   const table = parseCsv(csv);
-  assert.deepEqual(table[0].slice(-4, -1), ["voz_hook", "voz_meat", "voz_cta"]);
-  assert.equal(table[0].at(-1), "embudo");
+  assert.deepEqual(table[0].slice(-5, -2), ["voz_hook", "voz_meat", "voz_cta"]);
+  assert.equal(table[0].at(-2), "embudo");
+  assert.equal(table[0].at(-1), "elemento");
   assert.equal(voiceColumn(s.media.H1, "v2"), "Firme");
   assert.equal(voiceColumn(s.media.C1), "Cierre");
-  assert.deepEqual(table[1].slice(-4, -1), ["Firme", "", "Cierre"]);
-  assert.equal(table[1].at(-1), embudoOfLevel(rowAd.level));
+  assert.deepEqual(table[1].slice(-5, -2), ["Firme", "", "Cierre"]);
+  assert.equal(table[1].at(-2), embudoOfLevel(rowAd.level));
+  assert.equal(table[1].at(-1), "");
   assert.equal(embudoOfLevel(rowAd.level), floorOf(rowAd.level) ?? "");
   const report = parseMetricsCsv("Ad name,Impressions,3-second video plays\nH12v10-M3v1-C2v2,100,40\nH1-M1-C1,50,10\n");
   assert.equal(report.rows[0].adId, "H12v10-M3v1-C2v2");
@@ -257,8 +261,26 @@ test("the upload route rejects a bad id, an 11th file, a used-up number, an empt
 });
 
 test("the render cache keeps the old file name for one voice and moves it when a second voice arrives", () => {
+  assert.equal(adId("H12", "M3", "C1", undefined, "e2"), "H12e2-M3-C1");
+  assert.equal(adId("H12", "M3", "C2", { hook: "v3" }, "e2"), "H12e2v3-M3-C2");
+  assert.equal(adId("h12", "m3", "c2", { hook: "v3" }), "H12v3-M3-C2");
+  assert.equal(adId("H1", "M1", "C1", { hook: "V1" }), "H1-M1-C1");
+  assert.equal(parseAdId("H12-M3-C2")?.hookElement, undefined);
+  assert.equal(parseAdId("H12v3-M3-C2")?.hookVoice, "v3");
+  assert.equal(parseAdId("H12v10-M3-C1")?.hookVoice, "v10");
+  assert.equal(parseAdId("H12e2-M3-C1")?.hookElement, "e2");
+  assert.equal(parseAdId("H12e2v3-M3-C1")?.hookElement, "e2");
+  assert.equal(parseAdId("H12e2v3-M3-C1")?.hookVoice, "v3");
+  assert.equal(parseAdId("H12e2"), null);
   assert.equal(renderKey("H3", "v2", false), "H3");
   assert.equal(renderKey("H3", "v2", true), "H3.v2");
+  assert.equal(renderKey("H12", undefined, false, "e2", true), "H12.e2");
+  assert.equal(renderKey("H12", "v3", true, "e2", true), "H12.e2.v3");
+  assert.equal(pieceOfUnit("H3.v2"), "H3");
+  assert.equal(pieceOfUnit("H12.e2"), "H12");
+  assert.equal(pieceOfUnit("H12.e2.v3"), "H12");
+  assert.deepEqual(unitSuffix("H12.e2.v3"), { element: "e2", voice: "v3" });
+  assert.deepEqual(unitSuffix("H3"), {});
   assert.equal(renderNameForKey("H3", "mp4"), "H3.l2.mp4");
   assert.equal(renderNameForKey("H3.v2", "mp4"), "H3.v2.l2.mp4");
   assert.equal(renderNameForKey("H3.v10", "webm"), "H3.v10.l2.webm");

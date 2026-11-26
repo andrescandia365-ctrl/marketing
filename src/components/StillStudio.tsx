@@ -57,6 +57,8 @@ import { download, slug } from "../lib/markdown.ts";
 import { canvasBlob, drawStill, layoutOnly } from "../lib/stillDraw.ts";
 import { Button, Field, Notice, Segmented, Spinner, inputClass } from "./ui.tsx";
 import { FloorTag } from "./EmbudoPicker.tsx";
+import { HookElementsPanel } from "./HookElementsPanel.tsx";
+import type { HookElement } from "../../shared/hookElements.ts";
 
 export type StillOpen = { key: string; initial: { piece: unknown } | null };
 
@@ -68,6 +70,7 @@ type Props = {
   initial: StillOpen["initial"];
   aiReady: boolean;
   onSaveStatus: (status: "saving" | "saved" | "error") => void;
+  onSeries?: (series: SeriesInfo[]) => void;
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -124,7 +127,29 @@ function PasteBox({ label, onRead }: { label: string; onRead: (text: string) => 
   );
 }
 
-function ConceptCard({ c, picked, onPick, onChange, onRemove }: { c: StillConcept; picked: boolean; onPick: () => void; onChange: (c: StillConcept) => void; onRemove: () => void }) {
+function ConceptCard({
+  c,
+  picked,
+  onPick,
+  onChange,
+  onRemove,
+  seriesId,
+  library,
+  previous,
+  noKey,
+  onLibrary,
+}: {
+  c: StillConcept;
+  picked: boolean;
+  onPick: () => void;
+  onChange: (c: StillConcept) => void;
+  onRemove: () => void;
+  seriesId: string;
+  library: HookElement[];
+  previous: string[];
+  noKey: boolean;
+  onLibrary?: (element: HookElement) => void | Promise<void | HookElement[]>;
+}) {
   const blocks = conceptBlocks(c);
   const proof = PROOF_FAMILIES.includes(c.family);
   return (
@@ -178,6 +203,19 @@ function ConceptCard({ c, picked, onPick, onChange, onRemove }: { c: StillConcep
           {b}
         </p>
       ))}
+      <HookElementsPanel
+        elements={c.hookElements ?? []}
+        seriesId={seriesId}
+        pain={c.pain}
+        library={library}
+        previous={previous}
+        noKey={noKey}
+        onLibrary={onLibrary}
+        onChange={(next) => {
+          const { hookElements: _drop, ...rest } = c;
+          onChange(next.length ? { ...rest, hookElements: next } : rest);
+        }}
+      />
       <Button variant={picked ? "primary" : "secondary"} className="px-3 py-1 text-xs" onClick={onPick}>
         {picked ? "Elegido" : "Elegir este"}
       </Button>
@@ -185,7 +223,7 @@ function ConceptCard({ c, picked, onPick, onChange, onRemove }: { c: StillConcep
   );
 }
 
-export function StillStudio({ projectId, brief, series, tools, initial, aiReady, onSaveStatus }: Props) {
+export function StillStudio({ projectId, brief, series, tools, initial, aiReady, onSaveStatus, onSeries }: Props) {
   const toolKeepOut = (tools.find((t) => t.id === brief.tool) ?? tools.find((t) => t.watermark))?.watermark ?? null;
   const [piece, setPiece] = useState<StillPiece>(() => migrateStill(initial?.piece, toolKeepOut));
   const [fields, setFields] = useState<SeriesFields | null>(null);
@@ -479,6 +517,15 @@ export function StillStudio({ projectId, brief, series, tools, initial, aiReady,
                 onPick={() => setPiece((p) => pickConcept(p, c.id))}
                 onChange={(next) => setPiece((p) => ({ ...p, concepts: p.concepts.map((x) => (x.id === c.id ? next : x)) }))}
                 onRemove={() => setPiece((p) => ({ ...p, concepts: p.concepts.filter((x) => x.id !== c.id), picked: p.picked === c.id ? null : p.picked }))}
+                seriesId={series.id}
+                library={series.hookLibrary ?? []}
+                previous={series.hookPrevious ?? []}
+                noKey={!aiReady}
+                onLibrary={async (element) => {
+                  const saved = await api.saveHookElements(series.id, { add: element });
+                  onSeries?.(saved.series);
+                  return saved.hookLibrary;
+                }}
               />
             ))}
           </ul>

@@ -40,6 +40,7 @@ import {
   segmentEdit,
   secondLines,
   boardTask,
+  hookElementsTask,
   hookVariantsTask,
   menuTask,
   reviseBoardTask,
@@ -74,6 +75,7 @@ import { webPictureKinds, type WebCastPick } from "../shared/webCast.ts";
 import { DEFAULT_LYRIC_STYLE, LYRIC_LANGUAGES, SECOND_LANGUAGES, LyricStyleSchema, alignLyrics, cleanElements, cleanIdeas } from "../shared/lyrics.ts";
 import { buildPlates, cleanPlates } from "../shared/plates.ts";
 import { DEMO_BOARD, DEMO_MENU, demoHookVariants, demoStory, demoMotion, demoMotionReview } from "./demo.ts";
+import { HookElementSchema, sampleHookElements } from "../shared/hookElements.ts";
 import { RenderError, ffmpegAvailable, getFinal, startFinal } from "./finalRender.ts";
 import {
   EFFORTS,
@@ -143,6 +145,7 @@ import {
   setCastImage,
   upsertCastMember,
   addCorrespondent,
+  saveHookLibrary,
   addCastRef,
   removeCastRef,
   getSeries,
@@ -359,6 +362,19 @@ app.post("/api/series/:id/correspondent", async (c) => {
   const member = CastMemberSchema.parse(await c.req.json());
   addCorrespondent(c.req.param("id"), member);
   return c.json({ series: listSeries() });
+});
+
+// "Elementos de la serie": add one to the bible, remove one, or record the piece just approved as the previous.
+app.put("/api/series/:id/hook-elements", async (c) => {
+  const body = z
+    .object({
+      add: HookElementSchema.optional(),
+      remove: z.string().max(80).optional(),
+      previous: z.array(z.string().max(400)).max(3).optional(),
+    })
+    .parse(await c.req.json());
+  const saved = saveHookLibrary(c.req.param("id"), body);
+  return c.json({ series: listSeries(), hookLibrary: saved.hookLibrary, hookPrevious: saved.hookPrevious });
 });
 
 app.put("/api/series/:id/cast/:castId/image", async (c) => {
@@ -1427,6 +1443,30 @@ app.post("/api/story/revise", async (c) => {
 app.post("/api/story/hooks", async (c) => {
   const { brief, story, handoff } = z.object({ brief: BriefSchema, story: StoryInput, handoff: HandoffField }).parse(await c.req.json());
   return c.json(await viaWriter(handoff, () => hookVariantsTask(brief, story), () => ({ variants: demoHookVariants(story) }), (variants) => ({ variants })));
+});
+
+// "Pedir otros elementos": the same writer path, or the sample when there is no key. An unknown series is ignored.
+app.post("/api/hook-elements", async (c) => {
+  const body = z
+    .object({
+      series: z.string().max(40).default(""),
+      pain: z.string().max(2000).default(""),
+      existing: z.array(HookElementSchema).max(3).optional(),
+      avoid: z.array(z.string().max(400)).max(12).optional(),
+      handoff: HandoffField,
+    })
+    .parse(await c.req.json());
+  const known = body.series ? getSeries(body.series) : undefined;
+  const avoid = [...new Set([...(body.avoid ?? []), ...(known?.hookPrevious ?? [])].map((s) => s.trim()).filter(Boolean))].slice(0, 12);
+  const library = known?.hookLibrary ?? [];
+  return c.json(
+    await viaWriter(
+      body.handoff,
+      () => hookElementsTask({ pain: body.pain, existing: body.existing, avoid, library }),
+      () => ({ elements: sampleHookElements(body.pain) }),
+      (result) => result,
+    ),
+  );
 });
 
 app.post("/api/board", async (c) => {

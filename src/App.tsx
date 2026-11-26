@@ -34,6 +34,7 @@ import { pictureForReview, readImageFile } from "./lib/files.ts";
 import { download, pieceToMarkdown, slug, storyToMarkdown, type LogEntry } from "./lib/markdown.ts";
 import { storyFonts } from "../shared/brandFonts.ts";
 import { registerBrandFonts } from "./lib/fonts.ts";
+import { commitHookElements, previousFrom, type HookElement } from "../shared/hookElements.ts";
 
 // The studios, the storyboard and the panels behind a button load the first time they are opened (the video panel too,
 // from ProductionView), so the brief (the first screen) does not wait for the video, audio and 3D code.
@@ -281,7 +282,34 @@ export function App() {
   function pickHookVariant(variant: HookVariant) {
     if (!story) return;
     addLog({ text: `Gancho cambiado: “${story.title}” → “${variant.title}”`, outcome: `${MOVE_LABEL[variant.move]}, N${variant.level}` });
-    setStory({ ...story, title: variant.title });
+    setStory((s) => {
+      if (!s) return s;
+      if (!variant.hookElements?.length) return { ...s, title: variant.title };
+      return { ...s, title: variant.title, hookElements: variant.hookElements };
+    });
+  }
+
+  function setStoryElements(next: HookElement[]) {
+    setStory((s) => {
+      if (!s) return s;
+      const { hookElements: _drop, ...rest } = s;
+      return next.length ? { ...rest, hookElements: next } : rest;
+    });
+  }
+
+  async function saveElementToLibrary(element: HookElement) {
+    const id = pieceBrief.series;
+    if (!id) return;
+    const saved = await api.saveHookElements(id, { add: element });
+    setStatus((s) => (s ? { ...s, series: saved.series } : s));
+    return saved.hookLibrary;
+  }
+
+  function rememberElements(elements: readonly HookElement[] | undefined) {
+    const id = pieceBrief.series;
+    const previous = previousFrom(elements);
+    if (!id || !previous.length) return;
+    api.saveHookElements(id, { previous }).then((saved) => setStatus((s) => (s ? { ...s, series: saved.series } : s))).catch(() => undefined);
   }
 
   // The five go to Publicidad as pending hooks, each with its awareness level and its move in the note.
@@ -560,7 +588,16 @@ export function App() {
     if (!story) return;
     const result = await run("board", () => api.board(pieceBrief, story, reply), reply !== undefined);
     if (!result) return;
-    setBoard(result.board);
+    const fromStory = !(result.board.hookElements?.length) && (story.hookElements?.length ?? 0) > 0 ? story.hookElements! : undefined;
+    const committed = fromStory ? commitHookElements(result.board, [], fromStory) : null;
+    const nextBoard = committed
+      ? (() => {
+          const { hookElements: _drop, ...rest } = committed.board;
+          return { ...rest, hookElements: fromStory };
+        })()
+      : result.board;
+    setBoard(nextBoard);
+    rememberElements(fromStory ?? result.board.hookElements);
     setSetupUndo(null);
     setBoardRound(1);
     setBoardApproved(false);
@@ -591,6 +628,7 @@ export function App() {
   }
 
   function approveBoard() {
+    rememberElements(board?.hookElements);
     addLog({ text: `Storyboard aprobado en la ronda ${boardRound}` });
     setBoardApproved(true);
     setStep("production");
@@ -770,6 +808,7 @@ export function App() {
           setStep={setStep}
           setShowModels={setShowModels}
           onToExplainer={(seed) => void startExplainerFrom(seed)}
+          onSeries={(series) => setStatus((s) => (s ? { ...s, series } : s))}
         />
       )}
 
@@ -937,6 +976,7 @@ export function App() {
             autoSync={status?.lyrics.autoSync ?? false}
             aiReady={Boolean(status?.writer)}
             onSaveStatus={setSaveStatus}
+            onSeries={(series) => setStatus((s) => (s ? { ...s, series } : s))}
           />
           </Lazy>
         )}
@@ -952,6 +992,7 @@ export function App() {
               initial={still.initial}
               aiReady={Boolean(status?.writer)}
               onSaveStatus={setSaveStatus}
+              onSeries={(series) => setStatus((s) => (s ? { ...s, series } : s))}
             />
           </Lazy>
         )}
@@ -1014,6 +1055,12 @@ export function App() {
               onDismiss={dismiss}
               onApprove={() => makeBoard()}
               funnel={pieceBrief.funnel}
+              seriesId={pieceBrief.series}
+              library={pieceSeries?.hookLibrary ?? []}
+              previous={pieceSeries?.hookPrevious ?? []}
+              noKey={noKey}
+              onElements={setStoryElements}
+              onLibrary={saveElementToLibrary}
               handoffs={
                 noKey
                   ? {
@@ -1105,6 +1152,12 @@ export function App() {
             onDismiss={dismiss}
             onApprove={approveBoard}
             funnel={pieceBrief.funnel}
+            seriesId={pieceBrief.series}
+            library={pieceSeries?.hookLibrary ?? []}
+            previous={pieceSeries?.hookPrevious ?? []}
+            noKey={noKey}
+            onBoard={setBoard}
+            onLibrary={saveElementToLibrary}
           />
           </Lazy>
           </div>
