@@ -60,6 +60,7 @@ export function AdsSection({ brief, setBrief, status, currentSeries, setSection,
           tools={status.tools}
           imageProviders={status.imageProviders}
           videoModels={status.mediaModels}
+          webModels={status.webModels}
           writer={Boolean(status.writer)}
           voice={status.voice}
           onToPlaybook={(text) => {

@@ -1,4 +1,5 @@
 import { lazy, useEffect, useRef, useState } from "react";
+import { ConsistencyGuide } from "./ConsistencyGuide.tsx";
 import type { SeriesInfo } from "../../shared/schema.ts";
 import {
   CAST_KIND_LABEL,
@@ -347,6 +348,7 @@ export function SeriesEditor({ id, onSaved, onDeleted, onClose, onLogoSaved, max
             hint="Personajes, lugares y productos que se repiten en todos los episodios, cada uno con su imagen aprobada y su referencia @ para Grok. La IA los reusa tal cual."
           >
             <div className="space-y-2">
+              <ConsistencyGuide />
               <ul className="space-y-2">
                 {fields.cast
                   .filter((m) => m.kind !== "screen")

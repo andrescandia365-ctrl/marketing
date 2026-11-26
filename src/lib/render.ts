@@ -26,6 +26,7 @@ import { PIECE_MAX_BOOST_DB, normalizeLoudness, normalizeSegments } from "./moti
 import type { TextStyle } from "../../shared/series.ts";
 import { ensureFont } from "./fonts.ts";
 import { timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
+import { VOICE_LEAD } from "../../shared/shotKit.ts";
 import { drawSketch, type SketchSetup } from "./sketch.ts";
 
 const FPS = 30;
@@ -481,8 +482,8 @@ async function mixSound(
     if (voice) {
       const gain = ctx.createGain();
       gain.connect(ctx.destination);
-      const start = shot.start + 0.15;
-      const until = m.voiceFor != null ? shot.start + 0.15 + m.voiceFor : shot.end;
+      const start = shot.start + VOICE_LEAD;
+      const until = m.voiceFor != null ? shot.start + VOICE_LEAD + m.voiceFor : shot.end;
       place(ctx, voice, start, until, gain);
       voiceSpans.push({ start, end: until });
       any = true;

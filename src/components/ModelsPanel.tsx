@@ -556,10 +556,11 @@ function SpendSection() {
     <section className="space-y-3 rounded-xl border border-line bg-white p-4">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h3 className="font-bold">Gasto en imágenes y clips por API</h3>
+          <h3 className="font-bold">Gasto en imágenes y clips</h3>
           <p className="text-xs text-muted">
-            Lo que costó cada imagen o clip generado con xAI o fal.ai, según la tabla de precios de la app (server/media/modelos-api.md). Es una
-            estimación: la factura de cada proveedor manda. Los pedidos que fallan no se cuentan.
+            Lo que costó cada imagen o clip generado por API con xAI o fal.ai (server/media/modelos-api.md), más lo que anotaste con «Lo generé
+            afuera» al hacerlo a mano en Replicate o APIMart (server/media/modelos-web.md). Es una estimación con esas tablas: la factura de cada
+            sitio manda. Los pedidos por API que fallan no se cuentan.
           </p>
         </div>
         <Button variant="ghost" className="shrink-0 px-2 py-1 text-xs" onClick={load}>
@@ -571,15 +572,21 @@ function SpendSection() {
         <>
           <p className="text-sm">
             Últimos 7 días: <b>{costText(data.week)}</b> · últimos 30 días: <b>{costText(data.month)}</b>
+            {data.webMonth > 0 && (
+              <span className="text-muted">
+                {" "}
+                (a mano en webs: {costText(data.webWeek)} y {costText(data.webMonth)})
+              </span>
+            )}
           </p>
           {data.recent.length === 0 ? (
-            <p className="text-xs text-muted">Todavía no generaste imágenes ni clips por API.</p>
+            <p className="text-xs text-muted">Todavía no generaste ni anotaste imágenes o clips.</p>
           ) : (
             <ul className="space-y-0.5 text-xs tabular-nums">
               {data.recent.map((e, i) => (
                 <li key={`${e.at}-${i}`} className="flex justify-between gap-2">
                   <span>
-                    {timeText(e.at)} · {e.kind === "video" ? `clip de ${e.seconds ?? "?"} s` : "imagen"} · {e.model}
+                    {timeText(e.at)} · {e.kind === "video" ? `clip de ${e.seconds ?? "?"} s` : "imagen"} · {e.where === "web" ? `${e.label ?? e.model}${e.resolution ? ` ${e.resolution}` : ""} a mano en ${e.provider}${e.slot ? ` (${e.slot})` : ""}` : e.model}
                   </span>
                   <span className="text-muted">{costText(e.usd)}</span>
                 </li>

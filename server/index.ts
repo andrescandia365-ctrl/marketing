@@ -96,8 +96,10 @@ import {
   type ProviderId,
 } from "./settings.ts";
 import { getProvider, listProviders } from "./images/index.ts";
-import { mediaModels } from "./media/catalog.ts";
-import { spendView } from "./media/spend.ts";
+import { findWebModel, mediaModels, webModels } from "./media/catalog.ts";
+import { logSpend, removeWebSpend, spendForProject, spendView } from "./media/spend.ts";
+import { webCost } from "../shared/webModels.ts";
+import { ANY_LENGTH } from "../shared/toolLengths.ts";
 import { startVideo, videoFile, videoStatus } from "./media/videoJobs.ts";
 import { addEpisode, draftEpisode, episodesView } from "./episodes.ts";
 import { ENTRY_MAX, EpisodeError, SUMMARY_MAX } from "../shared/episodes.ts";
@@ -238,7 +240,8 @@ const StoryInput = z.preprocess(
   }),
 ).transform(normalizeStory);
 const TopicInput = TopicIdeaSchema.extend({ problem: z.string().default("") });
-const BoardInput = z.preprocess(fillOld, BoardWireSchema).transform(normalizeBoard);
+// A board the app sends back keeps the shot lengths it already has (Grok's or another tool's, shared/toolLengths.ts).
+const BoardInput = z.preprocess(fillOld, BoardWireSchema).transform((board) => normalizeBoard(board, ANY_LENGTH));
 const demo = () => currentWriter() === null;
 
 // "Sin clave" (shared/handoff.ts): a writer route with `handoff` either returns the exact prompt for claude.ai
@@ -266,6 +269,7 @@ app.get("/api/status", (c) => {
     writer: writer && { label: writer.label, model: writer.model },
     imageProviders: listProviders(),
     mediaModels: mediaModels(),
+    webModels: webModels(),
     tools: listTools(),
     series: listSeries().map((s) => {
       const proof = offerProof(s.id);
@@ -842,7 +846,7 @@ app.post("/api/product-shot", async (c) => {
 const WATERMARK = /marca de agua|watermark|logo de grok|firma de la ia|metadat/i;
 app.post("/api/shot/segment", async (c) => {
   const { brief, shot, note } = z
-    .object({ brief: BriefSchema, shot: z.preprocess((s) => (s && typeof s === "object" ? { timeline: [], screenAt: "", ...s } : s), ShotWireSchema).transform(normalizeShot), note: z.string().trim().min(1).max(500) })
+    .object({ brief: BriefSchema, shot: z.preprocess((s) => (s && typeof s === "object" ? { timeline: [], screenAt: "", ...s } : s), ShotWireSchema).transform((shot) => normalizeShot(shot, ANY_LENGTH)), note: z.string().trim().min(1).max(500) })
     .parse(await c.req.json());
   if (WATERMARK.test(note)) {
     throw new WriterError("Eso no: los segmentos no se usan para tapar ni borrar la marca de agua o la identificación de la IA.");
@@ -1154,6 +1158,45 @@ app.post("/api/settings/test", async (c) => {
 app.get("/api/settings/usage", async (c) => c.json(await usageView()));
 // What image and video generations by API cost, by the price table (server/media/modelos-api.md).
 app.get("/api/settings/spend", async (c) => c.json(await spendView()));
+// "Lo generé afuera": the person made a clip or an image by hand on a website (server/media/modelos-web.md) and notes
+// it under its slot, so the spend log counts it. The price comes from the table, never from the browser.
+app.post("/api/settings/spend/web", async (c) => {
+  const { model, seconds, count, project, slot } = z
+    .object({
+      model: z.string().min(1).max(200),
+      seconds: z.number().min(0).max(600).default(0),
+      count: z.number().int().min(1).max(20).default(1),
+      project: z.string().min(1).max(120),
+      slot: z.string().min(1).max(80),
+    })
+    .parse(await c.req.json());
+  const row = findWebModel(model);
+  if (!row) return c.json({ error: "Ese modelo no está en la tabla (server/media/modelos-web.md)." }, 400);
+  const entry = {
+    provider: row.site,
+    model: row.model,
+    kind: row.kind,
+    label: row.label,
+    resolution: row.resolution,
+    seconds: row.unit === "segundo" ? seconds : undefined,
+    count,
+    usd: webCost(row, seconds, count),
+    where: "web" as const,
+    project,
+    slot,
+  };
+  await logSpend(entry);
+  return c.json({ entries: await spendForProject(project) });
+});
+app.get("/api/settings/spend/web", async (c) => {
+  const project = z.string().min(1).max(120).parse(c.req.query("project"));
+  return c.json({ entries: await spendForProject(project) });
+});
+app.delete("/api/settings/spend/web", async (c) => {
+  const { at, slot, project } = z.object({ at: z.string().min(1).max(40), slot: z.string().min(1).max(80), project: z.string().min(1).max(120) }).parse(await c.req.json());
+  if (!(await removeWebSpend(at, slot))) return c.json({ error: "Esa nota ya no está." }, 404);
+  return c.json({ entries: await spendForProject(project) });
+});
 
 // The motion quality loop: the reviewer scores the contact sheet(s) against the app's measurements.
 // "Sin clave": the sheets go to claude.ai as files the person attaches, so the prompt and the pasted reply need only

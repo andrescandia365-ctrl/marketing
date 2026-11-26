@@ -704,6 +704,22 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   one; clip 2+ of a meat starts from the last frame of the clip before (`lastFrameDataUrl`). The story prompt is the
   one the person would copy (`speakingPrompt` when Grok says the line). Spend by the table is logged only when a result
   comes back (`PROJECTS_DIR/.gastos-media.json`, Modelos → "Gasto en imágenes y clips por API").
+- Clips made by hand on a website (idea 72): a tool profile may name its clip lengths ("Clip lengths: 4-15",
+  `clipLengths` in `shared/toolLengths.ts`, `ToolInfo.lengths`); without one a tool keeps Grok's 6/10/15. The board
+  writer's length rule (`lengthRule`), `describeBrief`, `snapSeconds(seconds, lengths)`, the shot's length control and
+  "Pasarla a N s" follow the brief's tool; a board the app sends back keeps its lengths (`ANY_LENGTH`). Ads keep Grok's
+  clips. `server/tools/seedance.md` is Seedance 2.5 used by hand on Replicate or APIMart (references by number,
+  reference audio for lip sync [NOT SURE], how to keep a character the same). "Bajar kit de la toma" (`ShotKit.tsx`,
+  `src/lib/shotKit.ts`, pure parts in `shared/shotKit.ts`) zips LEEME.txt, prompt.txt (`kitPrompt`: a reference map,
+  @refs turned into [ImageN] by `numberRefs` in the kit's file order from `kitPictures`, and with the shot's generated or
+  recorded voice a lip-sync sentence on [Audio1]), imagen.txt, the first frame, the numbered cast pictures (never real
+  screens) and audio1-voz.wav: the voice laid out as the render plays it (`VOICE_LEAD` 0.15 s, shared with render.ts,
+  `voiceLayout`: at least 2 s, cut at the shot's end). `CONSISTENCY_STEPS` is the character-consistency guide, in the
+  kit and in `ConsistencyGuide` (Producción, Editar serie → Elenco fijo). "Lo generé afuera" (`MadeOutside.tsx`, story
+  shots and ad clip slots) notes a generation with a row of `server/media/modelos-web.md` (`parseWebTable`, sitio
+  replicate/apimart/otro, price per resolution): `POST/GET/DELETE /api/settings/spend/web` (localhost-only) price it on
+  the server and log it with `where: "web"`, project (a story's id or `ads:<series>`) and slot; Modelos shows the web
+  part of the week and month.
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.
 - Tool features change: edit the tool's `.md` in `server/tools/`, never hard-code them. Tag each line
   [DOCS], [NOT SURE] or [TESTED]. Series are edited in the app (Brief → Editar serie / + Nueva serie); their files are in Spanish, and the

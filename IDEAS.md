@@ -4,6 +4,7 @@ Lista de ideas que fueron saliendo. Se construyen solo con "go"; cada título di
 Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
 ## Construido
+- **Clips a mano en Replicate o APIMart (26 Nov 2026, idea 72):** perfil de Seedance 2.5, largos de toma según la herramienta (Seedance de 4 a 15 s), «Bajar kit de la toma» con el prompt, la imagen de inicio, las referencias numeradas y la voz para el lip sync, «Lo generé afuera» para llevar el gasto, y la guía para mantener al personaje igual.
 - **Imágenes y clips por API (26 Nov 2026, idea 71):** con una clave de xAI (Grok Imagine) o de fal.ai en Modelos, «Generar clip» aparece en cada lugar de clip de Publicidad y de las tomas de las historias, con el costo estimado antes de generar; las imágenes de esos modelos se suman a la lista de generadores. «Gasto en imágenes y clips por API» en Modelos suma lo de la semana y el mes.
 - **Subir clips en lote y próxima tanda (24 Oct 2026, idea 70):** los prompts de Grok terminan con el nombre del archivo, se suben de a muchos, y las métricas proponen qué se queda, qué se archiva y qué voces entran.
 - **Métricas, nombres y la sala (24 Oct 2026, idea 70):** el CSV de Meta ya no toma el costo por vista ni ThruPlay como vistas de 3 segundos, y el de TikTok lee vistas de 2 s, de 6 s, el costo y los clics. Por debajo del mínimo de impresiones (1000, se puede cambiar en Fuentes) la fila dice «sin datos suficientes» y no es un ganador. Los hooks que llegan de Playbook quedan «del orgánico, sin medir» hasta que tengan métricas de verdad. El nombre que sale en el CSV de la tanda lleva el id de la serie en mayúsculas y sin acentos (`IMAN_N2_H12-M3-C2_45s_9x16`); el archivo en disco sigue siendo el id pelado. Al importar se compara sin distinguir mayúsculas, los nombres viejos sin prefijo se leen, y los de otra serie no entran. La sala cuenta igual que antes hasta que haya una pieza publicada. «Traer la marca desde su web» en una serie que todavía no se guardó no abre la biblia de IMAN. El recorrido en el navegador (`npm run e2e`) cubre Playbook, un explicativo y una tanda de 2 anuncios con estos CSV.
@@ -516,6 +517,15 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   4. ¿Por cuál empezamos?
 - **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
 - **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
+
+### 72. Clips a mano en Replicate o APIMart (26 Nov 2026) — **Construido**
+- **De dónde salió:** vas a generar imágenes y clips en las webs de Replicate o APIMart (no por API); la app arma los prompts y lleva cada serie. Mirando claudia.gallery: Seedance 2.5 con la voz como audio de referencia da el lip sync.
+- **Seedance en el brief:** «Herramienta de imagen y video» → Seedance 2.5 (`server/tools/seedance.md`). El escritor arma los prompts con sus reglas (tiempos segundo a segundo, nada de sonrisa mientras habla, decir lo que no está, sin texto) y las tomas duran de 4 a 15 s, lo que dure la línea. Con Grok siguen siendo 6, 10 o 15 s.
+- **Bajar kit de la toma (.zip):** en cada toma. Trae LEEME.txt con los pasos en Replicate y en APIMart, prompt.txt listo para pegar (las referencias ya numeradas: [Image1], [Image2]… y la voz como [Audio1]), imagen.txt, la imagen de inicio, las fotos del elenco numeradas en el orden del prompt y la voz de la toma tal como suena en el video (con 0,15 s de silencio al principio), si la línea es voz generada o grabada.
+- **Lo generé afuera:** debajo de cada clip (historias y Publicidad) anotás dónde lo hiciste, con qué modelo, resolución y segundos. La app le pone el precio de `server/media/modelos-web.md` y lo suma en Modelos → Gasto. Se puede borrar una nota equivocada.
+- **Cómo mantener al personaje igual:** la guía está en Producción, en Editar serie → Elenco fijo y en el LEEME de cada kit.
+- **No probado:** que Seedance siga la voz de [Audio1] con la boca (está como [NOT SURE] en el perfil, con las pruebas a hacer), y el precio de Replicate (no lo muestra en su página).
+- **No entra todavía:** kits para los clips de Publicidad y para videos musicales con un personaje que canta; los largos de Publicidad siguen siendo los de Grok.
 
 ### 71. Imágenes y clips por API (26 Nov 2026) — **Construido**
 - **De dónde salió:** cancelaste Grok y querés generar con API (Grok Imagine y otros modelos) para los anuncios, mirando el gasto.

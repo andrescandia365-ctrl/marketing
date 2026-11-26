@@ -5,6 +5,7 @@ import type { ToolInfo } from "../shared/schema.ts";
 import { referenceCap, toolsRefCap } from "../shared/castRefs.ts";
 import { watermarkKeepOut } from "../shared/stillLayout.ts";
 import { lipSyncNote } from "../shared/adsSpeaker.ts";
+import { clipLengths, lengthsOf } from "../shared/toolLengths.ts";
 
 const DIR = new URL("./tools/", import.meta.url);
 
@@ -24,6 +25,7 @@ function load(): Tool[] {
         maxRefs: referenceCap(text),
         watermark: watermarkKeepOut(text),
         lipSync: lipSyncNote(text),
+        lengths: clipLengths(text),
         text,
       };
     });
@@ -33,7 +35,7 @@ function load(): Tool[] {
 const TOOLS = load();
 
 export function listTools(): ToolInfo[] {
-  return TOOLS.map(({ id, name, checked, maxRefs, watermark, lipSync }) => ({ id, name, checked, maxRefs, watermark, lipSync }));
+  return TOOLS.map(({ id, name, checked, maxRefs, watermark, lipSync, lengths }) => ({ id, name, checked, maxRefs, watermark, lipSync, lengths }));
 }
 
 // The strictest cap on reference images among the tools whose profile names one (Grok: 14), or null. A cast member
@@ -44,4 +46,9 @@ export function referenceLimit(): number | null {
 
 export function getTool(id: string): Tool {
   return TOOLS.find((t) => t.id === id) ?? TOOLS.find((t) => t.id === "general") ?? TOOLS[0];
+}
+
+// The clip lengths of the brief's tool (its profile's "Clip lengths:", else Grok's 6, 10 or 15 s).
+export function toolLengths(id: string): readonly number[] {
+  return lengthsOf(getTool(id));
 }

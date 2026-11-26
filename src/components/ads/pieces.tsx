@@ -20,6 +20,8 @@ import { continuityNote, grokSequence, sequencePromptText, sequencePromptsFromPi
 import type { MediaModelInfo } from "../../../shared/mediaModels.ts";
 import { imageDataUrl, lastFrameDataUrl } from "../../lib/frames.ts";
 import { GenerateClip } from "../GenerateClip.tsx";
+import { MadeOutside } from "../MadeOutside.tsx";
+import type { WebModel } from "../../../shared/webModels.ts";
 import { unverified } from "../../../shared/adsSpeaker.ts";
 import { formatSeconds, nextVoiceId, voiceLengthWarning, voiceNumber, VOICE_VARIANTS_MAX } from "../../../shared/voiceVariants.ts";
 import { buildCopyPrompt } from "../../../shared/prompt.ts";
@@ -169,6 +171,9 @@ type CardProps = {
   onGenerateImage: () => void;
   // Video models by API (Modelos: xAI, fal.ai), for "Generar clip" next to each clip slot.
   videoModels?: MediaModelInfo[];
+  // «Lo generé afuera»: the models run by hand on a website, and where the notes go ("ads:<series>").
+  webModels?: WebModel[];
+  spendProject?: string;
   onRemoveMedia: (kind: "image" | "clip" | "voice") => void;
   onUploadVoices: (files: File[]) => void;
   onReplaceVoice: (vid: string, file: File) => void;
@@ -420,6 +425,8 @@ export function PieceCard({
   look,
   onGenerateImage,
   videoModels,
+  webModels,
+  spendProject,
   onRemoveMedia,
   onUploadVoices,
   onReplaceVoice,
@@ -687,6 +694,7 @@ export function PieceCard({
                 onFile={onUploadClip}
               />
             )}
+            {!sequence && <MadeOutside models={webModels} seconds={clipSeconds} project={spendProject} slot={slotName(piece.id, { count: 1, index: 0 })} />}
             {sequence && (
               <ol className="space-y-1.5">
                 {slots.map((slot, i) => {
@@ -731,6 +739,7 @@ export function PieceCard({
                           fileName={`${slotName(piece.id, { count: slots.length, index: i })}.mp4`}
                           onFile={(f) => onUploadClipAt?.(i, f)}
                         />
+                        <MadeOutside models={webModels} seconds={slot.length} project={spendProject} slot={slotName(piece.id, { count: slots.length, index: i })} />
                       </div>
                     </li>
                   );

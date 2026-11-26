@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { LyricStyle } from "./lyrics.ts";
 import type { Brand, CastMember, SeriesLook, SeriesType, TextStyle } from "./series.ts";
 import type { MediaModelInfo } from "./mediaModels.ts";
+import type { WebModel } from "./webModels.ts";
 import type { WebCastPick } from "./webCast.ts";
 import type { KeepOut } from "./stillLayout.ts";
 import type { MascotMeta } from "./mascot.ts";
@@ -321,7 +322,8 @@ export const SegmentEditSchema = z.object({
 export type SegmentEdit = z.infer<typeof SegmentEditSchema>;
 
 // ── Step 3: the storyboard ──────────────────────────────────────────────────────
-// Grok makes clips of exactly these lengths, so every shot is one of them.
+// Grok makes clips of exactly these lengths, so every shot is one of them unless the tool's profile names others
+// ("Clip lengths:", shared/toolLengths.ts).
 export const SHOT_LENGTHS = [6, 10, 15] as const;
 
 export const ShotWireSchema = z.object({
@@ -336,7 +338,7 @@ export const ShotWireSchema = z.object({
   onScreenText: z
     .string()
     .describe("The headline at the top of the frame: up to 6 words that make sense without the voice (a fact, a time, a number). May be empty."),
-  seconds: z.number().describe("Exactly 6, 10 or 15: the shortest that fits the spoken line at ~2.5 words/s."),
+  seconds: z.number().describe("One of the tool's clip lengths (see the shot rules): the shortest that fits the spoken line."),
   setups: z
     .array(z.string())
     .describe("Ids of every setup in the frame (characters, the place, products), the main one first."),
@@ -474,14 +476,16 @@ export function normalizeStory(wire: z.infer<typeof StoryWireSchema>): Story {
   return hookElements.length ? { ...story, hookElements } : story;
 }
 
-// The shortest Grok clip length that holds the shot.
-export function snapSeconds(seconds: number): number {
-  return SHOT_LENGTHS.find((l) => l >= (seconds || 0) - 0.5) ?? 15;
+// The shortest clip length of the tool that holds the shot (Grok's 6, 10 or 15 s unless the tool's profile names
+// others, shared/toolLengths.ts).
+export function snapSeconds(seconds: number, lengths: readonly number[] = SHOT_LENGTHS): number {
+  const sorted = lengths.length ? [...lengths].sort((a, b) => a - b) : [...SHOT_LENGTHS];
+  return sorted.find((l) => l >= (seconds || 0) - 0.5) ?? sorted[sorted.length - 1];
 }
 
-export function normalizeShot(wire: z.infer<typeof ShotWireSchema>): Shot {
+export function normalizeShot(wire: z.infer<typeof ShotWireSchema>, lengths: readonly number[] = SHOT_LENGTHS): Shot {
   const d = wire.disclosure.toLowerCase();
-  const seconds = snapSeconds(wire.seconds);
+  const seconds = snapSeconds(wire.seconds, lengths);
   // Beats stay inside the shot and in order.
   const timeline = wire.timeline
     .map((b) => ({ ...b, from: Math.max(0, Math.min(b.from, seconds)), to: Math.max(0, Math.min(b.to, seconds)) }))
@@ -507,10 +511,10 @@ export function normalizeShot(wire: z.infer<typeof ShotWireSchema>): Shot {
   };
 }
 
-export function normalizeBoard(wire: z.infer<typeof BoardWireSchema>): Board {
+export function normalizeBoard(wire: z.infer<typeof BoardWireSchema>, lengths: readonly number[] = SHOT_LENGTHS): Board {
   const { hookElements: raw, ...rest } = wire;
   const hookElements = normalizeHookElements(raw);
-  const base: Board = { ...rest, shots: rest.shots.map(normalizeShot) };
+  const base: Board = { ...rest, shots: rest.shots.map((shot) => normalizeShot(shot, lengths)) };
   if (!hookElements.length) return base;
   const applied = applyElementsToBoard(base, hookElements);
   return { ...applied.board, hookElements };
@@ -552,6 +556,8 @@ export type ToolInfo = {
   maxRefs?: number | null;
   watermark?: KeepOut | null;
   lipSync?: { tag: "DOCS" | "NOT SURE" | "TESTED"; text: string } | null;
+  // The clip lengths it makes ("Clip lengths:" in its profile, shared/toolLengths.ts); null: Grok's 6, 10 or 15 s.
+  lengths?: number[] | null;
 };
 // productPerEpisode: every episode features a different product (Máshogar), so the brief must name it.
 export type SeriesInfo = {
@@ -589,6 +595,8 @@ export type Status = {
   imageProviders: ImageProviderInfo[];
   // Image and video models by API (server/media/modelos-api.md), each with whether its key is set.
   mediaModels?: MediaModelInfo[];
+  // Models the person runs by hand on a website (server/media/modelos-web.md), for «Lo generé afuera».
+  webModels?: WebModel[];
   tools: ToolInfo[];
   series: SeriesInfo[];
   // Where projects are saved on this computer.

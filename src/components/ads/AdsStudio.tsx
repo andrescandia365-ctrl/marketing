@@ -48,6 +48,7 @@ import { OfferForm } from "./OfferForm.tsx";
 import { PiecesPanel } from "./PiecesPanel.tsx";
 import { PieceCard, type PieceMediaState, type VoiceClip } from "./pieces.tsx";
 import type { MediaModelInfo } from "../../../shared/mediaModels.ts";
+import type { WebModel } from "../../../shared/webModels.ts";
 import { nextVoiceId, pieceOfUnit, renderKey, renderUnits, renderVoiceBlock, shouldBlockVoice, unitSuffix, voiceCachePlan, voiceNumber, readStoredVoices, type CachePlan, type StoredVoices, type VoiceCheckPiece } from "../../../shared/voiceVariants.ts";
 import { HookElementsPanel } from "../HookElementsPanel.tsx";
 import { BulkUpload, useBulkQueue } from "./BulkUpload.tsx";
@@ -79,6 +80,7 @@ type Props = {
   imageProviders: ImageProviderInfo[];
   // Video models by API, for "Generar clip".
   videoModels?: MediaModelInfo[];
+  webModels?: WebModel[];
   writer: boolean;
   // Generated voices (OpenAI speech): whether the key is there, and the app's default voice.
   voice: { available: boolean; defaultVoice: string };
@@ -204,7 +206,7 @@ function loadSettings(): Settings {
   return base;
 }
 
-export function AdsStudio({ series, tools, imageProviders, videoModels, writer, voice, onToPlaybook, onToExplainer, onSeries }: Props) {
+export function AdsStudio({ series, tools, imageProviders, videoModels, webModels, writer, voice, onToPlaybook, onToExplainer, onSeries }: Props) {
   const [state, setState] = useState<AdsState | null>(null);
   const [ranking, setRanking] = useState<RankedHook[]>([]);
   const [minImpressions, setMinImpressions] = useState(MIN_IMPRESSIONS);
@@ -879,6 +881,8 @@ export function AdsStudio({ series, tools, imageProviders, videoModels, writer, 
       look={lookPhrase(series.look)}
       onGenerateImage={() => generateImage(piece)}
       videoModels={videoModels}
+      webModels={webModels}
+      spendProject={`ads:${series.id}`}
       onRemoveMedia={(k) => removeMedia(piece, k)}
       onUploadVoices={(files) => void uploadVoices(piece, files)}
       onReplaceVoice={(vid, file) => void replaceVoice(piece, vid, file)}

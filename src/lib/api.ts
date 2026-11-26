@@ -95,6 +95,21 @@ async function call<T>(path: string, body?: unknown, method?: "PUT" | "PATCH" | 
 }
 
 type Demo = { demo: boolean; pasted?: boolean };
+// One spend entry (server/media/spend.ts): an API call, or (where "web") something made by hand on a website.
+export type WebSpend = {
+  at: string;
+  provider: string;
+  model: string;
+  kind: "imagen" | "video";
+  seconds?: number;
+  usd: number;
+  where?: "web";
+  label?: string;
+  resolution?: string;
+  project?: string;
+  slot?: string;
+  count?: number;
+};
 
 // "Sin clave" (shared/handoff.ts): a writer request as data, so the same request can run on the writer, give the
 // prompt for claude.ai, or read a reply pasted from there.
@@ -461,8 +476,12 @@ export const api = {
   efforts: (model: string) => call<{ efforts: string[] }>(`/api/settings/efforts?model=${enc(model)}`),
   testModel: (provider: string, model: string, vision: boolean) => call<{ result: string }>("/api/settings/test", { provider, model, vision }),
   usage: () => call<{ entries: UsageEntry[]; averages: KindAverage[] }>("/api/settings/usage"),
-  spend: () =>
-    call<{ week: number; month: number; recent: { at: string; provider: string; model: string; kind: "imagen" | "video"; seconds?: number; usd: number }[] }>("/api/settings/spend"),
+  spend: () => call<{ week: number; month: number; webWeek: number; webMonth: number; recent: WebSpend[] }>("/api/settings/spend"),
+  // "Lo generé afuera": what the person made by hand on a website, noted under its slot (only answers from this computer).
+  webSpend: (project: string) => call<{ entries: WebSpend[] }>(`/api/settings/spend/web?project=${enc(project)}`),
+  noteWebSpend: (note: { model: string; seconds: number; count?: number; project: string; slot: string }) =>
+    call<{ entries: WebSpend[] }>("/api/settings/spend/web", note),
+  removeWebSpend: (at: string, slot: string, project: string) => call<{ entries: WebSpend[] }>("/api/settings/spend/web", { at, slot, project }, "DELETE"),
   // "Fuentes propias de la marca": one font file per call; family, role, weight and style are optional (guessed).
   uploadBrandFont: (seriesId: string, file: File, face: { family?: string; role?: string; weight?: number; style?: string }) => {
     const q = new URLSearchParams({ name: file.name });

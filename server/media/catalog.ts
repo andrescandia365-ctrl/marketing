@@ -2,6 +2,7 @@
 // on the keys set in Modelos (XAI_API_KEY, FAL_KEY), checked on every call so a key saved from the app counts at once.
 import { readFileSync } from "node:fs";
 import { MEDIA_KEYS, parseModelTable, type MediaModel, type MediaModelInfo, type MediaProvider } from "../../shared/mediaModels.ts";
+import { parseWebTable, webModelId, type WebModel } from "../../shared/webModels.ts";
 
 function load(): MediaModel[] {
   try {
@@ -24,3 +25,18 @@ export function mediaModels(): MediaModelInfo[] {
 export function findModel(provider: string, model: string): MediaModel | undefined {
   return MODELS.find((m) => m.provider === provider && m.model === model);
 }
+
+// The models the person runs by hand on a website (modelos-web.md): only priced here, never called.
+function loadWeb(): WebModel[] {
+  try {
+    const { models, skipped } = parseWebTable(readFileSync(new URL("./modelos-web.md", import.meta.url), "utf8"));
+    if (skipped.length) console.warn(`modelos-web.md: ${skipped.length} fila(s) no se pudieron leer y se saltean.`);
+    return models;
+  } catch {
+    return [];
+  }
+}
+
+const WEB = loadWeb();
+export const webModels = (): WebModel[] => WEB;
+export const findWebModel = (id: string): WebModel | undefined => WEB.find((m) => webModelId(m) === id);
