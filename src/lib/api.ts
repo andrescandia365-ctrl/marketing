@@ -294,6 +294,16 @@ export const api = {
     sendAsk(asks.rewriteShot(brief, story, board, index, note), reply),
   image: (provider: string, prompt: string, style: string, aspect: Brief["format"], beat: string, look = "") =>
     call<{ dataUrl: string }>("/api/image", { provider, prompt, style, aspect, beat, look }),
+  // Clips by API (server/media): start, follow, take the file.
+  videoStart: (body: { provider: "xai" | "fal"; model: string; prompt: string; seconds: number; aspect: Brief["format"]; image?: string; audio: boolean; resolution?: "480p" | "720p" | "1080p" }) =>
+    call<{ id: string; seconds: number; usd: number }>("/api/video", body),
+  videoStatus: (id: string) =>
+    call<{ status: "pending" | "done" | "failed"; progress: number; error?: string; seconds: number; usd: number }>(`/api/video/${encodeURIComponent(id)}`),
+  videoFile: async (id: string): Promise<Blob> => {
+    const res = await fetch(`/api/video/${encodeURIComponent(id)}/file`);
+    if (!res.ok) throw new Error("No se pudo traer el video generado.");
+    return res.blob();
+  },
   seriesFields: (id: string) => call<{ fields: SeriesFields }>(`/api/series/${encodeURIComponent(id)}`),
   saveSeries: (id: string, fields: SeriesFields) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${encodeURIComponent(id)}`, { fields }, "PUT"),
@@ -451,6 +461,8 @@ export const api = {
   efforts: (model: string) => call<{ efforts: string[] }>(`/api/settings/efforts?model=${enc(model)}`),
   testModel: (provider: string, model: string, vision: boolean) => call<{ result: string }>("/api/settings/test", { provider, model, vision }),
   usage: () => call<{ entries: UsageEntry[]; averages: KindAverage[] }>("/api/settings/usage"),
+  spend: () =>
+    call<{ week: number; month: number; recent: { at: string; provider: string; model: string; kind: "imagen" | "video"; seconds?: number; usd: number }[] }>("/api/settings/spend"),
   // "Fuentes propias de la marca": one font file per call; family, role, weight and style are optional (guessed).
   uploadBrandFont: (seriesId: string, file: File, face: { family?: string; role?: string; weight?: number; style?: string }) => {
     const q = new URLSearchParams({ name: file.name });

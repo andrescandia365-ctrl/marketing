@@ -96,6 +96,9 @@ import {
   type ProviderId,
 } from "./settings.ts";
 import { getProvider, listProviders } from "./images/index.ts";
+import { mediaModels } from "./media/catalog.ts";
+import { spendView } from "./media/spend.ts";
+import { startVideo, videoFile, videoStatus } from "./media/videoJobs.ts";
 import { addEpisode, draftEpisode, episodesView } from "./episodes.ts";
 import { ENTRY_MAX, EpisodeError, SUMMARY_MAX } from "../shared/episodes.ts";
 import { CastMemberSchema, PUPPET_MAX_LAYERS, PUPPET_ROLES, PuppetPlaceSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
@@ -262,6 +265,7 @@ app.get("/api/status", (c) => {
   return c.json<Status>({
     writer: writer && { label: writer.label, model: writer.model },
     imageProviders: listProviders(),
+    mediaModels: mediaModels(),
     tools: listTools(),
     series: listSeries().map((s) => {
       const proof = offerProof(s.id);
@@ -936,6 +940,8 @@ app.use("/api/settings/*", localOnly);
 
 // "Traer la marca desde su web": the server opens a public page for the person, so only from the app on this computer
 // (another machine on the network could otherwise make it fetch for them).
+app.use("/api/video", onlyHere("Los clips por API se generan solo desde la app en esta compu."));
+app.use("/api/video/*", onlyHere("Los clips por API se generan solo desde la app en esta compu."));
 app.use("/api/brand/*", onlyHere("La marca se trae de la web solo desde la app en esta compu."));
 
 // Demucs on this computer (Modelos → Demucs), only from the app here: looked up again now ("Volver a buscar" after
@@ -1146,6 +1152,8 @@ app.post("/api/settings/test", async (c) => {
 
 // Tokens of the last writer requests, newest first, and the average of each kind.
 app.get("/api/settings/usage", async (c) => c.json(await usageView()));
+// What image and video generations by API cost, by the price table (server/media/modelos-api.md).
+app.get("/api/settings/spend", async (c) => c.json(await spendView()));
 
 // The motion quality loop: the reviewer scores the contact sheet(s) against the app's measurements.
 // "Sin clave": the sheets go to claude.ai as files the person attaches, so the prompt and the pasted reply need only
@@ -1522,6 +1530,40 @@ app.post("/api/image", async (c) => {
   const provider = getProvider(req.provider);
   if (!provider) return c.json({ error: `El generador de imágenes "${req.provider}" no está conectado.` }, 400);
   return c.json({ dataUrl: await provider.generate(req) });
+});
+
+// Clips by API (xAI, fal.ai): start a job, follow it, take the file. The browser saves the file through the same
+// route as a hand upload, so each slot keeps its own checks. Localhost only: it spends money.
+app.post("/api/video", async (c) => {
+  const req = z
+    .object({
+      provider: z.enum(["xai", "fal"]),
+      model: z.string().min(1).max(200),
+      prompt: z.string().trim().min(1).max(8000),
+      seconds: z.number().min(1).max(120),
+      aspect: z.enum(["vertical", "horizontal"]),
+      image: z
+        .string()
+        .max(15_000_000)
+        .regex(/^data:image\/(png|jpeg|webp);base64,/, "La imagen de inicio tiene que ser PNG, JPEG o WebP.")
+        .optional(),
+      audio: z.boolean().default(false),
+      resolution: z.enum(["480p", "720p", "1080p"]).optional(),
+    })
+    .parse(await c.req.json());
+  return c.json(await startVideo(req));
+});
+
+app.get("/api/video/:id", async (c) => {
+  const status = await videoStatus(c.req.param("id"));
+  if (!status) return c.json({ error: "Ese pedido de video ya no existe (la app se reinició o pasó un día)." }, 404);
+  return c.json(status);
+});
+
+app.get("/api/video/:id/file", (c) => {
+  const file = videoFile(c.req.param("id"));
+  if (!file) return c.json({ error: "El video todavía no está listo." }, 404);
+  return new Response(file.stream, { headers: { "Content-Type": "video/mp4", "Cache-Control": "no-store" } });
 });
 
 if (process.env.NODE_ENV === "production") {

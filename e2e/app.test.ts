@@ -122,6 +122,8 @@ describe("recorrido de la app", { concurrency: 1 }, () => {
       await approveWhenClear(page, "Aprobar → producción");
       await page.getByRole("button", { name: "5 · Producción" }).click();
       await page.getByRole("button", { name: "Enviar a Publicidad (hook)" }).waitFor();
+      // With no xAI or fal.ai key, each clip slot says where the key goes instead of a "Generar clip" button.
+      await page.getByText("Para generar el clip acá, cargá la clave de xAI o de fal.ai en Modelos.").first().waitFor();
     } finally {
       await page.context().close();
     }

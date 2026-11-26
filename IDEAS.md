@@ -4,6 +4,7 @@ Lista de ideas que fueron saliendo. Se construyen solo con "go"; cada título di
 Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
 ## Construido
+- **Imágenes y clips por API (26 Nov 2026, idea 71):** con una clave de xAI (Grok Imagine) o de fal.ai en Modelos, «Generar clip» aparece en cada lugar de clip de Publicidad y de las tomas de las historias, con el costo estimado antes de generar; las imágenes de esos modelos se suman a la lista de generadores. «Gasto en imágenes y clips por API» en Modelos suma lo de la semana y el mes.
 - **Subir clips en lote y próxima tanda (24 Oct 2026, idea 70):** los prompts de Grok terminan con el nombre del archivo, se suben de a muchos, y las métricas proponen qué se queda, qué se archiva y qué voces entran.
 - **Métricas, nombres y la sala (24 Oct 2026, idea 70):** el CSV de Meta ya no toma el costo por vista ni ThruPlay como vistas de 3 segundos, y el de TikTok lee vistas de 2 s, de 6 s, el costo y los clics. Por debajo del mínimo de impresiones (1000, se puede cambiar en Fuentes) la fila dice «sin datos suficientes» y no es un ganador. Los hooks que llegan de Playbook quedan «del orgánico, sin medir» hasta que tengan métricas de verdad. El nombre que sale en el CSV de la tanda lleva el id de la serie en mayúsculas y sin acentos (`IMAN_N2_H12-M3-C2_45s_9x16`); el archivo en disco sigue siendo el id pelado. Al importar se compara sin distinguir mayúsculas, los nombres viejos sin prefijo se leen, y los de otra serie no entran. La sala cuenta igual que antes hasta que haya una pieza publicada. «Traer la marca desde su web» en una serie que todavía no se guardó no abre la biblia de IMAN. El recorrido en el navegador (`npm run e2e`) cubre Playbook, un explicativo y una tanda de 2 anuncios con estos CSV.
 
@@ -515,6 +516,16 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   4. ¿Por cuál empezamos?
 - **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
 - **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
+
+### 71. Imágenes y clips por API (26 Nov 2026) — **Construido**
+- **De dónde salió:** cancelaste Grok y querés generar con API (Grok Imagine y otros modelos) para los anuncios, mirando el gasto.
+- **Las claves:** en Modelos → Otras claves, «xAI (Grok Imagine)» (`XAI_API_KEY`) y «fal.ai» (`FAL_KEY`, para Kling, Veo, Flux, Nano Banana y otros).
+- **La tabla de modelos y precios:** `server/media/modelos-api.md`. Cada fila es un modelo con su precio (por imagen o por segundo), si arranca de una imagen, de texto o de las dos, y los largos que acepta. Los precios cambian: se editan ahí y se reinicia la app. Hoy: Grok Imagine (imagen 0,02/0,04; video 1.5 Lite 0,02/s, Video 0,05/s, 1.5 0,08/s), Flux schnell y Nano Banana en fal, Kling O3 (0,14/s, necesita imagen) y Veo 3 Fast (0,15/s, [NOT SURE]).
+- **«Generar clip»:** al lado de cada lugar de clip (el clip de una pieza, cada clip de un cuerpo largo, y cada toma de una historia). Elegís el modelo, 480p para probar o 720p, «Con sonido», y el botón dice el largo y el costo antes de generar («Generar clip (15 s, ≈ US$ 0,30)»). Manda el mismo prompt que copiarías (en las historias, con la línea si Grok la dice). Arranca de la imagen de la pieza o de la toma; en un cuerpo largo, desde el clip 2 arranca del último cuadro del clip anterior, para que siga la misma escena. Cuando termina, el clip entra por el mismo camino que una subida a mano, con sus controles de siempre.
+- **Imágenes:** los modelos de imagen de la tabla aparecen en el selector de generador de imágenes que ya estaba (Producción y Publicidad), con su precio.
+- **El gasto:** Modelos → «Gasto en imágenes y clips por API»: últimos 7 y 30 días y lo último que se generó. Es la estimación de la tabla; la factura del proveedor manda. Los pedidos que fallan no se cuentan.
+- **Seguridad:** las claves quedan en la compu (nunca van al navegador), y los clips por API solo se piden desde la app en esta compu. Los videos se bajan apenas están listos (los links del proveedor duran poco) y se borran de la carpeta temporal a las 24 h.
+- **No entra todavía:** generar desde Imagen fija, Estáticos y las escenas metáfora; una tanda entera con un botón y su costo total; las ediciones y extensiones de video de xAI.
 
 ### 70. Subir clips en lote y próxima tanda (24 Oct 2026) — **Construido**
 - **Qué es:** en Publicidad, los clips que devuelve Grok se suben de a muchos porque el nombre del archivo dice el lugar, y después de importar un CSV de métricas Combinar propone la próxima tanda. La propuesta es código: la IA no decide qué se queda.

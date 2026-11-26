@@ -1,6 +1,9 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
-import { clipMusicNotice, clipPrompt } from "../../shared/audio.ts";
+import { clipMusicNotice, clipPrompt, speakingPrompt, voiceModeOf } from "../../shared/audio.ts";
+import type { MediaModelInfo } from "../../shared/mediaModels.ts";
+import { imageDataUrl } from "../lib/frames.ts";
+import { GenerateClip } from "./GenerateClip.tsx";
 import { polishWords } from "../../shared/checks.ts";
 import { buildCopyPrompt } from "../../shared/prompt.ts";
 import { SHOT_LENGTHS, type Board, type Brief, type ImageReview, type SegmentEdit, type Setup, type Shot, type Story } from "../../shared/schema.ts";
@@ -230,6 +233,8 @@ type CardProps = {
   maxRefs?: number | null;
   // How lines are heard: the voice row under each shot.
   voice: Omit<VoiceRowProps, "shot" | "index" | "speaker" | "voice" | "sfx">;
+  // Video models by API (Modelos: xAI, fal.ai), for "Generar clip" under the clip slot.
+  videoModels?: MediaModelInfo[];
 };
 
 // One prompt with its copy button. Image prompts are checked for actions (an image is one moment).
@@ -389,6 +394,7 @@ function ShotCard(props: CardProps) {
     onSegment,
     library,
     voice,
+    videoModels,
   } = props;
   const [open, setOpen] = useState(true);
   const [viewing, setViewing] = useState<"image" | "clip" | null>(null);
@@ -408,6 +414,12 @@ function ShotCard(props: CardProps) {
   // the person uploaded another image.
   const image = media.image ?? screen?.url ?? (realEnd?.at === "start" ? realScreen?.url : undefined);
   const who = story.characters.find((c) => c.id === shot.speaker);
+  // The prompt "Generar clip" sends: the same one the person copies (with Grok's spoken line when Grok says it).
+  const voiceMode = voiceModeOf(voice.audio, shot, shot.index);
+  const generationPrompt =
+    voiceMode === "grok" && shot.voiceover && !shot.timeline?.length
+      ? speakingPrompt(clipPrompt(voice.audio, shot, shot.index), who?.name ?? "The character", shot.voiceover, voice.audio.characters[shot.speaker]?.grokVoice ?? "", brief.language, voice.emotionOf?.(shot.voiceover) ?? "")
+      : clipPrompt(voice.audio, shot, shot.index);
   const set = <K extends keyof Shot>(key: K, value: Shot[K]) => onShotChange(shot.index, { ...shot, [key]: value });
 
   if (!open) {
@@ -558,6 +570,18 @@ function ShotCard(props: CardProps) {
             </DropSlot>
           </div>
           {media.clip && <p className="text-xs text-muted">{clipNote(media.clip, shot)}</p>}
+          {shot.kind !== "screen" && (
+            <GenerateClip
+              models={videoModels}
+              prompt={generationPrompt}
+              seconds={shot.seconds}
+              aspect={brief.format}
+              start={image ? { label: "la imagen de la toma", get: () => imageDataUrl(image) } : null}
+              defaultAudio={voiceMode === "grok"}
+              fileName={`toma-${String(shot.index + 1).padStart(2, "0")}-clip.mp4`}
+              onFile={(f) => onUploadClip(shot.index, f)}
+            />
+          )}
           {media.clip && clipMusicNotice(voice.audio, shot.index) && (
             <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900" role="status">
               <p>

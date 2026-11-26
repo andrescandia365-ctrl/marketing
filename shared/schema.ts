@@ -3,6 +3,7 @@
 import { z } from "zod";
 import type { LyricStyle } from "./lyrics.ts";
 import type { Brand, CastMember, SeriesLook, SeriesType, TextStyle } from "./series.ts";
+import type { MediaModelInfo } from "./mediaModels.ts";
 import type { WebCastPick } from "./webCast.ts";
 import type { KeepOut } from "./stillLayout.ts";
 import type { MascotMeta } from "./mascot.ts";
@@ -586,6 +587,8 @@ export type Status = {
   // The model that writes (Claude or Kimi); null in sample mode.
   writer: { label: string; model: string } | null;
   imageProviders: ImageProviderInfo[];
+  // Image and video models by API (server/media/modelos-api.md), each with whether its key is set.
+  mediaModels?: MediaModelInfo[];
   tools: ToolInfo[];
   series: SeriesInfo[];
   // Where projects are saved on this computer.

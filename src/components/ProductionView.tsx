@@ -422,6 +422,7 @@ export function ProductionView({
           onGenerate={generateImage}
           onUploadImage={uploadImage}
           onUploadClip={uploadClip}
+          videoModels={status?.mediaModels}
           onRemoveMedia={removeMedia}
           onRewrite={(index, note) => rewriteShot(index, note)}
           rewriteHandoff={

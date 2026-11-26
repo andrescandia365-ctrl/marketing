@@ -691,6 +691,19 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   Spanish and finds its next date (a week or month that has begun is today). The brief suggests the three nearest
   for "Gancho del momento"; the story writer and Publicidad get them all, nearest first (`momentsForWriter`, after the
   prompt cache since it changes daily). A moment with no date it understands still goes to the writer.
+- Images and clips by API (idea 71, `server/media/`, `shared/mediaModels.ts`): the models and prices live in
+  `server/media/modelos-api.md` (one pipe table, parsed by `parseModelTable`; edit it, never hard-code a price), keyed by
+  `XAI_API_KEY` (xAI Grok Imagine) and `FAL_KEY` (fal.ai queue), both in Modelos → Otras claves. Image models join the
+  existing image picker as providers `xai:<model>` / `fal:<model>` (`server/images/index.ts`). Clips: `POST /api/video`
+  (localhost-only) starts a job (`videoJobs.ts`: xAI `POST /v1/videos/generations` + poll, fal queue submit + status
+  + result), `GET /api/video/:id` follows it, and the file is downloaded at once into `PROJECTS_DIR/.generados/`
+  (pruned after 24 h) and served at `GET /api/video/:id/file`; the browser then saves it through the slot's own upload
+  route (`GenerateClip.tsx`, in ad piece clip slots, every clip of a multi-clip meat, and story shots), so a generated
+  clip lands exactly where an uploaded one would. The length asked is `pickDuration` (the shortest the model accepts
+  that covers the slot); the button shows `estimateCost` before running; a model that only takes a start image needs
+  one; clip 2+ of a meat starts from the last frame of the clip before (`lastFrameDataUrl`). The story prompt is the
+  one the person would copy (`speakingPrompt` when Grok says the line). Spend by the table is logged only when a result
+  comes back (`PROJECTS_DIR/.gastos-media.json`, Modelos → "Gasto en imágenes y clips por API").
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.
 - Tool features change: edit the tool's `.md` in `server/tools/`, never hard-code them. Tag each line
   [DOCS], [NOT SURE] or [TESTED]. Series are edited in the app (Brief → Editar serie / + Nueva serie); their files are in Spanish, and the
