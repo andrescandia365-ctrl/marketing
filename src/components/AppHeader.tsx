@@ -4,8 +4,9 @@ import type { Status } from "../../shared/schema.ts";
 import type { SaveStatus } from "../useProject.ts";
 import { Button } from "./ui.tsx";
 
-// The two sections of the app: Playbook (organic content with a story) and Publicidad (paid ads, Método 50-5-3).
-export type Section = "playbook" | "ads";
+// The sections of the app: Playbook (organic content with a story), Publicidad (paid ads, Método 50-5-3) and Chat
+// (talk to Claude through the API key, with the skills in skills/).
+export type Section = "playbook" | "ads" | "chat";
 
 type Props = {
   section: Section;
@@ -28,18 +29,20 @@ export function AppHeader({ section, setSection, status, projectId, saveStatus, 
           <p className="text-sm text-muted">
             {section === "playbook"
               ? "Contenido con historia: el Bueno contra el Malo, temas, puentes, callbacks y la pizarra de la serie."
-              : "Publicidad · Método 50-5-3: hooks × meats × CTAs, de 150 a 750 anuncios por semana sin armarlos uno por uno."}
+              : section === "ads"
+                ? "Publicidad · Método 50-5-3: hooks × meats × CTAs, de 150 a 750 anuncios por semana sin armarlos uno por uno."
+                : "Chat con Claude por la API, con tus skills de prompts y guiones. Se paga por uso, sin plan Pro."}
           </p>
         </div>
         <div className="inline-flex rounded-lg border border-line bg-white p-0.5">
-          {(["playbook", "ads"] as const).map((s) => (
+          {(["playbook", "ads", "chat"] as const).map((s) => (
             <button
               key={s}
               type="button"
               onClick={() => setSection(s)}
               className={`rounded-md px-3 py-1.5 text-sm font-semibold ${section === s ? "bg-ink text-white" : "text-muted hover:text-ink"}`}
             >
-              {s === "playbook" ? "Playbook" : "Publicidad"}
+              {s === "playbook" ? "Playbook" : s === "ads" ? "Publicidad" : "Chat"}
             </button>
           ))}
         </div>

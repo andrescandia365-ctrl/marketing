@@ -691,6 +691,64 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   Spanish and finds its next date (a week or month that has begun is today). The brief suggests the three nearest
   for "Gancho del momento"; the story writer and Publicidad get them all, nearest first (`momentsForWriter`, after the
   prompt cache since it changes daily). A moment with no date it understands still goes to the writer.
+- Images and clips by API (idea 71, `server/media/`, `shared/mediaModels.ts`): the models and prices live in
+  `server/media/modelos-api.md` (one pipe table, parsed by `parseModelTable`; edit it, never hard-code a price), keyed by
+  `XAI_API_KEY` (xAI Grok Imagine) and `FAL_KEY` (fal.ai queue), both in Modelos → Otras claves. Image models join the
+  existing image picker as providers `xai:<model>` / `fal:<model>` (`server/images/index.ts`). Clips: `POST /api/video`
+  (localhost-only) starts a job (`videoJobs.ts`: xAI `POST /v1/videos/generations` + poll, fal queue submit + status
+  + result), `GET /api/video/:id` follows it, and the file is downloaded at once into `PROJECTS_DIR/.generados/`
+  (pruned after 24 h) and served at `GET /api/video/:id/file`; the browser then saves it through the slot's own upload
+  route (`GenerateClip.tsx`, in ad piece clip slots, every clip of a multi-clip meat, and story shots), so a generated
+  clip lands exactly where an uploaded one would. The length asked is `pickDuration` (the shortest the model accepts
+  that covers the slot); the button shows `estimateCost` before running; a model that only takes a start image needs
+  one; clip 2+ of a meat starts from the last frame of the clip before (`lastFrameDataUrl`). The story prompt is the
+  one the person would copy (`speakingPrompt` when Grok says the line). Spend by the table is logged only when a result
+  comes back (`PROJECTS_DIR/.gastos-media.json`, Modelos → "Gasto en imágenes y clips por API").
+- Clips made by hand on a website (idea 72): a tool profile may name its clip lengths ("Clip lengths: 4-15",
+  `clipLengths` in `shared/toolLengths.ts`, `ToolInfo.lengths`); without one a tool keeps Grok's 6/10/15. The board
+  writer's length rule (`lengthRule`), `describeBrief`, `snapSeconds(seconds, lengths)`, the shot's length control and
+  "Pasarla a N s" follow the brief's tool; a board the app sends back keeps its lengths (`ANY_LENGTH`). Ads keep Grok's
+  clips. `server/tools/seedance.md` is Seedance 2.5 used by hand on Replicate or APIMart (references by number,
+  reference audio for lip sync [NOT SURE], how to keep a character the same). "Bajar kit de la toma" (`ShotKit.tsx`,
+  `src/lib/shotKit.ts`, pure parts in `shared/shotKit.ts`) zips LEEME.txt, prompt.txt (`kitPrompt`: a reference map,
+  @refs turned into [ImageN] by `numberRefs` in the kit's file order from `kitPictures`, and with the shot's generated or
+  recorded voice a lip-sync sentence on [Audio1]), imagen.txt, the first frame, the numbered cast pictures (never real
+  screens) and audio1-voz.wav: the voice laid out as the render plays it (`VOICE_LEAD` 0.15 s, shared with render.ts,
+  `voiceLayout`: at least 2 s, cut at the shot's end). `CONSISTENCY_STEPS` is the character-consistency guide, in the
+  kit and in `ConsistencyGuide` (Producción, Editar serie → Elenco fijo). "Lo generé afuera" (`MadeOutside.tsx`, story
+  shots and ad clip slots) notes a generation with a row of `server/media/modelos-web.md` (`parseWebTable`, sitio
+  replicate/apimart/otro, price per resolution): `POST/GET/DELETE /api/settings/spend/web` (localhost-only) price it on
+  the server and log it with `where: "web"`, project (a story's id or `ads:<series>`) and slot; Modelos shows the web
+  part of the week and month.
+- Lip sync, MAGI-2 and prompt testing (idea 73): Seedance with the shot's voice as [Audio1] is the lip-sync path
+  (claudia.gallery's method; [NOT SURE] until the person's first try). `server/tools/magi-2.md` (Higgsfield, 4-30 s)
+  is for shots with no line: it does not follow your audio. "Bajar kit de lip sync" (a shot with a clip and its own
+  voice: `buildLipSyncKit`, `lipSyncReadme`) packs the clip and the voice for a lip-sync pass (Kling LipSync, sync.so);
+  `modelos-web.md` has `higgsfield` and those passes. Prompt testing: "Probar otra versión del prompt…" in each shot
+  edits a copy of its video prompt, prepares it like the shot's (`kitPromptFor`) and downloads it as kit B
+  (`shotKitFolder(i, "B")`, clip `toma-NN-clip-B.mp4`, `PROMPT_TEST_STEPS` in its LEEME); "Ganó la B" makes it the
+  shot's prompt. "Banco de pruebas" (Modelos, `ToolBench`, `shared/toolChecks.ts`, `server/toolChecks.ts`,
+  `GET/POST /api/pruebas*`, localhost-only) lists each profile's tagged lines and "Tests to run"; marking a line after a
+  try rewrites it in server/tools/<id>.md (`markLine`: worked → [TESTED], failed stays [NOT SURE], dated finding),
+  reloads the profiles (`reloadTools`) and logs it in PROJECTS_DIR/.pruebas.json. Vite ignores server/tools so a mark
+  does not reload the page.
+  `server/tools/veo-3-1.md` (Google Flow/AI Studio or APIMart, 4/6/8 s, at most 3 reference pictures) is also for
+  shots with no line; `modelos-web.md` has site `google` with the Gemini API's Veo prices. Profiles write other tools'
+  caps as "at most N reference pictures": only "Up to N reference images" sets the cast-wide cap (`referenceLimit`,
+  14 from Grok; a test guards it).
+- Chat and skills (idea 74): the third section, "Chat" (`ChatSection`, lazy; `Section` "chat"), talks to Claude with
+  the Claude key, no claude.ai plan (`chatClaude` in server/claude.ts: streamed, adaptive thinking, effort low/medium/high,
+  refusal fallbacks where the model takes them, top-level and system-block caching; `server/chat.ts` saves each
+  conversation in PROJECTS_DIR/.chats/<id>.json with its cost by `CHAT_MODELS`; `POST /api/chat/send` streams NDJSON,
+  `GET/DELETE /api/chat/:id`, all localhost-only; usage kind "Chat"). Models Haiku/Sonnet/Opus 5.5 with prices, up to 4
+  pictures per message (JPEG), up to 4 skills. `skills/<id>/` are standard skills (SKILL.md frontmatter name = folder,
+  references/*.md), read on every request by `server/skills.ts` (`listSkills`, `loadSkills`, `zipSkill` for claude.ai,
+  `GET /api/skills`, `/api/skills/:id/zip`); `chatSystem` puts the house rules (`CHAT_BASE`) first and each skill's files
+  in its own block. With no key, "Copiar para claude.ai" (`chatCopyText`, `POST /api/skills/copy`). "Al chat" on a shot's
+  image or video prompt (`openChat`/`takeChatHandoff` in src/lib/chatHandoff.ts, `shotChatText`, `TOOL_SKILL`,
+  `IMAGE_SKILL`) opens the chat with the prompt and the skill that fits. The Mashogar skills are the person's prompts
+  with the house rules applied (no invented stats, testimonials or press); `tests/chat.test.ts` checks every skill.
+  `server/tools/gemini-omni.md` (4-10 s) joins the brief's tools.
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.
 - Tool features change: edit the tool's `.md` in `server/tools/`, never hard-code them. Tag each line
   [DOCS], [NOT SURE] or [TESTED]. Series are edited in the app (Brief → Editar serie / + Nueva serie); their files are in Spanish, and the

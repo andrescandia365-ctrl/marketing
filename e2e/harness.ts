@@ -2,7 +2,7 @@
 // Sample mode stays sample mode even when this machine has a .env, because the API is started without --env-file.
 import { spawn, type ChildProcess } from "node:child_process";
 import { readdirSync, statSync } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +23,8 @@ const KEYS = [
   "KIMI_MODEL",
   "LLM_PROVIDER",
   "REPLICATE_API_TOKEN",
+  "XAI_API_KEY",
+  "FAL_KEY",
 ];
 
 export type Running = {
@@ -135,9 +137,12 @@ export async function startApp(): Promise<Running> {
   await mkdir(projects);
   await mkdir(ads);
   await mkdir(library);
+  // A copy of the series bibles: what a test saves (hook elements, edits) never touches server/series/.
+  const series = join(root, "series");
+  await cp(join(REPO, "server/series"), series, { recursive: true });
   const apiPort = await freePort();
   const webPort = await freePort();
-  const env: NodeJS.ProcessEnv = { ...process.env, PORT: String(apiPort), PROJECTS_DIR: projects, ADS_DIR: ads, LIBRARY_DIR: library };
+  const env: NodeJS.ProcessEnv = { ...process.env, PORT: String(apiPort), PROJECTS_DIR: projects, ADS_DIR: ads, LIBRARY_DIR: library, SERIES_DIR: series };
   for (const key of KEYS) delete env[key];
   delete env.NODE_ENV;
   const apiLog: string[] = [];

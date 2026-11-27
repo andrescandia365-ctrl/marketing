@@ -96,6 +96,15 @@ import {
   type ProviderId,
 } from "./settings.ts";
 import { getProvider, listProviders } from "./images/index.ts";
+import { findWebModel, mediaModels, webModels } from "./media/catalog.ts";
+import { logSpend, removeWebSpend, spendForProject, spendView } from "./media/spend.ts";
+import { webCost } from "../shared/webModels.ts";
+import { ANY_LENGTH } from "../shared/toolLengths.ts";
+import { BenchError, benchView, markTrial } from "./toolChecks.ts";
+import { chatTurn, deleteChat, listChats, readChat } from "./chat.ts";
+import { listSkills, loadSkills, zipSkill } from "./skills.ts";
+import { ChatIdSchema, ChatMessageSchema, ChatRequestSchema, SkillIdSchema, chatCopyText } from "../shared/chat.ts";
+import { startVideo, videoFile, videoStatus } from "./media/videoJobs.ts";
 import { addEpisode, draftEpisode, episodesView } from "./episodes.ts";
 import { ENTRY_MAX, EpisodeError, SUMMARY_MAX } from "../shared/episodes.ts";
 import { CastMemberSchema, PUPPET_MAX_LAYERS, PUPPET_ROLES, PuppetPlaceSchema, SeriesFieldsSchema, TextStyleSchema } from "../shared/series.ts";
@@ -235,7 +244,8 @@ const StoryInput = z.preprocess(
   }),
 ).transform(normalizeStory);
 const TopicInput = TopicIdeaSchema.extend({ problem: z.string().default("") });
-const BoardInput = z.preprocess(fillOld, BoardWireSchema).transform(normalizeBoard);
+// A board the app sends back keeps the shot lengths it already has (Grok's or another tool's, shared/toolLengths.ts).
+const BoardInput = z.preprocess(fillOld, BoardWireSchema).transform((board) => normalizeBoard(board, ANY_LENGTH));
 const demo = () => currentWriter() === null;
 
 // "Sin clave" (shared/handoff.ts): a writer route with `handoff` either returns the exact prompt for claude.ai
@@ -262,6 +272,9 @@ app.get("/api/status", (c) => {
   return c.json<Status>({
     writer: writer && { label: writer.label, model: writer.model },
     imageProviders: listProviders(),
+    mediaModels: mediaModels(),
+    webModels: webModels(),
+    chatReady: Boolean(keyOf("claude") || process.env.ANTHROPIC_AUTH_TOKEN),
     tools: listTools(),
     series: listSeries().map((s) => {
       const proof = offerProof(s.id);
@@ -838,7 +851,7 @@ app.post("/api/product-shot", async (c) => {
 const WATERMARK = /marca de agua|watermark|logo de grok|firma de la ia|metadat/i;
 app.post("/api/shot/segment", async (c) => {
   const { brief, shot, note } = z
-    .object({ brief: BriefSchema, shot: z.preprocess((s) => (s && typeof s === "object" ? { timeline: [], screenAt: "", ...s } : s), ShotWireSchema).transform(normalizeShot), note: z.string().trim().min(1).max(500) })
+    .object({ brief: BriefSchema, shot: z.preprocess((s) => (s && typeof s === "object" ? { timeline: [], screenAt: "", ...s } : s), ShotWireSchema).transform((shot) => normalizeShot(shot, ANY_LENGTH)), note: z.string().trim().min(1).max(500) })
     .parse(await c.req.json());
   if (WATERMARK.test(note)) {
     throw new WriterError("Eso no: los segmentos no se usan para tapar ni borrar la marca de agua o la identificación de la IA.");
@@ -936,11 +949,19 @@ app.use("/api/settings/*", localOnly);
 
 // "Traer la marca desde su web": the server opens a public page for the person, so only from the app on this computer
 // (another machine on the network could otherwise make it fetch for them).
+app.use("/api/video", onlyHere("Los clips por API se generan solo desde la app en esta compu."));
+app.use("/api/video/*", onlyHere("Los clips por API se generan solo desde la app en esta compu."));
 app.use("/api/brand/*", onlyHere("La marca se trae de la web solo desde la app en esta compu."));
 
 // Demucs on this computer (Modelos → Demucs), only from the app here: looked up again now ("Volver a buscar" after
 // installing it), and "Probar Demucs" runs it on four made-up seconds.
 app.use("/api/tools/*", onlyHere("Demucs se revisa solo desde la app en esta compu."));
+// "Charlar con Claude" spends with the Claude key, so only from this computer.
+app.use("/api/chat", onlyHere("El chat con Claude se usa solo desde la app en esta compu."));
+app.use("/api/chat/*", onlyHere("El chat con Claude se usa solo desde la app en esta compu."));
+// "Banco de pruebas": marking a line writes the tool's profile (server/tools/*.md), so only from this computer.
+app.use("/api/pruebas", onlyHere("Las pruebas de las herramientas se anotan solo desde la app en esta compu."));
+app.use("/api/pruebas/*", onlyHere("Las pruebas de las herramientas se anotan solo desde la app en esta compu."));
 app.get("/api/tools/demucs", (c) => c.json({ demucs: demucsStatus(true), ffmpeg: ffmpegAvailable() }));
 app.post("/api/tools/demucs/test", async (c) => c.json(await tryDemucs()));
 // Where Demucs is, saved in .env (null: look on the PATH again).
@@ -1146,6 +1167,105 @@ app.post("/api/settings/test", async (c) => {
 
 // Tokens of the last writer requests, newest first, and the average of each kind.
 app.get("/api/settings/usage", async (c) => c.json(await usageView()));
+// What image and video generations by API cost, by the price table (server/media/modelos-api.md).
+app.get("/api/settings/spend", async (c) => c.json(await spendView()));
+// "Charlar con Claude": the saved conversations, one reply streamed as NDJSON, and the skills (skills/<id>/).
+app.get("/api/chat", async (c) => c.json({ chats: await listChats() }));
+app.get("/api/chat/:id", async (c) => {
+  const chat = await readChat(ChatIdSchema.parse(c.req.param("id")));
+  return chat ? c.json(chat) : c.json({ error: "Esa conversación ya no está." }, 404);
+});
+app.delete("/api/chat/:id", async (c) => {
+  const ok = await deleteChat(ChatIdSchema.parse(c.req.param("id")));
+  return ok ? c.json({ chats: await listChats() }) : c.json({ error: "Esa conversación ya no está." }, 404);
+});
+app.post("/api/chat/send", async (c) => {
+  const req = ChatRequestSchema.parse(await c.req.json());
+  const signal = c.req.raw.signal;
+  const enc = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (line: object) => {
+        try {
+          controller.enqueue(enc.encode(JSON.stringify(line) + "\n"));
+        } catch {
+          /* the browser left: the reply is still saved */
+        }
+      };
+      await chatTurn(req, write, signal);
+      try {
+        controller.close();
+      } catch {
+        /* already closed */
+      }
+    },
+  });
+  return new Response(body, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" } });
+});
+app.get("/api/skills", async (c) => c.json({ skills: await listSkills() }));
+app.get("/api/skills/:id/zip", async (c) => {
+  const zip = await zipSkill(c.req.param("id"));
+  if (!zip) return c.json({ error: "Esa skill no existe." }, 404);
+  return new Response(zip as BodyInit, { headers: { "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="${c.req.param("id")}.zip"` } });
+});
+app.post("/api/skills/copy", async (c) => {
+  const { skills, messages } = z.object({ skills: z.array(SkillIdSchema).max(4), messages: z.array(ChatMessageSchema).max(200) }).parse(await c.req.json());
+  return c.json({ text: chatCopyText(await loadSkills(skills), messages) });
+});
+
+// "Banco de pruebas" (Modelos): each tool profile's tagged lines and tests, and what the person found when they tried.
+app.get("/api/pruebas", async (c) => c.json(await benchView()));
+app.post("/api/pruebas/:tool/line", async (c) => {
+  const { line, verdict, note } = z
+    .object({ line: z.number().int().min(0).max(5000), verdict: z.enum(["worked", "failed"]), note: z.string().max(300).default("") })
+    .parse(await c.req.json());
+  try {
+    await markTrial(c.req.param("tool"), line, verdict, note);
+  } catch (e) {
+    if (e instanceof BenchError) return c.json({ error: e.message }, 400);
+    throw e;
+  }
+  return c.json(await benchView());
+});
+// "Lo generé afuera": the person made a clip or an image by hand on a website (server/media/modelos-web.md) and notes
+// it under its slot, so the spend log counts it. The price comes from the table, never from the browser.
+app.post("/api/settings/spend/web", async (c) => {
+  const { model, seconds, count, project, slot } = z
+    .object({
+      model: z.string().min(1).max(200),
+      seconds: z.number().min(0).max(600).default(0),
+      count: z.number().int().min(1).max(20).default(1),
+      project: z.string().min(1).max(120),
+      slot: z.string().min(1).max(80),
+    })
+    .parse(await c.req.json());
+  const row = findWebModel(model);
+  if (!row) return c.json({ error: "Ese modelo no está en la tabla (server/media/modelos-web.md)." }, 400);
+  const entry = {
+    provider: row.site,
+    model: row.model,
+    kind: row.kind,
+    label: row.label,
+    resolution: row.resolution,
+    seconds: row.unit === "segundo" ? seconds : undefined,
+    count,
+    usd: webCost(row, seconds, count),
+    where: "web" as const,
+    project,
+    slot,
+  };
+  await logSpend(entry);
+  return c.json({ entries: await spendForProject(project) });
+});
+app.get("/api/settings/spend/web", async (c) => {
+  const project = z.string().min(1).max(120).parse(c.req.query("project"));
+  return c.json({ entries: await spendForProject(project) });
+});
+app.delete("/api/settings/spend/web", async (c) => {
+  const { at, slot, project } = z.object({ at: z.string().min(1).max(40), slot: z.string().min(1).max(80), project: z.string().min(1).max(120) }).parse(await c.req.json());
+  if (!(await removeWebSpend(at, slot))) return c.json({ error: "Esa nota ya no está." }, 404);
+  return c.json({ entries: await spendForProject(project) });
+});
 
 // The motion quality loop: the reviewer scores the contact sheet(s) against the app's measurements.
 // "Sin clave": the sheets go to claude.ai as files the person attaches, so the prompt and the pasted reply need only
@@ -1522,6 +1642,40 @@ app.post("/api/image", async (c) => {
   const provider = getProvider(req.provider);
   if (!provider) return c.json({ error: `El generador de imágenes "${req.provider}" no está conectado.` }, 400);
   return c.json({ dataUrl: await provider.generate(req) });
+});
+
+// Clips by API (xAI, fal.ai): start a job, follow it, take the file. The browser saves the file through the same
+// route as a hand upload, so each slot keeps its own checks. Localhost only: it spends money.
+app.post("/api/video", async (c) => {
+  const req = z
+    .object({
+      provider: z.enum(["xai", "fal"]),
+      model: z.string().min(1).max(200),
+      prompt: z.string().trim().min(1).max(8000),
+      seconds: z.number().min(1).max(120),
+      aspect: z.enum(["vertical", "horizontal"]),
+      image: z
+        .string()
+        .max(15_000_000)
+        .regex(/^data:image\/(png|jpeg|webp);base64,/, "La imagen de inicio tiene que ser PNG, JPEG o WebP.")
+        .optional(),
+      audio: z.boolean().default(false),
+      resolution: z.enum(["480p", "720p", "1080p"]).optional(),
+    })
+    .parse(await c.req.json());
+  return c.json(await startVideo(req));
+});
+
+app.get("/api/video/:id", async (c) => {
+  const status = await videoStatus(c.req.param("id"));
+  if (!status) return c.json({ error: "Ese pedido de video ya no existe (la app se reinició o pasó un día)." }, 404);
+  return c.json(status);
+});
+
+app.get("/api/video/:id/file", (c) => {
+  const file = videoFile(c.req.param("id"));
+  if (!file) return c.json({ error: "El video todavía no está listo." }, 404);
+  return new Response(file.stream, { headers: { "Content-Type": "video/mp4", "Cache-Control": "no-store" } });
 });
 
 if (process.env.NODE_ENV === "production") {

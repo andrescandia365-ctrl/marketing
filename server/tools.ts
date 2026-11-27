@@ -5,6 +5,7 @@ import type { ToolInfo } from "../shared/schema.ts";
 import { referenceCap, toolsRefCap } from "../shared/castRefs.ts";
 import { watermarkKeepOut } from "../shared/stillLayout.ts";
 import { lipSyncNote } from "../shared/adsSpeaker.ts";
+import { clipLengths, lengthsOf } from "../shared/toolLengths.ts";
 
 const DIR = new URL("./tools/", import.meta.url);
 
@@ -24,16 +25,27 @@ function load(): Tool[] {
         maxRefs: referenceCap(text),
         watermark: watermarkKeepOut(text),
         lipSync: lipSyncNote(text),
+        lengths: clipLengths(text),
         text,
       };
     });
 }
 
-// Read once at startup; edit a file and restart the app to pick up changes.
-const TOOLS = load();
+// Read at startup; edit a file and restart the app to pick up changes. The "Banco de pruebas" reloads after it marks
+// a line (server/toolChecks.ts), so the writer reads the finding at once.
+let TOOLS = load();
+export function reloadTools() {
+  TOOLS = load();
+}
+
+// A profile's own Markdown and its file, for the test bench; null when there is no such tool.
+export function toolFile(id: string): { file: URL; text: string } | null {
+  const tool = TOOLS.find((t) => t.id === id);
+  return tool ? { file: new URL(`${tool.id}.md`, DIR), text: tool.text } : null;
+}
 
 export function listTools(): ToolInfo[] {
-  return TOOLS.map(({ id, name, checked, maxRefs, watermark, lipSync }) => ({ id, name, checked, maxRefs, watermark, lipSync }));
+  return TOOLS.map(({ id, name, checked, maxRefs, watermark, lipSync, lengths }) => ({ id, name, checked, maxRefs, watermark, lipSync, lengths }));
 }
 
 // The strictest cap on reference images among the tools whose profile names one (Grok: 14), or null. A cast member
@@ -44,4 +56,9 @@ export function referenceLimit(): number | null {
 
 export function getTool(id: string): Tool {
   return TOOLS.find((t) => t.id === id) ?? TOOLS.find((t) => t.id === "general") ?? TOOLS[0];
+}
+
+// The clip lengths of the brief's tool (its profile's "Clip lengths:", else Grok's 6, 10 or 15 s).
+export function toolLengths(id: string): readonly number[] {
+  return lengthsOf(getTool(id));
 }

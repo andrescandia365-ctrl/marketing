@@ -189,6 +189,8 @@ export type VoiceRowProps = {
   onClipMusicOk?: (index: number) => void;
   // The story's written emotion for a line ("" when none), for Grok's speaking prompt.
   emotionOf?: (line: string) => string;
+  // The tool's clip lengths (shared/toolLengths.ts); Grok's 6, 10 or 15 s when not given.
+  lengths?: readonly number[];
 };
 
 // How this shot's line is heard, plus an optional sound effect.
@@ -202,7 +204,7 @@ export function VoiceRow(props: VoiceRowProps) {
   const tooLong = voice && voice.duration > shot.seconds - 0.2;
   const clipSound = clipSoundOf(audio, shot, index);
   const clipLevel = clipLevelOf(audio, index);
-  const fits = voice ? SHOT_LENGTHS.find((l) => l >= voice.duration + 0.3) : undefined;
+  const fits = voice ? (props.lengths ?? SHOT_LENGTHS).find((l) => l >= voice.duration + 0.3) : undefined;
 
   async function act(work: () => Promise<void>) {
     setBusy(true);

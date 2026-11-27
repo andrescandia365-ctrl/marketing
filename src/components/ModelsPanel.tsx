@@ -1,10 +1,12 @@
 // "Modelos": which AI writes and with which model, which one looks at pictures, and the API keys. Keys are typed
 // here once and saved in the .env file on this computer; the app only ever shows their last four characters.
 import { useEffect, useMemo, useState } from "react";
+import { ToolBench } from "./ToolBench.tsx";
 import type { ListedModel, SettingsView } from "../../shared/schema.ts";
 import { DEMUCS_COST, DEMUCS_ENV, DEMUCS_INSTALL, DEMUCS_INSTALL_NEWER, DEMUCS_NOT_NEEDED, DEMUCS_USES } from "../../shared/demucs.ts";
 import { api, type DemucsStatus } from "../lib/api.ts";
 import { totalTokens, type KindAverage, type UsageEntry } from "../../shared/usage.ts";
+import { costText } from "../../shared/mediaModels.ts";
 import { Button, Notice, Spinner, inputClass } from "./ui.tsx";
 
 const EFFORT_LABEL: Record<string, string> = { low: "Bajo", medium: "Medio", high: "Alto", xhigh: "Muy alto", max: "Máximo" };
@@ -65,6 +67,8 @@ export function ModelsPanel({ onClose, onChanged }: { onClose: () => void; onCha
         )}
         <DemucsSection onChanged={onChanged} />
         <UsageSection />
+        <SpendSection />
+        <ToolBench />
       </aside>
     </div>
   );
@@ -539,6 +543,63 @@ const timeText = (iso: string) => {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 };
+
+// What images and clips by API cost, by the price table (server/media/modelos-api.md). The provider's bill is the
+// truth; this is the estimate the app showed before each one.
+function SpendSection() {
+  const [data, setData] = useState<Awaited<ReturnType<typeof api.spend>> | null>(null);
+  const [error, setError] = useState("");
+  const load = () => {
+    setError("");
+    api.spend().then(setData, (e) => setError(message(e)));
+  };
+  useEffect(load, []);
+  return (
+    <section className="space-y-3 rounded-xl border border-line bg-white p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="font-bold">Gasto en imágenes y clips</h3>
+          <p className="text-xs text-muted">
+            Lo que costó cada imagen o clip generado por API con xAI o fal.ai (server/media/modelos-api.md), más lo que anotaste con «Lo generé
+            afuera» al hacerlo a mano en Replicate o APIMart (server/media/modelos-web.md). Es una estimación con esas tablas: la factura de cada
+            sitio manda. Los pedidos por API que fallan no se cuentan.
+          </p>
+        </div>
+        <Button variant="ghost" className="shrink-0 px-2 py-1 text-xs" onClick={load}>
+          Actualizar
+        </Button>
+      </div>
+      {error && <Notice tone="error">{error}</Notice>}
+      {data && (
+        <>
+          <p className="text-sm">
+            Últimos 7 días: <b>{costText(data.week)}</b> · últimos 30 días: <b>{costText(data.month)}</b>
+            {data.webMonth > 0 && (
+              <span className="text-muted">
+                {" "}
+                (a mano en webs: {costText(data.webWeek)} y {costText(data.webMonth)})
+              </span>
+            )}
+          </p>
+          {data.recent.length === 0 ? (
+            <p className="text-xs text-muted">Todavía no generaste ni anotaste imágenes o clips.</p>
+          ) : (
+            <ul className="space-y-0.5 text-xs tabular-nums">
+              {data.recent.map((e, i) => (
+                <li key={`${e.at}-${i}`} className="flex justify-between gap-2">
+                  <span>
+                    {timeText(e.at)} · {e.kind === "video" ? `clip de ${e.seconds ?? "?"} s` : "imagen"} · {e.where === "web" ? `${e.label ?? e.model}${e.resolution ? ` ${e.resolution}` : ""} a mano en ${e.provider}${e.slot ? ` (${e.slot})` : ""}` : e.model}
+                  </span>
+                  <span className="text-muted">{costText(e.usd)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
 
 function UsageSection() {
   const [data, setData] = useState<{ entries: UsageEntry[]; averages: KindAverage[] } | null>(null);

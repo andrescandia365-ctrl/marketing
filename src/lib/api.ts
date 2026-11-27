@@ -1,3 +1,5 @@
+import type { ProfileLine, ProfileTest } from "../../shared/toolChecks.ts";
+import type { ChatFile, ChatMessage, ChatRequest, ChatSummary, ChatTokens, SkillInfo } from "../../shared/chat.ts";
 import type { MascotMeta } from "../../shared/mascot.ts";
 import type { PromptOnly } from "../../shared/handoff.ts";
 import type {
@@ -95,6 +97,25 @@ async function call<T>(path: string, body?: unknown, method?: "PUT" | "PATCH" | 
 }
 
 type Demo = { demo: boolean; pasted?: boolean };
+export type BenchView = {
+  tools: { id: string; name: string; lines: ProfileLine[]; tests: ProfileTest[] }[];
+  recent: { at: string; tool: string; line: string; verdict: "worked" | "failed"; note: string }[];
+};
+// One spend entry (server/media/spend.ts): an API call, or (where "web") something made by hand on a website.
+export type WebSpend = {
+  at: string;
+  provider: string;
+  model: string;
+  kind: "imagen" | "video";
+  seconds?: number;
+  usd: number;
+  where?: "web";
+  label?: string;
+  resolution?: string;
+  project?: string;
+  slot?: string;
+  count?: number;
+};
 
 // "Sin clave" (shared/handoff.ts): a writer request as data, so the same request can run on the writer, give the
 // prompt for claude.ai, or read a reply pasted from there.
@@ -294,6 +315,16 @@ export const api = {
     sendAsk(asks.rewriteShot(brief, story, board, index, note), reply),
   image: (provider: string, prompt: string, style: string, aspect: Brief["format"], beat: string, look = "") =>
     call<{ dataUrl: string }>("/api/image", { provider, prompt, style, aspect, beat, look }),
+  // Clips by API (server/media): start, follow, take the file.
+  videoStart: (body: { provider: "xai" | "fal"; model: string; prompt: string; seconds: number; aspect: Brief["format"]; image?: string; audio: boolean; resolution?: "480p" | "720p" | "1080p" }) =>
+    call<{ id: string; seconds: number; usd: number }>("/api/video", body),
+  videoStatus: (id: string) =>
+    call<{ status: "pending" | "done" | "failed"; progress: number; error?: string; seconds: number; usd: number }>(`/api/video/${encodeURIComponent(id)}`),
+  videoFile: async (id: string): Promise<Blob> => {
+    const res = await fetch(`/api/video/${encodeURIComponent(id)}/file`);
+    if (!res.ok) throw new Error("No se pudo traer el video generado.");
+    return res.blob();
+  },
   seriesFields: (id: string) => call<{ fields: SeriesFields }>(`/api/series/${encodeURIComponent(id)}`),
   saveSeries: (id: string, fields: SeriesFields) =>
     call<{ series: SeriesInfo[] }>(`/api/series/${encodeURIComponent(id)}`, { fields }, "PUT"),
@@ -451,6 +482,23 @@ export const api = {
   efforts: (model: string) => call<{ efforts: string[] }>(`/api/settings/efforts?model=${enc(model)}`),
   testModel: (provider: string, model: string, vision: boolean) => call<{ result: string }>("/api/settings/test", { provider, model, vision }),
   usage: () => call<{ entries: UsageEntry[]; averages: KindAverage[] }>("/api/settings/usage"),
+  spend: () => call<{ week: number; month: number; webWeek: number; webMonth: number; recent: WebSpend[] }>("/api/settings/spend"),
+  // "Charlar con Claude" (only answers from this computer) and the skills in skills/.
+  chats: () => call<{ chats: ChatSummary[] }>("/api/chat"),
+  chat: (id: string) => call<ChatFile>(`/api/chat/${enc(id)}`),
+  deleteChat: (id: string) => call<{ chats: ChatSummary[] }>(`/api/chat/${enc(id)}`, {}, "DELETE"),
+  skills: () => call<{ skills: SkillInfo[] }>("/api/skills"),
+  skillZipUrl: (id: string) => `/api/skills/${enc(id)}/zip`,
+  chatCopy: (skills: string[], messages: ChatMessage[]) => call<{ text: string }>("/api/skills/copy", { skills, messages }),
+  // "Banco de pruebas": each tool profile's tagged lines and tests; marking one writes the profile (this computer only).
+  bench: () => call<BenchView>("/api/pruebas"),
+  markTrial: (tool: string, line: number, verdict: "worked" | "failed", note: string) =>
+    call<BenchView>(`/api/pruebas/${enc(tool)}/line`, { line, verdict, note }),
+  // "Lo generé afuera": what the person made by hand on a website, noted under its slot (only answers from this computer).
+  webSpend: (project: string) => call<{ entries: WebSpend[] }>(`/api/settings/spend/web?project=${enc(project)}`),
+  noteWebSpend: (note: { model: string; seconds: number; count?: number; project: string; slot: string }) =>
+    call<{ entries: WebSpend[] }>("/api/settings/spend/web", note),
+  removeWebSpend: (at: string, slot: string, project: string) => call<{ entries: WebSpend[] }>("/api/settings/spend/web", { at, slot, project }, "DELETE"),
   // "Fuentes propias de la marca": one font file per call; family, role, weight and style are optional (guessed).
   uploadBrandFont: (seriesId: string, file: File, face: { family?: string; role?: string; weight?: number; style?: string }) => {
     const q = new URLSearchParams({ name: file.name });
@@ -600,3 +648,38 @@ export const api = {
     return data as { words: { word: string; start: number; end: number }[]; duration: number };
   },
 };
+
+// One chat reply, streamed: `onText` gets each piece as it comes; resolves with the end of the reply. Lines are NDJSON
+// from server/chat.ts. `signal` stops it ("Parar").
+export type ChatDone = { id: string; text: string; model: string; usd: number; tokens: ChatTokens | null; stop: string };
+export async function sendChat(
+  req: Omit<ChatRequest, "model" | "effort" | "skills"> & Partial<Pick<ChatRequest, "model" | "effort" | "skills">>,
+  on: { onStart?: (id: string) => void; onText: (text: string) => void },
+  signal?: AbortSignal,
+): Promise<ChatDone> {
+  const res = await fetch("/api/chat/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req), signal });
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+  }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buffer += dec.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line) as { t: string; d?: string; id?: string; error?: string } & Partial<ChatDone>;
+      if (msg.t === "start" && msg.id) on.onStart?.(msg.id);
+      else if (msg.t === "text" && msg.d) on.onText(msg.d);
+      else if (msg.t === "error") throw new Error(msg.error ?? "Claude no respondió.");
+      else if (msg.t === "done") return msg as ChatDone;
+    }
+    if (done) break;
+  }
+  throw new Error("La respuesta se cortó antes de terminar.");
+}

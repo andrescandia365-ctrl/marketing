@@ -1,11 +1,22 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { ClaudeHandoff, type Handoff } from "./ClaudeHandoff.tsx";
-import { clipMusicNotice, clipPrompt } from "../../shared/audio.ts";
+import { clipMusicNotice, clipPrompt, speakingPrompt, voiceModeOf } from "../../shared/audio.ts";
+import type { MediaModelInfo } from "../../shared/mediaModels.ts";
+import { imageDataUrl } from "../lib/frames.ts";
+import { GenerateClip } from "./GenerateClip.tsx";
+import { ShotKit } from "./ShotKit.tsx";
+import { MadeOutside } from "./MadeOutside.tsx";
+import { openChat } from "../lib/chatHandoff.ts";
+import { IMAGE_SKILL, TOOL_SKILL, shotChatText } from "../../shared/chat.ts";
+import type { WebModel } from "../../shared/webModels.ts";
+import { kitPictures } from "../../shared/shotKit.ts";
+import { libraryFileUrl } from "../lib/api.ts";
 import { polishWords } from "../../shared/checks.ts";
 import { buildCopyPrompt } from "../../shared/prompt.ts";
 import { SHOT_LENGTHS, type Board, type Brief, type ImageReview, type SegmentEdit, type Setup, type Shot, type Story } from "../../shared/schema.ts";
 import type { CastMember } from "../../shared/series.ts";
 import { shotReferences } from "../../shared/castRefs.ts";
+import { isRange, lengthsText } from "../../shared/toolLengths.ts";
 import { formatTime, timeShots, totalSeconds, type TimedShot } from "../../shared/template.ts";
 import { editsFrom, generatesImage, transformScreen, withScreenMove } from "../../shared/transformScreen.ts";
 import { copyText } from "../lib/files.ts";
@@ -230,6 +241,13 @@ type CardProps = {
   maxRefs?: number | null;
   // How lines are heard: the voice row under each shot.
   voice: Omit<VoiceRowProps, "shot" | "index" | "speaker" | "voice" | "sfx">;
+  // Video models by API (Modelos: xAI, fal.ai), for "Generar clip" under the clip slot.
+  videoModels?: MediaModelInfo[];
+  // The tool's clip lengths (its profile's "Clip lengths:", shared/toolLengths.ts); Grok's 6, 10 or 15 s by default.
+  lengths?: readonly number[];
+  // «Lo generé afuera»: the models run by hand on a website, and this piece's project folder (the notes are per slot).
+  webModels?: WebModel[];
+  projectId?: string | null;
 };
 
 // One prompt with its copy button. Image prompts are checked for actions (an image is one moment).
@@ -241,6 +259,7 @@ function PromptBox({
   rows = 3,
   still = false,
   onChange,
+  onChat,
 }: {
   label: string;
   hint: string;
@@ -249,6 +268,8 @@ function PromptBox({
   rows?: number;
   still?: boolean;
   onChange: (value: string) => void;
+  // "Al chat": take this prompt to the Chat section with the skill that fits.
+  onChat?: () => void;
 }) {
   const words = value.trim().split(/\s+/).filter(Boolean).length;
   const polish = useContext(StrictLook) ? polishWords(value) : [];
@@ -260,6 +281,16 @@ function PromptBox({
         </span>
         <span className="flex items-center gap-1">
           <SpeakButton text={value} lang="en-US" />
+          {onChat && (
+            <button
+              type="button"
+              onClick={onChat}
+              className="rounded px-1.5 py-1 text-xs font-semibold text-muted hover:text-ink"
+              title="Llevar este prompt al Chat con Claude, con la skill de la herramienta, para mejorarlo"
+            >
+              Al chat
+            </button>
+          )}
           <CopyButton text={copy} />
         </span>
       </div>
@@ -389,6 +420,10 @@ function ShotCard(props: CardProps) {
     onSegment,
     library,
     voice,
+    videoModels,
+    lengths = SHOT_LENGTHS,
+    webModels,
+    projectId,
   } = props;
   const [open, setOpen] = useState(true);
   const [viewing, setViewing] = useState<"image" | "clip" | null>(null);
@@ -408,7 +443,42 @@ function ShotCard(props: CardProps) {
   // the person uploaded another image.
   const image = media.image ?? screen?.url ?? (realEnd?.at === "start" ? realScreen?.url : undefined);
   const who = story.characters.find((c) => c.id === shot.speaker);
+  // The prompt "Generar clip" sends: the same one the person copies (with Grok's spoken line when Grok says it).
+  const voiceMode = voiceModeOf(voice.audio, shot, shot.index);
+  const generationPrompt =
+    voiceMode === "grok" && shot.voiceover && !shot.timeline?.length
+      ? speakingPrompt(clipPrompt(voice.audio, shot, shot.index), who?.name ?? "The character", shot.voiceover, voice.audio.characters[shot.speaker]?.grokVoice ?? "", brief.language, voice.emotionOf?.(shot.voiceover) ?? "")
+      : clipPrompt(voice.audio, shot, shot.index);
   const set = <K extends keyof Shot>(key: K, value: Shot[K]) => onShotChange(shot.index, { ...shot, [key]: value });
+  // The kit carries the shot's own voice for lip sync when the line is heard as a generated or recorded voice.
+  const inFrame = shot.setups
+    .map((id) => board.setups.find((x) => x.id === id)?.castId)
+    .flatMap((c) => (c && library[c] ? [library[c]] : []));
+  const ownVoice = shot.voiceover.trim() && media.voice && (voiceMode === "generated" || voiceMode === "recorded") ? media.voice : undefined;
+  const kitVoice = ownVoice
+    ? {
+        blob: ownVoice.blob,
+        name: who?.name ?? "The character",
+        line: shot.voiceover,
+        emotion: voice.emotionOf?.(shot.voiceover) ?? "",
+        language: brief.language,
+        timed: shot.timeline.length > 0,
+      }
+    : null;
+  // What the kit sends for a video prompt: the shot's sound line, and Grok's spoken line when the model says it.
+  const kitPromptFor = (raw: string) => {
+    const base = clipPrompt(voice.audio, { ...shot, videoPrompt: raw }, shot.index);
+    return !kitVoice && voiceMode === "grok" && shot.voiceover && !shot.timeline?.length
+      ? speakingPrompt(base, who?.name ?? "The character", shot.voiceover, voice.audio.characters[shot.speaker]?.grokVoice ?? "", brief.language, voice.emotionOf?.(shot.voiceover) ?? "")
+      : base;
+  };
+  const kitVoiceHint = !shot.voiceover.trim()
+    ? ""
+    : voiceMode === "grok"
+      ? "La línea la dice el modelo con su propia voz (está en el prompt); para que sea siempre la misma voz, generala o subila en «Cómo se escucha»."
+      : voiceMode === "subtitles"
+        ? "La línea va solo en subtítulos; para el lip sync, elegí «Voz generada» o subí la voz en «Cómo se escucha»."
+        : "Falta el archivo de voz de esta toma: generala o subila en «Cómo se escucha» y bajá el kit de nuevo.";
 
   if (!open) {
     const status = media.clip ? "imagen ✓ clip ✓" : media.image ? "imagen ✓" : "sin empezar";
@@ -466,18 +536,40 @@ function ShotCard(props: CardProps) {
         {shot.action && <p className="text-sm text-muted">{shot.action}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex overflow-hidden rounded-md border border-line text-xs" title="Largo de la toma (los largos de clip de Grok)">
-          {SHOT_LENGTHS.map((l) => (
-            <button
-              key={l}
-              type="button"
-              onClick={() => setSeconds(l)}
-              className={`px-2 py-0.5 font-mono ${shot.seconds === l ? "bg-ink text-white" : "text-muted hover:text-ink"}`}
+        {isRange(lengths) ? (
+          <label className="inline-flex items-center gap-1 text-xs" title={`Largo de la toma (${toolName} hace clips ${lengthsText(lengths)})`}>
+            <select
+              value={shot.seconds}
+              onChange={(e) => setSeconds(Number(e.target.value))}
+              className="rounded-md border border-line bg-white px-1 py-0.5 font-mono"
+              aria-label="Largo de la toma"
             >
-              {l} s
-            </button>
-          ))}
-        </span>
+              {(lengths.includes(shot.seconds) ? lengths : [...lengths, shot.seconds].sort((a, b) => a - b)).map((l) => (
+                <option key={l} value={l}>
+                  {l} s
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <span className="inline-flex overflow-hidden rounded-md border border-line text-xs" title={`Largo de la toma (los largos de clip de ${toolName})`}>
+            {lengths.map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => setSeconds(l)}
+                className={`px-2 py-0.5 font-mono ${shot.seconds === l ? "bg-ink text-white" : "text-muted hover:text-ink"}`}
+              >
+                {l} s
+              </button>
+            ))}
+          </span>
+        )}
+        {!lengths.includes(shot.seconds) && (
+          <span className="text-xs text-amber-800" title={`${toolName} hace clips ${lengthsText(lengths)}`}>
+            {toolName} no hace clips de {shot.seconds} s
+          </span>
+        )}
         <BeatChip beat={shot.beat} />
         {shot.kind === "transform" && (
           <span className="rounded bg-touch-soft px-1.5 py-0.5 text-xs font-semibold text-touch">Transformación</span>
@@ -558,6 +650,45 @@ function ShotCard(props: CardProps) {
             </DropSlot>
           </div>
           {media.clip && <p className="text-xs text-muted">{clipNote(media.clip, shot)}</p>}
+          {shot.kind !== "screen" && (
+            <GenerateClip
+              models={videoModels}
+              prompt={generationPrompt}
+              seconds={shot.seconds}
+              aspect={brief.format}
+              start={image ? { label: "la imagen de la toma", get: () => imageDataUrl(image) } : null}
+              defaultAudio={voiceMode === "grok"}
+              fileName={`toma-${String(shot.index + 1).padStart(2, "0")}-clip.mp4`}
+              onFile={(f) => onUploadClip(shot.index, f)}
+            />
+          )}
+          {shot.kind !== "screen" && (
+            <ShotKit
+              shotIndex={shot.index}
+              title={shot.title}
+              seconds={shot.seconds}
+              format={brief.format}
+              toolName={toolName}
+              videoPrompt={kitPromptFor(shot.videoPrompt)}
+              rawPrompt={shot.videoPrompt}
+              prepare={kitPromptFor}
+              onUseVariant={(prompt) => set("videoPrompt", prompt)}
+              clip={media.clip ? { blob: media.clip.blob, name: media.clip.name } : null}
+              imagePrompt={realEnd?.at === "start" ? "" : buildCopyPrompt(shot.visualPrompt, brief.format)}
+              endPrompt={shot.kind === "transform" ? shot.endPrompt : ""}
+              firstFrame={image ?? null}
+              lastFrame={realEnd?.at === "end" && realScreen?.url ? { url: realScreen.url, name: realScreen.name } : null}
+              pictures={kitPictures(
+                inFrame.filter((m) => m.kind !== "screen"),
+                (file) => libraryFileUrl(brief.series, file),
+              )}
+              voice={kitVoice}
+              voiceHint={kitVoiceHint}
+            />
+          )}
+          {shot.kind !== "screen" && (
+            <MadeOutside models={webModels} seconds={shot.seconds} project={projectId} slot={`toma-${String(shot.index + 1).padStart(2, "0")}`} />
+          )}
           {media.clip && clipMusicNotice(voice.audio, shot.index) && (
             <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900" role="status">
               <p>
@@ -718,6 +849,12 @@ function ShotCard(props: CardProps) {
               rows={4}
               still
               onChange={(v) => set("visualPrompt", v)}
+              onChat={() =>
+                openChat({
+                  text: shotChatText({ kind: "imagen", shot: shot.index + 1, title: shot.title, action: shot.action, tool: toolName, prompt: shot.visualPrompt }),
+                  skills: [IMAGE_SKILL],
+                })
+              }
             />
           )}
           {editFrom > 0 && shot.kind !== "screen" && realEnd?.at !== "start" && (
@@ -756,6 +893,12 @@ function ShotCard(props: CardProps) {
           )}
           {(shot.kind !== "screen" || shot.videoPrompt) && (
             <PromptBox
+              onChat={() =>
+                openChat({
+                  text: shotChatText({ kind: "video", shot: shot.index + 1, title: shot.title, action: shot.action, tool: toolName, prompt: shot.videoPrompt }),
+                  skills: TOOL_SKILL[brief.tool] ? [TOOL_SKILL[brief.tool]] : [],
+                })
+              }
               label="Prompt de video"
               hint={
                 realEnd
@@ -797,6 +940,7 @@ function ShotCard(props: CardProps) {
           </div>
           <VoiceRow
             {...voice}
+            lengths={lengths}
             shot={shot}
             index={shot.index}
             speaker={who}

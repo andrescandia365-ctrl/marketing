@@ -17,6 +17,11 @@ import {
 } from "../../../shared/ads.ts";
 import { imageSaveLine, slotName, videoSaveLine } from "../../../shared/adsBulk.ts";
 import { continuityNote, grokSequence, sequencePromptText, sequencePromptsFromPiece } from "../../../shared/adsSequence.ts";
+import type { MediaModelInfo } from "../../../shared/mediaModels.ts";
+import { imageDataUrl, lastFrameDataUrl } from "../../lib/frames.ts";
+import { GenerateClip } from "../GenerateClip.tsx";
+import { MadeOutside } from "../MadeOutside.tsx";
+import type { WebModel } from "../../../shared/webModels.ts";
 import { unverified } from "../../../shared/adsSpeaker.ts";
 import { formatSeconds, nextVoiceId, voiceLengthWarning, voiceNumber, VOICE_VARIANTS_MAX } from "../../../shared/voiceVariants.ts";
 import { buildCopyPrompt } from "../../../shared/prompt.ts";
@@ -164,6 +169,11 @@ type CardProps = {
   // The series look, already a phrase, so a sequence prompt stays in the same light.
   look?: string;
   onGenerateImage: () => void;
+  // Video models by API (Modelos: xAI, fal.ai), for "Generar clip" next to each clip slot.
+  videoModels?: MediaModelInfo[];
+  // «Lo generé afuera»: the models run by hand on a website, and where the notes go ("ads:<series>").
+  webModels?: WebModel[];
+  spendProject?: string;
   onRemoveMedia: (kind: "image" | "clip" | "voice") => void;
   onUploadVoices: (files: File[]) => void;
   onReplaceVoice: (vid: string, file: File) => void;
@@ -414,6 +424,9 @@ export function PieceCard({
   onRemoveClipAt,
   look,
   onGenerateImage,
+  videoModels,
+  webModels,
+  spendProject,
   onRemoveMedia,
   onUploadVoices,
   onReplaceVoice,
@@ -669,6 +682,19 @@ export function PieceCard({
                 </Button>
               )}
             </div>
+            {!sequence && (
+              <GenerateClip
+                models={videoModels}
+                prompt={piece.videoPrompt}
+                seconds={clipSeconds}
+                aspect={format}
+                start={media?.image ? { label: "la imagen de la pieza", get: () => imageDataUrl(media.image!) } : null}
+                blocked={unverified(piece.text) ? "El texto tiene un [VERIFY]: confirmalo antes de generar." : null}
+                fileName={`${slotName(piece.id, { count: 1, index: 0 })}.mp4`}
+                onFile={onUploadClip}
+              />
+            )}
+            {!sequence && <MadeOutside models={webModels} seconds={clipSeconds} project={spendProject} slot={slotName(piece.id, { count: 1, index: 0 })} />}
             {sequence && (
               <ol className="space-y-1.5">
                 {slots.map((slot, i) => {
@@ -696,6 +722,25 @@ export function PieceCard({
                           </button>
                         </>
                       )}
+                      <div className="basis-full">
+                        <GenerateClip
+                          models={videoModels}
+                          prompt={clipPrompts[i] ?? ""}
+                          seconds={slot.length}
+                          aspect={format}
+                          start={
+                            i > 0 && media?.clips?.[i - 1]
+                              ? { label: `el último cuadro del clip ${i}`, get: () => lastFrameDataUrl(media.clips![i - 1]!.url) }
+                              : media?.image
+                                ? { label: "la imagen de la pieza", get: () => imageDataUrl(media.image!) }
+                                : null
+                          }
+                          blocked={unverified(piece.text) ? "El texto tiene un [VERIFY]: confirmalo antes de generar." : null}
+                          fileName={`${slotName(piece.id, { count: slots.length, index: i })}.mp4`}
+                          onFile={(f) => onUploadClipAt?.(i, f)}
+                        />
+                        <MadeOutside models={webModels} seconds={slot.length} project={spendProject} slot={slotName(piece.id, { count: slots.length, index: i })} />
+                      </div>
                     </li>
                   );
                 })}

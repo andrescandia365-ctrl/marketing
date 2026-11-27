@@ -60,7 +60,8 @@ import { REFERENCE_ANGLES, ReferenceWireSchema, type ReferenceWire } from "../sh
 import { screensBlock } from "../shared/screenBatch.ts";
 import { askKimi, listChatModels, type ChatTarget, type ListedModel } from "./kimi.ts";
 import { baseUrlOf, claudeEffort, keyOf, labelOf, visionChoice, writerChoice, EFFORTS, type Effort, type ProviderId } from "./settings.ts";
-import { getTool } from "./tools.ts";
+import { getTool, toolLengths } from "./tools.ts";
+import { lengthRule, lengthsEnglish } from "../shared/toolLengths.ts";
 import { meter } from "./usage.ts";
 import { claudeUsage } from "../shared/usage.ts";
 import { offerOf } from "./ads.ts";
@@ -236,7 +237,7 @@ export function describeBrief(brief: Brief): string {
     `Image and video prompts and identity lines: always in English.`,
     `Picture format: ${brief.format === "vertical" ? "vertical 9:16" : "horizontal 16:9"}`,
     `Real screens this piece may show (screen shots): ${screensFor(brief)}`,
-    `Takes: ${brief.takes === "continuous" ? "CONTINUOUS — 15 s handheld takes, each a scene with timed beats (see the continuous-take rules)" : "one line per shot (6, 10 or 15 s)"}`,
+    `Takes: ${brief.takes === "continuous" ? "CONTINUOUS — 15 s handheld takes, each a scene with timed beats (see the continuous-take rules)" : `one line per shot (${lengthsEnglish(toolLengths(brief.tool))})`}`,
     brief.narrator === "without"
       ? "Narrator: NONE. No character has the narrator role and nobody speaks from outside the scene. The characters' own words, what they do, and the text on screen carry the whole piece; every beat must be clear without a narrator. A shot may have no line at all (action only)."
       : "Narrator: allowed (the narrator role may speak when it helps).",
@@ -537,12 +538,12 @@ Then check the story like a strict critic who did not write it. A pass you canno
 - claims: everything the brand or product is shown doing, each checked against "${WORKS_TODAY}". A thing that is not on the list is only allowed as a clearly labelled concept; the same goes for anything that could break a law or the brand's rules (for example, selling an expired product).
 - practices: every way of working the story shows people using without the brand (how they order, count, check, pay, close, keep track), each checked against the series' "${PRACTICES}" list and the brief's notes. known is false when neither says people do it that way.`;
 
-const BOARD_RULES = `Shot rules:
+const BOARD_RULES_TEXT = `Shot rules:
 - Cover every line of the story, in order, once. A shot holds one line, or two short lines from the same speaker (continuous takes: see below).
 - The look: if the series has a Look line, build the style line from it and put it in every image and video prompt. Always ask for flaws (the camera, its flash, grain, focus that misses, where the light hits) and real skin (pores, freckles, no smoothing); never "cinematic", "vintage" or "film still". The light never changes inside a shot; only the camera's auto-exposure does.
 - title and action come first: the slate says in a few words what happens, and action says in one sentence what we see, following on from the previous shot. The prompts must show exactly that action.
 - visualPrompt is the first frame of the action: ONE frozen moment. Nothing that changes over time and no sequence words (now, then, after, reaches, lifts, turns, becomes). Every action and change goes in videoPrompt, which is one action.
-- seconds: exactly 6, 10 or 15, the only clip lengths the tool makes. Pick the shortest that fits the spoken line at about 2.5 words per second (6 s up to 15 words, 10 s up to 25, 15 s up to 37). Split a longer line into two shots. A silent shot is 6 s. toolSettings says the same length.
+- __SECONDS__
 - onScreenText is the headline at the top of the frame: up to 6 words that make sense without the voice (a fact, a time, a number, a name). Leave it empty rather than write a joke that needs the spoken line. The spoken line is added on its own as the subtitle.
 - setups: every character, place and product that appears in more than one shot gets a setup with a short identity line; reuse the story's character identity lines word for word. A setup that matches a member of the series' fixed cast takes its id as castId and its identity line word for word; the person already has its approved image. Each shot lists in setups every setup in the frame, main one first, and every prompt repeats the identity line of everything it shows, word for word.
 - kind: "single" for most shots. "transform" where one clip should carry a change on screen, usually the turn from the Bad to the Good: visualPrompt is the initial frame, endPrompt the final frame and middlePrompt an optional middle frame (each one frozen moment), and videoPrompt describes the change between them; give it 10 or 15 s. "screen" only to show the product's real interface with one of the real screens the brief allows: put its id in screen and leave the image prompts empty; the videoPrompt can be empty too. When the brief allows real screens, a Good transform may end on one: screenAt "end", its id in screen, endPrompt empty; visualPrompt is the AI scene with the phone or computer (its screen still facing away or out of focus) and videoPrompt is the camera moving into that screen until the real screenshot fills the frame. The screenshot is never described or drawn in any prompt. screenAt "start" is the reverse (the clip leaves the real screenshot into the scene; endPrompt is the scene). Otherwise screenAt is empty.
@@ -553,6 +554,9 @@ const BOARD_RULES = `Shot rules:
 - disclosure: "concept" or "simulation" for anything the brand is shown doing that is not in the series' "${WORKS_TODAY}" list.
 - If the story has a runner, three shots show it: the opening landing, the changed middle landing and the tag. Do not pay the tease off on this board.
 - issues: after writing the board, check it like a strict critic: a shot whose action does not follow the previous one (continuity), the brand shown doing something not on its list without a label (reality), people working in a way the series' "${PRACTICES}" list and the brief don't confirm (practice), an image prompt with more than one moment (image), an open loop never paid off (loop), a first shot that does not show or name the pain within 2 seconds (hook), a Good that never shows the product in use: a real screen, or the product doing its job on screen (product). List every problem you still see; empty only if there are none.`;
+
+// The shot rules with the brief's tool's clip lengths (Grok: 6, 10 or 15 s; Seedance: any whole second in a range).
+const boardRules = (brief: Brief) => BOARD_RULES_TEXT.replace("__SECONDS__", lengthRule(toolLengths(brief.tool)));
 
 // Step 3: the storyboard.
 export function boardTask(brief: Brief, story: Story) {
@@ -567,9 +571,9 @@ ${JSON.stringify(story, null, 2)}
 
 Break it into a storyboard.
 
-${BOARD_RULES}`,
+${boardRules(brief)}`,
       BoardWireSchema,
-      (wire): Board => settleScreens(brief, normalizeBoard(wire)),
+      (wire): Board => settleScreens(brief, normalizeBoard(wire, toolLengths(brief.tool))),
   );
 }
 export const writeBoard = (brief: Brief, story: Story): Promise<Board> => runTask(boardTask(brief, story));
@@ -600,9 +604,9 @@ ${perShot || "- none"}
 
 Revise the storyboard to answer every note. Keep the shots the notes don't touch exactly as they are. Fix problems in the prompts themselves; never ask for anything to be painted on later.
 
-${BOARD_RULES}`,
+${boardRules(brief)}`,
       BoardWireSchema,
-      (wire): Board => settleScreens(brief, normalizeBoard(wire)),
+      (wire): Board => settleScreens(brief, normalizeBoard(wire, toolLengths(brief.tool))),
   );
 }
 export const reviseBoard = (
@@ -641,10 +645,10 @@ The director's note on this shot: "${note}"
 
 Rewrite this one shot to answer the note, so it follows the shot before and leads into the shot after. Keep its topic, beat and speaker, keep identity lines word for word, and change its setups or its kind only if the note asks for it. Change the spoken line or the headline only if the note asks for it; if the line changes, pick the length again. Update the title and action if the note changes what happens. Fix the source in the prompt; never ask for anything to be painted on later.
 
-${BOARD_RULES}`,
+${boardRules(brief)}`,
     ShotWireSchema,
     (wire) => {
-      const settled = settleScreenShot(normalizeShot(wire), allowedScreens(brief));
+      const settled = settleScreenShot(normalizeShot(wire, toolLengths(brief.tool)), allowedScreens(brief));
       const next = settleEditFrom(board.shots.map((s, i) => (i === index ? settled : s)))[index];
       return { ...next, topic: shot.topic, beat: shot.beat, speaker: shot.speaker };
     },
@@ -1183,3 +1187,56 @@ export const reviewMotion = (
   round: number,
   earlier: string,
 ): Promise<MotionReview> => runTask(reviewMotionTask(brief, scenes, facts, sheets, round, earlier));
+
+// ── "Charlar con Claude" (server/chat.ts) ──────────────────────────────────────────
+// A free conversation: plain text out, streamed. The system blocks are the chat's base and the active skills; the
+// last one is cached, so a long skill is paid once per few minutes, and the conversation itself is cached turn by
+// turn (top-level automatic caching). Refusals fall back where the model takes it, as in askClaude.
+export async function chatClaude(input: {
+  model: string;
+  effort: "low" | "medium" | "high";
+  system: string[];
+  messages: Anthropic.Beta.BetaMessageParam[];
+  onText: (text: string) => void;
+  signal?: AbortSignal;
+}): Promise<{ text: string; model: string; stop: string; tokens: ReturnType<typeof claudeUsage> }> {
+  if (!keyOf("claude") && !process.env.ANTHROPIC_AUTH_TOKEN) {
+    throw new WriterError("Para charlar hace falta la clave de Claude (Anthropic). Cargala en Modelos.");
+  }
+  const caps = capsOf(input.model);
+  const used = meter("claude", input.model);
+  let ok = false;
+  try {
+    const stream = getClient().beta.messages.stream(
+      {
+        model: input.model,
+        max_tokens: Math.min(32000, caps.maxTokens),
+        ...(FALLBACK_MODELS.has(input.model) && { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }),
+        ...(caps.adaptive && { thinking: { type: "adaptive" as const } }),
+        ...(caps.efforts.length && { output_config: { effort: caps.efforts.includes(input.effort) ? input.effort : "medium" } }),
+        cache_control: { type: "ephemeral" as const },
+        system: input.system.map((text, i, all) => ({
+          type: "text" as const,
+          text,
+          ...(i === all.length - 1 && { cache_control: { type: "ephemeral" as const } }),
+        })),
+        messages: input.messages,
+      },
+      { signal: input.signal },
+    );
+    stream.on("text", (delta) => input.onText(delta));
+    let message;
+    try {
+      message = await stream.finalMessage();
+    } catch (error) {
+      throw claudeError(error);
+    }
+    const tokens = claudeUsage(message.usage);
+    used.add(tokens, undefined, message.model);
+    ok = true;
+    const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+    return { text, model: message.model, stop: message.stop_reason ?? "end_turn", tokens };
+  } finally {
+    await used.done(ok);
+  }
+}

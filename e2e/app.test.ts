@@ -122,6 +122,24 @@ describe("recorrido de la app", { concurrency: 1 }, () => {
       await approveWhenClear(page, "Aprobar → producción");
       await page.getByRole("button", { name: "5 · Producción" }).click();
       await page.getByRole("button", { name: "Enviar a Publicidad (hook)" }).waitFor();
+      // With no xAI or fal.ai key, each clip slot says where the key goes instead of a "Generar clip" button.
+      await page.getByText("Para generar el clip acá, cargá la clave de xAI o de fal.ai en Modelos.").first().waitFor();
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  test("Chat: sin clave avisa dónde va, lista las skills y arma el texto para claude.ai", async () => {
+    const page = await openPage(app);
+    try {
+      await page.getByRole("button", { name: "Chat", exact: true }).click();
+      await page.getByText("Para charlar acá hace falta la clave de Claude").waitFor();
+      await page.getByText("/guiones-virales").waitFor();
+      await page.getByText("/escena-de-referencia").waitFor();
+      const zip = await page.request.get(`${app.url}/api/skills/guiones-virales/zip`);
+      assert.equal(zip.status(), 200);
+      assert.equal(zip.headers()["content-type"], "application/zip");
+      await page.getByRole("button", { name: "Playbook", exact: true }).click();
     } finally {
       await page.context().close();
     }

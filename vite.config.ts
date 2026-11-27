@@ -10,7 +10,8 @@ export default defineConfig({
   server: {
     host: true,
     proxy: { "/api": `http://localhost:${process.env.PORT || 8787}` },
-    // Puppet uploads and project saves write here. They are not source, and a reload would close Editar serie.
-    watch: { ignored: ["**/biblioteca/**", "**/proyectos/**", "**/publicidad/**", "**/server/series/**"] },
+    // Puppet uploads, project saves and the test bench (server/tools) write here. They are not source, and a reload
+    // would close Editar serie or Modelos.
+    watch: { ignored: ["**/biblioteca/**", "**/proyectos/**", "**/publicidad/**", "**/server/series/**", "**/server/tools/**"] },
   },
 });

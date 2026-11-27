@@ -1,6 +1,7 @@
 // Series bibles: one Markdown file per series in server/series/ (iman.md, masogar.md). The writer reads the
 // chosen series' file with every request. The app edits them in the "Editar serie" form (PUT/POST/DELETE
 // /api/series); editing a file by hand works too and is picked up on the next restart.
+import { pathToFileURL } from "node:url";
 import { closeSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { SCREEN_VIDEO_MAX_BYTES, SCREEN_VIDEO_TYPES, videoTypeOf } from "../shared/screenVideo.ts";
 import { join, resolve, sep } from "node:path";
@@ -26,7 +27,8 @@ import {
   type TextStyle,
 } from "../shared/series.ts";
 
-const DIR = new URL("./series/", import.meta.url);
+// SERIES_DIR moves the bibles elsewhere (the browser tests use a copy, so a run never edits the real ones).
+const DIR = process.env.SERIES_DIR ? pathToFileURL(resolve(process.env.SERIES_DIR) + sep) : new URL("./series/", import.meta.url);
 // Approved images of each series' fixed cast: biblioteca/<series>/<cast id>.<ext>. Not in git: they are the brand's.
 export const LIBRARY_DIR = resolve(process.env.LIBRARY_DIR || "biblioteca");
 const ID = /^[a-z0-9-]{1,40}$/;

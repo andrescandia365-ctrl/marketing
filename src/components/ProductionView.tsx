@@ -20,6 +20,8 @@ import { download, pieceToMarkdown, slug, type LogEntry } from "../lib/markdown.
 import type { ShotMedia } from "../lib/render.ts";
 import type { ProjectFiles } from "../useProject.ts";
 import { storyFonts } from "../../shared/brandFonts.ts";
+import { lengthsOf, lengthsText } from "../../shared/toolLengths.ts";
+import { ConsistencyGuide } from "./ConsistencyGuide.tsx";
 
 const VideoPanel = lazy(() => import("./VideoPanel.tsx").then((m) => ({ default: m.VideoPanel })));
 
@@ -373,9 +375,11 @@ export function ProductionView({
         </div>
 
         <Notice tone="warn">
-          <b>En {toolName}, cada vez:</b> elegí el largo del clip (6, 10 o 15 s) y la forma en sus propios
+          <b>En {toolName}, cada vez:</b> elegí el largo del clip ({lengthsText(lengthsOf(pieceTool))}) y la forma en sus propios
           controles; el prompt solo lo recuerda. Primero la imagen, después animala.
         </Notice>
+
+        <ConsistencyGuide />
 
         <NarrationImport
           lines={board.shots.flatMap((s, i) =>
@@ -418,10 +422,14 @@ export function ProductionView({
           media={media}
           toolName={toolName}
           maxRefs={pieceTool?.maxRefs ?? null}
+          lengths={lengthsOf(pieceTool)}
+          webModels={status?.webModels}
+          projectId={projectId}
           onShotChange={updateShot}
           onGenerate={generateImage}
           onUploadImage={uploadImage}
           onUploadClip={uploadClip}
+          videoModels={status?.mediaModels}
           onRemoveMedia={removeMedia}
           onRewrite={(index, note) => rewriteShot(index, note)}
           rewriteHandoff={

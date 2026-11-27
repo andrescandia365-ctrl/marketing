@@ -50,6 +50,8 @@ export const PROVIDERS: Record<Exclude<ProviderId, "custom">, Provider> = {
 export const OTHER_KEYS = [
   { name: "OPENAI_API_KEY", label: "OpenAI", use: "Voz generada, sincronizar canciones e imágenes", hint: "Empieza con sk-" },
   { name: "REPLICATE_API_TOKEN", label: "Replicate", use: "Imágenes", hint: "Empieza con r8_" },
+  { name: "XAI_API_KEY", label: "xAI (Grok Imagine)", use: "Imágenes y clips de video por API", hint: "Empieza con xai-" },
+  { name: "FAL_KEY", label: "fal.ai", use: "Imágenes y clips de video con otros modelos (Kling, Veo, Flux, Nano Banana)", hint: "La de fal.ai → Keys" },
 ] as const;
 
 const ENV_FILE = resolve(".env");
