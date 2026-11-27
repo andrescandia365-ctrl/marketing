@@ -732,6 +732,10 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   try rewrites it in server/tools/<id>.md (`markLine`: worked → [TESTED], failed stays [NOT SURE], dated finding),
   reloads the profiles (`reloadTools`) and logs it in PROJECTS_DIR/.pruebas.json. Vite ignores server/tools so a mark
   does not reload the page.
+  `server/tools/veo-3-1.md` (Google Flow/AI Studio or APIMart, 4/6/8 s, at most 3 reference pictures) is also for
+  shots with no line; `modelos-web.md` has site `google` with the Gemini API's Veo prices. Profiles write other tools'
+  caps as "at most N reference pictures": only "Up to N reference images" sets the cast-wide cap (`referenceLimit`,
+  14 from Grok; a test guards it).
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.
 - Tool features change: edit the tool's `.md` in `server/tools/`, never hard-code them. Tag each line
   [DOCS], [NOT SURE] or [TESTED]. Series are edited in the app (Brief → Editar serie / + Nueva serie); their files are in Spanish, and the

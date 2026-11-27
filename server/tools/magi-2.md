@@ -14,7 +14,7 @@ Tags: **[DOCS]** in Sand.ai's or Higgsfield's pages · **[NOT SURE]** not confir
 - [DOCS] Clips of 4 to 30 seconds, 1080p at 25 fps, with sound (ambience, effects, music and spoken dialogue generated with the video).
 - [DOCS] A start frame and an end frame. Up to 10 images, 5 videos and 5 audio clips as references (Sand.ai's API; whether Higgsfield's web form takes all of them is not stated).
 - [DOCS] Sound can be turned off.
-- [DOCS] Up to 10 reference images through Sand.ai's API; the app keeps each cast member to the strictest cap among the tools (Grok's 14), so check the count per prompt.
+- [DOCS] At most 10 reference pictures through Sand.ai's API; the app keeps each cast member to the strictest cap among the tools (Grok's 14), so check the count per prompt.
 - [NOT SURE] Lip sync: the dialogue it invents is lip-synced, but nothing says the mouth follows an audio file you give it. Use it for shots with no line, or make the shot mute and put the voice on with a lip-sync tool ("Bajar kit de lip sync"). For lines in your own voice, use Seedance.
 - [NOT SURE] Its invented voice changes from clip to clip: never let it speak a recurring character's lines.
 - [DOCS] "Six aspect ratios"; which ones is not listed. [NOT SURE] 9:16: check in Higgsfield's controls before planning a vertical piece.

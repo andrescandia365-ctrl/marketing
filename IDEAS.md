@@ -526,6 +526,8 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - **Probar otra versión del prompt:** en cada toma, una versión B del prompt de video; «Bajar kit B» la baja con su propio nombre (`toma-NN-kit-B`, clip `toma-NN-clip-B.mp4`) y las reglas para comparar bien (cambiar una sola cosa, misma imagen y referencias, 480p). «Ganó la B: usarla en la toma» la pasa al prompt de la toma.
 - **Banco de pruebas (Modelos):** por herramienta, lo que todavía está en duda ([NOT SURE]) y las pruebas sugeridas. «Funcionó» lo pasa a [TESTED] y «No funcionó» lo deja en duda con tu nota; queda escrito en el perfil y el escritor lo lee en el próximo prompt.
 - **Lo generé afuera:** suma Higgsfield (MAGI-2, Seedance) y las pasadas de lip sync, con precios [NOT SURE] para revisar.
+- **Veo 3.1 (Google):** perfil para tomas sin diálogo (4, 6 u 8 s, hasta 3 referencias; con referencias o 1080p, 8 s). Hace hablar con una voz que inventa, no con la tuya. Precios de la API de Gemini en «Lo generé afuera» (sitio Google).
+- **Para mirar más adelante:** Gemini Omni 1.2 Flash con referencias de voz (hoy solo con permiso de Google): mantendría la misma voz por personaje, aunque no tu audio exacto.
 
 ### 72. Clips a mano en Replicate o APIMart (26 Nov 2026) — **Construido**
 - **De dónde salió:** vas a generar imágenes y clips en las webs de Replicate o APIMart (no por API); la app arma los prompts y lleva cada serie. Mirando claudia.gallery: Seedance 2.5 con la voz como audio de referencia da el lip sync.

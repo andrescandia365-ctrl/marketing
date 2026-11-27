@@ -9,7 +9,7 @@ import { CONSISTENCY_STEPS, kitPictures, kitPrompt, kitReadme, lipSyncFolder, li
 import { markLine, profileLines, profileTests, shortDate } from "../shared/toolChecks.ts";
 import { lipSyncNote } from "../shared/adsSpeaker.ts";
 import { parseWebTable, webCost, webModelId, webModelText } from "../shared/webModels.ts";
-import { listTools } from "../server/tools.ts";
+import { listTools, referenceLimit } from "../server/tools.ts";
 
 test("clip lengths come from the tool's profile: Grok keeps 6, 10 or 15 s and Seedance takes 4 to 15", () => {
   const tools = listTools();
@@ -238,4 +238,12 @@ test("every tool profile's tests and lines read", () => {
     assert.ok(profileTests(md).length > 0, t);
     assert.ok(profileLines(md).some((l) => l.tag === "NOT SURE"), t);
   }
+});
+
+test("Veo 3.1 makes 4, 6 or 8 s clips, and no profile lowers the cast's reference cap below Grok's 14", () => {
+  const tools = listTools();
+  assert.deepEqual(tools.find((t) => t.id === "veo-3-1")?.lengths, [4, 6, 8]);
+  assert.equal(referenceLimit(), 14);
+  const { models } = parseWebTable(readFileSync(new URL("../server/media/modelos-web.md", import.meta.url), "utf8"));
+  assert.ok(models.some((m) => m.site === "google" && m.model === "veo-3.1-lite"));
 });

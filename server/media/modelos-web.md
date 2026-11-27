@@ -1,14 +1,15 @@
-# Modelos que se usan a mano en una web (Replicate, APIMart, Higgsfield)
+# Modelos que se usan a mano en una web (Replicate, APIMart, Higgsfield, Google)
 
 Last checked: 27 Nov 2026, against Replicate's model pages (replicate.com), APIMart's model and pricing pages
-(apimart.ai) and Higgsfield's MAGI-2 and pricing pages (higgsfield.ai). The app never calls these: the person
+(apimart.ai), Higgsfield's MAGI-2 and pricing pages (higgsfield.ai) and Google's Gemini API pricing page
+(ai.google.dev, for Veo 3.1). The app never calls these: the person
 generates in the website and, under each clip, notes «Lo generé afuera». The spend log adds it up with this table.
 Prices change: edit the table and restart the app.
 
 Tags: **[DOCS]** on the site's own page · **[NOT SURE]** not shown on the site, taken from another source or a guess
 · **[TESTED]** checked against the site's own bill.
 
-- sitio: `replicate`, `apimart`, `higgsfield` or `otro`.
+- sitio: `replicate`, `apimart`, `higgsfield`, `google` or `otro`.
 - tipo: `imagen` or `video`.
 - precio: US dollars per unidad (`imagen` or `segundo`) at that resolución. A lip-sync pass is a `video` row priced
   per second of the clip it fixes.
@@ -29,6 +30,12 @@ Tags: **[DOCS]** on the site's own page · **[NOT SURE]** not shown on the site,
 | higgsfield | video | magi-2 | MAGI-2 | 1080p | 0.08 | segundo | [NOT SURE] (el precio que anuncia Higgsfield; con créditos de un plan: ~0,06 a 0,18 por segundo según el plan) |
 | higgsfield | video | seedance-2.5 | Seedance 2.5 | 720p | 0.4622 | segundo | [NOT SURE] (claudia.gallery; Higgsfield muestra el costo en el botón) |
 | higgsfield | video | seedance-2.5 | Seedance 2.5 | 1080p | 1.1372 | segundo | [NOT SURE] (claudia.gallery) |
+| google | video | veo-3.1-fast | Veo 3.1 Fast | 720p | 0.10 | segundo | [DOCS] (precio de la API de Gemini, con sonido; en Flow se gastan créditos del plan) |
+| google | video | veo-3.1-fast | Veo 3.1 Fast | 1080p | 0.12 | segundo | [DOCS] (API de Gemini) |
+| google | video | veo-3.1 | Veo 3.1 | 1080p | 0.40 | segundo | [DOCS] (API de Gemini) |
+| google | video | veo-3.1-lite | Veo 3.1 Lite | 720p | 0.05 | segundo | [DOCS] (API de Gemini) |
+| google | video | veo-3.1-lite | Veo 3.1 Lite | 1080p | 0.08 | segundo | [DOCS] (API de Gemini) |
+| apimart | video | veo-3.1 | Veo 3.1 | 720p | 0.14 | segundo | [NOT SURE] (precio de la portada de APIMart; no dice qué versión) |
 | otro | video | kling-lipsync | Kling LipSync (pasada de lip sync) | | 0.014 | segundo | [NOT SURE] (precio de referencia; revisá la web donde lo uses) |
 | otro | video | sync-lipsync | sync.so (pasada de lip sync) | | 0.05 | segundo | [NOT SURE] (precio de referencia) |
 | apimart | imagen | nano-banana-2 | Nano Banana 2 | | 0.015 | imagen | [DOCS] (desde) |
