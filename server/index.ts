@@ -100,6 +100,7 @@ import { findWebModel, mediaModels, webModels } from "./media/catalog.ts";
 import { logSpend, removeWebSpend, spendForProject, spendView } from "./media/spend.ts";
 import { webCost } from "../shared/webModels.ts";
 import { ANY_LENGTH } from "../shared/toolLengths.ts";
+import { BenchError, benchView, markTrial } from "./toolChecks.ts";
 import { startVideo, videoFile, videoStatus } from "./media/videoJobs.ts";
 import { addEpisode, draftEpisode, episodesView } from "./episodes.ts";
 import { ENTRY_MAX, EpisodeError, SUMMARY_MAX } from "../shared/episodes.ts";
@@ -951,6 +952,9 @@ app.use("/api/brand/*", onlyHere("La marca se trae de la web solo desde la app e
 // Demucs on this computer (Modelos → Demucs), only from the app here: looked up again now ("Volver a buscar" after
 // installing it), and "Probar Demucs" runs it on four made-up seconds.
 app.use("/api/tools/*", onlyHere("Demucs se revisa solo desde la app en esta compu."));
+// "Banco de pruebas": marking a line writes the tool's profile (server/tools/*.md), so only from this computer.
+app.use("/api/pruebas", onlyHere("Las pruebas de las herramientas se anotan solo desde la app en esta compu."));
+app.use("/api/pruebas/*", onlyHere("Las pruebas de las herramientas se anotan solo desde la app en esta compu."));
 app.get("/api/tools/demucs", (c) => c.json({ demucs: demucsStatus(true), ffmpeg: ffmpegAvailable() }));
 app.post("/api/tools/demucs/test", async (c) => c.json(await tryDemucs()));
 // Where Demucs is, saved in .env (null: look on the PATH again).
@@ -1158,6 +1162,20 @@ app.post("/api/settings/test", async (c) => {
 app.get("/api/settings/usage", async (c) => c.json(await usageView()));
 // What image and video generations by API cost, by the price table (server/media/modelos-api.md).
 app.get("/api/settings/spend", async (c) => c.json(await spendView()));
+// "Banco de pruebas" (Modelos): each tool profile's tagged lines and tests, and what the person found when they tried.
+app.get("/api/pruebas", async (c) => c.json(await benchView()));
+app.post("/api/pruebas/:tool/line", async (c) => {
+  const { line, verdict, note } = z
+    .object({ line: z.number().int().min(0).max(5000), verdict: z.enum(["worked", "failed"]), note: z.string().max(300).default("") })
+    .parse(await c.req.json());
+  try {
+    await markTrial(c.req.param("tool"), line, verdict, note);
+  } catch (e) {
+    if (e instanceof BenchError) return c.json({ error: e.message }, 400);
+    throw e;
+  }
+  return c.json(await benchView());
+});
 // "Lo generé afuera": the person made a clip or an image by hand on a website (server/media/modelos-web.md) and notes
 // it under its slot, so the spend log counts it. The price comes from the table, never from the browser.
 app.post("/api/settings/spend/web", async (c) => {

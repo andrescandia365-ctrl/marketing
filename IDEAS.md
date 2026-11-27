@@ -4,6 +4,7 @@ Lista de ideas que fueron saliendo. Se construyen solo con "go"; cada título di
 Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
 ## Construido
+- **Lip sync, MAGI-2 y pruebas de prompts (27 Nov 2026, idea 73):** Seedance es el camino del lip sync; perfil de MAGI-2 para tomas sin diálogo; «Bajar kit de lip sync»; Higgsfield y las pasadas de lip sync en «Lo generé afuera»; versión B del prompt en cada toma y «Banco de pruebas» en Modelos.
 - **Clips a mano en Replicate o APIMart (26 Nov 2026, idea 72):** perfil de Seedance 2.5, largos de toma según la herramienta (Seedance de 4 a 15 s), «Bajar kit de la toma» con el prompt, la imagen de inicio, las referencias numeradas y la voz para el lip sync, «Lo generé afuera» para llevar el gasto, y la guía para mantener al personaje igual.
 - **Imágenes y clips por API (26 Nov 2026, idea 71):** con una clave de xAI (Grok Imagine) o de fal.ai en Modelos, «Generar clip» aparece en cada lugar de clip de Publicidad y de las tomas de las historias, con el costo estimado antes de generar; las imágenes de esos modelos se suman a la lista de generadores. «Gasto en imágenes y clips por API» en Modelos suma lo de la semana y el mes.
 - **Subir clips en lote y próxima tanda (24 Oct 2026, idea 70):** los prompts de Grok terminan con el nombre del archivo, se suben de a muchos, y las métricas proponen qué se queda, qué se archiva y qué voces entran.
@@ -517,6 +518,14 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
   4. ¿Por cuál empezamos?
 - **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
 - **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
+
+### 73. Lip sync, MAGI-2 y pruebas de prompts (27 Nov 2026) — **Construido**
+- **De dónde salió:** MAGI-2 (Higgsfield) salió más barato que Seedance, pero no mueve la boca con tu audio. Quedamos en que Seedance es el que hace el lip sync (como claudia.gallery) y pediste algo para probar prompts.
+- **MAGI-2:** perfil propio (`server/tools/magi-2.md`), tomas de 4 a 30 s, para planos sin diálogo. Su voz inventada cambia de un clip a otro: nunca para las líneas de un personaje.
+- **Kit de lip sync:** en una toma que ya tiene clip y voz, «Bajar kit de lip sync (.zip)» trae el clip, la voz tal como suena en el video y los pasos para Kling LipSync, sync.so u otra. Es el plan B si Seedance falla en una toma.
+- **Probar otra versión del prompt:** en cada toma, una versión B del prompt de video; «Bajar kit B» la baja con su propio nombre (`toma-NN-kit-B`, clip `toma-NN-clip-B.mp4`) y las reglas para comparar bien (cambiar una sola cosa, misma imagen y referencias, 480p). «Ganó la B: usarla en la toma» la pasa al prompt de la toma.
+- **Banco de pruebas (Modelos):** por herramienta, lo que todavía está en duda ([NOT SURE]) y las pruebas sugeridas. «Funcionó» lo pasa a [TESTED] y «No funcionó» lo deja en duda con tu nota; queda escrito en el perfil y el escritor lo lee en el próximo prompt.
+- **Lo generé afuera:** suma Higgsfield (MAGI-2, Seedance) y las pasadas de lip sync, con precios [NOT SURE] para revisar.
 
 ### 72. Clips a mano en Replicate o APIMart (26 Nov 2026) — **Construido**
 - **De dónde salió:** vas a generar imágenes y clips en las webs de Replicate o APIMart (no por API); la app arma los prompts y lleva cada serie. Mirando claudia.gallery: Seedance 2.5 con la voz como audio de referencia da el lip sync.

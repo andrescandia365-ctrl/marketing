@@ -2,7 +2,7 @@
 // lays the voice out as the render plays it (shared/shotKit.ts voiceLayout) and zips it all with the prompts and the
 // steps (LEEME.txt), so the person uploads it to Replicate's or APIMart's web form as is.
 import { storeZip } from "../../shared/storeZip.ts";
-import { kitPictureFile, kitPrompt, kitReadme, shotKitFolder, voiceLayout, type KitPicture, type KitVoice } from "../../shared/shotKit.ts";
+import { kitPictureFile, kitPrompt, kitReadme, lipSyncFolder, lipSyncReadme, shotKitFolder, voiceLayout, type KitPicture, type KitVoice } from "../../shared/shotKit.ts";
 import { toWav } from "./wav.ts";
 
 const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
@@ -52,10 +52,12 @@ export type ShotKitInput = {
   pictures: KitPicture[];
   voice: (KitVoice & { blob: Blob }) | null;
   voiceHint: string;
+  // A prompt test ("B"): its own folder and clip name.
+  variant?: string;
 };
 
 export async function buildShotKit(k: ShotKitInput): Promise<{ zip: Blob; name: string; files: number }> {
-  const folder = shotKitFolder(k.shotIndex);
+  const folder = shotKitFolder(k.shotIndex, k.variant);
   const enc = new TextEncoder();
   const files: { name: string; data: Uint8Array }[] = [];
   let firstFrame: string | null = null;
@@ -98,9 +100,26 @@ export async function buildShotKit(k: ShotKitInput): Promise<{ zip: Blob; name: 
     lastFrame,
     voice,
     voiceHint: k.voiceHint,
+    variant: k.variant,
   });
   files.unshift({ name: `${folder}/LEEME.txt`, data: enc.encode(readme) });
   return { zip: new Blob([storeZip(files) as BlobPart], { type: "application/zip" }), name: `${folder}.zip`, files: files.length };
+}
+
+// "Bajar kit de lip sync": the shot's clip as it is, the voice laid out as the render plays it, and the steps.
+export async function buildLipSyncKit(k: { shotIndex: number; title: string; seconds: number; clip: Blob; clipName: string; voice: Blob }) {
+  const folder = lipSyncFolder(k.shotIndex);
+  const ext = k.clipName.split(".").pop()?.toLowerCase() || "mp4";
+  const clipFile = `video.${ext}`;
+  const ref = await voiceReference(k.voice, k.seconds);
+  const voice = { file: "audio1-voz.wav", cut: ref.cut };
+  const enc = new TextEncoder();
+  const files = [
+    { name: `${folder}/LEEME.txt`, data: enc.encode(lipSyncReadme({ shotIndex: k.shotIndex, title: k.title, seconds: k.seconds, clipFile, voice })) },
+    { name: `${folder}/${clipFile}`, data: new Uint8Array(await k.clip.arrayBuffer()) },
+    { name: `${folder}/${voice.file}`, data: new Uint8Array(await ref.wav.arrayBuffer()) },
+  ];
+  return { zip: new Blob([storeZip(files) as BlobPart], { type: "application/zip" }), name: `${folder}.zip` };
 }
 
 export function downloadBlob(blob: Blob, name: string) {

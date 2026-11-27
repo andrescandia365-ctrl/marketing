@@ -450,6 +450,13 @@ function ShotCard(props: CardProps) {
         timed: shot.timeline.length > 0,
       }
     : null;
+  // What the kit sends for a video prompt: the shot's sound line, and Grok's spoken line when the model says it.
+  const kitPromptFor = (raw: string) => {
+    const base = clipPrompt(voice.audio, { ...shot, videoPrompt: raw }, shot.index);
+    return !kitVoice && voiceMode === "grok" && shot.voiceover && !shot.timeline?.length
+      ? speakingPrompt(base, who?.name ?? "The character", shot.voiceover, voice.audio.characters[shot.speaker]?.grokVoice ?? "", brief.language, voice.emotionOf?.(shot.voiceover) ?? "")
+      : base;
+  };
   const kitVoiceHint = !shot.voiceover.trim()
     ? ""
     : voiceMode === "grok"
@@ -647,7 +654,11 @@ function ShotCard(props: CardProps) {
               seconds={shot.seconds}
               format={brief.format}
               toolName={toolName}
-              videoPrompt={kitVoice ? clipPrompt(voice.audio, shot, shot.index) : generationPrompt}
+              videoPrompt={kitPromptFor(shot.videoPrompt)}
+              rawPrompt={shot.videoPrompt}
+              prepare={kitPromptFor}
+              onUseVariant={(prompt) => set("videoPrompt", prompt)}
+              clip={media.clip ? { blob: media.clip.blob, name: media.clip.name } : null}
               imagePrompt={realEnd?.at === "start" ? "" : buildCopyPrompt(shot.visualPrompt, brief.format)}
               endPrompt={shot.kind === "transform" ? shot.endPrompt : ""}
               firstFrame={image ?? null}

@@ -2,9 +2,9 @@
 // image at each resolution (server/media/modelos-web.md). The app does not call them: "Lo generé afuera" notes what
 // was made where, and the spend log adds it up with this table. Pure: parsed and priced here, tested.
 
-export type WebSite = "replicate" | "apimart" | "otro";
-export const WEB_SITES: WebSite[] = ["replicate", "apimart", "otro"];
-export const WEB_SITE_LABEL: Record<WebSite, string> = { replicate: "Replicate", apimart: "APIMart", otro: "Otra web" };
+export type WebSite = "replicate" | "apimart" | "higgsfield" | "otro";
+export const WEB_SITES: WebSite[] = ["replicate", "apimart", "higgsfield", "otro"];
+export const WEB_SITE_LABEL: Record<WebSite, string> = { replicate: "Replicate", apimart: "APIMart", higgsfield: "Higgsfield", otro: "Otra web" };
 
 export type WebModel = {
   site: WebSite;

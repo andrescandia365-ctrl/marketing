@@ -1,6 +1,7 @@
 // "Modelos": which AI writes and with which model, which one looks at pictures, and the API keys. Keys are typed
 // here once and saved in the .env file on this computer; the app only ever shows their last four characters.
 import { useEffect, useMemo, useState } from "react";
+import { ToolBench } from "./ToolBench.tsx";
 import type { ListedModel, SettingsView } from "../../shared/schema.ts";
 import { DEMUCS_COST, DEMUCS_ENV, DEMUCS_INSTALL, DEMUCS_INSTALL_NEWER, DEMUCS_NOT_NEEDED, DEMUCS_USES } from "../../shared/demucs.ts";
 import { api, type DemucsStatus } from "../lib/api.ts";
@@ -67,6 +68,7 @@ export function ModelsPanel({ onClose, onChanged }: { onClose: () => void; onCha
         <DemucsSection onChanged={onChanged} />
         <UsageSection />
         <SpendSection />
+        <ToolBench />
       </aside>
     </div>
   );

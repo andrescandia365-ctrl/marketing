@@ -40,8 +40,10 @@ const pad = (n: number) => String(n).padStart(2, "0");
 export function kitPictureFile(n: number, ref: string, ext: string): string {
   return `${pad(n)}-${ref}.${ext}`;
 }
-export const shotKitFolder = (shotIndex: number) => `toma-${pad(shotIndex + 1)}-kit`;
-export const shotClipName = (shotIndex: number) => `toma-${pad(shotIndex + 1)}-clip.mp4`;
+// A prompt test's variant ("B") goes in the names, so two kits and their clips never mix.
+export const shotKitFolder = (shotIndex: number, variant = "") => `toma-${pad(shotIndex + 1)}-kit${variant ? `-${variant}` : ""}`;
+export const shotClipName = (shotIndex: number, variant = "") => `toma-${pad(shotIndex + 1)}-clip${variant ? `-${variant}` : ""}.mp4`;
+export const lipSyncFolder = (shotIndex: number) => `toma-${pad(shotIndex + 1)}-lipsync`;
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -112,6 +114,14 @@ export const CONSISTENCY_STEPS = [
   "No le pongas reglas de postura («quieta», «la cabeza derecha»): la congelan y queda fría. Describí lo que hace.",
 ] as const;
 
+// How to compare two versions of a prompt fairly (Spanish, for the variant kit's LEEME and the app).
+export const PROMPT_TEST_STEPS = [
+  "Cambiá una sola cosa entre la versión de la toma (A) y esta (B): una palabra, el orden, un tiempo. Si cambiás tres, no sabés cuál sirvió.",
+  "Usá la misma imagen de inicio, las mismas referencias en el mismo orden, el mismo largo y la misma resolución (480p para probar).",
+  "Mirá las dos una al lado de la otra: cara, boca con la voz, el movimiento pedido, y lo que no tenía que aparecer.",
+  "Lo que aprendas de la herramienta (algo que siempre funciona o que nunca funciona) anotalo en Modelos → Banco de pruebas.",
+] as const;
+
 export type KitReadme = {
   shotIndex: number;
   title: string;
@@ -124,6 +134,8 @@ export type KitReadme = {
   voice: { file: string; cut: boolean } | null;
   // What to do about the voice when the kit has none ("" when it has one).
   voiceHint: string;
+  // A prompt test: the variant's letter ("B"); "" for the shot's own prompt.
+  variant?: string;
 };
 
 // LEEME.txt: the steps in the web form, in Spanish, plus how to keep the character the same.
@@ -146,13 +158,36 @@ export function kitReadme(k: KitReadme): string {
       : `3. Sin audio de referencia. ${k.voiceHint}`,
     `4. Pegá prompt.txt en el prompt. Largo: ${k.seconds} s. Resolución: 480p para probar, 720p para usar, 1080p para caras de cerca.`,
     k.voice ? "5. Dejá el sonido prendido (generate_audio). En la app, en «Sonido del clip», poné Mudo: así se oye siempre la misma voz, la de la app." : "5. Sonido: apagalo si la toma no necesita sonido propio.",
-    `6. Generá, bajá el clip apenas esté listo (los links duran poco) y guardalo como ${shotClipName(k.shotIndex)}. Soltalo en la toma ${k.shotIndex + 1} de la app.`,
+    k.variant
+      ? `6. Generá, bajá el clip apenas esté listo (los links duran poco) y guardalo como ${shotClipName(k.shotIndex, k.variant)}. Si le gana al de la toma, soltalo en la toma ${k.shotIndex + 1} y copiá este prompt en «Prompt de video».`
+      : `6. Generá, bajá el clip apenas esté listo (los links duran poco) y guardalo como ${shotClipName(k.shotIndex)}. Soltalo en la toma ${k.shotIndex + 1} de la app.`,
     "7. En la app, debajo del clip, anotá dónde lo generaste («Lo generé afuera»): así la app lleva el gasto.",
+    ...(k.variant ? ["", `Prueba de prompt: la toma (A) contra esta versión (${k.variant})`, ...PROMPT_TEST_STEPS.map((step, i) => `${i + 1}. ${step}`)] : []),
     "",
     "Cómo mantener al personaje igual en todos los clips",
     ...CONSISTENCY_STEPS.map((s, i) => `${i + 1}. ${s}`),
     "",
     "El aviso de IA del video queda prendido. Nunca recortes ni tapes la marca de agua de una herramienta.",
+  ];
+  return lines.join("\n") + "\n";
+}
+
+// LEEME.txt of the lip-sync kit: a mute clip plus the shot's voice, for a lip-sync tool (Kling LipSync, sync.so,
+// LatentSync…), when the video tool cannot follow the voice itself (MAGI-2, Grok) or the mouth came out wrong.
+export function lipSyncReadme(k: { shotIndex: number; title: string; seconds: number; clipFile: string; voice: { file: string; cut: boolean } }): string {
+  const lines = [
+    `Toma ${k.shotIndex + 1}: ${k.title} · pasada de lip sync`,
+    `Largo de la toma: ${k.seconds} s`,
+    "",
+    "Para qué es: el clip ya está hecho y la boca no sigue la voz (o el modelo no puede seguirla). Una herramienta de lip sync le mueve la boca con tu voz.",
+    `1. Video: ${k.clipFile}. Es el clip que está en la toma ${k.shotIndex + 1}.`,
+    `2. Audio: ${k.voice.file}. Es la voz de la toma tal como suena en el video (${VOICE_LEAD} s de silencio al principio, el largo de la toma).${k.voice.cut ? " La voz era más larga que la toma y quedó cortada." : ""}`,
+    "3. Subí los dos a la herramienta de lip sync (Kling LipSync, sync.so, LatentSync u otra) y generá.",
+    `4. Bajá el resultado, guardalo como ${shotClipName(k.shotIndex)} y soltalo en la toma ${k.shotIndex + 1}: reemplaza al anterior.`,
+    "5. En la app, en «Sonido del clip», poné Mudo: la voz la pone la app, siempre la misma.",
+    "6. Debajo del clip, anotá la pasada en «Lo generé afuera» (Kling LipSync o sync.so) para que cuente en el gasto.",
+    "",
+    "Solo con personajes inventados (nunca la cara o la voz de una persona real sin su permiso). El aviso de IA del video queda prendido.",
   ];
   return lines.join("\n") + "\n";
 }

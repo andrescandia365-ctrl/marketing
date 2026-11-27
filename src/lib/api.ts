@@ -1,3 +1,4 @@
+import type { ProfileLine, ProfileTest } from "../../shared/toolChecks.ts";
 import type { MascotMeta } from "../../shared/mascot.ts";
 import type { PromptOnly } from "../../shared/handoff.ts";
 import type {
@@ -95,6 +96,10 @@ async function call<T>(path: string, body?: unknown, method?: "PUT" | "PATCH" | 
 }
 
 type Demo = { demo: boolean; pasted?: boolean };
+export type BenchView = {
+  tools: { id: string; name: string; lines: ProfileLine[]; tests: ProfileTest[] }[];
+  recent: { at: string; tool: string; line: string; verdict: "worked" | "failed"; note: string }[];
+};
 // One spend entry (server/media/spend.ts): an API call, or (where "web") something made by hand on a website.
 export type WebSpend = {
   at: string;
@@ -477,6 +482,10 @@ export const api = {
   testModel: (provider: string, model: string, vision: boolean) => call<{ result: string }>("/api/settings/test", { provider, model, vision }),
   usage: () => call<{ entries: UsageEntry[]; averages: KindAverage[] }>("/api/settings/usage"),
   spend: () => call<{ week: number; month: number; webWeek: number; webMonth: number; recent: WebSpend[] }>("/api/settings/spend"),
+  // "Banco de pruebas": each tool profile's tagged lines and tests; marking one writes the profile (this computer only).
+  bench: () => call<BenchView>("/api/pruebas"),
+  markTrial: (tool: string, line: number, verdict: "worked" | "failed", note: string) =>
+    call<BenchView>(`/api/pruebas/${enc(tool)}/line`, { line, verdict, note }),
   // "Lo generé afuera": what the person made by hand on a website, noted under its slot (only answers from this computer).
   webSpend: (project: string) => call<{ entries: WebSpend[] }>(`/api/settings/spend/web?project=${enc(project)}`),
   noteWebSpend: (note: { model: string; seconds: number; count?: number; project: string; slot: string }) =>

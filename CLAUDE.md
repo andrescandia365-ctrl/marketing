@@ -720,6 +720,18 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   replicate/apimart/otro, price per resolution): `POST/GET/DELETE /api/settings/spend/web` (localhost-only) price it on
   the server and log it with `where: "web"`, project (a story's id or `ads:<series>`) and slot; Modelos shows the web
   part of the week and month.
+- Lip sync, MAGI-2 and prompt testing (idea 73): Seedance with the shot's voice as [Audio1] is the lip-sync path
+  (claudia.gallery's method; [NOT SURE] until the person's first try). `server/tools/magi-2.md` (Higgsfield, 4-30 s)
+  is for shots with no line: it does not follow your audio. "Bajar kit de lip sync" (a shot with a clip and its own
+  voice: `buildLipSyncKit`, `lipSyncReadme`) packs the clip and the voice for a lip-sync pass (Kling LipSync, sync.so);
+  `modelos-web.md` has `higgsfield` and those passes. Prompt testing: "Probar otra versión del prompt…" in each shot
+  edits a copy of its video prompt, prepares it like the shot's (`kitPromptFor`) and downloads it as kit B
+  (`shotKitFolder(i, "B")`, clip `toma-NN-clip-B.mp4`, `PROMPT_TEST_STEPS` in its LEEME); "Ganó la B" makes it the
+  shot's prompt. "Banco de pruebas" (Modelos, `ToolBench`, `shared/toolChecks.ts`, `server/toolChecks.ts`,
+  `GET/POST /api/pruebas*`, localhost-only) lists each profile's tagged lines and "Tests to run"; marking a line after a
+  try rewrites it in server/tools/<id>.md (`markLine`: worked → [TESTED], failed stays [NOT SURE], dated finding),
+  reloads the profiles (`reloadTools`) and logs it in PROJECTS_DIR/.pruebas.json. Vite ignores server/tools so a mark
+  does not reload the page.
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.
 - Tool features change: edit the tool's `.md` in `server/tools/`, never hard-code them. Tag each line
   [DOCS], [NOT SURE] or [TESTED]. Series are edited in the app (Brief → Editar serie / + Nueva serie); their files are in Spanish, and the

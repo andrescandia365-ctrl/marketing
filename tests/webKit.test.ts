@@ -5,7 +5,9 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { SHOT_LENGTHS, snapSeconds } from "../shared/schema.ts";
 import { ANY_LENGTH, clipLengths, isRange, lengthRule, lengthsEnglish, lengthsOf, lengthsText } from "../shared/toolLengths.ts";
-import { CONSISTENCY_STEPS, kitPictures, kitPrompt, kitReadme, numberRefs, voiceLayout, VOICE_LEAD } from "../shared/shotKit.ts";
+import { CONSISTENCY_STEPS, kitPictures, kitPrompt, kitReadme, lipSyncFolder, lipSyncReadme, numberRefs, PROMPT_TEST_STEPS, shotClipName, shotKitFolder, voiceLayout, VOICE_LEAD } from "../shared/shotKit.ts";
+import { markLine, profileLines, profileTests, shortDate } from "../shared/toolChecks.ts";
+import { lipSyncNote } from "../shared/adsSpeaker.ts";
 import { parseWebTable, webCost, webModelId, webModelText } from "../shared/webModels.ts";
 import { listTools } from "../server/tools.ts";
 
@@ -142,4 +144,98 @@ test("a website row that does not read, or repeats, is skipped and listed", () =
   assert.equal(models.length, 1);
   assert.equal(models[0].price, 0.2);
   assert.equal(skipped.length, 3);
+});
+
+test("MAGI-2's profile makes 4 to 30 s clips and says it does not follow your audio", () => {
+  const magi = listTools().find((t) => t.id === "magi-2");
+  assert.ok(magi);
+  assert.equal(magi.lengths?.[0], 4);
+  assert.equal(magi.lengths?.at(-1), 30);
+  assert.equal(magi.lipSync?.tag, "NOT SURE");
+  assert.match(magi.lipSync?.text ?? "", /does not|nothing says/i);
+});
+
+test("the websites' table has Higgsfield and the lip-sync passes", () => {
+  const { models } = parseWebTable(readFileSync(new URL("../server/media/modelos-web.md", import.meta.url), "utf8"));
+  assert.ok(models.some((m) => m.site === "higgsfield" && m.model === "magi-2"));
+  assert.ok(models.some((m) => m.model === "kling-lipsync"));
+  assert.equal(webModelText({ site: "higgsfield", label: "MAGI-2", resolution: "1080p" }), "Higgsfield · MAGI-2 · 1080p");
+});
+
+test("a prompt test's kit has its own names and the steps to compare fairly", () => {
+  assert.equal(shotKitFolder(2, "B"), "toma-03-kit-B");
+  assert.equal(shotClipName(2, "B"), "toma-03-clip-B.mp4");
+  const text = kitReadme({
+    shotIndex: 2,
+    title: "Marta abre",
+    seconds: 7,
+    format: "vertical",
+    toolName: "Seedance 2.5",
+    pictures: [],
+    firstFrame: null,
+    lastFrame: null,
+    voice: null,
+    voiceHint: "Sin voz.",
+    variant: "B",
+  });
+  assert.match(text, /toma-03-clip-B.mp4/);
+  assert.match(text, /Prueba de prompt: la toma \(A\) contra esta versión \(B\)/);
+  for (const step of PROMPT_TEST_STEPS) assert.ok(text.includes(step));
+});
+
+test("the lip-sync kit's steps name the clip, the voice and the slot to put the result back in", () => {
+  const text = lipSyncReadme({ shotIndex: 0, title: "Hola", seconds: 6, clipFile: "video.mp4", voice: { file: "audio1-voz.wav", cut: true } });
+  assert.match(text, /video.mp4/);
+  assert.match(text, /audio1-voz.wav/);
+  assert.match(text, /quedó cortada/);
+  assert.match(text, /toma-01-clip.mp4/);
+  assert.match(text, /poné Mudo/);
+  assert.equal(lipSyncFolder(0), "toma-01-lipsync");
+});
+
+const PROFILE = [
+  "# Tool",
+  "## What it can do",
+  "- Clip lengths: 4-15",
+  "- [DOCS] Makes clips.",
+  "- [NOT SURE] Lip sync: follows the voice.",
+  "## Tests to run (turn NOT SURE into TESTED)",
+  "1. Lip sync: try a 6 s take.",
+  "2. Silence: does it obey?",
+  "## After",
+  "3. not a test",
+].join("\n");
+
+test("the test bench reads the tagged lines with their section, and the tests list", () => {
+  const lines = profileLines(PROFILE);
+  assert.deepEqual(
+    lines.map((l) => [l.line, l.tag, l.section]),
+    [
+      [3, "DOCS", "What it can do"],
+      [4, "NOT SURE", "What it can do"],
+    ],
+  );
+  assert.deepEqual(profileTests(PROFILE), [
+    { n: 1, text: "Lip sync: try a 6 s take." },
+    { n: 2, text: "Silence: does it obey?" },
+  ]);
+});
+
+test("marking a line after a try: worked → [TESTED] with the finding, failed stays [NOT SURE]; the Lip sync line still reads", () => {
+  const worked = markLine(PROFILE, 4, "worked", " la boca\nsiguió la voz ", "27 nov 2026")!;
+  assert.equal(worked.split("\n")[4], "- [TESTED] Lip sync: follows the voice. (Probado 27 nov 2026: funcionó, la boca siguió la voz.)");
+  assert.equal(lipSyncNote(worked)?.tag, "TESTED");
+  const failed = markLine(PROFILE, 4, "failed", "", "27 nov 2026")!;
+  assert.equal(failed.split("\n")[4], "- [NOT SURE] Lip sync: follows the voice. (Probado 27 nov 2026: no funcionó.)");
+  assert.equal(markLine(PROFILE, 2, "worked", "", "x"), null);
+  assert.equal(markLine(PROFILE, 99, "worked", "", "x"), null);
+  assert.equal(shortDate(new Date("2026-11-27T10:00:00Z")), "27 nov 2026");
+});
+
+test("every tool profile's tests and lines read", () => {
+  for (const t of ["seedance", "magi-2", "grok-imagine"]) {
+    const md = readFileSync(new URL(`../server/tools/${t}.md`, import.meta.url), "utf8");
+    assert.ok(profileTests(md).length > 0, t);
+    assert.ok(profileLines(md).some((l) => l.tag === "NOT SURE"), t);
+  }
 });

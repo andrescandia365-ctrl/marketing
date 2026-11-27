@@ -31,8 +31,18 @@ function load(): Tool[] {
     });
 }
 
-// Read once at startup; edit a file and restart the app to pick up changes.
-const TOOLS = load();
+// Read at startup; edit a file and restart the app to pick up changes. The "Banco de pruebas" reloads after it marks
+// a line (server/toolChecks.ts), so the writer reads the finding at once.
+let TOOLS = load();
+export function reloadTools() {
+  TOOLS = load();
+}
+
+// A profile's own Markdown and its file, for the test bench; null when there is no such tool.
+export function toolFile(id: string): { file: URL; text: string } | null {
+  const tool = TOOLS.find((t) => t.id === id);
+  return tool ? { file: new URL(`${tool.id}.md`, DIR), text: tool.text } : null;
+}
 
 export function listTools(): ToolInfo[] {
   return TOOLS.map(({ id, name, checked, maxRefs, watermark, lipSync, lengths }) => ({ id, name, checked, maxRefs, watermark, lipSync, lengths }));
