@@ -1,4 +1,5 @@
 import type { ProfileLine, ProfileTest } from "../../shared/toolChecks.ts";
+import type { ChatFile, ChatMessage, ChatRequest, ChatSummary, ChatTokens, SkillInfo } from "../../shared/chat.ts";
 import type { MascotMeta } from "../../shared/mascot.ts";
 import type { PromptOnly } from "../../shared/handoff.ts";
 import type {
@@ -482,6 +483,13 @@ export const api = {
   testModel: (provider: string, model: string, vision: boolean) => call<{ result: string }>("/api/settings/test", { provider, model, vision }),
   usage: () => call<{ entries: UsageEntry[]; averages: KindAverage[] }>("/api/settings/usage"),
   spend: () => call<{ week: number; month: number; webWeek: number; webMonth: number; recent: WebSpend[] }>("/api/settings/spend"),
+  // "Charlar con Claude" (only answers from this computer) and the skills in skills/.
+  chats: () => call<{ chats: ChatSummary[] }>("/api/chat"),
+  chat: (id: string) => call<ChatFile>(`/api/chat/${enc(id)}`),
+  deleteChat: (id: string) => call<{ chats: ChatSummary[] }>(`/api/chat/${enc(id)}`, {}, "DELETE"),
+  skills: () => call<{ skills: SkillInfo[] }>("/api/skills"),
+  skillZipUrl: (id: string) => `/api/skills/${enc(id)}/zip`,
+  chatCopy: (skills: string[], messages: ChatMessage[]) => call<{ text: string }>("/api/skills/copy", { skills, messages }),
   // "Banco de pruebas": each tool profile's tagged lines and tests; marking one writes the profile (this computer only).
   bench: () => call<BenchView>("/api/pruebas"),
   markTrial: (tool: string, line: number, verdict: "worked" | "failed", note: string) =>
@@ -640,3 +648,38 @@ export const api = {
     return data as { words: { word: string; start: number; end: number }[]; duration: number };
   },
 };
+
+// One chat reply, streamed: `onText` gets each piece as it comes; resolves with the end of the reply. Lines are NDJSON
+// from server/chat.ts. `signal` stops it ("Parar").
+export type ChatDone = { id: string; text: string; model: string; usd: number; tokens: ChatTokens | null; stop: string };
+export async function sendChat(
+  req: Omit<ChatRequest, "model" | "effort" | "skills"> & Partial<Pick<ChatRequest, "model" | "effort" | "skills">>,
+  on: { onStart?: (id: string) => void; onText: (text: string) => void },
+  signal?: AbortSignal,
+): Promise<ChatDone> {
+  const res = await fetch("/api/chat/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req), signal });
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => ({ error: "El servidor no respondió. ¿Está andando?" }));
+    throw new Error(data.error ?? `Falló el pedido (${res.status}).`);
+  }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buffer += dec.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line) as { t: string; d?: string; id?: string; error?: string } & Partial<ChatDone>;
+      if (msg.t === "start" && msg.id) on.onStart?.(msg.id);
+      else if (msg.t === "text" && msg.d) on.onText(msg.d);
+      else if (msg.t === "error") throw new Error(msg.error ?? "Claude no respondió.");
+      else if (msg.t === "done") return msg as ChatDone;
+    }
+    if (done) break;
+  }
+  throw new Error("La respuesta se cortó antes de terminar.");
+}

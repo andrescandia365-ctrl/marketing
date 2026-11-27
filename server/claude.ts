@@ -1187,3 +1187,56 @@ export const reviewMotion = (
   round: number,
   earlier: string,
 ): Promise<MotionReview> => runTask(reviewMotionTask(brief, scenes, facts, sheets, round, earlier));
+
+// ── "Charlar con Claude" (server/chat.ts) ──────────────────────────────────────────
+// A free conversation: plain text out, streamed. The system blocks are the chat's base and the active skills; the
+// last one is cached, so a long skill is paid once per few minutes, and the conversation itself is cached turn by
+// turn (top-level automatic caching). Refusals fall back where the model takes it, as in askClaude.
+export async function chatClaude(input: {
+  model: string;
+  effort: "low" | "medium" | "high";
+  system: string[];
+  messages: Anthropic.Beta.BetaMessageParam[];
+  onText: (text: string) => void;
+  signal?: AbortSignal;
+}): Promise<{ text: string; model: string; stop: string; tokens: ReturnType<typeof claudeUsage> }> {
+  if (!keyOf("claude") && !process.env.ANTHROPIC_AUTH_TOKEN) {
+    throw new WriterError("Para charlar hace falta la clave de Claude (Anthropic). Cargala en Modelos.");
+  }
+  const caps = capsOf(input.model);
+  const used = meter("claude", input.model);
+  let ok = false;
+  try {
+    const stream = getClient().beta.messages.stream(
+      {
+        model: input.model,
+        max_tokens: Math.min(32000, caps.maxTokens),
+        ...(FALLBACK_MODELS.has(input.model) && { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }),
+        ...(caps.adaptive && { thinking: { type: "adaptive" as const } }),
+        ...(caps.efforts.length && { output_config: { effort: caps.efforts.includes(input.effort) ? input.effort : "medium" } }),
+        cache_control: { type: "ephemeral" as const },
+        system: input.system.map((text, i, all) => ({
+          type: "text" as const,
+          text,
+          ...(i === all.length - 1 && { cache_control: { type: "ephemeral" as const } }),
+        })),
+        messages: input.messages,
+      },
+      { signal: input.signal },
+    );
+    stream.on("text", (delta) => input.onText(delta));
+    let message;
+    try {
+      message = await stream.finalMessage();
+    } catch (error) {
+      throw claudeError(error);
+    }
+    const tokens = claudeUsage(message.usage);
+    used.add(tokens, undefined, message.model);
+    ok = true;
+    const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+    return { text, model: message.model, stop: message.stop_reason ?? "end_turn", tokens };
+  } finally {
+    await used.done(ok);
+  }
+}

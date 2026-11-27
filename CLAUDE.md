@@ -736,6 +736,19 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   shots with no line; `modelos-web.md` has site `google` with the Gemini API's Veo prices. Profiles write other tools'
   caps as "at most N reference pictures": only "Up to N reference images" sets the cast-wide cap (`referenceLimit`,
   14 from Grok; a test guards it).
+- Chat and skills (idea 74): the third section, "Chat" (`ChatSection`, lazy; `Section` "chat"), talks to Claude with
+  the Claude key, no claude.ai plan (`chatClaude` in server/claude.ts: streamed, adaptive thinking, effort low/medium/high,
+  refusal fallbacks where the model takes them, top-level and system-block caching; `server/chat.ts` saves each
+  conversation in PROJECTS_DIR/.chats/<id>.json with its cost by `CHAT_MODELS`; `POST /api/chat/send` streams NDJSON,
+  `GET/DELETE /api/chat/:id`, all localhost-only; usage kind "Chat"). Models Haiku/Sonnet/Opus 5.5 with prices, up to 4
+  pictures per message (JPEG), up to 4 skills. `skills/<id>/` are standard skills (SKILL.md frontmatter name = folder,
+  references/*.md), read on every request by `server/skills.ts` (`listSkills`, `loadSkills`, `zipSkill` for claude.ai,
+  `GET /api/skills`, `/api/skills/:id/zip`); `chatSystem` puts the house rules (`CHAT_BASE`) first and each skill's files
+  in its own block. With no key, "Copiar para claude.ai" (`chatCopyText`, `POST /api/skills/copy`). "Al chat" on a shot's
+  image or video prompt (`openChat`/`takeChatHandoff` in src/lib/chatHandoff.ts, `shotChatText`, `TOOL_SKILL`,
+  `IMAGE_SKILL`) opens the chat with the prompt and the skill that fits. The Mashogar skills are the person's prompts
+  with the house rules applied (no invented stats, testimonials or press); `tests/chat.test.ts` checks every skill.
+  `server/tools/gemini-omni.md` (4-10 s) joins the brief's tools.
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.
 - Tool features change: edit the tool's `.md` in `server/tools/`, never hard-code them. Tag each line
   [DOCS], [NOT SURE] or [TESTED]. Series are edited in the app (Brief → Editar serie / + Nueva serie); their files are in Spanish, and the

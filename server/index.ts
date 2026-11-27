@@ -101,6 +101,9 @@ import { logSpend, removeWebSpend, spendForProject, spendView } from "./media/sp
 import { webCost } from "../shared/webModels.ts";
 import { ANY_LENGTH } from "../shared/toolLengths.ts";
 import { BenchError, benchView, markTrial } from "./toolChecks.ts";
+import { chatTurn, deleteChat, listChats, readChat } from "./chat.ts";
+import { listSkills, loadSkills, zipSkill } from "./skills.ts";
+import { ChatIdSchema, ChatMessageSchema, ChatRequestSchema, SkillIdSchema, chatCopyText } from "../shared/chat.ts";
 import { startVideo, videoFile, videoStatus } from "./media/videoJobs.ts";
 import { addEpisode, draftEpisode, episodesView } from "./episodes.ts";
 import { ENTRY_MAX, EpisodeError, SUMMARY_MAX } from "../shared/episodes.ts";
@@ -271,6 +274,7 @@ app.get("/api/status", (c) => {
     imageProviders: listProviders(),
     mediaModels: mediaModels(),
     webModels: webModels(),
+    chatReady: Boolean(keyOf("claude") || process.env.ANTHROPIC_AUTH_TOKEN),
     tools: listTools(),
     series: listSeries().map((s) => {
       const proof = offerProof(s.id);
@@ -952,6 +956,9 @@ app.use("/api/brand/*", onlyHere("La marca se trae de la web solo desde la app e
 // Demucs on this computer (Modelos → Demucs), only from the app here: looked up again now ("Volver a buscar" after
 // installing it), and "Probar Demucs" runs it on four made-up seconds.
 app.use("/api/tools/*", onlyHere("Demucs se revisa solo desde la app en esta compu."));
+// "Charlar con Claude" spends with the Claude key, so only from this computer.
+app.use("/api/chat", onlyHere("El chat con Claude se usa solo desde la app en esta compu."));
+app.use("/api/chat/*", onlyHere("El chat con Claude se usa solo desde la app en esta compu."));
 // "Banco de pruebas": marking a line writes the tool's profile (server/tools/*.md), so only from this computer.
 app.use("/api/pruebas", onlyHere("Las pruebas de las herramientas se anotan solo desde la app en esta compu."));
 app.use("/api/pruebas/*", onlyHere("Las pruebas de las herramientas se anotan solo desde la app en esta compu."));
@@ -1162,6 +1169,50 @@ app.post("/api/settings/test", async (c) => {
 app.get("/api/settings/usage", async (c) => c.json(await usageView()));
 // What image and video generations by API cost, by the price table (server/media/modelos-api.md).
 app.get("/api/settings/spend", async (c) => c.json(await spendView()));
+// "Charlar con Claude": the saved conversations, one reply streamed as NDJSON, and the skills (skills/<id>/).
+app.get("/api/chat", async (c) => c.json({ chats: await listChats() }));
+app.get("/api/chat/:id", async (c) => {
+  const chat = await readChat(ChatIdSchema.parse(c.req.param("id")));
+  return chat ? c.json(chat) : c.json({ error: "Esa conversación ya no está." }, 404);
+});
+app.delete("/api/chat/:id", async (c) => {
+  const ok = await deleteChat(ChatIdSchema.parse(c.req.param("id")));
+  return ok ? c.json({ chats: await listChats() }) : c.json({ error: "Esa conversación ya no está." }, 404);
+});
+app.post("/api/chat/send", async (c) => {
+  const req = ChatRequestSchema.parse(await c.req.json());
+  const signal = c.req.raw.signal;
+  const enc = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (line: object) => {
+        try {
+          controller.enqueue(enc.encode(JSON.stringify(line) + "\n"));
+        } catch {
+          /* the browser left: the reply is still saved */
+        }
+      };
+      await chatTurn(req, write, signal);
+      try {
+        controller.close();
+      } catch {
+        /* already closed */
+      }
+    },
+  });
+  return new Response(body, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" } });
+});
+app.get("/api/skills", async (c) => c.json({ skills: await listSkills() }));
+app.get("/api/skills/:id/zip", async (c) => {
+  const zip = await zipSkill(c.req.param("id"));
+  if (!zip) return c.json({ error: "Esa skill no existe." }, 404);
+  return new Response(zip as BodyInit, { headers: { "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="${c.req.param("id")}.zip"` } });
+});
+app.post("/api/skills/copy", async (c) => {
+  const { skills, messages } = z.object({ skills: z.array(SkillIdSchema).max(4), messages: z.array(ChatMessageSchema).max(200) }).parse(await c.req.json());
+  return c.json({ text: chatCopyText(await loadSkills(skills), messages) });
+});
+
 // "Banco de pruebas" (Modelos): each tool profile's tagged lines and tests, and what the person found when they tried.
 app.get("/api/pruebas", async (c) => c.json(await benchView()));
 app.post("/api/pruebas/:tool/line", async (c) => {

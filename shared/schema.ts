@@ -597,6 +597,8 @@ export type Status = {
   mediaModels?: MediaModelInfo[];
   // Models the person runs by hand on a website (server/media/modelos-web.md), for «Lo generé afuera».
   webModels?: WebModel[];
+  // "Charlar con Claude": whether a Claude key (or token) is set.
+  chatReady?: boolean;
   tools: ToolInfo[];
   series: SeriesInfo[];
   // Where projects are saved on this computer.

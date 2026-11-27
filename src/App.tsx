@@ -25,6 +25,7 @@ import type { RoomCard } from "../shared/room.ts";
 import { Button, Lazy, Notice, Spinner } from "./components/ui.tsx";
 import { ProductionView } from "./components/ProductionView.tsx";
 import { AdsSection } from "./components/AdsSection.tsx";
+import { CHAT_EVENT } from "./lib/chatHandoff.ts";
 import { AppHeader, type Section } from "./components/AppHeader.tsx";
 import { useProject } from "./useProject.ts";
 import { toolsRefCap } from "../shared/castRefs.ts";
@@ -45,6 +46,7 @@ const StillStudio = lazy(() => import("./components/StillStudio.tsx").then((m) =
 const SeriesEditor = lazy(() => import("./components/SeriesEditor.tsx").then((m) => ({ default: m.SeriesEditor })));
 const EpisodesPanel = lazy(() => import("./components/EpisodesPanel.tsx").then((m) => ({ default: m.EpisodesPanel })));
 const ModelsPanel = lazy(() => import("./components/ModelsPanel.tsx").then((m) => ({ default: m.ModelsPanel })));
+const ChatSection = lazy(() => import("./components/ChatSection.tsx").then((m) => ({ default: m.ChatSection })));
 
 // "lyrics": a lyric video (series of type music), with its own steps inside.
 // "motion": a motion-graphics explainer (software or one product). "still": "Imagen fija", one picture.
@@ -75,7 +77,8 @@ const BRIEF_KEY = "playbook-studio.brief.v2";
 const SECTION_KEY = "playbook-studio.section";
 function loadSection(): Section {
   try {
-    return localStorage.getItem(SECTION_KEY) === "ads" ? "ads" : "playbook";
+    const saved = localStorage.getItem(SECTION_KEY);
+    return saved === "ads" || saved === "chat" ? saved : "playbook";
   } catch {
     return "playbook";
   }
@@ -251,6 +254,12 @@ export function App() {
     }
   }, [brief]);
 
+  // "Al chat" from anywhere (src/lib/chatHandoff.ts) switches to the Chat section.
+  useEffect(() => {
+    const go = () => setSection("chat");
+    window.addEventListener(CHAT_EVENT, go);
+    return () => window.removeEventListener(CHAT_EVENT, go);
+  }, []);
   useEffect(() => {
     try {
       localStorage.setItem(SECTION_KEY, section);
@@ -795,6 +804,12 @@ export function App() {
               .catch(() => undefined)
           }
         />
+        </Lazy>
+      )}
+
+      {section === "chat" && (
+        <Lazy>
+          <ChatSection ready={Boolean(status?.chatReady)} onShowModels={() => setShowModels(true)} />
         </Lazy>
       )}
 

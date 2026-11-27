@@ -6,6 +6,8 @@ import { imageDataUrl } from "../lib/frames.ts";
 import { GenerateClip } from "./GenerateClip.tsx";
 import { ShotKit } from "./ShotKit.tsx";
 import { MadeOutside } from "./MadeOutside.tsx";
+import { openChat } from "../lib/chatHandoff.ts";
+import { IMAGE_SKILL, TOOL_SKILL, shotChatText } from "../../shared/chat.ts";
 import type { WebModel } from "../../shared/webModels.ts";
 import { kitPictures } from "../../shared/shotKit.ts";
 import { libraryFileUrl } from "../lib/api.ts";
@@ -257,6 +259,7 @@ function PromptBox({
   rows = 3,
   still = false,
   onChange,
+  onChat,
 }: {
   label: string;
   hint: string;
@@ -265,6 +268,8 @@ function PromptBox({
   rows?: number;
   still?: boolean;
   onChange: (value: string) => void;
+  // "Al chat": take this prompt to the Chat section with the skill that fits.
+  onChat?: () => void;
 }) {
   const words = value.trim().split(/\s+/).filter(Boolean).length;
   const polish = useContext(StrictLook) ? polishWords(value) : [];
@@ -276,6 +281,16 @@ function PromptBox({
         </span>
         <span className="flex items-center gap-1">
           <SpeakButton text={value} lang="en-US" />
+          {onChat && (
+            <button
+              type="button"
+              onClick={onChat}
+              className="rounded px-1.5 py-1 text-xs font-semibold text-muted hover:text-ink"
+              title="Llevar este prompt al Chat con Claude, con la skill de la herramienta, para mejorarlo"
+            >
+              Al chat
+            </button>
+          )}
           <CopyButton text={copy} />
         </span>
       </div>
@@ -834,6 +849,12 @@ function ShotCard(props: CardProps) {
               rows={4}
               still
               onChange={(v) => set("visualPrompt", v)}
+              onChat={() =>
+                openChat({
+                  text: shotChatText({ kind: "imagen", shot: shot.index + 1, title: shot.title, action: shot.action, tool: toolName, prompt: shot.visualPrompt }),
+                  skills: [IMAGE_SKILL],
+                })
+              }
             />
           )}
           {editFrom > 0 && shot.kind !== "screen" && realEnd?.at !== "start" && (
@@ -872,6 +893,12 @@ function ShotCard(props: CardProps) {
           )}
           {(shot.kind !== "screen" || shot.videoPrompt) && (
             <PromptBox
+              onChat={() =>
+                openChat({
+                  text: shotChatText({ kind: "video", shot: shot.index + 1, title: shot.title, action: shot.action, tool: toolName, prompt: shot.videoPrompt }),
+                  skills: TOOL_SKILL[brief.tool] ? [TOOL_SKILL[brief.tool]] : [],
+                })
+              }
               label="Prompt de video"
               hint={
                 realEnd

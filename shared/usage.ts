@@ -167,6 +167,7 @@ export function usageAverages(log: UsageEntry[]): KindAverage[] {
 // The app's name for what a route asks the writer.
 const KINDS: [RegExp, string][] = [
   [/^\/api\/menu$/, "Menú de temas"],
+  [/^\/api\/chat\/send$/, "Chat"],
   [/^\/api\/story$/, "Historia"],
   [/^\/api\/story\/revise$/, "Nota a la historia"],
   [/^\/api\/story\/hooks$/, "5 variantes de gancho"],

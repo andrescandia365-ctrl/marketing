@@ -129,6 +129,22 @@ describe("recorrido de la app", { concurrency: 1 }, () => {
     }
   });
 
+  test("Chat: sin clave avisa dónde va, lista las skills y arma el texto para claude.ai", async () => {
+    const page = await openPage(app);
+    try {
+      await page.getByRole("button", { name: "Chat", exact: true }).click();
+      await page.getByText("Para charlar acá hace falta la clave de Claude").waitFor();
+      await page.getByText("/guiones-virales").waitFor();
+      await page.getByText("/escena-de-referencia").waitFor();
+      const zip = await page.request.get(`${app.url}/api/skills/guiones-virales/zip`);
+      assert.equal(zip.status(), 200);
+      assert.equal(zip.headers()["content-type"], "application/zip");
+      await page.getByRole("button", { name: "Playbook", exact: true }).click();
+    } finally {
+      await page.context().close();
+    }
+  });
+
   test("Brief en Abajo: el ejemplo avisa que falta una prueba o una oferta real", async () => {
     const page = await openPage(app);
     try {
