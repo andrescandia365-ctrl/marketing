@@ -10,10 +10,12 @@ import {
   chatSystem,
   chatTitle,
   newChatId,
+  sourcesText,
   toClaudeMessages,
   type ChatFile,
   type ChatRequest,
   type ChatSummary,
+  WEB_SEARCH_USD,
 } from "../shared/chat.ts";
 import { chatClaude } from "./claude.ts";
 import { PROJECTS_DIR } from "./projects.ts";
@@ -73,6 +75,7 @@ export async function chatTurn(req: ChatRequest, write: (line: object) => void, 
     model: req.model,
     effort: req.effort,
     skills: skills.map((s) => s.id),
+    web: req.web,
     messages: req.messages,
     usd: before?.usd ?? 0,
   };
@@ -81,21 +84,23 @@ export async function chatTurn(req: ChatRequest, write: (line: object) => void, 
     const reply = await chatClaude({
       model: req.model,
       effort: req.effort,
-      system: chatSystem(skills),
+      system: chatSystem(skills, req.web),
       messages: toClaudeMessages(req.messages),
+      web: req.web,
       onText: (d) => write({ t: "text", d }),
+      onSearch: (q) => write({ t: "search", q }),
       signal,
     });
-    const usd = reply.tokens ? chatCost(req.model, reply.tokens) : 0;
+    const usd = reply.tokens ? chatCost(req.model, reply.tokens, reply.searches) : reply.searches * WEB_SEARCH_USD;
     const note =
       reply.stop === "refusal"
         ? "\n\n(Claude no quiso responder esto. Reformulalo.)"
         : reply.stop === "max_tokens"
           ? "\n\n(La respuesta se cortó por larga: pedile que siga.)"
           : "";
-    const text = reply.text + note;
+    const text = reply.text + sourcesText(reply.sources) + note;
     await saveChat({ ...base, messages: [...req.messages, { role: "assistant", text, images: [] }], usd: base.usd + usd });
-    write({ t: "done", id, text, model: reply.model, usd, tokens: reply.tokens, stop: reply.stop });
+    write({ t: "done", id, text, model: reply.model, usd, tokens: reply.tokens, stop: reply.stop, searches: reply.searches });
   } catch (e) {
     await saveChat(base).catch(() => undefined);
     write({ t: "error", id, error: e instanceof Error ? e.message : String(e) });

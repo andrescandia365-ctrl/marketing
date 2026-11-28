@@ -651,10 +651,10 @@ export const api = {
 
 // One chat reply, streamed: `onText` gets each piece as it comes; resolves with the end of the reply. Lines are NDJSON
 // from server/chat.ts. `signal` stops it ("Parar").
-export type ChatDone = { id: string; text: string; model: string; usd: number; tokens: ChatTokens | null; stop: string };
+export type ChatDone = { id: string; text: string; model: string; usd: number; tokens: ChatTokens | null; stop: string; searches?: number };
 export async function sendChat(
-  req: Omit<ChatRequest, "model" | "effort" | "skills"> & Partial<Pick<ChatRequest, "model" | "effort" | "skills">>,
-  on: { onStart?: (id: string) => void; onText: (text: string) => void },
+  req: Omit<ChatRequest, "model" | "effort" | "skills" | "web"> & Partial<Pick<ChatRequest, "model" | "effort" | "skills" | "web">>,
+  on: { onStart?: (id: string) => void; onText: (text: string) => void; onSearch?: (query: string) => void },
   signal?: AbortSignal,
 ): Promise<ChatDone> {
   const res = await fetch("/api/chat/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req), signal });
@@ -673,8 +673,9 @@ export async function sendChat(
       const line = buffer.slice(0, nl).trim();
       buffer = buffer.slice(nl + 1);
       if (!line) continue;
-      const msg = JSON.parse(line) as { t: string; d?: string; id?: string; error?: string } & Partial<ChatDone>;
+      const msg = JSON.parse(line) as { t: string; d?: string; q?: string; id?: string; error?: string } & Partial<ChatDone>;
       if (msg.t === "start" && msg.id) on.onStart?.(msg.id);
+      else if (msg.t === "search" && msg.q) on.onSearch?.(msg.q);
       else if (msg.t === "text" && msg.d) on.onText(msg.d);
       else if (msg.t === "error") throw new Error(msg.error ?? "Claude no respondió.");
       else if (msg.t === "done") return msg as ChatDone;

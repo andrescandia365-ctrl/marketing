@@ -17,7 +17,10 @@ import {
   htmlDocument,
   htmlFileName,
   isHtmlBlock,
+  linkParts,
   splitReply,
+  CHAT_MAX_SEARCHES,
+  WEB_SEARCH_USD,
 } from "../../shared/chat.ts";
 import { costText } from "../../shared/mediaModels.ts";
 import { api, sendChat } from "../lib/api.ts";
@@ -26,7 +29,7 @@ import { takeChatHandoff } from "../lib/chatHandoff.ts";
 import { Button, Notice, Spinner } from "./ui.tsx";
 
 const PREFS_KEY = "playbook-studio.chat.v1";
-type Prefs = { model: ChatModelId; effort: (typeof CHAT_EFFORTS)[number]; skills: string[] };
+type Prefs = { model: ChatModelId; effort: (typeof CHAT_EFFORTS)[number]; skills: string[]; web: boolean };
 function readPrefs(): Prefs {
   try {
     const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as Partial<Prefs>;
@@ -34,9 +37,10 @@ function readPrefs(): Prefs {
       model: CHAT_MODELS.some((m) => m.id === p.model) ? (p.model as ChatModelId) : DEFAULT_CHAT_MODEL,
       effort: CHAT_EFFORTS.includes(p.effort as Prefs["effort"]) ? (p.effort as Prefs["effort"]) : "medium",
       skills: Array.isArray(p.skills) ? p.skills.filter((s) => typeof s === "string").slice(0, CHAT_MAX_SKILLS) : [],
+      web: p.web === true,
     };
   } catch {
-    return { model: DEFAULT_CHAT_MODEL, effort: "medium", skills: [] };
+    return { model: DEFAULT_CHAT_MODEL, effort: "medium", skills: [], web: false };
   }
 }
 function savePrefs(p: Prefs) {
@@ -67,7 +71,15 @@ function Reply({ text }: { text: string }) {
           </div>
         ) : (
           <p key={i} className="text-sm whitespace-pre-wrap">
-            {part.text}
+            {linkParts(part.text).map((l, j) =>
+              l.href ? (
+                <a key={j} href={l.href} target="_blank" rel="noopener noreferrer" className="underline">
+                  {l.text}
+                </a>
+              ) : (
+                l.text
+              ),
+            )}
           </p>
         ),
       )}
@@ -147,6 +159,7 @@ export function ChatSection({ ready, onShowModels }: { ready: boolean; onShowMod
   const [draft, setDraft] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [streaming, setStreaming] = useState("");
+  const [searching, setSearching] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [spent, setSpent] = useState<number | null>(null);
@@ -182,7 +195,7 @@ export function ChatSection({ ready, onShowModels }: { ready: boolean; onShowMod
       setId(chat.id);
       setMessages(chat.messages);
       setSpent(chat.usd);
-      update({ skills: chat.skills.slice(0, CHAT_MAX_SKILLS) });
+      update({ skills: chat.skills.slice(0, CHAT_MAX_SKILLS), web: chat.web });
     } catch (e) {
       setError(message(e));
     }
@@ -221,15 +234,17 @@ export function ChatSection({ ready, onShowModels }: { ready: boolean; onShowMod
     setImages([]);
     setError("");
     setStreaming("");
+    setSearching([]);
     setBusy(true);
     const ctrl = new AbortController();
     stop.current = ctrl;
     let got = "";
     try {
       const done = await sendChat(
-        { id: id ?? undefined, model: prefs.model, effort: prefs.effort, skills: activeSkills, messages: next },
+        { id: id ?? undefined, model: prefs.model, effort: prefs.effort, skills: activeSkills, web: prefs.web, messages: next },
         {
           onStart: (newId) => setId(newId),
+          onSearch: (q) => setSearching((now) => [...now, q]),
           onText: (d) => {
             got += d;
             setStreaming(got);
@@ -246,6 +261,7 @@ export function ChatSection({ ready, onShowModels }: { ready: boolean; onShowMod
       } else setError(message(e));
     } finally {
       setStreaming("");
+      setSearching([]);
       setBusy(false);
       stop.current = null;
     }
@@ -362,6 +378,13 @@ export function ChatSection({ ready, onShowModels }: { ready: boolean; onShowMod
               </option>
             ))}
           </select>
+          <label
+            className="flex items-center gap-1.5 text-muted"
+            title={`Claude busca en internet cuando hace falta un dato actual. Hasta ${CHAT_MAX_SEARCHES} búsquedas por respuesta; cada una cuesta ≈ US$ ${WEB_SEARCH_USD.toFixed(2).replace(".", ",")} además de los tokens.`}
+          >
+            <input type="checkbox" checked={prefs.web} onChange={(e) => update({ web: e.target.checked })} />
+            Buscar en la web (≈ US$ 0,01 por búsqueda)
+          </label>
           {activeSkills.length > 0 && <span className="text-muted">Con: {activeSkills.map((s) => `/${s}`).join(", ")}</span>}
           {spent !== null && <span className="ml-auto text-muted">Esta conversación: ≈ {costText(spent)}</span>}
         </div>
@@ -403,6 +426,9 @@ export function ChatSection({ ready, onShowModels }: { ready: boolean; onShowMod
           )}
           {busy && (
             <div className="max-w-[95%]">
+              {searching.length > 0 && (
+                <p className="mb-1 text-xs text-muted">Buscó en la web: {searching.map((q) => `«${q}»`).join(" · ")}</p>
+              )}
               {streaming ? <Reply text={streaming} /> : <Spinner />}
             </div>
           )}

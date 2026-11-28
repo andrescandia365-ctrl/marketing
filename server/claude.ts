@@ -1,5 +1,6 @@
 import { metaphorCastOf } from "../shared/metaphor.ts";
 import { readFileSync } from "node:fs";
+import { uniqueSources, webSearchTool, type WebSource } from "../shared/chat.ts";
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
@@ -1197,45 +1198,89 @@ export async function chatClaude(input: {
   effort: "low" | "medium" | "high";
   system: string[];
   messages: Anthropic.Beta.BetaMessageParam[];
+  web?: boolean;
   onText: (text: string) => void;
+  onSearch?: (query: string) => void;
   signal?: AbortSignal;
-}): Promise<{ text: string; model: string; stop: string; tokens: ReturnType<typeof claudeUsage> }> {
+}): Promise<{
+  text: string;
+  model: string;
+  stop: string;
+  tokens: ReturnType<typeof claudeUsage>;
+  searches: number;
+  sources: WebSource[];
+}> {
   if (!keyOf("claude") && !process.env.ANTHROPIC_AUTH_TOKEN) {
     throw new WriterError("Para charlar hace falta la clave de Claude (Anthropic). Cargala en Modelos.");
   }
   const caps = capsOf(input.model);
   const used = meter("claude", input.model);
   let ok = false;
+  const messages = [...input.messages];
+  const texts: string[] = [];
+  const sources: WebSource[] = [];
+  let tokens: ReturnType<typeof claudeUsage> = null;
+  let searches = 0;
+  let model = input.model;
+  let stop = "end_turn";
   try {
-    const stream = getClient().beta.messages.stream(
-      {
-        model: input.model,
-        max_tokens: Math.min(32000, caps.maxTokens),
-        ...(FALLBACK_MODELS.has(input.model) && { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }),
-        ...(caps.adaptive && { thinking: { type: "adaptive" as const } }),
-        ...(caps.efforts.length && { output_config: { effort: caps.efforts.includes(input.effort) ? input.effort : "medium" } }),
-        cache_control: { type: "ephemeral" as const },
-        system: input.system.map((text, i, all) => ({
-          type: "text" as const,
-          text,
-          ...(i === all.length - 1 && { cache_control: { type: "ephemeral" as const } }),
-        })),
-        messages: input.messages,
-      },
-      { signal: input.signal },
-    );
-    stream.on("text", (delta) => input.onText(delta));
-    let message;
-    try {
-      message = await stream.finalMessage();
-    } catch (error) {
-      throw claudeError(error);
+    // A reply with web searches can pause (pause_turn) when the server's own loop runs long: the paused answer goes
+    // back as the assistant turn, unchanged, and the server resumes it. At most a few rounds.
+    for (let round = 0; round < 4; round++) {
+      const stream = getClient().beta.messages.stream(
+        {
+          model: input.model,
+          max_tokens: Math.min(32000, caps.maxTokens),
+          ...(FALLBACK_MODELS.has(input.model) && { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }),
+          ...(caps.adaptive && { thinking: { type: "adaptive" as const } }),
+          ...(caps.efforts.length && { output_config: { effort: caps.efforts.includes(input.effort) ? input.effort : "medium" } }),
+          ...(input.web ? { tools: [webSearchTool(input.model)] } : {}),
+          cache_control: { type: "ephemeral" as const },
+          system: input.system.map((text, i, all) => ({
+            type: "text" as const,
+            text,
+            ...(i === all.length - 1 && { cache_control: { type: "ephemeral" as const } }),
+          })),
+          messages,
+        },
+        { signal: input.signal },
+      );
+      stream.on("text", (delta) => input.onText(delta));
+      if (input.onSearch) {
+        stream.on("contentBlock", (block) => {
+          if (block.type === "server_tool_use" && block.name === "web_search") {
+            const query = (block.input as { query?: unknown } | null)?.query;
+            if (typeof query === "string") input.onSearch!(query);
+          }
+        });
+      }
+      let message;
+      try {
+        message = await stream.finalMessage();
+      } catch (error) {
+        throw claudeError(error);
+      }
+      const t = claudeUsage(message.usage);
+      if (t) {
+        used.add(t, undefined, message.model);
+        const sum: NonNullable<ReturnType<typeof claudeUsage>> = tokens ?? { ...t, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+        tokens = { ...t, input: sum.input + t.input, output: sum.output + t.output, cacheRead: sum.cacheRead + t.cacheRead, cacheWrite: sum.cacheWrite + t.cacheWrite };
+      }
+      searches += message.usage.server_tool_use?.web_search_requests ?? 0;
+      for (const b of message.content) {
+        if (b.type !== "text") continue;
+        texts.push(b.text);
+        for (const c of b.citations ?? []) {
+          if (c.type === "web_search_result_location") sources.push({ url: c.url, title: c.title ?? "" });
+        }
+      }
+      model = message.model;
+      stop = message.stop_reason ?? "end_turn";
+      if (stop !== "pause_turn") break;
+      messages.push({ role: "assistant", content: message.content as Anthropic.Beta.BetaContentBlockParam[] });
     }
-    const tokens = claudeUsage(message.usage);
-    used.add(tokens, undefined, message.model);
     ok = true;
-    const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-    return { text, model: message.model, stop: message.stop_reason ?? "end_turn", tokens };
+    return { text: texts.join(""), model, stop, tokens, searches, sources: uniqueSources(sources) };
   } finally {
     await used.done(ok);
   }

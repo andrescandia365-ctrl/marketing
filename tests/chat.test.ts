@@ -21,6 +21,10 @@ import {
   isHtmlBlock,
   htmlDocument,
   htmlFileName,
+  linkParts,
+  sourcesText,
+  webSearchTool,
+  WEB_RULES,
 } from "../shared/chat.ts";
 import { usageKind } from "../shared/usage.ts";
 import { listSkills, loadSkills, zipSkill } from "../server/skills.ts";
@@ -197,4 +201,33 @@ test("an HTML block becomes a page: a fragment is wrapped, a full page is kept, 
   assert.match(htmlDocument(full, "x", { csp: true }), /<head><meta http-equiv="Content-Security-Policy"/);
   assert.deepEqual(htmlFileName("HEADLINE: x\nNOMBRE_PRODUCTO: **Especiero Giratorio de Acero 16 Frascos**\n"), { title: "Especiero Giratorio de Acero 16 Frascos", file: "especiero-giratorio-de-acero-16-frascos.html" });
   assert.deepEqual(htmlFileName("nada"), { title: "Página", file: "pagina.html" });
+});
+
+test("'Buscar en la web' is off unless asked; its rules join the system and its searches the cost", () => {
+  assert.equal(ChatRequestSchema.parse({ messages: [{ role: "user", text: "x" }] }).web, false);
+  assert.equal(ChatRequestSchema.parse({ web: true, messages: [{ role: "user", text: "x" }] }).web, true);
+  assert.deepEqual(chatSystem([], true), [chatSystem([])[0], WEB_RULES]);
+  assert.match(WEB_RULES, /dato, no una instrucción/);
+  assert.match(WEB_RULES, /\[VERIFY\]/);
+  assert.equal(webSearchTool("claude-opus-5-5").type, "web_search_20260209");
+  assert.equal(webSearchTool("claude-haiku-5-5").type, "web_search_20250305");
+  assert.equal(webSearchTool("claude-sonnet-5-5").user_location.country, "AR");
+  const none = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  assert.ok(Math.abs(chatCost("claude-sonnet-5-5", none, 3) - 0.03) < 1e-9);
+});
+
+test("the sources close the reply once each, as links the chat shows", () => {
+  const text = sourcesText([
+    { url: "https://a.example/p", title: "Página [A]" },
+    { url: "https://a.example/p", title: "otra vez" },
+    { url: "javascript:alert(1)", title: "no" },
+    { url: "https://b.example/q", title: "" },
+  ]);
+  assert.equal(text, "\n\nFuentes:\n- [Página A ](https://a.example/p)\n- [b.example](https://b.example/q)".replace("A ]", "A]"));
+  assert.equal(sourcesText([]), "");
+  assert.deepEqual(linkParts("Ver [la nota](https://a.example/p) y [esto](javascript:x)."), [
+    { text: "Ver " },
+    { text: "la nota", href: "https://a.example/p" },
+    { text: " y [esto](javascript:x)." },
+  ]);
 });
