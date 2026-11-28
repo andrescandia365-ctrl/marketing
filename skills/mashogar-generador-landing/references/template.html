@@ -1,0 +1,283 @@
+<style>
+.mh *{margin:0!important;padding:0!important;box-sizing:border-box!important}
+.mh{
+  --coral:#D47A6A;--sage:#7D9D8A;--tierra:#33302E;--crema:#FCF8F5;
+  font-family:Assistant,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif!important;
+  color:var(--tierra)!important;line-height:1.65!important;max-width:720px!important;margin:0 auto!important;
+}
+.mh h2,.mh h3{font-family:Assistant,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif!important;font-weight:700!important;line-height:1.25!important}
+.mh-trust{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;justify-content:space-around!important;align-items:flex-start!important;gap:8px!important;padding:20px 12px 12px!important;text-align:center!important;margin-bottom:0!important}
+.mh-trust-item{display:flex!important;flex-direction:column!important;align-items:center!important;gap:8px!important;flex:1!important}
+.mh-trust-icon{width:36px!important;height:36px!important;display:flex!important;align-items:center!important;justify-content:center!important}
+.mh-trust-icon svg{width:100%!important;height:100%!important}
+.mh-trust-item span{font-size:13px!important;font-weight:600!important;line-height:1.3!important;color:var(--tierra)!important;display:block!important;text-align:center!important}
+.mh-accordions{margin-bottom:40px!important;margin-top:0!important}
+.mh-accordions details{border-bottom:1px solid #eae5e0!important}
+.mh-accordions details:first-child{border-top:1px solid #eae5e0!important}
+.mh-accordions summary{padding:18px 4px!important;font-size:16px!important;font-weight:600!important;cursor:pointer!important;list-style:none!important;display:flex!important;align-items:center!important;gap:12px!important}
+.mh-accordions summary::-webkit-details-marker{display:none!important}
+.mh-acc-icon{width:24px!important;height:24px!important;flex-shrink:0!important;display:flex!important;align-items:center!important;justify-content:center!important}
+.mh-acc-icon svg{width:100%!important;height:100%!important;stroke:var(--tierra)!important;stroke-width:1.5!important;fill:none!important;stroke-linecap:round!important;stroke-linejoin:round!important}
+.mh-acc-chevron{margin-left:auto!important;font-size:14px!important;color:#999!important;transition:transform .3s!important;width:14px!important;height:14px!important}
+.mh-acc-chevron svg{width:100%!important;height:100%!important;stroke:currentColor!important;stroke-width:2!important;fill:none!important}
+details[open] .mh-acc-chevron{transform:rotate(180deg)!important}
+.mh-accordions .mh-acc-body{padding:0 4px 18px 40px!important;font-size:15px!important;color:#555!important}
+.mh-hero-img{margin-bottom:0!important;border-radius:0!important;overflow:hidden!important;width:100vw!important;position:relative!important;left:50%!important;margin-left:-50vw!important}
+@media(min-width:720px){.mh-hero-img{border-radius:16px!important;width:auto!important;position:static!important;left:auto!important;margin-left:0!important}}
+.mh-hero-img img{width:100%!important;height:auto!important;display:block!important}
+.mh-emotional{text-align:center!important;padding:0 24px!important;margin-bottom:44px!important;margin-top:40px!important}
+.mh-emotional h2{font-size:26px!important;margin-bottom:14px!important;text-align:center!important}
+.mh-emotional p{font-size:16px!important;color:#555!important;max-width:520px!important;margin:0 auto!important;text-align:center!important}
+.mh-emotional strong{color:var(--tierra)!important}
+.mh-usecases{margin-bottom:44px!important;margin-top:8px!important;padding:0 8px!important}
+.mh-usecases-intro{text-align:center!important;margin-bottom:28px!important;padding:0 16px!important}
+.mh-usecases-intro h2{font-size:24px!important;text-align:center!important;color:var(--tierra)!important;margin:0 auto!important}
+.mh-usecase{margin-bottom:36px!important}
+.mh-usecase:last-child{margin-bottom:0!important}
+.mh-usecase-img{border-radius:0!important;overflow:hidden!important;background:var(--crema)!important;margin-bottom:18px!important;width:100vw!important;position:relative!important;left:50%!important;right:50%!important;margin-left:-50vw!important;margin-right:-50vw!important}
+@media(min-width:720px){.mh-usecase-img{border-radius:14px!important;width:auto!important;position:static!important;left:auto!important;right:auto!important;margin-left:0!important;margin-right:0!important}}
+.mh-usecase-img img,.mh-usecase-img video{width:100%!important;height:auto!important;display:block!important}
+.mh-usecase-title{font-size:20px!important;margin-bottom:18px!important;color:var(--tierra)!important;line-height:1.3!important;text-align:center!important;padding:0 16px!important}
+.mh-usecase-body{padding:0 12px!important;text-align:center!important}
+.mh-usecase-checks{list-style:none!important;padding:0!important;margin:0!important}
+.mh-usecase-checks li{display:flex!important;flex-direction:column!important;align-items:center!important;gap:8px!important;font-size:15px!important;color:#444!important;line-height:1.5!important;padding:16px 12px!important;border-bottom:1px solid #f0ebe5!important;text-align:center!important}
+.mh-usecase-checks li:last-child{border-bottom:none!important}
+.mh-check-emoji{font-size:28px!important;line-height:1!important;flex-shrink:0!important;display:block!important}
+.mh-benefit-cards{background:var(--sage)!important;border-radius:0!important;padding:36px 24px!important;margin-bottom:44px!important;text-align:center!important;color:#fff!important;width:100vw!important;position:relative!important;left:50%!important;right:50%!important;margin-left:-50vw!important;margin-right:-50vw!important}
+@media(min-width:720px){.mh-benefit-cards{border-radius:18px!important;width:auto!important;position:static!important;left:auto!important;right:auto!important;margin-left:0!important;margin-right:0!important;margin-bottom:44px!important}}
+.mh-benefit-cards h2{font-size:24px!important;margin-bottom:28px!important;color:#fff!important;text-align:center!important}
+.mh-bcard{margin-bottom:0!important;padding:28px 0!important;border-top:1px solid rgba(255,255,255,.25)!important}
+.mh-bcard:first-child{border-top:none!important}
+.mh-bcard:last-child{margin-bottom:0!important}
+.mh-bcard h3{font-size:17px!important;margin-bottom:6px!important;color:#fff!important;text-align:center!important}
+.mh-bcard p{font-size:14px!important;color:rgba(255,255,255,.9)!important;max-width:400px!important;margin:0 auto!important;text-align:center!important}
+.mh-stats{margin-bottom:44px!important;padding:0 8px!important;margin-top:44px!important}
+.mh-stats h2{font-size:24px!important;text-align:center!important;margin-bottom:20px!important}
+.mh-stat-row{display:flex!important;flex-direction:row!important;align-items:center!important;gap:20px!important;padding:14px 0!important;border-top:1px solid #eae5e0!important}
+.mh-stat-row:last-child{border-bottom:1px solid #eae5e0!important}
+.mh-stat-circle{width:90px!important;height:90px!important;border-radius:50%!important;flex-shrink:0!important;display:flex!important;align-items:center!important;justify-content:center!important;position:relative!important;background:conic-gradient(var(--sage) calc(var(--p,0)*1%), #eae5e0 0)!important}
+.mh-stat-circle::before{content:""!important;position:absolute!important;inset:5px!important;background:#fff!important;border-radius:50%!important}
+.mh-stat-circle span{position:relative!important;z-index:1!important;font-size:22px!important;font-weight:700!important;color:var(--sage)!important}
+.mh-stat-text{font-size:15px!important;color:#444!important;line-height:1.5!important}
+.mh-guarantee{background:var(--sage)!important;color:#fff!important;border-radius:0!important;padding:48px 28px!important;text-align:center!important;margin-bottom:44px!important;width:100vw!important;position:relative!important;left:50%!important;right:50%!important;margin-left:-50vw!important;margin-right:-50vw!important}
+@media(min-width:720px){.mh-guarantee{border-radius:18px!important;width:auto!important;position:static!important;left:auto!important;right:auto!important;margin-left:0!important;margin-right:0!important;margin-bottom:44px!important}}
+.mh-guarantee-shield{width:64px!important;height:64px!important;margin:0 auto 16px!important;display:block!important}
+.mh-guarantee-shield svg{width:100%!important;height:100%!important;stroke:#fff!important;stroke-width:1.5!important;fill:none!important;stroke-linecap:round!important;stroke-linejoin:round!important;display:block!important}
+.mh-guarantee h2{font-size:24px!important;margin-bottom:10px!important;color:#fff!important;text-align:center!important}
+.mh-guarantee p{font-size:15px!important;line-height:1.6!important;max-width:480px!important;margin:0 auto!important;color:#fff!important;text-align:center!important}
+.mh-specs{margin-bottom:44px!important}
+.mh-specs h2{font-size:22px!important;margin-bottom:16px!important;text-align:center!important}
+.mh-specs table{width:100%!important;border-collapse:collapse!important;font-size:14px!important}
+.mh-specs td{padding:12px 16px!important;border-bottom:1px solid #eae5e0!important}
+.mh-specs tr td:first-child{font-weight:600!important;width:40%!important}
+.mh-specs tr td:last-child{color:#555!important}
+.mh-specs tr:nth-child(even){background:var(--crema)!important}
+.mh-faq{margin-bottom:32px!important}
+.mh-faq>h2{font-size:22px!important;text-align:center!important;margin-bottom:20px!important}
+.mh-faq-list details{border-bottom:1px solid #eae5e0!important}
+.mh-faq-list details:first-child{border-top:1px solid #eae5e0!important}
+.mh-faq-list summary{padding:20px 4px!important;font-size:16px!important;font-weight:600!important;cursor:pointer!important;list-style:none!important;display:flex!important;align-items:center!important;gap:12px!important}
+.mh-faq-list summary::-webkit-details-marker{display:none!important}
+.mh-faq-icon{width:28px!important;height:28px!important;border-radius:50%!important;flex-shrink:0!important;border:1.5px solid #ccc!important;display:flex!important;align-items:center!important;justify-content:center!important;font-size:15px!important;color:#999!important;font-weight:400!important}
+.mh-faq-chevron{margin-left:auto!important;font-size:14px!important;color:#999!important;transition:transform .3s!important;width:14px!important;height:14px!important}
+.mh-faq-chevron svg{width:100%!important;height:100%!important;stroke:currentColor!important;stroke-width:2!important;fill:none!important}
+.mh-faq-list details[open] .mh-faq-chevron{transform:rotate(180deg)!important}
+.mh-faq-list .mh-faq-body{padding:0 4px 18px 44px!important;font-size:15px!important;color:#555!important;line-height:1.6!important}
+.mh-footer-badges{text-align:center!important;background:var(--coral)!important;padding:36px 12px!important;margin-top:32px!important;margin-bottom:0!important;width:100vw!important;position:relative!important;left:50%!important;right:50%!important;margin-left:-50vw!important;margin-right:-50vw!important}
+@media(min-width:720px){.mh-footer-badges{border-radius:18px!important;width:auto!important;position:static!important;left:auto!important;right:auto!important;margin-left:0!important;margin-right:0!important}}
+.mh-footer-badges>h2{font-size:22px!important;text-align:center!important;margin-bottom:24px!important;color:#fff!important}
+.mh-fb-row{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;justify-content:space-between!important;align-items:flex-start!important;gap:4px!important;max-width:640px!important;margin:0 auto!important}
+.mh-footer-badges .mh-fb{margin-bottom:0!important;text-align:center!important;flex:1!important;min-width:0!important;display:flex!important;flex-direction:column!important;align-items:center!important;gap:6px!important;padding:0 2px!important}
+.mh-footer-badges svg{width:26px!important;height:26px!important;stroke:#fff!important;stroke-width:1.5!important;fill:none!important;stroke-linecap:round!important;stroke-linejoin:round!important;margin-bottom:0!important;display:block!important;margin-left:auto!important;margin-right:auto!important}
+.mh-footer-badges h3{font-size:11px!important;font-weight:600!important;text-align:center!important;line-height:1.2!important;color:#fff!important;word-wrap:break-word!important;overflow-wrap:break-word!important;hyphens:auto!important}
+@media(min-width:480px){.mh-footer-badges svg{width:28px!important;height:28px!important}.mh-footer-badges h3{font-size:12px!important}.mh-fb-row{gap:6px!important}}
+@media(min-width:600px){.mh-footer-badges svg{width:32px!important;height:32px!important}.mh-footer-badges h3{font-size:14px!important}.mh-fb-row{gap:10px!important}}
+.mh-anim{opacity:0;transform:translateY(24px);transition:opacity .6s ease,transform .6s ease}
+.mh-anim.mh-visible{opacity:1!important;transform:translateY(0)!important}
+@media (max-width: 719px) {.mh {max-width: 100% !important; margin: 0 !important;}}
+</style>
+
+<div class="mh">
+
+<!-- A) TRUST STRIP (NO TOCAR) -->
+<div class="mh-trust mh-anim">
+  <div class="mh-trust-item">
+    <div class="mh-trust-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 397 350" preserveAspectRatio="xMidYMid meet"><g fill="#D47A6A"><path d="M67.29 349.75 c-7.92 -1.24 -15.95 -3.76 -19.12 -6.02 -0.99 -0.73 -1.50 -0.73 -23.02 -0.73 -21.56 0 -22.04 0 -23.57 -0.77 l-1.57 -0.77 0 -32.62 0 -32.62 1.46 -0.73 c1.39 -0.69 2.08 -0.73 23.43 -0.73 l22.04 0 7.63 -4.67 c4.23 -2.55 10.51 -6.42 14.01 -8.61 7.01 -4.31 8.98 -5.40 12.26 -6.60 l2.19 -0.84 0.18 -38.06 c0.15 -28.21 0.29 -38.35 0.62 -39.04 0.69 -1.53 2.66 -3.58 4.27 -4.45 l1.50 -0.80 61.67 0 c56.74 0 61.74 0.04 62.76 0.62 1.53 0.84 3.03 2.37 3.98 4.12 l0.77 1.46 0.11 36.96 c0.04 20.29 0.15 36.93 0.18 36.93 0.07 0 2.01 -1.06 4.31 -2.37 5.07 -2.88 7.22 -3.72 10.87 -4.23 8.17 -1.13 15.80 1.93 20.29 8.21 2.52 3.54 3.17 5.77 3.39 11.13 0.18 5.14 -0.18 7.48 -1.79 10.84 -2.08 4.38 -4.63 6.75 -11.90 10.91 -7.95 4.56 -15.95 9.16 -22.92 13.21 -3.79 2.23 -10.80 6.24 -15.51 8.94 -14.74 8.47 -34.23 19.74 -47.80 27.66 -3.90 2.26 -8.57 4.82 -10.40 5.66 -7.44 3.50 -18.17 6.13 -32.77 8.03 -5.66 0.73 -42.87 0.73 -47.55 0z m39.63 -10.95 c12.22 -1.20 21.86 -2.99 28.83 -5.29 5 -1.61 7.41 -2.81 15.58 -7.59 3.36 -1.97 9.41 -5.51 13.43 -7.81 4.01 -2.34 13.06 -7.55 20.07 -11.64 7.04 -4.05 13.83 -7.99 15.14 -8.72 1.31 -0.73 8.47 -4.82 15.87 -9.12 7.44 -4.27 16.27 -9.34 19.63 -11.28 3.39 -1.93 6.86 -4.12 7.74 -4.85 1.82 -1.61 3.21 -4.56 3.17 -6.79 -0.04 -3.43 -3.07 -7.44 -6.57 -8.61 -3.39 -1.17 -4.20 -0.84 -17.41 6.86 -11.86 6.93 -17 9.93 -31.56 18.39 l-11.09 6.46 0.07 3.28 c0.22 7.19 -2.08 12.26 -7.01 15.40 -4.63 2.99 -10.98 3.32 -20.47 1.13 -6.60 -1.50 -39.26 -10.18 -41.16 -10.95 -0.55 -0.22 -1.42 -0.88 -1.90 -1.46 -0.77 -0.91 -0.91 -1.46 -0.91 -3.65 0 -4.23 1.46 -5.77 5.51 -5.77 1.82 0 5.66 0.91 17.66 4.16 24.34 6.64 27 7.30 30.18 7.30 3.10 0.04 4.16 -0.47 5.69 -2.70 1.64 -2.44 0.55 -6.50 -2.74 -9.78 -2.37 -2.37 -4.52 -3.32 -12.70 -5.55 -3.79 -1.02 -17.19 -4.74 -29.74 -8.28 -12.55 -3.50 -24.12 -6.64 -25.72 -6.93 -3.54 -0.69 -7.22 -0.44 -10.47 0.66 -2.59 0.84 -4.16 1.75 -19.01 11.02 l-10.47 6.53 0.07 25.58 0.11 25.62 1.68 0.84 c2.70 1.35 9.60 2.88 15.65 3.50 3.10 0.33 6.31 0.66 7.12 0.73 3.07 0.33 20.32 -0.15 25.72 -0.69z m-62.03 -29.92 l0 -22.81 -17.15 0 -17.15 0 0 22.81 0 22.81 17.15 0 17.15 0 0 -22.81z m153.44 -44.95 l8.76 -5.11 0.11 -38.02 0.07 -37.99 -14.05 0 -14.05 0 0 27.11 c0 25.54 -0.04 27.15 -0.66 28.32 -0.36 0.69 -1.24 1.57 -1.93 1.93 -1.64 0.88 -5.25 0.88 -6.57 0 -0.51 -0.33 -4.93 -4.49 -9.78 -9.20 -4.82 -4.71 -8.94 -8.57 -9.16 -8.57 -0.18 0 -4.42 3.94 -9.38 8.79 -4.96 4.82 -9.41 8.98 -9.85 9.20 -1.09 0.62 -4.63 0.55 -6.13 -0.07 -0.69 -0.29 -1.61 -1.09 -2.01 -1.75 -0.73 -1.17 -0.73 -1.75 -0.73 -28.46 l0 -27.29 -14.23 0 -14.23 0 0 35.18 0 35.18 1.93 0.26 c3.65 0.44 7.74 1.35 15.36 3.47 18.61 5.14 45.28 12.55 49.44 13.72 5.36 1.50 8.79 3.21 11.20 5.58 l1.75 1.71 7.66 -4.45 c4.23 -2.44 11.64 -6.75 16.46 -9.52z m-50.28 -55.28 c1.61 -0.73 3.36 -0.80 5.40 -0.26 1.13 0.33 2.52 1.46 6.02 4.85 2.52 2.41 5.33 5.14 6.31 6.06 l1.71 1.61 0 -19.05 0 -19.05 -16.42 0 -16.42 0 0 19.01 0 19.01 6.02 -5.80 c3.32 -3.17 6.64 -6.06 7.37 -6.39z"/><path d="M139.75 141.39 c-2.30 -0.73 -4.52 -2.74 -5.73 -5.22 l-1.02 -2.08 -0.11 -45.61 c-0.07 -25.54 0.04 -47.07 0.22 -48.90 0.18 -1.82 0.62 -3.90 0.95 -4.63 0.80 -1.68 2.92 -3.79 4.78 -4.78 l1.46 -0.80 53.31 -0.11 53.31 -0.07 3.83 -4.49 c12.73 -14.85 19.27 -20.47 27.37 -23.61 l2.81 -1.09 10.98 0 10.98 0 3.54 1.31 c6.71 2.52 9.49 4.12 17.99 10.51 6.39 4.78 11.60 7.63 15.47 8.43 1.42 0.29 4.49 0.55 6.86 0.55 l4.27 0 0 -2.44 c0 -4.56 1.31 -6.90 4.67 -8.57 l1.71 -0.84 18.43 0.11 c17.92 0.15 18.46 0.15 19.81 0.91 l1.35 0.77 -0.07 44.88 -0.11 44.88 -1.28 0.73 c-1.24 0.73 -1.75 0.77 -20.11 0.77 l-18.83 0 -1.79 -1.09 c-2.55 -1.57 -3.79 -4.09 -3.79 -7.74 l0 -2.66 -2.08 0 c-1.71 0 -2.66 0.29 -5.14 1.50 -6.31 3.07 -11.79 4.34 -18.86 4.34 -5.04 0 -9.93 -0.77 -14.49 -2.30 l-3.54 -1.20 -0.11 20.47 -0.11 20.43 -1.06 2.30 c-0.66 1.39 -1.64 2.81 -2.52 3.54 -2.99 2.55 3.69 2.37 -83.23 2.34 -66.12 0 -78.74 -0.11 -80.13 -0.51z m155.26 -11.57 c0.11 -0.47 0.15 -9.85 0.11 -20.91 l-0.11 -20.07 -3.36 -0.11 -3.32 -0.11 -0.15 5.62 c-0.15 7.41 -0.66 8.25 -5.58 9.01 -3.36 0.51 -5.95 1.75 -8.21 3.87 -2.81 2.63 -3.90 5.25 -4.93 11.86 -0.11 0.80 -0.62 1.71 -1.31 2.37 l-1.09 1.06 -47.25 0 -47.29 0 -1.20 -1.31 c-0.99 -1.09 -1.28 -1.75 -1.46 -3.47 -0.99 -8.43 -5.29 -13.25 -13.10 -14.60 -2.41 -0.44 -3.17 -0.73 -4.05 -1.61 l-1.09 -1.09 -0.11 -14.23 c-0.07 -12.26 -0.04 -14.41 0.47 -15.43 0.73 -1.57 2.04 -2.30 4.67 -2.59 5.58 -0.62 10.14 -4.01 12.08 -8.90 0.33 -0.88 0.77 -2.85 0.99 -4.38 0.22 -1.53 0.69 -3.28 1.06 -3.90 1.46 -2.37 -3.58 -2.19 63.31 -2.37 l60.94 -0.18 0 -3.83 0 -3.83 -74.95 -0.11 c-59.73 -0.07 -75.02 0 -75.28 0.36 -0.33 0.55 -0.40 86.84 -0.07 88.56 l0.26 1.13 74.91 0 74.95 0 0.18 -0.80z m-35.28 -21.64 c2.30 -6.86 7.01 -11.97 13.32 -14.52 1.24 -0.51 2.55 -1.02 2.92 -1.13 0.47 -0.15 0.62 -0.62 0.62 -2.04 l0 -1.82 -8.65 0 c-4.78 0 -9.41 -0.18 -10.33 -0.40 -6.31 -1.46 -12.37 -7.52 -13.83 -13.83 -0.66 -2.92 -0.51 -9.49 0.33 -12.11 0.40 -1.24 0.73 -2.34 0.73 -2.41 0 -0.04 -14.38 -0.04 -31.96 0 l-32 0.11 -0.62 2.30 c-1.09 3.98 -2.85 6.93 -6.02 10.14 -3.10 3.14 -6.86 5.40 -9.74 5.84 l-1.39 0.26 0.07 6.90 0.11 6.90 2.44 0.84 c6.68 2.34 11.97 7.92 14.08 14.85 l0.99 3.25 38.97 -0.07 38.97 -0.11 0.99 -2.92z m126.62 -52.58 l0.07 -35.10 -5.36 -0.15 c-2.99 -0.07 -8.32 -0.07 -11.86 0 l-6.50 0.15 0 34.96 c0 19.19 0.11 35.03 0.26 35.14 0.15 0.15 5.44 0.22 11.75 0.18 l11.53 -0.11 0.11 -35.07z m-55.90 28.68 c1.57 -0.40 4.85 -1.68 7.26 -2.85 l4.38 -2.08 4.49 -0.15 4.45 -0.11 0 -23.46 0 -23.46 -6.82 -0.18 c-11.42 -0.33 -15.58 -1.86 -26.56 -10 -8.65 -6.39 -12.08 -8.36 -17.70 -10.11 -5.04 -1.61 -8.17 -1.90 -11.97 -1.17 -3.79 0.73 -8.65 2.99 -12.19 5.69 -2.37 1.79 -11.31 10.84 -12 12.15 -0.33 0.58 0.58 0.62 17.26 0.62 l17.62 0 1.82 0.88 c2.26 1.02 4.67 3.69 5.47 5.98 0.73 2.08 1.17 11.93 0.73 17.37 -0.26 3.39 -0.33 3.69 -1.46 4.93 l-1.20 1.31 -21.13 0.18 c-22.19 0.18 -21.86 0.18 -24.27 1.90 -1.35 0.95 -3.10 3.61 -3.61 5.51 -0.80 2.96 1.57 7.33 4.93 9.12 1.50 0.80 1.68 0.80 22.48 0.99 l20.98 0.18 4.38 2.23 c9.71 4.93 16.09 6.20 22.66 4.52z"/><path d="M215.65 105.78 c-6.82 -1.20 -12.95 -7.01 -15 -14.19 -0.73 -2.70 -0.55 -9.96 0.36 -12.81 1.53 -4.78 5.14 -9.12 9.49 -11.38 3.32 -1.75 5.69 -2.19 10.47 -2.01 4.67 0.22 6.60 0.80 10.07 3.10 3.79 2.48 6.53 6.42 7.77 11.09 0.62 2.30 0.69 9.56 0.15 12 -1.35 5.91 -6.39 11.49 -12.22 13.50 -2.52 0.88 -8.06 1.24 -11.09 0.69z m8.72 -12.99 c1.86 -1.50 3.50 -4.85 3.43 -7.19 -0.04 -3.58 -2.99 -7.66 -6.28 -8.65 -4.27 -1.28 -9.89 3.83 -9.89 8.94 0 1.75 1.90 5.40 3.50 6.75 2.04 1.68 4.27 2.26 6.31 1.64 0.88 -0.26 2.19 -0.95 2.92 -1.50z"/></g></svg>
+    </div>
+    <span>Pagas cuando llega (AMBA)</span>
+  </div>
+  <div class="mh-trust-item">
+    <div class="mh-trust-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#D47A6A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg>
+    </div>
+    <span>Garantía</span>
+  </div>
+  <div class="mh-trust-item">
+    <div class="mh-trust-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#D47A6A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="15" height="13" rx="2"/><polyline points="16 10 21 10 23 13 23 19 20 19"/><line x1="16" y1="19" x2="17" y2="19"/><circle cx="7" cy="19" r="2"/><circle cx="19" cy="19" r="2"/></svg>
+    </div>
+    <span>Envío gratis</span>
+  </div>
+</div>
+
+<!-- C) ACCORDIONS -->
+<div class="mh-accordions mh-anim">
+  <details><summary><span class="mh-acc-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>¿Cómo funciona?<span class="mh-acc-chevron"><svg viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary><div class="mh-acc-body"><p>[COMO_FUNCIONA_TEXTO]</p></div></details>
+  <details><summary><span class="mh-acc-icon"><svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg></span>Nuestra garantía<span class="mh-acc-chevron"><svg viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary><div class="mh-acc-body"><p>Garantía [DIAS_GARANTIA] días por defectos de fábrica: si tu pedido llega dañado o presenta una falla, contactanos por WhatsApp y gestionamos el cambio o reembolso.</p></div></details>
+  <details><summary><span class="mh-acc-icon"><svg viewBox="0 0 24 24"><rect x="1" y="6" width="15" height="13" rx="2"/><polyline points="16 10 21 10 23 13 23 19 20 19"/><circle cx="7" cy="19" r="2"/><circle cx="19" cy="19" r="2"/></svg></span>Envíos y entrega<span class="mh-acc-chevron"><svg viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary><div class="mh-acc-body"><p>En CABA y GBA entregamos en 24-72hs hábiles. Interior: hasta 7 días hábiles. Envío con seguimiento incluido para su comodidad.</p></div></details>
+</div>
+
+<!-- D) HERO IMAGE -->
+<div class="mh-hero-img mh-anim">
+  <img src="[URL_IMAGEN_HERO]" alt="[ALT_HERO]" loading="lazy">
+</div>
+
+<!-- E) EMOTIONAL BLOCK -->
+<div class="mh-emotional mh-anim">
+  <h2>[TITULO_EMOCIONAL]</h2>
+  <p>[PARRAFO_EMOCIONAL]</p>
+</div>
+
+<!-- G) USE CASES -->
+<div class="mh-usecases mh-anim">
+  <div class="mh-usecases-intro">
+    <h2>[USECASES_INTRO_TITULO]</h2>
+  </div>
+
+  <div class="mh-usecase">
+    <div class="mh-usecase-img">
+      <img src="[URL_IMAGEN_USECASE_1]" alt="[USECASE_1_TITULO]" loading="lazy">
+    </div>
+    <div class="mh-usecase-body">
+      <h3 class="mh-usecase-title">[USECASE_1_TITULO]</h3>
+      <ul class="mh-usecase-checks">
+        [USECASE_1_CHECKS]
+      </ul>
+    </div>
+  </div>
+
+  <div class="mh-usecase">
+    <div class="mh-usecase-img">
+      <img src="[URL_IMAGEN_USECASE_2]" alt="[USECASE_2_TITULO]" loading="lazy">
+    </div>
+    <div class="mh-usecase-body">
+      <h3 class="mh-usecase-title">[USECASE_2_TITULO]</h3>
+      <ul class="mh-usecase-checks">
+        [USECASE_2_CHECKS]
+      </ul>
+    </div>
+  </div>
+
+  <div class="mh-usecase">
+    <div class="mh-usecase-img">
+      <img src="[URL_IMAGEN_USECASE_3]" alt="[USECASE_3_TITULO]" loading="lazy">
+    </div>
+    <div class="mh-usecase-body">
+      <h3 class="mh-usecase-title">[USECASE_3_TITULO]</h3>
+      <ul class="mh-usecase-checks">
+        [USECASE_3_CHECKS]
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- F) BENEFIT CARDS -->
+<div class="mh-benefit-cards mh-anim">
+  <h2>[TITULO_BENEFICIOS]</h2>
+  <div class="mh-bcard">
+    <h3>[BCARD_1_TITULO]</h3>
+    <p>[BCARD_1_TEXTO]</p>
+  </div>
+  <div class="mh-bcard">
+    <h3>[BCARD_2_TITULO]</h3>
+    <p>[BCARD_2_TEXTO]</p>
+  </div>
+  <div class="mh-bcard">
+    <h3>[BCARD_3_TITULO]</h3>
+    <p>[BCARD_3_TEXTO]</p>
+  </div>
+</div>
+
+<!-- I) STATS (OPCIONAL - eliminar entera si no hay datos) -->
+<div class="mh-stats mh-anim">
+  <h2>[TITULO_ESTADISTICAS]</h2>
+  <div class="mh-stat-row">
+    <div class="mh-stat-circle" style="--p:[STAT_1_NUMERO]"><span>[STAT_1_NUMERO]%</span></div>
+    <div class="mh-stat-text">[STAT_1_TEXTO]</div>
+  </div>
+  <div class="mh-stat-row">
+    <div class="mh-stat-circle" style="--p:[STAT_2_NUMERO]"><span>[STAT_2_NUMERO]%</span></div>
+    <div class="mh-stat-text">[STAT_2_TEXTO]</div>
+  </div>
+  <div class="mh-stat-row">
+    <div class="mh-stat-circle" style="--p:[STAT_3_NUMERO]"><span>[STAT_3_NUMERO]%</span></div>
+    <div class="mh-stat-text">[STAT_3_TEXTO]</div>
+  </div>
+</div>
+
+<!-- J) GUARANTEE -->
+<div class="mh-guarantee mh-anim">
+  <div class="mh-guarantee-shield">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2.5 L4 5.5 V12 C4 16.5 7.5 20.3 12 21.5 C16.5 20.3 20 16.5 20 12 V5.5 L12 2.5 Z"/>
+      <path d="M8.5 12 L11 14.5 L15.5 9.5"/>
+    </svg>
+  </div>
+  <h2>Garantía</h2>
+  <p>Garantía [DIAS_GARANTIA] días por defectos de fábrica: si tu pedido llega dañado o presenta una falla, contactanos y gestionamos el cambio o reembolso.</p>
+</div>
+
+<!-- L) SPECS -->
+<div class="mh-specs mh-anim">
+  <h2>Especificaciones</h2>
+  <table>
+    [SPECS_FILAS]
+  </table>
+</div>
+
+<!-- M) FAQ -->
+<div class="mh-faq mh-anim">
+  <h2>Preguntas frecuentes</h2>
+  <div class="mh-faq-list">
+    [FAQ_DETAILS]
+  </div>
+</div>
+
+<!-- N) FOOTER BADGES (NO TOCAR) -->
+<div class="mh-footer-badges mh-anim">
+  <h2>¿Por qué elegirnos?</h2>
+  <div class="mh-fb-row">
+    <div class="mh-fb">
+      <svg viewBox="0 0 24 24"><rect x="1" y="6" width="15" height="13" rx="2"/><polyline points="16 10 21 10 23 13 23 19 20 19"/><circle cx="7" cy="19" r="2"/><circle cx="19" cy="19" r="2"/></svg>
+      <h3>Envío gratis</h3>
+    </div>
+    <div class="mh-fb">
+      <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      <h3>Garantía</h3>
+    </div>
+    <div class="mh-fb">
+      <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      <h3>Atención personalizada</h3>
+    </div>
+    <div class="mh-fb">
+      <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <h3>Pagos seguros</h3>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+(function(){
+  if('IntersectionObserver' in window){
+    var obs=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('mh-visible');obs.unobserve(e.target)}})},{threshold:0.1});
+    document.querySelectorAll('.mh-anim').forEach(function(el){obs.observe(el)});
+  }else{
+    document.querySelectorAll('.mh-anim').forEach(function(el){el.classList.add('mh-visible')});
+  }
+  var fb='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 100 100\'><rect width=\'100\' height=\'100\' fill=\'%23eae5e0\'/><circle cx=\'50\' cy=\'40\' r=\'14\' fill=\'%23bfb6ae\'/><path d=\'M22 82c0-15 12-26 28-26s28 11 28 26\' fill=\'%23bfb6ae\'/></svg>';
+  document.querySelectorAll('.mh img').forEach(function(im){im.addEventListener('error',function(){if(im.src!==fb)im.src=fb},false)});
+})();
+</script>

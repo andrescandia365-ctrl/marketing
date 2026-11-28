@@ -749,6 +749,11 @@ people and politics. The playbook's 75 s ad template does not drive the app.
   `IMAGE_SKILL`) opens the chat with the prompt and the skill that fits. The Mashogar skills are the person's prompts
   with the house rules applied (no invented stats, testimonials or press); `tests/chat.test.ts` checks every skill.
   `server/tools/gemini-omni.md` (4-10 s) joins the brief's tools.
+  A fenced reply block is read by `splitReply` (fence lines, `closed` while streaming); an HTML block (`isHtmlBlock`)
+  shows "Ver la página" (Celular/Compu) in an `allow-scripts` sandbox frame with a CSP that allows pictures, styles and
+  inline scripts but no connections or forms (`htmlDocument(..., {csp: true})`) and "Bajar .html" (`htmlDocument`,
+  named by `htmlFileName` from NOMBRE_PRODUCTO). The skill `mashogar-generador-landing` is the person's Generador v8
+  with its template verbatim in references/template.html; stats without a source are dropped.
 - API keys stay on the server. Images come back as data URLs so the video canvas is never tainted.
 - Tool features change: edit the tool's `.md` in `server/tools/`, never hard-code them. Tag each line
   [DOCS], [NOT SURE] or [TESTED]. Series are edited in the app (Brief → Editar serie / + Nueva serie); their files are in Spanish, and the
