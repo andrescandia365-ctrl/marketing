@@ -17,6 +17,10 @@ import {
   toClaudeMessages,
   TOOL_SKILL,
   IMAGE_SKILL,
+  splitReply,
+  isHtmlBlock,
+  htmlDocument,
+  htmlFileName,
 } from "../shared/chat.ts";
 import { usageKind } from "../shared/usage.ts";
 import { listSkills, loadSkills, zipSkill } from "../server/skills.ts";
@@ -27,6 +31,7 @@ const EXPECTED = [
   "guiones-virales",
   "mashogar-analizador-ads",
   "mashogar-analizador-producto",
+  "mashogar-generador-landing",
   "mashogar-seleccionador",
   "omni-prompts",
   "omni-ugc-prompts",
@@ -81,6 +86,18 @@ test("the Mashogar prompts keep their method but invent no stats, testimonials o
   assert.doesNotMatch(ads, /"El producto que está reemplazando a X"\.\s*Patrones/);
   assert.match(ads, /REGLAS DE LA CASA/);
   assert.match(ads, /FASE 3 - PROMPT PARA NANO BANANA PRO/);
+  const landing = readFileSync(new URL("../skills/mashogar-generador-landing/references/prompt.md", import.meta.url), "utf8");
+  assert.match(landing, /GENERADOR_v8/);
+  assert.match(landing, /PROHIBIDO inventar stats/);
+  assert.match(landing, /\[Reglas de la casa\] Si un STAT no trae fuente/);
+  assert.match(landing, /references\/template\.html/);
+  const template = readFileSync(new URL("../skills/mashogar-generador-landing/references/template.html", import.meta.url), "utf8");
+  assert.match(template, /^<style>/);
+  assert.match(template, /<\/script>\n$/);
+  for (const slot of ["[COMO_FUNCIONA_TEXTO]", "[URL_IMAGEN_HERO]", "[TITULO_EMOCIONAL]", "[USECASE_3_CHECKS]", "[BCARD_3_TEXTO]", "[STAT_1_NUMERO]", "[SPECS_FILAS]", "[FAQ_DETAILS]"]) {
+    assert.ok(template.includes(slot), slot);
+  }
+  assert.equal(template.split("[DIAS_GARANTIA]").length - 1, 2);
   const selector = readFileSync(new URL("../skills/mashogar-seleccionador/references/prompt.md", import.meta.url), "utf8");
   assert.match(selector, /LOGICA DE SCORING/);
 });
@@ -149,4 +166,35 @@ test("'Al chat' from a shot: the message carries the prompt, and video prompts p
   }
   assert.ok(EXPECTED.includes(IMAGE_SKILL));
   assert.equal(usageKind("/api/chat/send"), "Chat");
+});
+
+test("a reply splits into prose and fenced blocks by fence lines, and a block still streaming is open", () => {
+  const parts = splitReply("HEADLINE: Algo\n\n```html\n<style>.a{}</style>\n<div class=\"mh\">x</div>\n```\nListo.\n```\nsin cerrar");
+  assert.deepEqual(parts, [
+    { kind: "text", text: "HEADLINE: Algo" },
+    { kind: "code", lang: "html", text: '<style>.a{}</style>\n<div class="mh">x</div>', closed: true },
+    { kind: "text", text: "Listo." },
+    { kind: "code", lang: "", text: "sin cerrar", closed: false },
+  ]);
+  assert.equal(isHtmlBlock(parts[1]), true);
+  assert.equal(isHtmlBlock(parts[3]), false);
+  assert.equal(isHtmlBlock({ kind: "code", lang: "", text: "<div>hola</div>", closed: true }), true);
+  assert.equal(isHtmlBlock({ kind: "code", lang: "", text: "A cinematic photo of <subject>", closed: true }), false);
+  assert.equal(isHtmlBlock({ kind: "code", lang: "js", text: "<div></div>", closed: true }), false);
+});
+
+test("an HTML block becomes a page: a fragment is wrapped, a full page is kept, the preview adds its rules", () => {
+  const page = htmlDocument('<div class="mh">x</div>', 'Lámpara <LED> "cálida"');
+  assert.match(page, /^<!doctype html>\n<html lang="es">/);
+  assert.match(page, /<title>Lámpara &lt;LED&gt; &quot;cálida&quot;<\/title>/);
+  assert.match(page, /<body style="margin:0;background:#fff">\n<div class="mh">x<\/div>\n<\/body>/);
+  assert.doesNotMatch(page, /Content-Security-Policy/);
+  const preview = htmlDocument('<div class="mh">x</div>', "x", { csp: true });
+  assert.match(preview, /default-src 'none'.*script-src 'unsafe-inline'/);
+  assert.doesNotMatch(preview, /connect-src/);
+  const full = "<!doctype html><html><head><title>t</title></head><body></body></html>";
+  assert.equal(htmlDocument(full, "x"), full);
+  assert.match(htmlDocument(full, "x", { csp: true }), /<head><meta http-equiv="Content-Security-Policy"/);
+  assert.deepEqual(htmlFileName("HEADLINE: x\nNOMBRE_PRODUCTO: **Especiero Giratorio de Acero 16 Frascos**\n"), { title: "Especiero Giratorio de Acero 16 Frascos", file: "especiero-giratorio-de-acero-16-frascos.html" });
+  assert.deepEqual(htmlFileName("nada"), { title: "Página", file: "pagina.html" });
 });

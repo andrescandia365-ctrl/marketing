@@ -167,3 +167,88 @@ export function shotChatText(input: { kind: "imagen" | "video"; shot: number; ti
     "```",
   ].join("\n");
 }
+
+// A reply split into prose and fenced code blocks. A fence is a line that starts with ``` (its language after it); a
+// block still being streamed has `closed: false`.
+export type ReplyPart = { kind: "text"; text: string } | { kind: "code"; lang: string; text: string; closed: boolean };
+export function splitReply(text: string): ReplyPart[] {
+  const parts: ReplyPart[] = [];
+  let buf: string[] = [];
+  let code: { lang: string } | null = null;
+  const flush = (closed: boolean) => {
+    const body = buf.join("\n");
+    if (code) parts.push({ kind: "code", lang: code.lang, text: body.replace(/^\n+|\s+$/g, ""), closed });
+    else if (body.trim()) parts.push({ kind: "text", text: body.trim() });
+    buf = [];
+  };
+  for (const line of text.split("\n")) {
+    const fence = line.trim().match(/^```\s*([A-Za-z0-9_+-]*)/);
+    if (!fence) {
+      buf.push(line);
+      continue;
+    }
+    if (code) {
+      flush(true);
+      code = null;
+    } else {
+      flush(false);
+      code = { lang: fence[1].toLowerCase() };
+    }
+  }
+  flush(false);
+  return parts;
+}
+
+// A block that is a web page or a piece of one (the landing generator answers with ```html): the chat offers a preview
+// and a download.
+export function isHtmlBlock(part: ReplyPart): boolean {
+  if (part.kind !== "code" || !part.closed) return false;
+  if (part.lang === "html" || part.lang === "htm") return true;
+  return !part.lang && /^\s*<(!doctype|html|head|body|style|div|section|main)\b/i.test(part.text) && /<\/[a-z]+>\s*$/i.test(part.text);
+}
+
+const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
+
+// A whole page from an HTML block: a full document stays as it is; a fragment (a WooCommerce description) goes inside a
+// minimal page so it opens on its own. `csp` adds the preview's rules: pictures, styles and fonts load, scripts run, but
+// nothing can call out (no connect, no frames, no forms).
+export function htmlDocument(fragment: string, title: string, opts: { csp?: boolean } = {}): string {
+  const csp = opts.csp
+    ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: http: data: blob:; media-src https: http: data: blob:; style-src 'unsafe-inline' https:; font-src https: data:; script-src 'unsafe-inline'; form-action 'none'">`
+    : "";
+  if (/^\s*(<!doctype|<html)/i.test(fragment)) {
+    return csp ? fragment.replace(/<head[^>]*>/i, (h) => `${h}${csp}`) : fragment;
+  }
+  return [
+    "<!doctype html>",
+    '<html lang="es">',
+    "<head>",
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    csp,
+    `<title>${escapeHtml(title)}</title>`,
+    "</head>",
+    '<body style="margin:0;background:#fff">',
+    fragment.trim(),
+    "</body>",
+    "</html>",
+    "",
+  ]
+    .filter((l) => l !== "")
+    .join("\n") + "\n";
+}
+
+// The name of the downloaded page: the reply's NOMBRE_PRODUCTO when it has one (the landing generator writes it), else
+// "pagina".
+export function htmlFileName(reply: string): { title: string; file: string } {
+  const name = reply.match(/NOMBRE_PRODUCTO:\s*\**\s*([^\n*]+)/)?.[1]?.trim() ?? "";
+  const slug = name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/, "");
+  return { title: name || "Página", file: `${slug || "pagina"}.html` };
+}

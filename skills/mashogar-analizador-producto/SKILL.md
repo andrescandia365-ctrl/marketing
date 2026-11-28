@@ -11,7 +11,7 @@ Es el prompt de Andrés para Mashogar, convertido en skill. **Seguí al pie de l
 
 1. `mashogar-seleccionador` rankea productos y sugiere un patrón.
 2. **Esta skill** toma un producto y devuelve la FICHA con su KIT_CONTRACT.
-3. El KIT_CONTRACT va al Generador de landings v7 (no está en esta skill) y también puede ir a `mashogar-analizador-ads` para alinear el ángulo de los anuncios.
+3. El KIT_CONTRACT va a `mashogar-generador-landing` (Generador v8, la landing en HTML para WooCommerce) y también puede ir a `mashogar-analizador-ads` para alinear el ángulo de los anuncios.
 
 ## Reglas de la casa (mandan sobre el prompt)
 

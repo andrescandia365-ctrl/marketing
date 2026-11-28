@@ -4,6 +4,7 @@ Lista de ideas que fueron saliendo. Se construyen solo con "go"; cada título di
 Cada idea dice de dónde salió y qué falta saber antes de hacerla.
 
 ## Construido
+- **Generador de landings en el Chat (28 Nov 2026, idea 75):** tu Generador v8 de Mashogar como skill (con tu plantilla HTML tal cual), y en el Chat cada respuesta en HTML se puede ver como página (celular o compu) y bajar como .html.
 - **Chat con Claude y skills (27 Nov 2026, idea 74):** sección Chat que habla con Claude por la API (sin plan Pro), con 11 skills (prompts de Nano Banana, GPT Image 2, Seedance y Omni, UGC, guiones virales, foto de referencia con otra persona y los tres prompts de Mashogar), «Al chat» desde cada toma y Gemini Omni como herramienta del brief.
 - **Lip sync, MAGI-2 y pruebas de prompts (27 Nov 2026, idea 73):** Seedance es el camino del lip sync; perfil de MAGI-2 para tomas sin diálogo; «Bajar kit de lip sync»; Higgsfield y las pasadas de lip sync en «Lo generé afuera»; versión B del prompt en cada toma y «Banco de pruebas» en Modelos.
 - **Clips a mano en Replicate o APIMart (26 Nov 2026, idea 72):** perfil de Seedance 2.5, largos de toma según la herramienta (Seedance de 4 a 15 s), «Bajar kit de la toma» con el prompt, la imagen de inicio, las referencias numeradas y la voz para el lip sync, «Lo generé afuera» para llevar el gasto, y la guía para mantener al personaje igual.
@@ -520,11 +521,18 @@ las rutas locales (Modelos, marca desde la web) solo respondan a la app en esta 
 - **Respuestas (4 Oct 2026):** 1, los dos (A y B); 2, A y B; 3, por toma. Falta el "go".
 - **Orden propuesto:** 40 (sin narrador) → 39 A y B (ElevenLabs) → 38 (sonido por toma) → 37 A y B (storyboard dibujado). Los tres primeros tocan la voz y el sonido, así que van juntos.
 
+### 75. Generador de landings en el Chat (28 Nov 2026) — **Construido**
+- **De dónde salió:** pasaste el Generador v8 de Mashogar (prompt + plantilla HTML) y preguntaste si la app puede hacer los HTML de las páginas.
+- **Skill `mashogar-generador-landing`:** el prompt v8 tal cual (`references/prompt.md`) y la plantilla tal cual (`references/template.html`: CSS, secciones y script). Un solo cambio por las reglas: una estadística sin fuente o con [VERIFY] se borra con su fila (y la sección entera si no queda ninguna). La skill le dice a Claude el marcado exacto de los checks, las filas de especificaciones y las preguntas frecuentes, y que devuelva la descripción en un solo bloque `html`.
+- **Flujo:** seleccionador → analizador de producto (KIT_CONTRACT) → generador de landings → pegás el HTML en WooCommerce → Producto → Descripción (pestaña Texto/Código).
+- **En el Chat:** un bloque HTML trae «Ver la página: Celular · Compu» (se abre dentro de la app, aislado: corre su script, carga las fotos, pero no puede tocar la app ni mandar nada) y «Bajar .html» (una página que se abre sola, nombrada con el NOMBRE_PRODUCTO).
+- **No probado:** una landing escrita por Claude de verdad (no hay clave acá); la vista previa se probó con la plantilla llena a mano. En WooCommerce se ve con la letra y los márgenes de tu tema.
+
 ### 74. Chat con Claude y skills (27 Nov 2026) — **Construido**
 - **De dónde salió:** no vas a pagar el plan Pro de claude.ai, querés charlar con Claude por la API y tener skills de prompts y guiones, más tus prompts de Mashogar.
 - **Chat:** tercera sección arriba (Playbook · Publicidad · Chat). Elegís modelo (Haiku 5.5, Sonnet 5.5 u Opus 5.5, con su precio), cuánto piensa, hasta 4 skills y hasta 4 imágenes por mensaje. La respuesta llega mientras se escribe, se puede parar, y cada conversación queda guardada con lo que costó. Sin clave: «Copiar para claude.ai».
 - **Skills** (carpeta `skills/`, cada una se baja en .zip para claude.ai): prompts-nano-banana, prompts-gpt-image-2, seedance-prompts, seedance-ugc-prompts, omni-prompts, omni-ugc-prompts, guiones-virales, escena-de-referencia (una foto real → la misma escena con una persona inventada distinta), mashogar-seleccionador, mashogar-analizador-producto y mashogar-analizador-ads.
-- **Tus prompts de Mashogar:** van tal cual, salvo tres cambios por las reglas: los porcentajes «creíbles» inventados ahora necesitan fuente real o van [VERIFY]; los testimonios tienen que ser reales y con permiso; la prensa, una nota real con link. El analizador de producto venía repetido en el documento (quedó uno). El Generador de landings v7 no estaba en el documento.
+- **Tus prompts de Mashogar:** van tal cual, salvo tres cambios por las reglas: los porcentajes «creíbles» inventados ahora necesitan fuente real o van [VERIFY]; los testimonios tienen que ser reales y con permiso; la prensa, una nota real con link. El analizador de producto venía repetido en el documento (quedó uno). El Generador de landings llegó después (v8, idea 75).
 - **Al chat:** en cada toma, los prompts de imagen y de video tienen «Al chat», que abre el chat con el prompt y la skill de la herramienta.
 - **Gemini Omni** como herramienta del brief (tomas de 4 a 10 s).
 - **No probado:** una conversación real (no hay clave acá); con una clave falsa, la API responde y la app muestra el error en castellano.

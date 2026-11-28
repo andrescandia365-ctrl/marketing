@@ -14,6 +14,10 @@ import {
   type ChatModelId,
   type ChatSummary,
   type SkillInfo,
+  htmlDocument,
+  htmlFileName,
+  isHtmlBlock,
+  splitReply,
 } from "../../shared/chat.ts";
 import { costText } from "../../shared/mediaModels.ts";
 import { api, sendChat } from "../lib/api.ts";
@@ -46,26 +50,70 @@ function savePrefs(p: Prefs) {
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const when = (at: string) => new Date(at).toLocaleString("es-AR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-// A reply as text and fenced blocks; each block gets its own copy button (prompts usually come in one).
+// A reply as text and fenced blocks; each block gets its own copy button (prompts usually come in one). An HTML block
+// (a landing from mashogar-generador-landing) can also be seen as a page and downloaded as .html.
 function Reply({ text }: { text: string }) {
-  const parts = text.split(/```[a-zA-Z0-9-]*\n?/);
+  const parts = splitReply(text);
   return (
     <div className="space-y-2">
       {parts.map((part, i) =>
-        i % 2 === 1 ? (
+        part.kind === "code" ? (
           <div key={i} className="overflow-hidden rounded-md border border-line bg-paper">
-            <div className="flex justify-end border-b border-line px-2 py-0.5">
-              <CopySmall text={part.trim()} />
+            <div className="flex flex-wrap items-center justify-end gap-3 border-b border-line px-2 py-0.5">
+              {isHtmlBlock(part) ? <HtmlTools html={part.text} reply={text} /> : null}
+              <CopySmall text={part.text} />
             </div>
-            <pre className="overflow-x-auto px-3 py-2 text-xs whitespace-pre-wrap">{part.trim()}</pre>
+            <pre className="max-h-[50vh] overflow-auto px-3 py-2 text-xs whitespace-pre-wrap">{part.text}</pre>
           </div>
-        ) : part.trim() ? (
+        ) : (
           <p key={i} className="text-sm whitespace-pre-wrap">
-            {part.trim()}
+            {part.text}
           </p>
-        ) : null,
+        ),
       )}
     </div>
+  );
+}
+
+// "Ver la página" opens the block in a sandboxed frame (scripts run, but with no access to the app and no network
+// calls), at phone or computer width; "Bajar .html" saves it as a page that opens on its own.
+function HtmlTools({ html, reply }: { html: string; reply: string }) {
+  const [view, setView] = useState<null | "phone" | "desktop">(null);
+  const { title, file } = htmlFileName(reply);
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([htmlDocument(html, title)], { type: "text/html;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const tab = (v: "phone" | "desktop", label: string) => (
+    <button type="button" className={`text-xs font-semibold ${view === v ? "text-ink underline" : "text-muted hover:text-ink"}`} onClick={() => setView(view === v ? null : v)}>
+      {label}
+    </button>
+  );
+  return (
+    <>
+      <span className="text-xs text-muted">Ver la página:</span>
+      {tab("phone", "Celular")}
+      {tab("desktop", "Compu")}
+      <button type="button" className="text-xs font-semibold text-muted hover:text-ink" onClick={download}>
+        Bajar .html
+      </button>
+      {view ? (
+        <div className="basis-full border-t border-line bg-white py-2">
+          <iframe
+            title={`Vista previa: ${title}`}
+            sandbox="allow-scripts"
+            srcDoc={htmlDocument(html, title, { csp: true })}
+            className="mx-auto block h-[70vh] border border-line bg-white"
+            style={{ width: view === "phone" ? 390 : "100%" }}
+          />
+          <p className="mt-1 text-center text-xs text-muted">Vista previa: en WooCommerce se ve con la letra y los márgenes de tu tema.</p>
+        </div>
+      ) : null}
+    </>
   );
 }
 

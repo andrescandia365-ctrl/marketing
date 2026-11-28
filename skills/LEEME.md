@@ -20,5 +20,5 @@ description: Qué hace y cuándo usarla (hasta 1024 caracteres).
 
 La app la lee sola (no hace falta reiniciar). `tests/chat.test.ts` revisa que cada skill sea válida.
 
-Las tres de Mashogar son los prompts de Andrés (`references/prompt.md`), con cambios solo donde chocaban con las reglas
+Las cuatro de Mashogar (seleccionador, analizador de producto, generador de landings y analizador de ads) son los prompts de Andrés (`references/prompt.md`), con cambios solo donde chocaban con las reglas
 de la casa: los números necesitan fuente real, los testimonios y la prensa tienen que ser reales.
